@@ -1,0 +1,79 @@
+#!/bin/sh
+
+# Exit codes
+NAVIGATE_SELECTED=0
+EXIT_PRINT_SELECTED=20 # kb-custom-11
+NAVIGATE_PARENT=21 # kb-custom-12
+TOGGLE_HIDDEN=22 # kb-custom-13
+OPEN_SELECTED_FILE=23 # kb-custom-14
+EXIT_PRINT_CURRENT=24 # kb-custom-15
+INCREASE_DEPTH=25 # kb-custom-16
+DECREASE_DEPTH=26 # kb-custom-17
+
+# Defaults
+show_hidden=0
+multi_select=0
+maxdepth=3
+filter="."
+exclude="/\$^"
+search_paths=""
+title=""
+prompt="Files:"
+cwd=""
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -H|--hidden)
+            show_hidden=1
+            shift
+            ;;
+        -m|--multi-select)
+            multi_select=1
+            shift
+            ;;
+        -w|--working-dir)
+            cd "$2"
+            [ "$?" -ne 0 ] && echo "Invalid working dir specified." && exit 1
+            shift 2
+            ;;
+        -d|--max-depth)
+            maxdepth="$2"
+            shift 2
+            ;;
+        -f|--filter)
+            filter="$2"
+            shift 2
+            ;;
+        -E|--exclude)
+            exclude="$2"
+            shift 2
+            ;;
+        -t|--title)
+            title="$2"
+            shift 2
+            ;;
+        -p|--prompt)
+            prompt="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            if [ -z "$search_paths" ]; then
+                search_paths="$1"
+            else
+                echo "Too many positional arguments." >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+[ -z "$cwd" ] && cwd="$(pwd)"
+
+search_paths="${search_paths:-"."}"
+search_paths="$(printf "%s" "$search_paths" | sed "s/\/$//")"

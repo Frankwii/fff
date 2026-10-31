@@ -1,0 +1,219 @@
+#!/bin/dash
+# rofi-ff: Use rofi to find files
+
+# Exit codes
+NAVIGATE_SELECTED=0
+EXIT_PRINT_SELECTED=20 # kb-custom-11
+NAVIGATE_PARENT=21 # kb-custom-12
+TOGGLE_HIDDEN=22 # kb-custom-13
+OPEN_SELECTED_FILE=23 # kb-custom-14
+EXIT_PRINT_CURRENT=24 # kb-custom-15
+INCREASE_DEPTH=25 # kb-custom-16
+DECREASE_DEPTH=26 # kb-custom-17
+
+# Defaults
+show_hidden=0
+multi_select=0
+maxdepth=3
+filter="."
+exclude="/\$^"
+search_paths=""
+title=""
+prompt="Files:"
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -H|--hidden)
+            show_hidden=1
+            shift
+            ;;
+        -m|--multi-select)
+            multi_select=1
+            shift
+            ;;
+        -d|--max-depth)
+            maxdepth="$2"
+            shift 2
+            ;;
+        -f|--filter)
+            filter="$2"
+            shift 2
+            ;;
+        -E|--exclude)
+            exclude="$2"
+            shift 2
+            ;;
+        -t|--title)
+            title="$2"
+            shift 2
+            ;;
+        -p|--prompt)
+            prompt="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            if [ -z "$search_paths" ]; then
+                search_paths="$1"
+            else
+                echo "Too many positional arguments." >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+search_paths="${search_paths:-"."}"
+search_paths="$(printf "%s" "$search_paths" | sed "s/\/$//")"
+
+search_paths_abs="$(abspath $search_paths)"
+
+cwd=$(pwd)
+
+[ -f "$cwd" ] && echo "$cwd" && exit 0
+
+other_paths=$(printf "%s" "$search_paths_abs" | head --lines=-1)
+
+if [ -z "$title" ]; then
+  formatted_title="<i>CWD:</i> $cwd"
+else
+  formatted_title="$(printf "<b><u>%s</u></b>\n<i>CWD: </i>%s" "$title" "$cwd")"
+fi
+
+if [ -z "$other_paths" ]; then
+  formatted_msg="$formatted_title"
+else
+  formatted_msg="$(printf "%s\nAlso searching in:\n%s" "$formatted_title" "$other_paths")"
+fi
+
+# Query paths with fd
+query_paths() {
+  set -f
+
+  old_IFS="$IFS"
+  IFS='
+'
+  set -- $search_paths
+  IFS="$old_IFS"
+  set +f
+
+  # If there's only one directory to look at, list path relative
+  if [ "$#" -eq 1 ]; then
+    mode_flag="--strip-cwd-prefix"
+    set --
+  else
+    mode_flag="-a"
+  fi
+
+  set -- "$mode_flag" -c never -d "$maxdepth" "$filter" -E "$exclude" "$@"
+  if [ "$show_hidden" -eq 1 ]; then
+    set -- -H "$@"
+  fi
+
+  fd "$@" 2>/dev/null
+}
+
+rofi_choices="$(query_paths)"
+
+if [ -d "$search_paths" ]; then
+    search_paths="$search_paths_abs"
+fi
+
+if [ -z "$rofi_choices" ]; then
+    printf "%b%s" "No choices! Queried paths:\n" "$search_paths" >&2
+    exit 1
+fi
+
+# Display dmenu
+if [ "$multi_select" -eq 0 ]; then
+    selected_paths="$(printf "..\n%s" "$rofi_choices" | rofi -dmenu -i -p "$prompt" -mesg "$formatted_msg")"
+else
+    selected_paths="$(printf "..\n%s" "$rofi_choices" | rofi -dmenu -multi-select -i -p "$prompt" -mesg "$formatted_msg")"
+fi
+rofi_exit="$?"
+
+first_selected_path="$(printf "%s" "$selected_paths" | head --lines=1)"
+if [ -z "$other_paths" ]; then
+  first_selected_path_abs="$cwd/$first_selected_path"
+else
+  first_selected_path_abs="$first_selected_path"
+fi
+
+# Intercept ".." selection from dmenu
+if [ "$selected_paths" = ".." ]; then
+  case "$rofi_exit" in
+    "$NAVIGATE_SELECTED")
+      first_selected_path_abs="$(abspath "$(dirname "$search_paths_abs")")"
+      rofi_exit="$NAVIGATE_PARENT"
+      ;;
+    "$EXIT_PRINT_SELECTED"|"$OPEN_SELECTED_FILE")
+      first_selected_path_abs="$(abspath "$(dirname "$search_paths_abs")")"
+      ;;
+  esac
+fi
+
+# Wrapper to pass arguments cleanly
+call_self() {
+    new_paths="$@"
+
+    set -- "$new_paths" -d "$maxdepth" -f "$filter" -E "$exclude" -t "$title" -p "$prompt"
+
+    if [ "$show_hidden" -eq 1 ]; then
+        set -- "$@" -H
+    fi
+
+    if [ "$multi_select" -eq 1 ]; then
+      set -- "$@" -m
+    fi
+
+    exec "$0" "$@"
+}
+
+# TODO: There's an error somewhere when running from dotfile directory
+case "$rofi_exit" in
+    "$NAVIGATE_SELECTED") # kb-accept, kb-accept-alt, kb-accept-custom, etc.; Goto selected
+        [ -f "$first_selected_path_abs" ] && echo "$selected_paths" && exit 0
+        cd "$first_selected_path_abs"
+        call_self "$selected_paths"
+        ;;
+    "$EXIT_PRINT_SELECTED") # Print and exit
+        printf "%s\n" "$selected_paths"
+        # TODO: Should I output absolute paths?
+        exit 0
+        ;;
+    "$NAVIGATE_PARENT") # Goto parent
+        call_self "$first_selected_path_abs"
+        ;;
+    "$TOGGLE_HIDDEN") # Toggle hidden
+        if [ "$show_hidden" -eq 0 ]; then
+            show_hidden=1
+        else
+            show_hidden=0
+        fi
+        call_self "$search_paths"
+        ;;
+    "$OPEN_SELECTED_FILE") # Open file
+        xdg-open "$selected_paths"&
+        call_self "$search_paths"
+        ;;
+    "$EXIT_PRINT_CURRENT") # Print current and exit
+        printf "%s\n" "$search_paths"
+        exit 0
+        ;;
+    "$INCREASE_DEPTH")
+        maxdepth="$((maxdepth+1))"
+        call_self "$search_paths"
+        ;;
+    "$DECREASE_DEPTH")
+        [ "$maxdepth" -gt 1 ] && maxdepth="$((maxdepth-1))"
+        call_self "$search_paths"
+        ;;
+    *)
+        echo "Unhandled exit code: $rofi_exit" >&2
+        exit 1
+        ;;
+esac

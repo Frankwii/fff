@@ -1,0 +1,69 @@
+#!/bin/dash
+# rofi-gf: Use rofi to grep into files.
+
+# Defaults
+show_hidden=0
+maxdepth=3
+filter="."
+exclude="/\$^"
+grep_filter=""
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -H|--hidden)
+            show_hidden=1
+            shift
+            ;;
+        -d|--max-depth)
+            maxdepth="$2"
+            shift 2
+            ;;
+        -f|--filter)
+            filter="$2"
+            shift 2
+            ;;
+        -E|--exclude)
+            exclude="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            if [ -z "$grep_filter" ]; then
+                grep_filter="$1"
+            elif [ -z "$target_paths" ]; then
+                target_path="$1"
+            else
+                echo "Too many positional arguments." >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$grep_filter" ]; then
+  grep_filter="$(readinput "What do you want to grep?")"
+
+  [ -z "$grep_filter" ] && exit 1
+fi
+
+if [ -z "$target_path" ]; then
+if [ "$show_hidden" = 1 ]; then
+  target_path="$(rofi-ff -H -p "Where do you want to grep?" -E "$exclude" -d "$maxdepth" "$(pwd)" -t "Grepping for \""$grep_filter"\"")"
+else
+  target_path="$(rofi-ff -p "Where do you want to grep?" -E "$exclude" -d "$maxdepth" "$(pwd)" -t "Grepping for \""$grep_filter"\"")"
+fi
+fi
+[ -z "$target_path" ] && exit 1
+
+if [ "$show_hidden" = 1 ]; then
+  files="$(printf "%s" "$target_path" | xargs -I _ fd -Ha "$filter" "_" -E "$exclude" 2>/dev/null)"
+else
+  files="$(printf "%s" "$target_path" | xargs -I _ fd -a "$filter" "_" -E "$exclude" 2>/dev/null)"
+fi
+
+printf "%s" "$files" | xargs rga --max-count=1 --ignore-case --no-messages "$grep_filter"
