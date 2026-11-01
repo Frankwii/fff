@@ -279,11 +279,13 @@ fn pinned_roots(app: &App) -> Vec<Span<'static>> {
     };
     let mut spans = vec![styled(label, theme.muted)];
     for root in &app.roots {
-        let span = styled(format!("  {}", root_name(root)), theme.text);
+        // The gap is separate so only the current root's name is underlined.
+        let name = styled(root_name(root), theme.text);
+        spans.push(Span::raw("  "));
         spans.push(if root == &app.cwd {
-            span.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            name.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            span
+            name
         });
     }
     spans
@@ -300,21 +302,22 @@ fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     if total <= width {
         return spans;
     }
-    // spans[0] is the label; each root is one span.
-    let roots = spans.len() - 1;
+    // spans[0] is the label; each root is a (gap, name) pair.
+    let roots = (spans.len() - 1) / 2;
     let mut kept = vec![spans[0].clone()];
     let mut used = spans[0].width();
-    for (shown, root) in spans[1..].iter().enumerate() {
+    for (shown, pair) in spans[1..].chunks(2).enumerate() {
         let more = format!("  +{} (F1)", roots - shown);
-        if used + root.width() + format!("  +{} (F1)", roots - shown - 1).width() > width {
+        let pair_width = pair.iter().map(|s| s.width()).sum::<usize>();
+        if used + pair_width + format!("  +{} (F1)", roots - shown - 1).width() > width {
             kept.push(Span::styled(
                 elide(&more, width.saturating_sub(used)),
                 spans[0].style,
             ));
             break;
         }
-        kept.push(root.clone());
-        used += root.width();
+        kept.extend(pair.iter().cloned());
+        used += pair_width;
     }
     kept
 }
@@ -1808,6 +1811,18 @@ mod tests {
             "{line}"
         );
         assert!(screen.lines().nth(4).unwrap().contains("Files ·"));
+        // Only the current root's name is underlined, not the gap before it.
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        let mut focus = Focus::Results;
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let underlined: String = (0..buffer.area.width)
+            .filter(|&x| buffer[(x, 3)].modifier.contains(Modifier::UNDERLINED))
+            .map(|x| buffer[(x, 3)].symbol())
+            .collect();
+        assert_eq!(underlined, "notes");
         // Away from every root, the pinned list moves to a second line.
         app.navigate(
             "/work/notes/a-rather-long-topic-directory-name/chapter".into(),
