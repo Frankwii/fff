@@ -46,9 +46,9 @@ pub enum ListAction {
     Hidden,
     /// Same as Alt+g in the results: the go-to prompt.
     GoTo,
-    /// Same as Alt+↑ in the results: the previous tab.
+    /// Same as Alt+↓ in the results: the previous tab.
     PrevTab,
-    /// Same as Alt+↓ in the results: the next tab.
+    /// Same as Alt+↑ in the results: the next tab.
     NextTab,
 }
 impl ListAction {
@@ -105,8 +105,8 @@ impl ListAction {
             Self::Mark => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
             Self::Shallower => return Some(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)),
             Self::Deeper => return Some(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)),
-            Self::PrevTab => return Some(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)),
-            Self::NextTab => return Some(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)),
+            Self::PrevTab => return Some(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)),
+            Self::NextTab => return Some(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)),
             Self::Bookmarks => 'b',
             Self::Hidden => '.',
             Self::GoTo => 'g',
@@ -313,8 +313,8 @@ impl Default for NormalKeysConfig {
             bookmarks: one("b"),
             hidden: one("."),
             go_to: one("/"),
-            prev_tab: one("<up>"),
-            next_tab: one("<down>"),
+            prev_tab: one("<down>"),
+            next_tab: one("<up>"),
             depth_digits: true,
         }
     }
@@ -477,14 +477,14 @@ mod tests {
         assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
         assert_eq!(k.describe(ListAction::Deeper), "→");
         assert_eq!(
-            k.feed(arrow(KeyCode::Down), all),
+            k.feed(arrow(KeyCode::Up), all),
             Step::Action(ListAction::NextTab)
         );
         assert_eq!(
-            k.feed(arrow(KeyCode::Up), all),
+            k.feed(arrow(KeyCode::Down), all),
             Step::Action(ListAction::PrevTab)
         );
-        assert_eq!(ListAction::NextTab.alt_key(), alt(KeyCode::Down));
+        assert_eq!(ListAction::NextTab.alt_key(), alt(KeyCode::Up));
         assert!(k.depth_digits);
         let alt_left = KeyEvent::new(KeyCode::Left, KeyModifiers::ALT);
         assert_eq!(k.feed(alt_left, all), Step::Pass);

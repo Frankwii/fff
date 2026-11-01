@@ -1316,7 +1316,8 @@ fn session(
                 }
                 // Tabs keep their own directory and history; marks are shared.
                 (K::Up | K::Down, false, true) => {
-                    if app.can_navigate() && app.switch_tab(key.code == K::Down) {
+                    // Up counts up to the next tab.
+                    if app.can_navigate() && app.switch_tab(key.code == K::Up) {
                         discovery.start(app, true);
                     }
                 }

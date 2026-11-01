@@ -83,10 +83,10 @@ Missing marks block confirmation until unmarked.
 
 ### Tabs
 
-Every session has three tabs, like nnn's contexts, numbered at the right end of
-the location line. All start in the session's first directory. Alt+Down /
-Alt+Up (or Down / Up in Normal mode) switch to the next / previous tab,
-wrapping around; each tab keeps its own directory and Ctrl+o / Ctrl+i history,
+Every session has three tabs, like nnn's contexts, numbered in the top-right
+corner of the results, the active one in the `@` badge's colors. All start in
+the session's first directory. Alt+Up / Alt+Down (or Up / Down in Normal mode)
+switch to the next / previous tab, wrapping around; each tab keeps its own directory and Ctrl+o / Ctrl+i history,
 while marks, the query, depth, hidden entries, exclusions and filters are
 shared. Mark files in one tab, switch, browse somewhere far away, then move
 or copy them there with `v` / `p`. Switching to a tab in another directory lists
@@ -145,7 +145,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+l | Enter highlighted directory only |
 | Alt+g / `/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
-| Alt+Down / Alt+Up | Next / previous [tab](#tabs) (Down / Up in Normal-mode results) |
+| Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
 | Alt+b / b in Normal | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |

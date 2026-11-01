@@ -438,8 +438,8 @@ deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
 hidden = "."         # Show/hide hidden entries, like Alt+. (results)
 go_to = "/"          # Go-to prompt, like Alt+g (results)
-prev_tab = "<up>"     # Previous tab, like Alt+Up (results)
-next_tab = "<down>"   # Next tab, like Alt+Down (results)
+next_tab = "<up>"     # Next tab, like Alt+Up (results)
+prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 

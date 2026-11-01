@@ -656,6 +656,35 @@ fn draw(app: &mut App, width: u16, height: u16) -> (String, Vec<PathBuf>) {
     (text(terminal.backend().buffer()), targets)
 }
 #[test]
+fn tab_strip_ends_the_results_title_and_marks_the_active_tab() {
+    let mut app = fixture();
+    let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    let mut focus = Focus::Results;
+    app.tab = 1;
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let screen = text(buffer);
+    let title = screen.lines().find(|l| l.contains("Files ·")).unwrap();
+    assert!(title.contains("─  1  2  3  ╮"), "{screen}");
+    // The location line stays free of tab numbers.
+    assert!(!screen.lines().nth(3).unwrap().contains(" 1  2  3"));
+    let y = screen.lines().position(|l| l.contains("Files ·")).unwrap() as u16;
+    let x = title
+        .find(" 2 ")
+        .map(|i| title[..i].chars().count() as u16)
+        .unwrap();
+    let theme = app.palette;
+    for dx in 0..3 {
+        assert_eq!(buffer[(x + dx, y)].bg, theme.current_directory);
+    }
+    assert_ne!(buffer[(x - 3, y)].bg, theme.current_directory);
+    app.no_dir = true;
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(!screen.contains(" 1  2  3 "), "{screen}");
+}
+#[test]
 fn location_line_sits_between_filter_and_results_with_status_on_border() {
     let mut app = fixture();
     let (screen, _) = draw(&mut app, 120, 26);
@@ -668,16 +697,7 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
         "{screen}"
     );
     assert!(!lines[2].contains("hidden"));
-    // The tab numbers end the line; the first tab is active.
-    assert!(lines[3].starts_with("  @  /home/frank/notes "), "{screen}");
-    assert!(lines[3].trim_end().ends_with(" 1  2  3"), "{screen}");
-    app.no_dir = true;
-    let (screen, _) = draw(&mut app, 120, 26);
-    assert!(
-        !screen.lines().nth(3).unwrap().contains(" 1  2  3"),
-        "{screen}"
-    );
-    app.no_dir = false;
+    assert_eq!(lines[3].trim_end(), "  @  /home/frank/notes");
     assert!(lines[4].contains("Files ·"));
     assert!(!screen.contains("pinned"));
     app.scanning = true;
@@ -723,7 +743,7 @@ fn pinned_roots_are_compact_and_separate_from_the_current_directory() {
     assert!(line.starts_with("  @  /work/notes "), "{line}");
     assert!(
         line.trim_end()
-            .ends_with("\u{f435} pinned  notes  papers  library  1  2  3"),
+            .ends_with("\u{f435} pinned  notes  papers  library"),
         "{line}"
     );
     assert!(screen.lines().nth(4).unwrap().contains("Files ·"));
@@ -747,10 +767,7 @@ fn pinned_roots_are_compact_and_separate_from_the_current_directory() {
     let (screen, targets) = draw(&mut app, 50, 14);
     let lines: Vec<_> = screen.lines().collect();
     assert!(lines[3].contains("@ "), "{screen}");
-    assert!(
-        lines[3].trim_end().ends_with("chapter   1  2  3"),
-        "{screen}"
-    );
+    assert!(lines[3].trim_end().ends_with("chapter"), "{screen}");
     assert!(
         lines[4].starts_with("     \u{f435} pinned  notes  papers"),
         "{screen}"

@@ -18,7 +18,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | Normal-mode list dispatch, text-field editing and paste, status timing, numbered keys. |
 | `src/ui/actions.rs` | Scope choice, file operations, running programs and their messages, bookmark/palette saves. |
-| `src/view/mod.rs` | Ratatui frame layout: query, location line, results, marks, footer, display paths. |
+| `src/view/mod.rs` | Ratatui frame layout: query, location line, results and tab strip, marks, footer, display paths. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |

@@ -79,7 +79,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+b".into(), "open a bookmark", true),
                 (
                     "Alt+↑  Alt+↓".into(),
-                    "previous / next of 3 tabs; marks shared",
+                    "next / previous of 3 tabs; marks shared",
                     true,
                 ),
             ],
@@ -169,8 +169,8 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 (normal(GoTo), "go to a path, bookmark or zoxide", true),
                 (normal(Bookmarks), "open a bookmark", true),
                 (
-                    normal(PrevTab) + "  " + &normal(NextTab),
-                    "previous / next tab",
+                    normal(NextTab) + "  " + &normal(PrevTab),
+                    "next / previous tab",
                     true,
                 ),
                 (normal(Quit), "exit, return launch directory", true),

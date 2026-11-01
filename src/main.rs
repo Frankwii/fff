@@ -57,7 +57,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> return marks
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
   results take <cyan>←/→</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>/</cyan> location, <cyan>b</cyan> bookmarks,
-  <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) previous / next of three tabs that share marks,
+  <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.

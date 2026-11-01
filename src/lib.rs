@@ -415,7 +415,7 @@ impl App {
             return true;
         }
     }
-    /// Alt+Down / Alt+Up: make the next or previous tab active, wrapping
+    /// Alt+Up / Alt+Down: make the next or previous tab active, wrapping
     /// around. Its directory is listed again (a vanished one falls back to its
     /// nearest existing ancestor). Returns whether the directory changed.
     pub fn switch_tab(&mut self, next: bool) -> bool {

@@ -259,43 +259,35 @@ fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
     Span::styled(format!(" {} ", text.into()), Style::default().fg(fg).bg(bg))
 }
 
-/// The integrated "@" prompt line names the single current directory. Explicit
-/// startup roots stay separate as compact pinned names, beside the path when both
-/// fit and on a second line otherwise. The tab numbers end the first line.
-fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
-    let tabs = tab_spans(app);
-    let tabs_width = tabs.iter().map(|s| s.width()).sum::<usize>();
-    let mut lines = path_lines(app, width.saturating_sub(tabs_width + 1), width);
-    if !tabs.is_empty() {
-        let first = &mut lines[0].spans;
-        let used = first.iter().map(|s| s.width()).sum::<usize>();
-        first.push(Span::raw(
-            " ".repeat(width.saturating_sub(used + tabs_width)),
-        ));
-        first.extend(tabs);
-    }
-    lines
-}
-/// ` 1  2  3 `, the active tab as a pill; none with `--no-dir`, which cannot
-/// change directory.
-fn tab_spans(app: &App) -> Vec<Span<'static>> {
+/// `1 2 3` in the results' top-right corner. The active tab wears the "@"
+/// badge's colors: it is the tab showing the current directory. None with
+/// `--no-dir`, which cannot change directory.
+fn tab_strip(app: &App) -> Line<'static> {
     let theme = app.palette;
     if app.no_dir {
-        return Vec::new();
+        return Line::default();
     }
-    (0..crate::TABS)
-        .map(|i| {
-            let label = (i + 1).to_string();
-            if i == app.tab {
-                pill(label, theme.background, theme.accent).add_modifier(Modifier::BOLD)
-            } else {
-                styled(format!(" {label} "), theme.muted)
-            }
-        })
-        .collect()
+    let active = Style::default()
+        .fg(theme.current_directory_text)
+        .bg(theme.current_directory)
+        .add_modifier(Modifier::BOLD);
+    let mut spans = vec![Span::raw(" ")];
+    for i in 0..crate::TABS {
+        let label = format!(" {} ", i + 1);
+        spans.push(if i == app.tab {
+            Span::styled(label, active)
+        } else {
+            styled(label, theme.muted)
+        });
+    }
+    spans.push(Span::raw(" "));
+    Line::from(spans).right_aligned()
 }
-/// `width` is the first line's room; a second pinned line gets all of `full`.
-fn path_lines(app: &App, width: usize, full: usize) -> Vec<Line<'static>> {
+
+/// The integrated "@" prompt line names the single current directory. Explicit
+/// startup roots stay separate as compact pinned names, beside the path when both
+/// fit and on a second line otherwise.
+fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     let theme = app.palette;
     let badge = Style::default()
         .fg(theme.current_directory_text)
@@ -337,7 +329,7 @@ fn path_lines(app: &App, width: usize, full: usize) -> Vec<Line<'static>> {
     }
     // Leading spaces align the pinned list with the path rather than "@".
     let mut second = vec![Span::raw("    ")];
-    second.extend(fit_spans(pinned, full.saturating_sub(4)));
+    second.extend(fit_spans(pinned, width.saturating_sub(4)));
     vec![Line::from(first), Line::from(second)]
 }
 
@@ -624,7 +616,9 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
         format!(" {}–{} of {} ", app.offset + 1, last, app.rows.len())
     };
     frame.render_widget(
-        block.title_bottom(Line::from(styled(range, theme.muted)).right_aligned()),
+        block
+            .title_top(tab_strip(app))
+            .title_bottom(Line::from(styled(range, theme.muted)).right_aligned()),
         area,
     );
     if visible.is_empty() {

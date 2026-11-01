@@ -122,7 +122,7 @@ Digits are query text in Insert/basic mode. In Normal-mode results 1–9 set the
 search depth (`depth_digits` in `[keys.normal]`); elsewhere in Normal mode they
 are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results
-(Alt+Up/Alt+Down switch tabs in every mode); they move choosers' highlights (in
+(Alt+Up/Alt+Down: next/previous tab, in every mode); they move choosers' highlights (in
 the bookmark chooser they reorder bookmarks); in exclusions, filters and during
 command-line editing they go to Neovim.
 

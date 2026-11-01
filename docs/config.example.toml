@@ -85,8 +85,8 @@ deeper = "<right>"
 bookmarks = "b"  # Alt+b (bookmark chooser),
 hidden = "."     # Alt+. (hidden entries),
 go_to = "/"      # Alt+g (go-to prompt),
-prev_tab = "<up>"   # and Alt+Up / Alt+Down (previous / next tab).
-next_tab = "<down>"
+next_tab = "<up>"   # and Alt+Up / Alt+Down (next / previous tab).
+prev_tab = "<down>"
 depth_digits = true # Results only: 1-9 set the search depth.
 
 # Remap any chord to a default chord, like --map-key (which wins on conflict).
