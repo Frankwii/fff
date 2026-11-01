@@ -1,18 +1,10 @@
 # Text editing
 
-Fuzzy file finder uses a clean embedded Neovim by default. `nvim` must be on PATH; when no
-backend is explicitly chosen and it cannot start, fff quietly falls back to
-basic typing/Backspace. `--editor basic` / `--editor nvim` overrides TOML:
-
-```toml
-[editor]
-backend = "basic"
-```
-
-An explicitly requested Neovim that cannot start reports the fallback in the
-status line. An engine failure after startup also reports the problem and
-preserves the last synchronized text in basic mode. Restart to change backends;
-palette reload applies only to colors.
+Every text field is a clean embedded Neovim (no user configuration or
+plugins); `nvim` must be on PATH. When it cannot start, fff exits with an error
+naming the problem, and if it fails during a session, the session ends with that
+error. `[editor] backend = "nvim"` is still accepted in configuration files; it
+is the only engine.
 
 ## Fields and modes
 
@@ -25,7 +17,7 @@ Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
 and Select modes. Pending motions/operators and command-line input are cancelled;
 visual selections restart in the new query buffer. Returning to an existing
-nonempty field preserves its editing state and cursor. The basic backend has no modes.
+nonempty field preserves its editing state and cursor.
 
 In query, new-name and extraction-destination buffers, Normal-mode `o` and `O`
 enter Insert mode at the cursor without adding a line. In name/destination
@@ -72,7 +64,7 @@ For example, type `ihello world`, press Escape, then `0dw`: the query becomes
 In Normal mode, `q` exits and returns the invocation directory; `!` exits and
 returns the current browsing directory. Both ignore marks and use the normal
 path output format (`--relative` and `--null` apply). With `--no-dir`, they exit
-successfully without output. They also work in the marked list. Insert/basic
+successfully without output. They also work in the marked list. Insert-mode
 fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]`.
 
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,
@@ -103,9 +95,7 @@ are not buffer-lifecycle editors: Enter applies and Escape in Normal mode
 cancels, like the location prompt. Validation errors keep them open. Escape from Insert/Visual mode
 and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
 and `ZQ`/`:q!` also apply or cancel. In bookmark forms, Tab/Shift+Tab or
-Up/Down switch fields and Space on the icon row opens the icon chooser. Multiline basic editing
-uses Ctrl+s to apply and Escape to discard;
-`ZZ` is literal text. Rebind list marking with `[keys.normal] mark`; the legacy
+Up/Down switch fields and Space on the icon row opens the icon chooser. Rebind list marking with `[keys.normal] mark`; the legacy
 `apply` setting is accepted but ignored.
 
 Enter in results navigates or confirms; in locations/bookmarks it navigates; in
@@ -116,9 +106,9 @@ Escape from Insert, Visual, pending input or command entry returns toward Normal
 Escape when already Normal clears the main query, closes subordinate choosers
 or cancels the bookmark form; exclusion and operation buffers keep Escape inside
 Neovim.
-It never exits the session. With basic editing it clears/closes immediately.
+It never exits the session.
 
-Digits are query text in Insert/basic mode. In Normal-mode results 1–9 set the
+Digits are query text in Insert mode. In Normal-mode results 1–9 set the
 search depth (`depth_digits` in `[keys.normal]`); elsewhere in Normal mode they
 are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results

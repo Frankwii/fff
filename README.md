@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.4.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.6.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -54,13 +54,11 @@ there, if any. Arguments pass through unchanged, so `fff --output-paths` keeps
 printing paths. Without the function, the default mode prints the chosen
 directory instead, so `cd "$(command fff)"` also works.
 
-The default editor is a clean embedded Neovim. Fields start in **Normal mode**,
+Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
 except prompts made for typing (new names, the go-to prompt, the gx/gX command)
 and the query of a `--no-dir` session, which start in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
-preserves your current editing mode. Neovim is optional;
-`--editor basic` selects direct typing/Backspace, and missing Neovim causes a quiet
-fallback unless explicitly requested. See [editing](docs/EDITING.md).
+preserves your current editing mode. See [editing](docs/EDITING.md).
 
 ## Browsing and returning paths
 
@@ -75,10 +73,27 @@ depth. Default depth is **2**; immediate children are depth 1. Shallower matches
 always come first, followed within each depth by directories and fuzzy ranking.
 Matching is a case-insensitive ordered subsequence of the basename.
 
-Enter opens directories. On a file, it returns marked paths in insertion order
-plus that file once. Tab toggles a mark; marks survive navigation and filtering.
-Ctrl+w returns marks only. Enter in a verified physically empty directory returns
-marks plus that directory; a no-match query in a nonempty directory stays open.
+Enter depends on the editing mode:
+
+- **Normal mode:** Enter exits *into the folder* of the highlighted entry: a
+  directory itself, or the folder a file is in, also for deep results
+  (`notes/more/a.pdf` exits into `notes/more`); with nothing listed, the browsing
+  directory. In the default mode the shell changes there; with `--output-paths`
+  the folder is printed. Marks are ignored. In the marked list Enter does the
+  same for the highlighted mark.
+- **While typing (Insert mode):** Enter opens a directory. On a file, with
+  `--output-paths` it returns the marked paths in insertion order plus that file
+  once; in the default mode it *reveals* the file: fff moves to its folder,
+  clears the query and highlights it.
+
+To move around, use `l` (or Alt+l, or Alt+number for a labelled row): it enters
+a directory, and **opens a file** with its [opener](docs/OPERATIONS.md#opening-files)
+in the background while fff keeps the keyboard. `o` opens the current or marked
+files in this terminal instead, and fff comes back when the program ends.
+
+Tab toggles a mark; marks survive navigation and filtering. Ctrl+w returns marks
+only. Insert-mode Enter in a verified physically empty directory returns marks
+plus that directory; a no-match query in a nonempty directory stays open.
 Missing marks block confirmation until unmarked.
 
 ### Tabs
@@ -95,10 +110,11 @@ nearest existing parent. F1's session details list every tab's directory; tabs
 are unavailable with `--no-dir`.
 
 Ctrl+number immediately returns one visible target, ignoring marks. Alt+number
-activates the same target like Enter. Labels refer to the last fully rendered
-page: 1–9 select that position, out-of-range digits clamp to the last row, and 0
-selects the last row. With no visible results, Ctrl+number returns the current
-directory; Alt+number follows Enter's empty-state rules.
+acts like `l` on the same target: it enters a directory or opens a file in the
+background. Labels refer to the last fully rendered page: 1–9 select that
+position, out-of-range digits clamp to the last row, and 0 selects the last row.
+With no visible results, Ctrl+number returns the current directory and
+Alt+number does nothing.
 
 `--no-dir` provides static file selection: it hides directories, disables location
 changes, and never returns the current directory as an empty-results fallback.
@@ -134,15 +150,17 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 
 | Key | Action |
 | --- | --- |
-| i / a, then type | Edit a Neovim field; basic editing accepts text directly |
+| i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Enter | Enter a directory or confirm files/marks |
+| Enter in Normal | Exit into the highlighted entry's folder (printed with `--output-paths`) |
+| Enter while typing | Enter a directory; on a file, return marks + file (`--output-paths`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
 | gg / G | First / last row in Normal-mode lists |
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
-| Alt+l | Enter highlighted directory only |
+| Alt+l / l in Normal | Enter the highlighted directory, or open the highlighted file in the background |
+| o in Normal | Open the current or marked files with their openers in this terminal, then come back |
 | Alt+g / `/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
 | Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
@@ -156,7 +174,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Ctrl+w | Return marks from results or the marked list |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
-| Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
+| Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |
 | Alt+H | Toggle exclusion enforcement |
@@ -177,12 +195,12 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 `q` and `!` exit with status 0. With `--output-paths` they print the launch or
 current directory in the usual output format; in the default mode `!` changes
 to the current directory and `q` changes nothing. `--no-dir` makes either exit
-successfully without output. Insert/basic editing keeps these characters as
+successfully without output. Insert mode keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
-Insert/basic mode; in Normal-mode results 1–9 set the search depth
+Insert mode; in Normal-mode results 1–9 set the search depth
 (`depth_digits = false` in `[keys.normal]` makes them Vim counts again). Chords are case-sensitive.
 Ctrl+digits require distinct terminal reporting; fff requests the Kitty
 keyboard protocol and never guesses ambiguous input. Alt+digits also support

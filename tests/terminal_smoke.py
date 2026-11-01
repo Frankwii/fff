@@ -24,11 +24,9 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 
 
 class Session:
-    # Tests pin basic editing unless they choose --editor or opt out with editor=None
-    # (which exercises the configured/default backend).
-    # Tests also pin --output-paths (the picker mode) unless they pass
-    # output_paths=False to exercise the default directory-changing mode.
-    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, editor="basic", output_paths=True):
+    # Every text field is an embedded Neovim (fff requires it). Tests pin
+    # --output-paths (the picker mode) unless they pass output_paths=False to exercise the default directory-changing mode.
+    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True):
         master, slave = pty.openpty()
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
@@ -53,11 +51,12 @@ class Session:
             # Remembered locations live beside the test directory, never in
             # the tester's own state.
             os.environ["XDG_STATE_HOME"] = str(root) + "-state"
+            # A stray l on a file must not open the tester's editor in a new
+            # terminal window; tests that open files name their own programs.
+            os.environ["EDITOR"] = "fff-test-no-editor"
             if environment: os.environ.update(environment)
             if "--config" not in args and "--no-config" not in args and not environment:
                 args=(*args,"--no-config")
-            if editor and "--editor" not in args:
-                args=(*args,"--editor",editor)
             if output_paths:
                 args=(*args,"--output-paths")
             os.execv(BINARY, [BINARY, *([] if implicit_root else [str(root)]), *args])
@@ -66,6 +65,8 @@ class Session:
         self.ui = b""
         self.screen = Screen(*size)
         self.status = None
+        if not ready:
+            return
         self.wait_ui("● complete" if size[0] >= 12 and size[1] >= 36 else " complete")
 
     def wait_ui(self, token, after=None):
@@ -189,7 +190,7 @@ class TerminalTests(unittest.TestCase):
     def test_normal_quit_returns_launch_directory_and_ignores_marks(self):
         (self.root / "child").mkdir()
         (self.root / "child" / "file").touch()
-        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s = self.start("--depth", "1", implicit_root=True)
         s.send(b"\t", "Marks (1)")
         s.send(b"l", ("cwd", self.root / "child"))
         s.send(b"q")
@@ -199,7 +200,7 @@ class TerminalTests(unittest.TestCase):
     def test_normal_quit_current_uses_relative_nul_and_insert_keeps_text(self):
         (self.root / "child").mkdir()
         (self.root / "child" / "file").touch()
-        s = self.start("--editor", "nvim", "--relative", "--null", "--depth", "1", implicit_root=True)
+        s = self.start("--relative", "--null", "--depth", "1", implicit_root=True)
         s.send(b"iq!", "❯ q!")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯ type to filter")
@@ -212,7 +213,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()
         (self.root / ".secret").touch()
-        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s = self.start("--depth", "1", implicit_root=True)
         s.send(b"2", "deep.txt")
         s.send(b"1")
         s.wait_absent("deep.txt")
@@ -231,14 +232,14 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_quit_from_pinned_root_uses_invocation_not_root(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "nvim")
+        s = self.start()
         s.send(b"q")
         self.assertEqual(s.finish(), (0, os.fsencode(Path.cwd().resolve()) + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_no_dir_starts_in_insert_and_quit_returns_no_directory(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "nvim", "--no-dir")
+        s = self.start("--no-dir")
         # A file choice starts ready to type: "!" is query text here.
         s.send(b"", "Query · INSERT")
         s.send(b"!", "❯ !")
@@ -258,7 +259,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bb", "Bookmarks")
         s.send(b"\x1b2", ("cwd", self.root / names[1]))
         s.send(b"\x1bb", "Bookmarks")
-        s.send(b"place1", "place11")
+        s.send(b"iplace1", "place11")
         s.send(b"\x1b9", ("cwd", self.root / names[11]))
         s.send(b"\x1bb", "Bookmarks")
         s.send(b"\x1b[6~", "place05")
@@ -280,8 +281,9 @@ class TerminalTests(unittest.TestCase):
         (self.root / "2.txt").touch()
         (self.root / "other").touch()
         s = self.start()
-        s.send(b"2", "❯ 2")
-        s.send(b"\x1b", b"other")
+        s.send(b"i2", "❯ 2")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", b"other")  # Normal-mode Escape clears the query
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -293,7 +295,7 @@ class TerminalTests(unittest.TestCase):
     def test_no_matches_numbered_falls_back_to_current_directory(self):
         (self.root / "file").touch()
         s = self.start("--null")
-        s.send(b"zzzz", b"No matching results")
+        s.send(b"izzzz", b"No matching results")
         s.send(b"\x1b[57;5u")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\0"))
 
@@ -306,8 +308,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bH")
         s.wait_absent("exclusions on")
         s.send(b"\x1be", b"one glob per line")
+        s.send(b"o*.tex", "*.tex")
         before_apply = len(s.ui)
-        s.send(b"\r*.tex\x13", "❯")
+        s.send(b"\x1b[27uZZ")
+        s.wait_absent("Edit exclusions")
         self.assertNotIn(b"No matching results", s.ui[before_apply:])
         s.send(b"\x1bH", b"No matching results")
         s.send(b"\x03")
@@ -323,9 +327,9 @@ class TerminalTests(unittest.TestCase):
         self.assertNotIn("c.log", s.screen.text)
         s.send(b"\x1bf", "Edit filters")
         self.assertIn("*.epub", s.screen.text)
-        s.send(b"\r*.log\x13", "c.log")  # Ctrl+s applies
+        s.send(b"o*.log\x1b[27uZZ", "c.log")  # ZZ applies
         s.send(b"\x1bf", "Edit filters")
-        s.send(b"\x7f" * 20 + b"\x13")  # clear every line: no filters left
+        s.send(b"ggdGZZ")  # clear every line: no filters left
         s.wait_absent("filters on")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -339,13 +343,16 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\t", "› ○")
         s.send(b"\x1b", b"Marks (0)")
         s.send(b"\x1bk", "›   1    a")
+        # Enter while typing returns the highlighted file (Normal-mode Enter
+        # would exit into its folder instead).
+        s.send(b"i", "Query · INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a") + b"\n"))
 
     def test_filetype_icons_default_cli_and_config_disable(self):
         (self.root / "docs").mkdir()
         (self.root / "main.rs").touch()
-        s = self.start("--editor", "basic", "--depth", "1")
+        s = self.start("--depth", "1")
         s.wait_ui(" docs/")
         s.wait_ui(" main.rs")
         s.send(b"\t", "●  docs")  # marked rows carry the same icon
@@ -356,7 +363,7 @@ class TerminalTests(unittest.TestCase):
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\nicons=false\n")
             for args in (("--no-icons",), ("--config", str(config))):
-                s = self.start("--editor", "basic", "--depth", "1", *args)
+                s = self.start("--depth", "1", *args)
                 s.wait_ui("▸ docs/")
                 s.wait_ui("· main.rs")
                 self.assertNotIn("", s.screen.text)
@@ -380,7 +387,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start()
         s.send(b"\t", b"Marks (1)")
         marked.unlink()
-        s.send(b"zzzz", b"No matching results")
+        s.send(b"izzzz", b"No matching results")
         s.send(b"\r\x17", b"Missing marked paths")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -401,7 +408,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1bg", b"Go to directory")
             s.send(os.fsencode(other) + b"\r", ("cwd", other))
             self.assertIn(other, s.screen.text)
-            s.send(b"b", "❯ b")
+            s.send(b"b", "❯ b")  # the go-to prompt leaves the query in Insert
             s.send(b"\r")
             expected = os.fsencode(self.root / "a") + b"\n" + os.fsencode(target) + b"\n"
             self.assertEqual(s.finish(), (0, expected))
@@ -414,6 +421,8 @@ class TerminalTests(unittest.TestCase):
         for enter in (b"\r", b"\x1b[13u"):
             with self.subTest(enter=enter):
                 s = self.start("--depth", "1", implicit_root=True)
+                # Typing: Enter enters directories and returns a file.
+                s.send(b"i", "Query · INSERT")
                 s.send(enter, ("cwd", self.root / "alpha"))
                 s.send(enter, ("cwd", nested))
                 s.send(enter)
@@ -427,14 +436,14 @@ class TerminalTests(unittest.TestCase):
         self.root.mkdir()
         (self.root / "leaf-only").touch()
         s = self.start("--depth", "1", implicit_root=True)
-        s.send(b"leaf-only", "❯ leaf-only")
+        s.send(b"ileaf-only", "❯ leaf-only")
         s.send(b"\x1bh", ("cwd", parent))
         s.wait_ui(b"No matching results")
         self.assertIn(str(parent), s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_alt_number_enters_directory_then_confirms_empty_with_marks(self):
+    def test_alt_number_enters_directory_like_l_and_keeps_marks(self):
         (self.root / "a").mkdir()
         directory = self.root / "b"
         directory.mkdir()
@@ -443,27 +452,34 @@ class TerminalTests(unittest.TestCase):
         for alt_two, alt_zero in [(b"\x1b2", b"\x1b0"), (b"\x1b[50;3u", b"\x1b[48;3u")]:
             with self.subTest(alt_two=alt_two):
                 s = self.start("--null", "--depth", "1", implicit_root=True)
-                s.send(b"c.txt", "❯ c.txt")
+                s.send(b"ic.txt", "❯ c.txt")
                 s.send(b"\t", b"Marks (1)")
-                s.send(b"\x1b", b"Files \xc2\xb7 3")
+                s.send(b"\x1b[27u", "NORMAL")
+                s.send(b"\x1b[27u", b"Files \xc2\xb7 3")
                 s.send(alt_two, ("cwd", directory))
                 self.assertIn("Marks (1)", s.screen.text)
+                # Nothing is listed in b: Alt+0 does nothing and fff stays.
                 s.send(alt_zero)
-                self.assertEqual(s.finish(), (0, os.fsencode(marked) + b"\0" + os.fsencode(directory) + b"\0"))
+                s.send(b"\x17")  # Ctrl+w returns the marks
+                self.assertEqual(s.finish(), (0, os.fsencode(marked) + b"\0"))
                 s.close()
                 self.session = None
 
-    def test_alt_file_appends_marks_and_clamps_to_last(self):
+    def test_alt_number_opens_a_file_in_the_background_and_clamps_to_last(self):
         for name in ("a", "b", "c"):
             (self.root / name).touch()
+        env, config, log = self.opener_setup()
         for chord in (b"\x1b0", b"\x1b9"):
             with self.subTest(chord=chord):
                 # Each run starts fresh, without the previous run's cursor.
                 shutil.rmtree(str(self.root) + "-state", ignore_errors=True)
-                s = self.start("--null")
+                log.unlink(missing_ok=True)
+                s = self.start("--null", "--config", str(config), environment=env)
                 s.send(b"\t", b"Marks (1)")
-                s.send(chord)
-                self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a") + b"\0" + os.fsencode(self.root / "c") + b"\0"))
+                s.send(chord, "Opened c with viewer")
+                self.wait_file(log, [str(self.root / "c")])
+                s.send(b"\x17")  # fff kept running; the marks are untouched
+                self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a") + b"\0"))
                 s.close()
                 self.session = None
 
@@ -471,7 +487,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "a").touch()
         s = self.start()
         s.send(b"\t", b"Marks (1)")
-        s.send(b"zzzz", b"No matching results")
+        s.send(b"izzzz", b"No matching results")
         s.send(b"\x1b9", b"No matching results")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -479,10 +495,13 @@ class TerminalTests(unittest.TestCase):
     def test_alt_number_after_paging_uses_visible_labels(self):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
-        s = self.start(size=(16, 160))
+        env, config, log = self.opener_setup()
+        s = self.start("--config", str(config), size=(16, 160), environment=env)
         s.send(b"\x1b[6~", b"file17")
-        s.send(b"\x1b2")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file10") + b"\n"))
+        s.send(b"\x1b2", "Opened file10 with viewer")
+        self.wait_file(log, [str(self.root / "file10")])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
 
     def test_right_hand_marks_focus_and_resize(self):
         (self.root / "file").touch()
@@ -502,15 +521,18 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_alt_l_navigates_directories_but_never_confirms_files_or_empty(self):
+    def test_alt_l_navigates_directories_and_opens_files_without_confirming(self):
         directory = self.root / "folder"
         directory.mkdir()
         target = directory / "file"
         target.touch()
-        s = self.start("--depth", "1", implicit_root=True)
+        env, config, log = self.opener_setup()
+        s = self.start("--depth", "1", "--config", str(config), implicit_root=True, environment=env)
         s.send(b"\x1bl", ("cwd", directory))
         s.send(b"\t", b"Marks (1)")
-        s.send(b"\x1bl", b"Marks (1)")
+        s.send(b"\x1bl", "Opened file with viewer")
+        self.wait_file(log, [str(target)])
+        self.assertIn("Marks (1)", s.screen.text)
         s.send(b"\x17")
         self.assertEqual(s.finish(), (0, os.fsencode(target) + b"\n"))
 
@@ -551,8 +573,9 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--no-dir", "--depth", "2", implicit_root=True)
         s.send(b"", b"nested.txt")
         self.assertNotIn("folder/ ", s.screen.text)
-        # Parent, enter, location and bookmarks all stay put with a notice.
-        for key in (b"\x1bh", b"\x1bl", b"\x1bg", b"\x1bb"):
+        # Parent, location and bookmarks all stay put with a notice. (Every
+        # row is a file, so Alt+l would open it rather than enter anything.)
+        for key in (b"\x1bh", b"\x1bg", b"\x1bb"):
             s.send(key, "disabled with --no-dir")
             self.assertTrue(any(" ".join(l.split()).startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
             self.assertNotIn("Go to directory", s.screen.text)
@@ -573,18 +596,22 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--config", str(config), implicit_root=True)
         s.send(b"\x1bb", "Bookmarks")
         s.send(b"\x1bn", "New bookmark")
-        s.send(b"\x7f" * len(self.root.name) + b"Notes", "Notes")
-        s.send(b"\t\t ", "Bookmark icons")
-        s.send(b"home", "Home house")
+        s.send(b"ccNotes", "Notes")
+        s.send(b"\x1b[27u\t\t", "Space chooses")
+        s.send(b" ", "Bookmark icons")
+        s.send(b"ihome", "Home house")
+        s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\r", "New bookmark")
         s.send(b"\r", "Bookmark saved")
         saved = tomllib.loads(config.read_text())["bookmarks"][0]
         self.assertEqual(saved, dict(name="Notes", path=str(self.root), icon="\uf015"))
         self.assertIn("# Keep my comment", config.read_text())
         s.send(b"\x1be", "Edit bookmark")
-        s.send(b"\x7f" * 5 + b"Renamed", "Renamed")
-        s.send(b"\t\t ", "Bookmark icons")
-        s.send(b"automatic", "Automatic")
+        s.send(b"ccRenamed", "Renamed")
+        s.send(b"\x1b[27u\t\t", "Space chooses")
+        s.send(b" ", "Bookmark icons")
+        s.send(b"iautomatic", "Automatic")
+        s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\r", "Edit bookmark")
         s.send(b"\r")
         s.wait_absent("Edit bookmark")
@@ -594,12 +621,13 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(saved, dict(name="Renamed", path=str(self.root)))
         before = config.read_text()
         s.send(b"\x1be", "Edit bookmark")
-        s.send(b"changed")
-        s.send(b"\x1b")
+        s.send(b"ccchanged", "changed")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u")
         s.wait_absent("Edit bookmark")
         self.assertEqual(config.read_text(), before)
         s.send(b"\x1bd", "Delete bookmark")
-        s.send(b"\x1b")
+        s.send(b"\x1b[27u")
         s.wait_absent("Delete bookmark")
         self.assertEqual(config.read_text(), before)
         s.send(b"\x1bd", "Delete bookmark")
@@ -645,11 +673,12 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--config", str(config), implicit_root=True)
         s.send(b"\x1bb", "Before")
         s.send(b"\x1be", "Edit bookmark")
-        s.send(b"!", "Before!")
+        s.send(b"A!", "Before!")
         config.write_text("[[bookmarks]]\nname='External'\npath='.'\n")
         s.send(b"\r", "changed on disk")
         self.assertIn("External", config.read_text())
-        s.send(b"\x1b")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u")
         s.wait_absent("Edit bookmark")
         s.send(b"\x1br", "Bookmarks reloaded")
         self.assertIn("External", s.screen.text)
@@ -658,7 +687,7 @@ class TerminalTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
     def test_live_bookmark_nvim_form_and_icon_picker(self):
-        s = self.start(implicit_root=True, editor="nvim")
+        s = self.start(implicit_root=True)
         s.send(b"\x1bb", "Bookmarks")
         # Normal-mode filter: plain letters act and the hint says so.
         self.assertIn("n new · e edit · d delete · r reload · ↑↓ reorder", s.screen.text)
@@ -696,7 +725,7 @@ class TerminalTests(unittest.TestCase):
         config = self.root / "config.toml"
         config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
         name = lambda: tomllib.loads(config.read_text())["bookmarks"][0]["name"]
-        s = self.start("--config", str(config), editor="nvim", implicit_root=True)
+        s = self.start("--config", str(config), implicit_root=True)
         s.send(b"\x1bb", "Before")
         # Escape leaves Insert first; a second Escape cancels the form.
         s.send(b"\x1be", "Edit bookmark")
@@ -764,7 +793,7 @@ class TerminalTests(unittest.TestCase):
         wait_order(["blue", "red1", "red2"])
         self.assertIn("# mine", config.read_text())
         # Filtered rows move past their visible neighbour.
-        s.send(b"red", "red2")
+        s.send(b"ired", "red2")
         s.wait_absent("blue")
         s.send(b"\x1b[B")
         wait_order(["blue", "red2", "red1"])
@@ -787,10 +816,12 @@ class TerminalTests(unittest.TestCase):
             s = self.start("--config", str(config), "--null", implicit_root=True)
             s.send(b"\t", b"Marks (1)")
             s.send(b"\x1bb", b"Bookmarks")
-            s.send(b"Missing\r", b"not an accessible directory")
-            s.send(b"\x1b", b"Marks (1)")
+            s.send(b"iMissing\r", b"not an accessible directory")
+            s.send(b"\x1b[27u", "NORMAL")
+            s.send(b"\x1b[27u", b"Marks (1)")
+            s.wait_absent("Bookmarks ·")
             s.send(b"\x1bb", b"Bookmarks")
-            s.send(b"mnt\r", ("cwd", target))
+            s.send(b"imnt\r", ("cwd", target))
             self.assertIn("Marks (1)", s.screen.text)
             s.send(b"\x17")
             self.assertEqual(s.finish(), (0, os.fsencode(marked) + b"\0"))
@@ -819,7 +850,7 @@ class TerminalTests(unittest.TestCase):
             (self.root / name).mkdir()
             (self.root / name / f"{name}.txt").touch()
         (self.root / "notes" / "topic").mkdir()
-        s = Session(self.root / "notes", str(self.root / "papers"), "--editor", "basic", "--depth", "1")
+        s = Session(self.root / "notes", str(self.root / "papers"), "--depth", "1")
         self.session = s
         lines = s.screen.text.splitlines()
         self.assertIn("Query", lines[0])
@@ -828,7 +859,7 @@ class TerminalTests(unittest.TestCase):
         self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} "), s.screen.text)
         self.assertTrue(lines[3].rstrip().endswith("pinned  notes  papers"), s.screen.text)
         self.assertIn("Files ·", lines[4])
-        s.send(b"topic", "❯ topic")
+        s.send(b"itopic", "❯ topic")
         s.send(b"\r", ("cwd", self.root / "notes" / "topic"))
         at = next(l for l in s.screen.text.splitlines() if l.lstrip().startswith("@ "))
         self.assertIn(f"@ {self.root / 'notes' / 'topic'} ", " ".join(at.split()))
@@ -851,6 +882,7 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("old", s.screen.text)  # recent snapshot intentionally stays usable
         s.send(b"\x1b[15~", "● complete")  # F5 forces freshness
         self.assertIn("new", s.screen.text)
+        s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(new) + b"\n"))
 
@@ -885,12 +917,13 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_query_operators_undo_redo_and_exact_stdout(self):
         (self.root / "world.txt").touch()
-        s = self.start("--editor", "nvim")
+        s = self.start()
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0dw", "❯ world")
         s.send(b"u", "❯ hello world")
         s.send(b"\x12", "❯ world")
+        s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
 
@@ -903,7 +936,7 @@ class TerminalTests(unittest.TestCase):
             (target / "note").touch()
             config = Path(folder) / "config.toml"
             config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
-            s = self.start("--config", str(config), implicit_root=True, editor=None)
+            s = self.start("--config", str(config), implicit_root=True)
             # The go-to prompt starts in Insert mode, ready for typing.
             s.send(b"\x1bg", "Go to directory · INSERT")
             s.send(b"junk " + os.fsencode(target), b"junk")
@@ -921,7 +954,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_buffer_closes_keep_query_and_validate_exclusions(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "nvim", "--exclude", "build")
+        s = self.start("--exclude", "build")
         s.send(b"ifile", "file")
         s.send(b"\x1b[27u:q!\r", "Query · NORMAL")
         self.assertNotIn("Using basic editing", s.screen.text)
@@ -953,7 +986,7 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_multiline_exclusions_and_pending_find(self):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
-        s = self.start("--editor", "nvim", "--exclude", "build")
+        s = self.start("--exclude", "build")
         s.send(b"\x1be", "NORMAL")
         s.send(b"o*.tex", "*.tex")
         s.send(b"\x1b[27u:wq", ":wq")
@@ -977,7 +1010,7 @@ class TerminalTests(unittest.TestCase):
             config.mkdir(parents=True)
             marker = Path(home) / "init-loaded"
             (config / "init.lua").write_text("vim.fn.writefile({'loaded'}, " + repr(str(marker)) + ")")
-            s = self.start("--editor", "nvim", "--no-config", environment={"HOME": home})
+            s = self.start("--no-config", environment={"HOME": home})
             self.assertIn("NORMAL", s.screen.text)
             self.assertFalse(marker.exists())
             s.send(b"\x03")
@@ -987,16 +1020,18 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_normal_mode_list_keys_and_g_passthrough(self):
         for name in ("alpha", "beta", "gamma"):
             (self.root / name).touch()
-        s = self.start("--editor", "nvim", "--no-config")
+        s = self.start("--no-config")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"g", "PENDING")
         s.send(b"g", "NORMAL")
         # G = last, k = Alt+k, gg = first, j = Alt+j; the query is untouched.
         s.send(b"Gkggjj")
-        s.send(b"k\r")
+        s.send(b"k")
+        s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
+        s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "beta") + b"\n"))
         s.close()
-        s = self.session = Session(self.root, "--editor", "nvim", "--no-config")
+        s = self.session = Session(self.root, "--no-config")
         s.send(b"igamma", "❯ gamma")
         s.send(b"\x1b[27u", "NORMAL")
         # Unbound continuations reach Neovim intact: gU, ge.
@@ -1006,6 +1041,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"dl", "❯ gamma")
+        s.send(b"i", "Query · INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "gamma") + b"\n"))
 
@@ -1014,7 +1050,7 @@ class TerminalTests(unittest.TestCase):
         directory = self.root / "folder"
         directory.mkdir()
         (directory / "file").touch()
-        s = self.start("--editor", "nvim", "--no-config", "--depth", "1", implicit_root=True)
+        s = self.start("--no-config", "--depth", "1", implicit_root=True)
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"l", ("cwd", directory))
         # Normal-mode navigation stays Normal, so h needs no Escape first.
@@ -1038,7 +1074,7 @@ class TerminalTests(unittest.TestCase):
                 "[keys.normal]\nmark='none'\nfirst='<space>t'\nlast=['G','<space>b']\ndown='none'\n"
                 + "".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
             )
-            s = self.start("--editor", "nvim", "--config", str(config), implicit_root=True)
+            s = self.start("--config", str(config), implicit_root=True)
             s.send(b"\t\t\t", b"Marks (3)")
             s.send(b"\x1b ", "Marks (3)")
             # Marks list: last, then first via the remapped sequence; Tab unmarks.
@@ -1055,7 +1091,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_normal_mode_keys_in_palette_chooser(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "nvim", "--no-config")
+        s = self.start("--no-config")
         s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · NORMAL")
         # G previews and applies the last palette; gg then j select the second.
         mark = len(s.ui)
@@ -1078,7 +1114,7 @@ class TerminalTests(unittest.TestCase):
         directory = self.root / "folder"
         directory.mkdir()
         (directory / "file").touch()
-        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s = self.start("--depth", "1", implicit_root=True)
         s.send(b"ifol", "❯ fol")
         s.send(b"\x1bl", ("cwd", directory))
         self.assertIn("Query · INSERT", s.screen.text)
@@ -1096,7 +1132,7 @@ class TerminalTests(unittest.TestCase):
     def test_space_marks_in_normal_and_types_in_insert(self):
         for name in ("a", "b"):
             (self.root / name).touch()
-        s = self.start("--editor", "nvim")
+        s = self.start()
         s.send(b" ", "Marks (1)")
         s.send(b"i ", "No matching results")
         self.assertIn("Marks (1)", s.screen.text)
@@ -1112,7 +1148,7 @@ class TerminalTests(unittest.TestCase):
     def test_exclusions_native_zz_and_ctrl_w_keep_neovim_behavior(self):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
-        s = self.start("--editor", "nvim", "--exclude", "build")
+        s = self.start("--exclude", "build")
         s.send(b"\x1be", "Exclusions")
         s.send(b"0iZZ", "ZZbuild")
         self.assertIn("Exclusions", s.screen.text)
@@ -1135,7 +1171,7 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-action-keys-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[keys.normal]\nmark='x'\ndelete='none'\nquit='none'\napply='qq'\n")
-            s = self.start("--editor", "nvim", "--config", str(config))
+            s = self.start("--config", str(config))
             s.send(b"x", "Marks (1)")
             s.send(b"\x1be", "Edit exclusions")
             s.send(b"inot-present", "not-present")
@@ -1149,29 +1185,16 @@ class TerminalTests(unittest.TestCase):
 
     def test_palette_chooser_starts_on_the_canonical_palette_for_an_alias(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "basic", "--palette", "gruvbox")
+        s = self.start("--palette", "gruvbox")
         s.send(b"\x1bp", "Palettes ·")
         s.send(b"\r", "Palette gruvbox-dark applied")
-        s.send(b"\x03")
-        self.assertEqual(s.finish(), (130, b""))
-
-    def test_basic_exclusions_use_explicit_save_and_discard(self):
-        (self.root / "file").touch()
-        s = self.start("--editor", "basic")
-        s.send(b"\x1be", "Exclusions")
-        s.send(b"ZZ", "ZZ")
-        self.assertIn("Edit exclusions", s.screen.text)
-        s.send(b"\x1b[27u", "Query")
-        s.wait_absent("Edit exclusions")
-        s.send(b"\x1be", "Exclusions")
-        s.send(b"file\x13", "No matching results")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_file_operations_normal_only_and_empty_selection(self):
         (self.root / "file").write_text("original")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         for key in [b"v", b"p", b"s"]:
             s.send(key, "No files selected")
             self.assertEqual((self.root / "file").read_text(), "original")
@@ -1189,11 +1212,11 @@ class TerminalTests(unittest.TestCase):
             target.mkdir()
             for name in names:
                 (self.root / name).write_text("payload")
-            s = self.start(editor="nvim", implicit_root=True)
+            s = self.start(implicit_root=True)
             s.send(b"i" + prefix.encode(), "❯ " + prefix)
             s.send(b"\x1b[27u\t\t", "Marks (2)")
             s.send(b"\x1b[27ui" + target.name.encode(), "❯ " + target.name)
-            s.send(b"\x1b[27u\r", ("cwd", target))
+            s.send(b"\x1b[27ul", ("cwd", target))
             # Vim keys never act at once: the selection is confirmed first.
             label = {"p": "Copy", "v": "Move", "s": "Link"}[key]
             s.send(key.encode(), label + " here")
@@ -1220,11 +1243,11 @@ class TerminalTests(unittest.TestCase):
             (root / "file-a").write_text("new")
             (root / "file-b").write_text("other")
             (target / "file-a").write_text("old contents")
-            s = self.session = Session(root, editor="nvim", implicit_root=True)
+            s = self.session = Session(root, implicit_root=True)
             s.send(b"ifile-", "❯ file-")
             s.send(b"\x1b[27u\t\t", "Marks (2)")
             s.send(b"\x1b[27uitarget", "❯ target")
-            s.send(b"\x1b[27u\r", ("cwd", target))
+            s.send(b"\x1b[27ul", ("cwd", target))
             s.send(key, "Overwrite on " + label)
             self.assertIn("file-a", s.screen.text)
             self.assertIn("12 B", s.screen.text)
@@ -1248,7 +1271,7 @@ class TerminalTests(unittest.TestCase):
     def test_failed_file_operations_preserve_all_selected(self):
         source = self.root / "source"
         source.write_text("keep")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"\t", "Marks (1)")
         for key, message in [
             (b"v", "already in this directory"),
@@ -1264,7 +1287,7 @@ class TerminalTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_file_operations_new_file_directory_and_discard(self):
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"n", "Press f to create a file")
         s.send(b"f", "New file · INSERT")
         s.send(b"discarded", "discarded")
@@ -1285,7 +1308,7 @@ class TerminalTests(unittest.TestCase):
     def test_file_operations_rename_buffer_validation_and_mark_updates(self):
         (self.root / "alpha").write_text("a")
         (self.root / "beta").write_text("b")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"\t", "Marks (1)")
         s.send(b"r", "Rename files")
         self.assertIn("alpha", s.screen.text)
@@ -1307,7 +1330,7 @@ class TerminalTests(unittest.TestCase):
     def test_file_operations_delete_current_or_selected_and_cancel(self):
         (self.root / "alpha").write_text("aaa")
         (self.root / "beta").write_bytes(b"b" * 20000)
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"\t", "Marks (1)")  # alpha marked, beta highlighted
         s.send(b"x", "c: Current ─── s: Selection ─── a: All")
         s.send(b"c", "permanently delete")
@@ -1333,7 +1356,7 @@ class TerminalTests(unittest.TestCase):
         current = self.root / "beta"
         selected.write_text("selected")
         current.write_text("current")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"\t", "Marks (1)")
         s.send(b"xc", "permanently delete")
         s.send(b"\r", "Deleted beta")
@@ -1349,7 +1372,7 @@ class TerminalTests(unittest.TestCase):
         archive = self.root / "input.zip"
         with zipfile.ZipFile(archive, "w") as z:
             z.writestr("unpacked", "payload")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"e", "empty to extract beside the archive")
         s.send(b":wq\r", "Extracted input.zip beside it")
         self.assertEqual((self.root / "unpacked").read_text(), "payload")
@@ -1377,7 +1400,7 @@ class TerminalTests(unittest.TestCase):
         raw = bytearray(corrupt.read_bytes())
         raw[raw.index(b"PAYLOAD")] ^= 1
         corrupt.write_bytes(raw)
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         for name in [directory.name, plain.name, corrupt.name]:
             s.send(b"i" + name.encode(), "❯ " + name)
             s.send(b"\x1b[27ue", "Cannot extract ")
@@ -1396,7 +1419,7 @@ class TerminalTests(unittest.TestCase):
     def test_list_steps_wrap_and_rename_starts_on_the_highlighted_row(self):
         for name in ["alpha", "beta", "gamma"]:
             (self.root / name).write_text(name)
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"k", "› 3/0")  # up from the first row wraps to the last
         s.send(b"j", "›   1")  # and down from the last wraps to the first
         s.send(b"j", "›   2")
@@ -1415,7 +1438,7 @@ class TerminalTests(unittest.TestCase):
         import zipfile
         with zipfile.ZipFile(self.root / "input.zip", "w") as z:
             z.writestr("unpacked", "payload")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"e", "Extract archive · NORMAL")
         s.send(b"ZQ", "Query · NORMAL")
         s.wait_absent("Extract archive")
@@ -1433,7 +1456,7 @@ class TerminalTests(unittest.TestCase):
             with zipfile.ZipFile(self.root / name, "w") as z:
                 z.writestr(name + ".txt", name)
         (self.root / "notes.txt").write_text("not an archive")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         s.send(b"ia.zip", "❯ a.zip")
         s.send(b"\x1b[27u\t", "Marks (1)")
         s.send(b"\x1b[27uccb.zip", "❯ b.zip")
@@ -1458,16 +1481,17 @@ class TerminalTests(unittest.TestCase):
         cd_file = self.root / "cd"
         for keys, expected in [(b"q", None), (b"\x1bl!", sub)]:
             cd_file.write_bytes(b"")
-            s = self.start("--cd-file", str(cd_file), "--editor", "nvim",
-                           implicit_root=True, output_paths=False)
+            s = self.start("--cd-file", str(cd_file), implicit_root=True, output_paths=False)
             s.send(keys)
             self.assertEqual(s.finish(), (0, b""))
             self.assertEqual(cd_file.read_bytes(), os.fsencode(expected) if expected else b"")
             s.close()
             self.session = None
-        # Enter on a file chooses its folder; without --cd-file it is printed.
-        s = self.start("--editor", "nvim", implicit_root=True, output_paths=False)
+        # Normal-mode Enter on a file chooses its folder; without --cd-file
+        # it is printed.
+        s = self.start(implicit_root=True, output_paths=False)
         s.send(b"ifile", "❯ file")
+        s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(sub) + b"\n"))
 
@@ -1477,7 +1501,7 @@ class TerminalTests(unittest.TestCase):
             (self.root / folder).mkdir()
             for name in ["a", "b", "c"]:
                 (self.root / folder / name).write_text(name)
-        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True, output_paths=False)
+        s = self.start("--depth", "1", implicit_root=True, output_paths=False)
         def highlighted():
             return next(l for l in s.screen.text.splitlines() if "›" in l and "❯" not in l)
         s.send(b"j", "› 2/0")
@@ -1495,7 +1519,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, b""))
         s.close()
         # A new session resumes in the last browsed folder, on the same row.
-        s = self.session = Session(self.root, "--editor", "nvim", "--depth", "1",
+        s = self.session = Session(self.root, "--depth", "1",
                                    implicit_root=True, output_paths=False)
         s.wait_ui(("cwd", self.root / "two"))
         s.wait_ui("› 3/0")
@@ -1505,7 +1529,7 @@ class TerminalTests(unittest.TestCase):
         s.close()
         # --here and the picker mode start where they are launched.
         for args, kwargs in [(("--here",), {"output_paths": False}), ((), {})]:
-            s = self.session = Session(self.root, "--editor", "nvim", "--depth", "1",
+            s = self.session = Session(self.root, "--depth", "1",
                                        *args, implicit_root=True, **kwargs)
             self.assertNotIn("Resumed", s.screen.text)
             s.wait_ui(("cwd", self.root))
@@ -1519,7 +1543,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "alpha").write_text("a")
         log = self.root / "log"
         env = self.run_environment("myeditor", f'printf "%s\\n" "$@" > "{log}"\n')
-        s = self.start("--no-config", "--editor", "nvim", implicit_root=True,
+        s = self.start("--no-config", implicit_root=True,
                        environment={**env, "EDITOR": "myeditor -p"})
         s.send(b"E", "myeditor finished")
         self.assertEqual(log.read_text().splitlines(), ["-p", str(self.root / "alpha")])
@@ -1527,7 +1551,7 @@ class TerminalTests(unittest.TestCase):
         s.finish()
         s.close()
         for value, message in [("", "$EDITOR is empty"), ("myeditr", "$EDITOR: myeditr: command not found; did you mean myeditor?")]:
-            s = self.session = Session(self.root, "--no-config", "--editor", "nvim", implicit_root=True,
+            s = self.session = Session(self.root, "--no-config", implicit_root=True,
                                        environment={**env, "EDITOR": value})
             s.send(b"E", message)
             s.send(b"\x03")
@@ -1542,7 +1566,7 @@ class TerminalTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp.name + "-far", True)
         (self.root / "sub").mkdir()
         env = self.run_environment("zoxide", f'echo "{far}"\necho "{far.parent}"\n')
-        s = self.start("--no-config", "--editor", "nvim", implicit_root=True,
+        s = self.start("--no-config", implicit_root=True,
                        environment=env, output_paths=False)
         s.send(b"\x1bg", "Go to directory")
         self.assertIn("Enter: Go", s.screen.text)
@@ -1565,7 +1589,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "left").mkdir()
         (self.root / "left" / "file").touch()
         (self.root / "right").mkdir()
-        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s = self.start("--depth", "1", implicit_root=True)
         s.send(b"ileft", "❯ left")
         s.send(b"\r", ("cwd", self.root / "left"))
         s.send(b"\x1b[27u", "NORMAL")
@@ -1593,7 +1617,7 @@ class TerminalTests(unittest.TestCase):
         config = Path(self.tmp.name + "-config.toml")
         self.addCleanup(lambda: config.unlink(missing_ok=True))
         config.write_text("[keys.normal]\ndelete = 'D'\nedit = 'none'\n")
-        s = self.start("--config", str(config), "--editor", "nvim", implicit_root=True, environment=env)
+        s = self.start("--config", str(config), implicit_root=True, environment=env)
         s.send(b"\t", "Marks (1)")
         s.send(b"x")  # no longer delete: Neovim gets it
         s.send(b"D", "Delete permanently")
@@ -1606,6 +1630,195 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(log.read_text().splitlines(), ["--and-exit", str(self.root / "alpha")])
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
+
+    def deep_tree(self):
+        # top.txt, folder/, and a deep result sub/more/a.pdf beside 0first.txt.
+        more = self.root / "sub" / "more"
+        more.mkdir(parents=True)
+        (more / "0first.txt").touch()
+        (more / "a.pdf").touch()
+        (self.root / "folder").mkdir()
+        (self.root / "top.txt").touch()
+        return more
+
+    def highlighted(self, s):
+        return next((l for l in s.screen.text.splitlines() if "›" in l and "❯" not in l), "")
+
+    def wait_highlight(self, s, name):
+        deadline = time.monotonic() + 3
+        while name not in self.highlighted(s) and time.monotonic() < deadline:
+            if select.select([s.master], [], [], 0.05)[0]:
+                chunk = os.read(s.master, 65536)
+                s.ui += chunk
+                s.screen.feed(chunk)
+        self.assertIn(name, self.highlighted(s), s.screen.text)
+
+    def test_normal_enter_prints_the_folder_of_a_file_deep_result_or_directory(self):
+        more = self.deep_tree()
+        for query, args, expected in [
+            (b"top.txt", (), os.fsencode(self.root) + b"\n"),
+            (b"a.pdf", (), os.fsencode(more) + b"\n"),
+            (b"a.pdf", ("--relative", "--null"), b"sub/more\0"),
+            (b"folder", (), os.fsencode(self.root / "folder") + b"\n"),
+            (b"zzzz", (), os.fsencode(self.root) + b"\n"),  # nothing listed
+        ]:
+            with self.subTest(query=query, args=args):
+                s = self.start("--depth", "3", *args, implicit_root=True)
+                s.send(b"\t", "Marks (1)")  # marks are ignored
+                s.send(b"i" + query, "❯ " + query.decode())
+                s.send(b"\x1b[27u", "Query · NORMAL")
+                s.send(b"\r")
+                self.assertEqual(s.finish(), (0, expected))
+                s.close()
+                self.session = None
+
+    def test_normal_enter_in_default_mode_writes_the_folder_to_the_cd_file(self):
+        more = self.deep_tree()
+        cd_file = self.root / "cd"
+        for query, expected in [(b"a.pdf", more), (b"folder", self.root / "folder"), (b"top.txt", None)]:
+            with self.subTest(query=query):
+                cd_file.write_bytes(b"")
+                s = self.start("--depth", "3", "--here", "--cd-file", str(cd_file),
+                               implicit_root=True, output_paths=False)
+                s.send(b"i" + query, "❯ " + query.decode())
+                s.send(b"\x1b[27u", "Query · NORMAL")
+                s.send(b"\r")
+                self.assertEqual(s.finish(), (0, b""))
+                # The launch directory itself is not written.
+                self.assertEqual(cd_file.read_bytes(), os.fsencode(expected) if expected else b"")
+                s.close()
+                self.session = None
+
+    def test_insert_enter_reveals_a_file_in_default_mode(self):
+        more = self.deep_tree()
+        s = self.start("--depth", "3", "--here", implicit_root=True, output_paths=False)
+        s.send(b"ia.pdf", "❯ a.pdf")
+        s.send(b"\r", ("cwd", more))
+        # The query is cleared and the file highlighted; fff keeps running.
+        s.wait_ui("0first.txt")
+        self.assertNotIn("❯ a.pdf", s.screen.text)
+        self.wait_highlight(s, "a.pdf")
+        # A file in the current folder: the query clears, the folder stays.
+        s.send(b"0f", "❯ 0f")
+        s.send(b"\r")
+        s.wait_absent("❯ 0f")
+        self.wait_highlight(s, "0first.txt")
+        self.assertIn(str(more), next(l for l in s.screen.text.splitlines() if l.lstrip().startswith("@ ")))
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_marked_list_enter_exits_into_the_highlighted_marks_folder(self):
+        more = self.deep_tree()
+        for steps, expected in [(b"", more), (b"\x1b[B", self.root / "folder")]:
+            with self.subTest(steps=steps):
+                s = self.start("--depth", "3", implicit_root=True)
+                s.send(b"ia.pdf", "❯ a.pdf")
+                s.send(b"\t", "Marks (1)")
+                s.send(b"\x1b[27u", "NORMAL")
+                s.send(b"\x1b[27u", "❯ type to filter")
+                s.send(b"ifolder", "❯ folder")
+                s.send(b"\t", "Marks (2)")
+                s.send(b"\x1b ", "› ●")
+                s.send(steps + b"\r")
+                self.assertEqual(s.finish(), (0, os.fsencode(expected) + b"\n"))
+                s.close()
+                self.session = None
+
+    def test_l_opens_a_file_with_its_gui_opener_in_the_background(self):
+        more = self.deep_tree()
+        env, config, log = self.opener_setup(
+            rules="[[open.rules]]\ncommand = 'viewer --page 2'\nextensions = ['PDF']\n")
+        s = self.start("--depth", "3", "--config", str(config), implicit_root=True, environment=env)
+        s.send(b"ia.pdf", "❯ a.pdf")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"l", "Opened a.pdf with viewer")
+        self.wait_file(log, ["--page", "2", str(more / "a.pdf")])
+        # fff keeps the keyboard, still in Normal mode.
+        self.assertIn("Query · NORMAL", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_failing_background_opener_posts_a_notice(self):
+        (self.root / "a.pdf").touch()
+        env, config, log = self.opener_setup(body="exit 3\n")
+        s = self.start("--config", str(config), implicit_root=True, environment=env)
+        s.send(b"l", " Notice ")
+        s.wait_ui("viewer exited with status 3")
+        self.assertIn("open.log", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_o_opens_files_in_the_foreground_and_refuses_directories(self):
+        (self.root / "a.pdf").touch()
+        (self.root / "b.pdf").touch()
+        (self.root / "folder").mkdir()
+        log = Path(self.tmp.name + "-opened.log")
+        env, config, log = self.opener_setup(body=f'printf "%s\\n" "$@" > "{log}"; echo VIEWER-RAN\n')
+        s = self.start("--depth", "1", "--config", str(config), implicit_root=True, environment=env)
+        s.send(b"ifolder", "❯ folder")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"o", "o opens files")
+        self.assertFalse(log.exists())
+        # Marked files share an opener: one foreground run gets both.
+        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"i.pdf", "❯ .pdf")
+        s.send(b"\t\t", "Marks (2)")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"o")
+        s.wait_raw(b"VIEWER-RAN")
+        s.wait_ui("viewer finished")
+        self.assertEqual(sorted(log.read_text().splitlines()),
+                         [str(self.root / "a.pdf"), str(self.root / "b.pdf")])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_terminal_openers_run_inside_the_configured_terminal(self):
+        (self.root / "notes.txt").touch()
+        (self.root / "other.md").touch()
+        log = Path(self.tmp.name + "-opened.log")
+        env, config, log = self.opener_setup(
+            rules="[[open.rules]]\ncommand = 'pager -R'\nextensions = ['txt']\nterminal = true\n",
+            terminal="term -e")
+        # The stub terminal records the command it was asked to run.
+        self.run_environment("term", f'printf "%s\\n" "$@" > "{log}"\n')
+        self.run_environment("pager", "exit 0\n")
+        self.run_environment("myedit", "exit 0\n")
+        bin_dir = self.tmp.name + "-bin"
+        s = self.start("--depth", "1", "--config", str(config), implicit_root=True,
+                       environment={**env, "EDITOR": "myedit"})
+        s.send(b"inotes", "❯ notes")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"l", "Opened notes.txt with term")
+        self.wait_file(log, ["-e", bin_dir + "/pager", "-R", str(self.root / "notes.txt")])
+        # Unmatched files use $EDITOR, also as a terminal program.
+        log.unlink()
+        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"iother", "❯ other")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"l", "Opened other.md with term")
+        self.wait_file(log, ["-e", bin_dir + "/myedit", str(self.root / "other.md")])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def opener_setup(self, body=None, rules="[[open.rules]]\ncommand = 'viewer'\npatterns = ['*']\n", terminal=None):
+        # A stub GUI opener "viewer" on PATH that logs its arguments, and a
+        # config naming it for every file. Returns (environment, config, log).
+        log = Path(self.tmp.name + "-opened.log")
+        self.addCleanup(lambda: log.unlink(missing_ok=True))
+        env = self.run_environment("viewer", body or f'printf "%s\\n" "$@" > "{log}"\n')
+        config = Path(self.tmp.name + "-open.toml")
+        self.addCleanup(lambda: config.unlink(missing_ok=True))
+        config.write_text((f"[open]\nterminal = {terminal!r}\n" if terminal else "") + rules)
+        return env, config, log
+
+    def wait_file(self, path, lines, timeout=5):
+        # Background programs write their log on their own schedule.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if path.exists() and path.read_text().splitlines() == lines:
+                return
+            time.sleep(0.02)
+        self.assertEqual(path.read_text().splitlines() if path.exists() else None, lines)
 
     def run_environment(self, name, body):
         # A program on PATH, outside the browsed directory.
@@ -1623,7 +1836,7 @@ class TerminalTests(unittest.TestCase):
         log = self.root / "log"
         env = self.run_environment(
             "recordargs", f'pwd > "{log}"; printf "%s\\n" "$@" >> "{log}"\n')
-        s = self.start("--no-config", "--editor", "nvim", implicit_root=True, environment=env)
+        s = self.start("--no-config", implicit_root=True, environment=env)
         s.send(b"gx", "Run · INSERT")
         self.assertIn("Enter: Review ─── Tab: Complete ─── Esc: Cancel", s.screen.text)
         s.send(b"recorda", "❯ recorda")
@@ -1654,7 +1867,7 @@ class TerminalTests(unittest.TestCase):
         cd_file = self.root / "cd"
         cd_file.write_bytes(b"")
         env = self.run_environment("finale", f'printf "%s\\n" "$@" > "{log}"; exit 7\n')
-        s = self.start("--no-config", "--editor", "nvim", "--cd-file", str(cd_file),
+        s = self.start("--no-config", "--cd-file", str(cd_file),
                        implicit_root=True, environment=env, output_paths=False)
         s.send(b"\x1bl", ("cwd", sub))
         s.send(b"gX", "Run and exit · INSERT")
@@ -1671,7 +1884,7 @@ class TerminalTests(unittest.TestCase):
         archive = self.root / "input.zip"
         with zipfile.ZipFile(archive, "w") as z:
             z.writestr("data", "payload")
-        s = self.start(editor="nvim", implicit_root=True)
+        s = self.start(implicit_root=True)
         # Escape leaves Insert first; Normal-mode Escape cancels.
         s.send(b"nf", "New file · INSERT")
         self.assertIn("Enter: Create ─── Esc: Cancel", s.screen.text)
@@ -1704,42 +1917,36 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_query_o_and_O_enter_insert_without_a_newline(self):
+    def test_query_O_enters_insert_without_a_newline(self):
+        # (o opens files instead; see the opener tests.)
         (self.root / "file").touch()
-        s = self.start(editor="nvim", implicit_root=True)
-        s.send(b"o", "Query · INSERT")
+        s = self.start(implicit_root=True)
+        s.send(b"O", "Query · INSERT")
         s.send(b"file", "❯ file")
         s.send(b"\x1b[27uO", "Query · INSERT")
-        s.send(b"\x1b[27u\r")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
-
-    def test_missing_nvim_falls_back_to_basic_input(self):
-        (self.root / "file").touch()
-        s = self.start("--editor", "nvim", "--no-config", environment={"PATH": ""})
-        self.assertIn("Using basic editing", s.screen.text)
-        s.send(b"file", "❯ file")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
+
+    def test_missing_nvim_is_a_startup_error(self):
+        (self.root / "file").touch()
+        for args in [(), ("--no-config",)]:
+            s = self.session = Session(self.root, *args, environment={"PATH": ""}, ready=False)
+            s.wait_raw(b"fff: fff needs Neovim")
+            self.assertEqual(s.finish(), (1, b""))
+            s.close()
+        self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_default_editor_is_neovim(self):
         (self.root / "world.txt").touch()
-        s = self.start(editor=None)
+        s = self.start()
         self.assertIn("NORMAL", s.screen.text)
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0dw", "❯ world")
+        # Normal-mode Enter exits into the highlighted file's folder.
         s.send(b"\r")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
-
-    def test_default_editor_without_nvim_falls_back_quietly(self):
-        (self.root / "file").touch()
-        s = self.start("--no-config", environment={"PATH": ""}, editor=None)
-        self.assertNotIn("Using basic editing", s.screen.text)
-        self.assertNotIn("INSERT", s.screen.text)
-        s.send(b"file", "❯ file")
-        s.send(b"\r")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
 
     def test_remapped_numbered_choice(self):
         (self.root / "file").touch()
@@ -1749,20 +1956,22 @@ class TerminalTests(unittest.TestCase):
 
     def test_palette_chooser_previews_reverts_applies_and_reloads(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "basic")
+        s = self.start()
         s.send(b"\x1bp", "Palettes · Enter applies")
         mark = len(s.ui)
-        s.send(b"nord", "Find: nord")
+        s.send(b"inord", "Find: nord")
         s.wait_bytes(b"48;2;46;52;64", after=mark)  # delayed nord preview
+        s.send(b"\x1b[27u", "NORMAL")  # the first Escape leaves Insert
         mark = len(s.ui)
         s.send(b"\x1b[27u")  # Escape reverts to midnight
         s.wait_absent("Palettes ·")
         self.assertIn(b"48;2;15;23;36", s.ui[mark:])
-        s.send(b"\x1bpforest", "Find: forest")
+        s.send(b"\x1bpiforest", "Find: forest")
         s.send(b"\r", "Palette forest applied for this session")
         mark = len(s.ui)
         s.send(b"\x1b[112;4u", "Palette midnight reloaded")  # CSI-u Alt+Shift+p
         self.assertIn(b"48;2;15;23;36", s.ui[mark:])
+        s.send(b"i", "Query · INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
@@ -1771,12 +1980,12 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-palette-keys-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
-            s = self.start("--editor", "basic", "--config", str(config))
-            s.send(b"\x1bpmocha\r", "Palette catppuccin-mocha applied")
+            s = self.start("--config", str(config))
+            s.send(b"\x1bpimocha\r", "Palette catppuccin-mocha applied")
             mark = len(s.ui)
             config.write_text("[ui]\npalette='tokyonight-day'\n")
             time.sleep(1.2)  # two watcher polls
-            s.send(b"x", "❯ x")
+            s.send(b"ix", "❯ x")
             self.assertNotIn(b"48;2;225;226;231", s.ui[mark:])
             # Only changed cells are redrawn; the query panel uses mocha's text color.
             self.assertIn(b"38;2;205;214;244", s.ui[mark:])
@@ -1790,10 +1999,10 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-palette-fail-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
-            s = self.start("--editor", "basic", "--config", str(config))
+            s = self.start("--config", str(config))
             s.send(b"\x1bp", "Palettes · Enter applies")
             mark = len(s.ui)
-            s.send(b"light", "Find: light")
+            s.send(b"ilight", "Find: light")
             s.wait_bytes(b"48;2;255;255;255", after=mark)
             config.write_text("[ui\n")
             mark = len(s.ui)
@@ -1809,11 +2018,11 @@ class TerminalTests(unittest.TestCase):
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
             s = self.start(
-                "--editor", "basic", "--config", str(config), "--palette", "forest",
+                "--config", str(config), "--palette", "forest",
                 "--map-key", "ctrl+t=alt+p", "--map-key", "ctrl+r=alt+P",
             )
             s.send(b"\x14", "Palettes · Enter applies")
-            s.send(b"light\r", "Palette light applied")
+            s.send(b"ilight\r", "Palette light applied")
             s.send(b"\x12", "Palette forest reloaded")
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -1821,7 +2030,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_palette_filter_escape_returns_to_normal_before_reverting(self):
         (self.root / "file").touch()
-        s = self.start("--editor", "nvim")
+        s = self.start()
         s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · NORMAL")
         s.send(b"ijunk nord", "Find: junk nord")
         s.send(b"\x1b[27u", "NORMAL")

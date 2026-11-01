@@ -52,11 +52,23 @@ prefetch = true       # Pre-read a highlighted child after 500 ms, depth 1 only.
 [performance]
 refresh_ms = 50 # Min ms between re-sorts while a scan streams in; 0 = every batch.
 
-# Unset (the default): clean embedded Neovim, quietly falling back to basic
-# without nvim. Setting "nvim" explicitly reports that fallback in the status
-# line; "basic" selects plain append/Backspace editing. See EDITING.md.
+# Every text field is a clean embedded Neovim; nvim must be on PATH.
+# Openers: l / Alt+l / Alt+number open a file in the background, o in this
+# terminal. First match wins; unmatched files use $EDITOR. See CONFIGURATION.md.
+[open]
+terminal = "st -e"   # runs terminal openers in a new window
+
+[[open.rules]]
+command = "zathura"
+extensions = ["pdf", "djvu", "epub"]
+
+[[open.rules]]
+command = "nvim"
+patterns = ["Makefile"]
+terminal = true
+
 [editor]
-# backend = "basic"
+# backend = "nvim"
 
 # Normal-mode list actions. Buffer editors use Neovim writes and closes.
 # A string or list of sequences; "none" disables. See CONFIGURATION.md.

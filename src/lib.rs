@@ -720,7 +720,11 @@ impl App {
             _ => false,
         };
         self.wanted = Some(file);
-        self.refresh();
+        // After moving, the old folder's rows must not consume the wanted
+        // highlight; the new scan applies it as rows arrive.
+        if !moved {
+            self.refresh();
+        }
         moved
     }
     pub fn ready_path(&mut self, path: &Path) -> bool {

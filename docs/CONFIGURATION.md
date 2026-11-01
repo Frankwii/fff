@@ -239,8 +239,7 @@ In the chooser, **n** adds the current directory, **e** edits the
 highlighted bookmark, and **d** asks for confirmation before deleting it.
 Deletion removes only the bookmark record. **r** reloads bookmarks from disk.
 These letters act while the filter is in Normal mode, so Vim's own `n`, `e`,
-`d` and `r` are unavailable there; while typing a filter (Insert mode or basic
-editing) use **Alt+n**, **Alt+e**, **Alt+d** and **Alt+r**.
+`d` and `r` are unavailable there; while typing a filter (Insert mode) use **Alt+n**, **Alt+e**, **Alt+d** and **Alt+r**.
 **Up** / **Down** move the highlighted bookmark one place and save the
 new order immediately; while filtering, it moves past its visible neighbour.
 Comments directly above a `[[bookmarks]]` table move with it.
@@ -392,19 +391,53 @@ Navigation performance can be measured with the manual PTY benchmark; see
 [development verification](DEVELOPMENT.md#verification). Measurements depend on
 storage, tree size, build mode and terminal scheduling.
 
-## Modal text editing
+## Openers
+
+Which program opens a file, by extension or name, for `l` / Alt+l / Alt+number
+(in the background) and `o` (in the terminal); see
+[opening files](OPERATIONS.md#opening-files).
 
 ```toml
-[editor]
-backend = "basic" # Default: "nvim"; CLI override: --editor basic|nvim
+[open]
+terminal = "st -e"   # how to run a terminal program in a new window (default)
+
+[[open.rules]]
+command = "zathura"
+extensions = ["pdf", "djvu", "epub"]
+
+[[open.rules]]
+command = "imv"
+extensions = ["png", "jpg", "jpeg", "gif", "webp"]
+
+[[open.rules]]
+command = "mpv --fs"
+extensions = ["mkv", "mp4", "webm"]
+
+[[open.rules]]
+command = "nvim"
+patterns = ["Makefile", "*.tar.gz"]   # globs on the file name
+terminal = true                       # needs a terminal: a new window in the background
 ```
 
-By default a clean headless Neovim instance edits every field, initially in
-Normal mode (a `--no-dir` query starts in Insert); press `i` or `a` to type. When `backend`
-is left unset and `nvim` is missing or fails to start, fff silently uses
-basic append/Backspace editing; an explicit `"nvim"` reports the fallback. See the
-[editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics,
-reserved fff shortcuts, dependency/fallback behavior, and tested boundaries.
+Rules are tried in order and the first match wins. `extensions` are compared
+without the dot and ignoring case; `patterns` are globs matched against the file
+name. `command` is a program and its arguments, split like a typed command
+(quotes and backslashes work, no shell); the files are added after it. A rule
+needs a command and at least one extension or pattern. Files no rule matches
+open with `$EDITOR`, as a terminal program.
+
+`terminal` must start a terminal window running the rest of the line: `st -e`,
+`alacritty -e`, `foot`, `kitty`. `--check-config` reports opener and terminal
+programs that are not installed.
+
+## Modal text editing
+
+A clean headless Neovim instance edits every field, initially in Normal mode
+(prompts made for typing start in Insert); press `i` or `a` to type. Neovim is
+required: fff exits with an error when `nvim` is missing or cannot start.
+`[editor] backend = "nvim"` remains accepted and is the only choice. See the
+[editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics and
+reserved fff shortcuts.
 
 ## Normal-mode keys
 
@@ -457,7 +490,7 @@ sequence such as `delete = "D"`, because two actions cannot share a sequence.
 `run` and `run_exit` work in results and the marked list; see
 [running programs](OPERATIONS.md#running-programs). Quit actions work in
 Normal-mode fields and in the marked list, ignoring marks;
-`--no-dir` exits without returning a directory. Basic text fields keep literal
+`--no-dir` exits without returning a directory. Insert mode keeps literal
 `q` and `!`. Disable `quit` before reusing `q` as a prefix for another action.
 
 Marking is active only in results and the marked list. Buffer editors use
