@@ -83,3 +83,12 @@ fn renamed_binary_reports_fff_version_and_usage() {
     let help = stdout(&fff(&["--help"], None));
     assert!(help.contains("Usage: fff"), "{help}");
 }
+
+#[test]
+fn missing_root_error_names_the_path() {
+    let output = fff(&["--no-config", "no/such/root"], None);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.starts_with("fff: no/such/root: "), "{stderr}");
+}

@@ -122,7 +122,8 @@ struct Args {
     /// Only files below the current directory (or the pinned ROOTS) are listed,
     /// down to --depth. Directory keys (Enter on a directory, Alt+h/Alt+l, the
     /// Alt+g location prompt, Alt+b bookmarks) are disabled, and the current
-    /// directory is never returned. Mark files with Tab, then confirm.
+    /// directory is never returned. Mark files with Tab, then confirm. Rows show
+    /// bare names; files sharing a name gain the shortest distinguishing parents.
     #[arg(long, help_heading = "Search")]
     no_dir: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
@@ -254,7 +255,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut roots = Vec::new();
     for root in args.roots {
-        let path = root.canonicalize()?;
+        let path = root
+            .canonicalize()
+            .map_err(|e| format!("{}: {e}", root.display()))?;
         if !path.is_dir() {
             return Err(format!("Not a directory: {}", root.display()).into());
         }
