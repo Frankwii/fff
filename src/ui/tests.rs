@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::config::Palette;
 use std::time::Instant;
@@ -104,4 +103,32 @@ fn leaving_palette_chooser_discards_pending_preview() {
     assert!(!preview.tick(&mut app, &Focus::Results, now + Duration::from_secs(1)));
     assert_eq!(app.palette, original);
     assert_eq!(preview.remaining(now), None);
+}
+
+#[test]
+fn m_marks_every_listed_row_and_shift_m_inverts_them() {
+    let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+    let [a, b, c, other]: [PathBuf; 4] =
+        ["/fixture/a", "/fixture/b", "/fixture/c", "/elsewhere/d"].map(PathBuf::from);
+    app.marks = vec![other.clone(), b.clone()];
+    let mut focus = Focus::Marks {
+        rows: vec![a.clone(), b.clone(), c.clone()],
+        index: 0,
+    };
+    let mut editor = None;
+    let mut press = |app: &mut App, ch: char| {
+        let shift = if ch.is_uppercase() { M::SHIFT } else { M::NONE };
+        let key = KeyEvent::new(K::Char(ch), shift);
+        assert!(matches!(
+            normal_list_key(app, &mut focus, &mut editor, key),
+            NormalKey::Consumed
+        ));
+    };
+    press(&mut app, 'm');
+    assert_eq!(app.marks, [&other, &b, &a, &c].map(Clone::clone));
+    press(&mut app, 'M');
+    assert_eq!(app.marks, std::slice::from_ref(&other));
+    app.marks.push(b.clone());
+    press(&mut app, 'M');
+    assert_eq!(app.marks, [&other, &a, &c].map(Clone::clone));
 }

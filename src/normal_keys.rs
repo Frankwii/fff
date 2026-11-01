@@ -19,6 +19,10 @@ pub enum ListAction {
     Last,
     /// Toggle the highlighted mark, like Tab.
     Mark,
+    /// Mark every listed row.
+    MarkAll,
+    /// Toggle the mark of every listed row.
+    InvertMarks,
     /// Return the invocation directory and exit.
     Quit,
     /// Return the current browsing directory and exit.
@@ -52,7 +56,7 @@ pub enum ListAction {
     NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 28] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -60,6 +64,8 @@ impl ListAction {
         Self::First,
         Self::Last,
         Self::Mark,
+        Self::MarkAll,
+        Self::InvertMarks,
         Self::Quit,
         Self::QuitCurrent,
         Self::Run,
@@ -112,6 +118,8 @@ impl ListAction {
             Self::GoTo => 'g',
             Self::First
             | Self::Last
+            | Self::MarkAll
+            | Self::InvertMarks
             | Self::Quit
             | Self::QuitCurrent
             | Self::Run
@@ -260,6 +268,8 @@ pub struct NormalKeysConfig {
     pub first: Sequences,
     pub last: Sequences,
     pub mark: Sequences,
+    pub mark_all: Sequences,
+    pub invert_marks: Sequences,
     /// Accepted for configuration compatibility; buffer editors use Neovim writes.
     pub apply: Sequences,
     pub quit: Sequences,
@@ -295,6 +305,8 @@ impl Default for NormalKeysConfig {
             first: one("gg"),
             last: one("G"),
             mark: one("<space>"),
+            mark_all: one("m"),
+            invert_marks: one("M"),
             apply: one("none"),
             quit: one("q"),
             quit_current: one("!"),
@@ -329,6 +341,8 @@ impl NormalKeysConfig {
             ListAction::First => ("first", &self.first),
             ListAction::Last => ("last", &self.last),
             ListAction::Mark => ("mark", &self.mark),
+            ListAction::MarkAll => ("mark_all", &self.mark_all),
+            ListAction::InvertMarks => ("invert_marks", &self.invert_marks),
             ListAction::Quit => ("quit", &self.quit),
             ListAction::QuitCurrent => ("quit_current", &self.quit_current),
             ListAction::Run => ("run", &self.run),
@@ -455,6 +469,8 @@ mod tests {
         assert_eq!(k.feed(key('!'), all), Step::Action(ListAction::QuitCurrent));
         assert_eq!(k.feed(key('w'), all), Step::Pass);
         assert_eq!(k.feed(key(' '), all), Step::Action(ListAction::Mark));
+        assert_eq!(k.feed(key('m'), all), Step::Action(ListAction::MarkAll));
+        assert_eq!(k.feed(key('M'), all), Step::Action(ListAction::InvertMarks));
         assert_eq!(k.feed(key('Z'), all), Step::Pass);
     }
     #[test]

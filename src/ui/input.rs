@@ -139,6 +139,8 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             First,
             Last,
             Mark,
+            MarkAll,
+            InvertMarks,
             Quit,
             QuitCurrent,
             Run,
@@ -165,6 +167,8 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             First,
             Last,
             Mark,
+            MarkAll,
+            InvertMarks,
             Quit,
             QuitCurrent,
             Run,
@@ -251,6 +255,14 @@ pub(super) fn normal_list_key(
             Step::Action(ListAction::QuitCurrent) => return NormalKey::Quit(true),
             Step::Action(ListAction::Run) => return NormalKey::Run(false),
             Step::Action(ListAction::RunExit) => return NormalKey::Run(true),
+            Step::Action(action @ (ListAction::MarkAll | ListAction::InvertMarks)) => {
+                let rows: Vec<PathBuf> = match focus {
+                    Focus::Marks { rows, .. } => rows.clone(),
+                    _ => app.rows.iter().map(|c| c.path.clone()).collect(),
+                };
+                app.mark_rows(&rows, action == ListAction::InvertMarks);
+                return NormalKey::Consumed;
+            }
             Step::Action(action) if action.operation_key().is_some() => {
                 return NormalKey::Operation(action.operation_key().unwrap());
             }

@@ -78,7 +78,10 @@ fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,
 and Ctrl+w retain their fff actions in results/marks. Space in Normal mode
 marks/unmarks like Tab; in Insert mode it types a space. The marked list always
-accepts Space because it has no text field.
+accepts Space because it has no text field. In Normal mode `m` marks every
+listed row (all filtered results, not only those on screen, or every row of the
+marked list) and `M` inverts the listed rows' marks, like nnn's `a` and `A`;
+marks on paths that are not listed stay as they are.
 
 Multiline buffers (exclusions, file filters and rename lists)
 use Neovim's buffer lifecycle. Press `ZZ` to write and close (apply), or `ZQ`
@@ -137,6 +140,7 @@ and always in the marked list, which has no text field:
 | `h` | Parent directory | Neovim motion | No action |
 | `l` | Enter highlighted directory | Neovim motion | No action |
 | `gg` / `G` | First / last result | First / last entry | First / last mark |
+| `m` / `M` | Mark all results / invert their marks | Neovim command | Mark all rows / invert their marks |
 
 The palette chooser waits for a highlight to stay still for at least 100 ms
 before previewing it. Moving again restarts the wait; Enter applies immediately. The location

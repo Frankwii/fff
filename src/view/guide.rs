@@ -152,6 +152,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 (normal(Mark), "mark / unmark, like Tab", false),
                 (
+                    normal(MarkAll) + "  " + &normal(InvertMarks),
+                    "mark all listed / invert their marks",
+                    false,
+                ),
+                (
                     normal(Shallower) + "  " + &normal(Deeper),
                     "search shallower / deeper",
                     false,
