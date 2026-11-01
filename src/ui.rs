@@ -183,7 +183,6 @@ pub fn run(
     let mut drawn_at = std::time::Instant::now();
     let mut page = 1;
     let mut bookmark_targets = Vec::new();
-    let mut saved_bookmark = None;
     loop {
         dirty |= status.tick(&mut app);
         for update in palettes.updates() {
@@ -209,58 +208,38 @@ pub fn run(
                 e.reset_preserving_mode(Field::Query);
             }
         }
-        if !matches!(focus, Focus::BookmarkEdit(_) | Focus::BookmarkIcons { .. }) {
-            saved_bookmark = None;
-        }
-        if let Some(view) = app.edit_view.as_ref() {
-            if view.written
-                && let Focus::BookmarkEdit(draft) = &focus
-            {
-                // Writing a field saves the whole form snapshot. Persistence is
-                // deferred until a field closes, just like the exclusion editor.
-                saved_bookmark = Some(draft.clone());
-            }
-            if view.closed {
-                if let Focus::Operation(draft) = &focus {
-                    let request = view.saved.then(|| draft.request());
+        if let Some(view) = app.edit_view.as_ref()
+            && view.closed
+        {
+            if let Focus::Operation(draft) = &focus {
+                let request = view.saved.then(|| draft.request());
+                focus = Focus::Results;
+                if let Some(request) = request {
+                    match request {
+                        Ok(request) => perform_operation(&mut app, &mut discovery, request),
+                        Err(error) => app.status = error,
+                    }
+                }
+            } else if matches!(focus, Focus::Exclusions(_)) {
+                if view.saved {
+                    apply_exclusions(&mut app, &mut focus, &mut discovery);
+                } else {
                     focus = Focus::Results;
-                    if let Some(request) = request {
-                        match request {
-                            Ok(request) => perform_operation(&mut app, &mut discovery, request),
-                            Err(error) => app.status = error,
-                        }
-                    }
-                } else if matches!(focus, Focus::Exclusions(_)) {
-                    if view.saved {
-                        apply_exclusions(&mut app, &mut focus, &mut discovery);
-                    } else {
-                        focus = Focus::Results;
-                    }
-                } else if let Focus::BookmarkEdit(draft) = &focus {
-                    let back = Focus::Bookmarks {
+                }
+            } else if let Focus::BookmarkEdit(draft) = &focus {
+                // Enter and Escape are the form's keys; Neovim's own
+                // ZZ/:wq and ZQ/:q! still save or cancel it.
+                if view.saved {
+                    save_bookmark(&mut app, &mut focus);
+                } else {
+                    focus = Focus::Bookmarks {
                         query: draft.query.clone(),
                         index: draft.index,
                     };
-                    if let Some(saved) = saved_bookmark.take() {
-                        let unchanged = saved
-                            .editing
-                            .and_then(|index| app.bookmarks.get(index))
-                            .is_some_and(|current| {
-                                saved.bookmark(&app.cwd, app.home.as_deref()).as_ref()
-                                    == Ok(current)
-                            });
-                        focus = Focus::BookmarkEdit(saved);
-                        if !unchanged {
-                            save_bookmark(&mut app, &mut focus);
-                        }
-                    }
-                    if matches!(focus, Focus::BookmarkEdit(_)) {
-                        focus = back;
-                    }
                 }
-                app.edit_view = None;
-                dirty = true;
             }
+            app.edit_view = None;
+            dirty = true;
         }
         if let Some((field, text)) = text_field(&app, &focus) {
             if let Some(e) = &mut editor {
@@ -450,11 +429,8 @@ pub fn run(
         if key.modifiers.contains(M::CONTROL) && key.code == K::Char('c') {
             return Ok(None);
         }
-        let buffer_input = editor.is_some()
-            && (matches!(focus, Focus::Exclusions(_) | Focus::Operation(_))
-                || matches!(&focus, Focus::BookmarkEdit(draft) if draft.field.editor().is_some()
-                && !matches!(key.code, K::Tab | K::BackTab)
-                && !(key.modifiers.contains(M::ALT) && key.code == K::Char('i'))));
+        let buffer_input =
+            editor.is_some() && matches!(focus, Focus::Exclusions(_) | Focus::Operation(_));
         if buffer_input {
             deliver(&mut app, &mut focus, &mut editor, key);
             continue;
@@ -756,6 +732,33 @@ pub fn run(
                 }
                 continue;
             }
+            if alt && matches!(key.code, K::Up | K::Down) {
+                // Matches keep configuration order, so a filtered list moves
+                // the highlight past its visible neighbour.
+                let neighbor = if key.code == K::Up {
+                    index.checked_sub(1)
+                } else {
+                    Some(*index + 1)
+                };
+                if let (Some(target), Some((neighbor, &other))) =
+                    (target, neighbor.and_then(|n| Some((n, matches.get(n)?))))
+                {
+                    match app
+                        .bookmark_store
+                        .commit(&app.bookmarks, &BookmarkChange::Swap(target, other))
+                    {
+                        Ok(bookmarks) => {
+                            app.bookmarks = bookmarks;
+                            focus = Focus::Bookmarks {
+                                query: query.clone(),
+                                index: neighbor,
+                            };
+                        }
+                        Err(error) => app.status = error,
+                    }
+                }
+                continue;
+            }
             if alt && key.code == K::Char('r') {
                 match app.bookmark_store.reload() {
                     Ok(bookmarks) => {
@@ -970,18 +973,21 @@ pub fn run(
                 }
             }
             Focus::BookmarkEdit(draft) => {
-                if key.code == K::Esc && editor.is_none() {
+                // Neovim's Insert/Visual Escape and command-line Enter were
+                // captured above, so these keys act on the form itself.
+                if key.code == K::Esc {
                     focus = Focus::Bookmarks {
                         query: draft.query.clone(),
                         index: draft.index,
                     };
-                } else if key.code == K::Tab || key.code == K::BackTab {
-                    draft.field = draft
-                        .field
-                        .next(key.code == K::BackTab || key.modifiers.contains(M::SHIFT));
+                } else if key.code == K::Enter {
+                    save_bookmark(&mut app, &mut focus);
+                } else if matches!(key.code, K::Tab | K::BackTab | K::Up | K::Down) {
+                    draft.field = draft.field.next(
+                        matches!(key.code, K::BackTab | K::Up) || key.modifiers.contains(M::SHIFT),
+                    );
                 } else if (alt && key.code == K::Char('i'))
-                    || (draft.field == BookmarkField::Icon
-                        && matches!(key.code, K::Enter | K::Char(' ')))
+                    || (draft.field == BookmarkField::Icon && key.code == K::Char(' '))
                 {
                     let index = crate::icons::BOOKMARK_ICONS
                         .iter()
@@ -995,8 +1001,6 @@ pub fn run(
                         query: String::new(),
                         index,
                     };
-                } else if key.code == K::Enter {
-                    draft.field = draft.field.next(false);
                 } else if let Some(field) = draft.field.editor() {
                     let text = if draft.field == BookmarkField::Name {
                         &mut draft.name
@@ -1026,11 +1030,6 @@ pub fn run(
                     K::Enter => {
                         if let Some(&i) = matches.get(*index) {
                             draft.icon = crate::icons::BOOKMARK_ICONS[i].1.map(|g| g.to_string());
-                            // Return to an editable buffer so Neovim can write
-                            // or close the completed form.
-                            if draft.field == BookmarkField::Icon {
-                                draft.field = BookmarkField::Name;
-                            }
                             focus = Focus::BookmarkEdit(draft.clone());
                         }
                     }
@@ -1584,17 +1583,27 @@ fn save_bookmark(app: &mut App, focus: &mut Focus) {
     let Focus::BookmarkEdit(draft) = focus else {
         return;
     };
-    let result = draft
-        .bookmark(&app.cwd, app.home.as_deref())
-        .and_then(|bookmark| {
-            app.bookmark_store.commit(
-                &app.bookmarks,
-                &BookmarkChange::Put {
-                    index: draft.editing,
-                    bookmark,
-                },
-            )
-        });
+    let back = Focus::Bookmarks {
+        query: draft.query.clone(),
+        index: draft.index,
+    };
+    let bookmark = draft.bookmark(&app.cwd, app.home.as_deref());
+    // An unchanged existing bookmark leaves the configuration untouched.
+    if let (Some(index), Ok(bookmark)) = (draft.editing, &bookmark)
+        && app.bookmarks.get(index) == Some(bookmark)
+    {
+        *focus = back;
+        return;
+    }
+    let result = bookmark.and_then(|bookmark| {
+        app.bookmark_store.commit(
+            &app.bookmarks,
+            &BookmarkChange::Put {
+                index: draft.editing,
+                bookmark,
+            },
+        )
+    });
     match result {
         Ok(bookmarks) => {
             let index = draft.editing.unwrap_or(app.bookmarks.len());

@@ -224,6 +224,9 @@ pub struct App {
     refreshed: Option<(RefreshBasis, String)>,
     pub rows: Vec<Candidate>,
     pub highlight: Option<PathBuf>,
+    /// After a bookmark jump, the highlight follows the first row while the
+    /// scan streams in and the query changes, until the user moves it.
+    pub highlight_top: bool,
     pub marks: Vec<PathBuf>,
     pub rendered: Vec<PathBuf>,
     pub offset: usize,
@@ -274,6 +277,7 @@ impl App {
             refreshed: None,
             rows: Vec::new(),
             highlight: None,
+            highlight_top: false,
             marks: Vec::new(),
             rendered: Vec::new(),
             offset: 0,
@@ -310,6 +314,7 @@ impl App {
         }
         self.offset = 0;
         self.highlight = None;
+        self.highlight_top = false;
     }
     pub fn eligible(&self, c: &Candidate) -> bool {
         if c.depth > self.depth {
@@ -413,10 +418,11 @@ impl App {
         self.keep_highlight();
     }
     fn keep_highlight(&mut self) {
-        if !self
-            .rows
-            .iter()
-            .any(|c| Some(&c.path) == self.highlight.as_ref())
+        if self.highlight_top
+            || !self
+                .rows
+                .iter()
+                .any(|c| Some(&c.path) == self.highlight.as_ref())
         {
             self.highlight = self.rows.first().map(|c| c.path.clone());
         }
@@ -432,6 +438,7 @@ impl App {
             .unwrap_or(0);
         let i = i.saturating_add_signed(amount).min(self.rows.len() - 1);
         self.highlight = Some(self.rows[i].path.clone());
+        self.highlight_top = false;
     }
     /// One row down or up, wrapping from the last row to the first and back.
     pub fn step(&mut self, forward: bool) {
@@ -533,6 +540,7 @@ impl App {
         match bookmark.path.canonicalize() {
             Ok(path) if path.is_dir() => {
                 self.navigate(path, false);
+                self.highlight_top = true;
                 true
             }
             _ => {
@@ -554,6 +562,7 @@ impl App {
                 candidate.directory = candidate.path.is_dir();
             }
             self.highlight = Some(candidate.path.clone());
+            self.highlight_top = false;
             if candidate.directory {
                 // A cached file that became a directory is not entered either.
                 if !self.can_navigate() {

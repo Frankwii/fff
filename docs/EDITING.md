@@ -77,13 +77,13 @@ and Ctrl+w retain their fff actions in results/marks. Space in Normal mode
 marks/unmarks like Tab; in Insert mode it types a space. The marked list always
 accepts Space because it has no text field.
 
-Exclusions, bookmark forms, rename lists, extraction destinations and new names
+Exclusions, rename lists, extraction destinations and new names
 use Neovim's buffer lifecycle. Press `ZZ` to write and close (apply), or `ZQ`
 to close without writing (discard); `:wq` and `:q!` do the same. In these
 buffers `ZZ` always writes, so it applies even when nothing was edited (native
 `ZZ` would close an unchanged buffer without writing). `:w` records a snapshot but keeps editing; closing later applies that last
-written snapshot and discards any edits made since. Unchanged exclusions or
-existing bookmarks leave the stored data alone. Validation errors keep the
+written snapshot and discards any edits made since. Unchanged exclusions leave
+the stored data alone. Validation errors keep the
 previous data, close the editor, and show a short error at the bottom. Exclusion
 errors include the line number; blank lines are ignored.
 
@@ -92,21 +92,25 @@ File operation details and safety guarantees are described in
 
 Apart from that `ZZ` mapping, these editors have no fff Escape or Ctrl+s
 bindings in Neovim: those keys go to Neovim, including its native `ZQ` (quit
-without writing). Escape in Normal mode leaves the editor open. In bookmark forms,
-Tab/Shift+Tab switches fields and Alt+i opens the icon chooser. Writing a name
-or path buffer records the whole form at that point; closing a field applies
-the last written form and returns to the bookmark chooser. Exclusions return
-to the main screen. Basic editing uses Ctrl+s to apply and Escape to discard;
+without writing). Escape in Normal mode leaves the editor open. Exclusions return
+to the main screen.
+
+Bookmark forms are not buffer-lifecycle editors: Enter saves and Escape in
+Normal mode cancels, like the location prompt. Escape from Insert/Visual mode
+and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
+and `ZQ`/`:q!` also save or cancel. Tab/Shift+Tab or Up/Down switch fields and
+Alt+i opens the icon chooser. Save errors keep the form open. Basic editing uses Ctrl+s to apply and Escape to discard;
 `ZZ` is literal text. Rebind list marking with `[keys.normal] mark`; the legacy
 `apply` setting is accepted but ignored.
 
 Enter in results navigates or confirms; in locations/bookmarks it navigates; in
-palettes it applies the selected palette. Pending Neovim input and command-line
+bookmark forms it saves; in palettes it applies the selected palette. Pending Neovim input and command-line
 entry receive Enter instead. In exclusions, Enter retains Neovim's behavior.
 
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
-Escape when already Normal clears the main query or closes subordinate choosers;
-exclusion and bookmark editing buffers keep Escape inside Neovim.
+Escape when already Normal clears the main query, closes subordinate choosers
+or cancels the bookmark form; exclusion and operation buffers keep Escape inside
+Neovim.
 It never exits the session. With basic editing it clears/closes immediately.
 
 Digits are Vim counts in Normal mode and query text in Insert/basic mode.

@@ -87,14 +87,14 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l | Enter highlighted directory only |
 | Alt+g | Location prompt |
-| Alt+b | Bookmark chooser; Alt+n adds, Alt+e edits, Alt+d deletes, Alt+r reloads |
+| Alt+b | Bookmark chooser; Alt+n adds, Alt+e edits, Alt+d deletes, Alt+Up/Down reorders, Alt+r reloads |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 |
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
-| ZZ / ZQ | In Neovim buffers (exclusions, bookmarks, operations), save and close / discard and close; `:wq` / `:q!` also work |
+| ZZ / ZQ | In Neovim buffers (exclusions, operations), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
@@ -155,10 +155,9 @@ fff --config docs/config.example.toml --check-config
 - [Palette catalog](docs/PALETTES.md): built-ins, live switching and color sources.
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 
-In the bookmark editor, Tab switches fields, Alt+i opens a searchable Nerd Font
-icon picker. With Neovim, `ZZ` saves and closes, `ZQ` discards (`:wq` / `:q!`
-also work); basic editing uses Ctrl+s / Escape. Saves update the
-active TOML file; `--no-config`
+In the bookmark editor, Enter saves and Escape cancels, Tab switches fields and
+Alt+i opens a searchable Nerd Font icon picker. In the chooser, Alt+Up/Alt+Down
+reorder bookmarks. Saves update the active TOML file; `--no-config`
 keeps edits for this session only.
 
 Discovery is asynchronous and breadth first. Ready results wake the UI immediately;

@@ -507,12 +507,12 @@ class TerminalTests(unittest.TestCase):
         config.write_text("# Keep my comment\n[ui]\npalette='nord'\n")
         s = self.start("--config", str(config), implicit_root=True)
         s.send(b"\x1bb", "Bookmarks")
-        s.send(b"\x1bn", "Add bookmark")
+        s.send(b"\x1bn", "New bookmark")
         s.send(b"\x7f" * len(self.root.name) + b"Notes", "Notes")
         s.send(b"\x1bi", "Bookmark icons")
         s.send(b"home", "Home house")
-        s.send(b"\r", "Add bookmark")
-        s.send(b"\x13", "Bookmark saved")
+        s.send(b"\r", "New bookmark")
+        s.send(b"\r", "Bookmark saved")
         saved = tomllib.loads(config.read_text())["bookmarks"][0]
         self.assertEqual(saved, dict(name="Notes", path=str(self.root), icon="\uf015"))
         self.assertIn("# Keep my comment", config.read_text())
@@ -521,9 +521,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bi", "Bookmark icons")
         s.send(b"automatic", "Automatic")
         s.send(b"\r", "Edit bookmark")
-        s.send(b"\x13")
+        s.send(b"\r")
         s.wait_absent("Edit bookmark")
-        s.wait_absent("Add bookmark")
+        s.wait_absent("New bookmark")
         s.wait_ui("Bookmark saved")
         saved = tomllib.loads(config.read_text())["bookmarks"][0]
         self.assertEqual(saved, dict(name="Renamed", path=str(self.root)))
@@ -533,11 +533,11 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b")
         s.wait_absent("Edit bookmark")
         self.assertEqual(config.read_text(), before)
-        s.send(b"\x1bd", "Delete bookmark?")
+        s.send(b"\x1bd", "Delete bookmark")
         s.send(b"\x1b")
-        s.wait_absent("Delete bookmark?")
+        s.wait_absent("Delete bookmark")
         self.assertEqual(config.read_text(), before)
-        s.send(b"\x1bd", "Delete bookmark?")
+        s.send(b"\x1bd", "Delete bookmark")
         s.send(b"\r", "Bookmark deleted")
         self.assertEqual(tomllib.loads(config.read_text()).get("bookmarks", []), [])
         self.assertTrue(self.root.is_dir())
@@ -551,8 +551,8 @@ class TerminalTests(unittest.TestCase):
         s = self.start(implicit_root=True, environment=environment)
         self.assertFalse(config.exists())
         s.send(b"\x1bb", "Bookmarks")
-        s.send(b"\x1bn", "Add bookmark")
-        s.send(b"\x13", "Bookmark saved")
+        s.send(b"\x1bn", "New bookmark")
+        s.send(b"\r", "Bookmark saved")
         self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["path"], str(self.root))
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -569,8 +569,8 @@ class TerminalTests(unittest.TestCase):
     def test_live_bookmarks_session_only_and_external_reload(self):
         s = self.start(implicit_root=True)
         s.send(b"\x1bb", "Bookmarks")
-        s.send(b"\x1bn", "Add bookmark")
-        s.send(b"\x13", "for this session")
+        s.send(b"\x1bn", "New bookmark")
+        s.send(b"\r", "for this session")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
@@ -580,8 +580,9 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--config", str(config), implicit_root=True)
         s.send(b"\x1bb", "Before")
         s.send(b"\x1be", "Edit bookmark")
+        s.send(b"!", "Before!")
         config.write_text("[[bookmarks]]\nname='External'\npath='.'\n")
-        s.send(b"\x13", "Alt+r")
+        s.send(b"\r", "changed on disk")
         self.assertIn("External", config.read_text())
         s.send(b"\x1b")
         s.wait_absent("Edit bookmark")
@@ -594,55 +595,101 @@ class TerminalTests(unittest.TestCase):
     def test_live_bookmark_nvim_form_and_icon_picker(self):
         s = self.start(implicit_root=True, editor="nvim")
         s.send(b"\x1bb", "Bookmarks")
-        s.send(b"\x1bn", "Add bookmark")
+        s.send(b"\x1bn", "New bookmark")
         self.assertIn("NORMAL", s.screen.text)
         s.send(b"ccNotes", "Notes")
         s.send(b"\x1bi", "Bookmark icons")
         self.assertIn("NORMAL", s.screen.text)
         s.send(b"ihome", "Home house")
         s.send(b"\x1b", "NORMAL")
-        s.send(b"\r", "Add bookmark")
-        s.send(b"\x1b[27u:wq\r")
-        s.wait_absent("Edit bookmark")
-        s.wait_absent("Add bookmark")
+        s.send(b"\r", "New bookmark")
+        s.send(b"\r")
+        s.wait_absent("New bookmark")
         s.wait_ui("Bookmark saved")
         self.assertIn("Notes", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
-    def test_bookmark_neovim_writes_apply_only_on_close(self):
+    def test_bookmark_neovim_enter_saves_and_escape_cancels(self):
         config = self.root / "config.toml"
         config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
+        name = lambda: tomllib.loads(config.read_text())["bookmarks"][0]["name"]
         s = self.start("--config", str(config), editor="nvim", implicit_root=True)
         s.send(b"\x1bb", "Before")
+        # Escape leaves Insert first; a second Escape cancels the form.
         s.send(b"\x1be", "Edit bookmark")
         s.send(b"ccDiscarded", "Discarded")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"\x1b[27u", "Edit bookmark")
-        s.send(b"\x13", "Edit bookmark")
-        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Before")
-        s.send(b":q!\r", "Bookmarks ·")
+        self.assertIn("Edit bookmark", s.screen.text)
+        s.send(b"\x1b[27u", "Bookmarks ·")
         s.wait_absent("Edit bookmark")
-        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Before")
+        self.assertEqual(name(), "Before")
+        # Enter saves straight from Insert mode.
         s.send(b"\x1be", "Edit bookmark")
-        s.send(b"ccWritten", "Written")
-        s.send(b"\x1b[27u:w\r", "Edit bookmark")
-        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Before")
-        s.send(b"ccUnsaved", "Unsaved")
-        s.send(b"\x1b[27u:q!\r", "Bookmark saved")
+        s.send(b"ccWritten\r", "Bookmark saved")
         s.wait_absent("Edit bookmark")
-        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Written")
-        s.send(b"\x1be", "Edit bookmark")
+        self.assertEqual(name(), "Written")
+        # Validation errors keep the form open; nothing is written.
         before = config.read_text()
-        s.send(b"dd:wq\r", "Bookmark name must not be empty")
-        s.wait_absent("Edit bookmark")
-        self.assertEqual(config.read_text(), before)
-        # An unchanged, explicitly written existing bookmark is a no-op.
         s.send(b"\x1be", "Edit bookmark")
-        s.send(b":wq\r", "Bookmarks ·")
+        s.send(b"dd\r", "Bookmark name must not be empty")
+        self.assertIn("Edit bookmark", s.screen.text)
+        s.send(b"\x1b[27u", "Bookmarks ·")
+        self.assertEqual(config.read_text(), before)
+        # An unchanged bookmark is a no-op.
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"\r", "Bookmarks ·")
         s.wait_absent("Edit bookmark")
         self.assertEqual(config.read_text(), before)
+        # Command-line Enter stays in Neovim; the next Enter saves.
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b":s/Written/Command/\r", "Command")
+        self.assertIn("Edit bookmark", s.screen.text)
+        self.assertEqual(name(), "Written")
+        s.send(b"\r", "Bookmark saved")
+        self.assertEqual(name(), "Command")
+        # Neovim's own ZZ still saves.
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"ccZed\x1b[27uZZ", "Bookmark saved")
+        s.wait_absent("Edit bookmark")
+        self.assertEqual(name(), "Zed")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_alt_arrows_reorder_bookmarks_among_visible_rows(self):
+        config = self.root / "config.toml"
+        config.write_text(
+            "# mine\n[[bookmarks]]\nname='red1'\npath='.'\n\n"
+            "[[bookmarks]]\nname='blue'\npath='.'\n\n"
+            "[[bookmarks]]\nname='red2'\npath='.'\n"
+        )
+        order = lambda: [b["name"] for b in tomllib.loads(config.read_text())["bookmarks"]]
+
+        def wait_order(expected):
+            deadline = time.monotonic() + 5
+            while order() != expected and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertEqual(order(), expected)
+
+        s = self.start("--config", str(config), implicit_root=True)
+        s.send(b"\x1bb", "red2")
+        s.send(b"\x1b[1;3B")
+        wait_order(["blue", "red1", "red2"])
+        s.send(b"\x1b[1;3B")
+        wait_order(["blue", "red2", "red1"])
+        s.send(b"\x1b[1;3B")  # already last: nothing moves
+        s.send(b"\x1b[1;3A")
+        wait_order(["blue", "red1", "red2"])
+        self.assertIn("# mine", config.read_text())
+        # Filtered rows move past their visible neighbour.
+        s.send(b"red", "red2")
+        s.wait_absent("blue")
+        s.send(b"\x1b[1;3B")
+        wait_order(["blue", "red2", "red1"])
+        # The highlight follows the moved bookmark: Enter opens red1.
+        s.send(b"\x1b[1;3A")
+        wait_order(["blue", "red1", "red2"])
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

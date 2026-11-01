@@ -193,6 +193,47 @@ fn inline_bookmarks_and_icon_removal_preserve_other_configuration() {
 }
 
 #[test]
+fn swapping_reorders_tables_with_their_comments_and_inline_arrays_in_place() {
+    let f = Fixture::new();
+    fs::write(
+        f.path(),
+        "[ui]\npalette = 'nord'\n\n# first\n[[bookmarks]]\nname = 'One'\npath = 'one'\n\n\
+         # second\n[[bookmarks]]\nname = 'Two'\npath = 'two' # trailing\n\n[cache]\nenabled = true\n",
+    )
+    .unwrap();
+    let initial = f.load();
+    let mut store = Store::new(Some(f.path()), initial.clone(), None);
+    let next = store.commit(&initial, &Change::Swap(1, 0)).unwrap();
+    assert_eq!(next, vec![initial[1].clone(), initial[0].clone()]);
+    assert_eq!(f.load(), next);
+    let text = fs::read_to_string(f.path()).unwrap();
+    let (two, one) = (
+        text.find("# second").unwrap(),
+        text.find("# first").unwrap(),
+    );
+    assert!(two < one, "{text}");
+    assert!(text.contains("path = 'two' # trailing") && text.contains("[cache]\nenabled = true"));
+    assert!(text.find("[ui]").unwrap() < two && text.find("[cache]").unwrap() > one);
+    assert!(store.commit(&next, &Change::Swap(1, 2)).is_err());
+    assert_eq!(f.load(), next);
+
+    let f = Fixture::new();
+    fs::write(
+        f.path(),
+        "bookmarks = [\n  { name = 'One', path = 'one' },\n  { name = 'Two', path = 'two' },\n] # list\n",
+    )
+    .unwrap();
+    let initial = f.load();
+    let mut store = Store::new(Some(f.path()), initial.clone(), None);
+    let next = store.commit(&initial, &Change::Swap(0, 1)).unwrap();
+    assert_eq!(f.load(), next);
+    assert_eq!(
+        fs::read_to_string(f.path()).unwrap(),
+        "bookmarks = [\n  { name = 'Two', path = 'two' },\n  { name = 'One', path = 'one' },\n] # list\n"
+    );
+}
+
+#[test]
 fn unrelated_disk_edits_merge_but_changed_bookmarks_require_reload() {
     let f = Fixture::new();
     fs::write(f.path(), "[ui]\npalette = 'nord'\n").unwrap();
