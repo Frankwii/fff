@@ -1,10 +1,14 @@
-use crate::{App, EnterOutcome, discovery::Discovery};
+use crate::{
+    App, EnterOutcome,
+    discovery::Discovery,
+    editor::{EditView, Field, Nvim},
+};
 use crossterm::{
-    cursor::{Hide, Show},
+    cursor::{Hide, SetCursorStyle, Show},
     event::{
-        self, Event, KeyCode as K, KeyEvent, KeyEventKind, KeyModifiers as M,
-        KeyboardEnhancementFlags as Flags, PopKeyboardEnhancementFlags,
-        PushKeyboardEnhancementFlags,
+        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode as K, KeyEvent,
+        KeyEventKind, KeyModifiers as M, KeyboardEnhancementFlags as Flags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{
@@ -44,6 +48,7 @@ impl Terminal {
             guard.0.backend_mut(),
             EnterAlternateScreen,
             Hide,
+            EnableBracketedPaste,
             PushKeyboardEnhancementFlags(
                 Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
             )
@@ -58,6 +63,8 @@ impl Drop for Terminal {
             EndSynchronizedUpdate,
             PopKeyboardEnhancementFlags,
             Show,
+            DisableBracketedPaste,
+            SetCursorStyle::DefaultUserShape,
             LeaveAlternateScreen
         );
         let _ = terminal::disable_raw_mode();
@@ -69,10 +76,23 @@ pub fn run(
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     watcher: Option<crate::reload::PaletteWatcher>,
+    backend: crate::config::EditorBackend,
 ) -> io::Result<Option<Vec<PathBuf>>> {
     let mut terminal = Terminal::enter()?;
     let mut discovery = Discovery::new(cache);
     discovery.start(&mut app, true);
+    let mut editor = match backend {
+        crate::config::EditorBackend::Basic => None,
+        crate::config::EditorBackend::Nvim => match Nvim::start() {
+            Ok(editor) => Some(editor),
+            Err(error) => {
+                app.status = format!("Using basic editing: {error}");
+                None
+            }
+        },
+    };
+    let mut editor_directory = app.cwd.clone();
+    let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     loop {
         if let Some(watcher) = &watcher {
@@ -90,6 +110,41 @@ pub fn run(
             }
         }
         discovery.drain(&mut app);
+        if editor_directory != app.cwd {
+            editor_directory = app.cwd.clone();
+            if let Some(e) = &mut editor {
+                e.reset(Field::Query);
+            }
+        }
+        if let Some((field, text)) = text_field(&app, &focus) {
+            if let Some(e) = &mut editor {
+                match e.activate(field, &text) {
+                    Ok(view) => app.edit_view = Some(view),
+                    Err(error) => {
+                        app.status = format!("Using basic editing: {error}");
+                        editor = None;
+                        app.edit_view = None;
+                    }
+                }
+            }
+        } else {
+            app.edit_view = None;
+        }
+        let desired = app
+            .edit_view
+            .as_ref()
+            .map(|view| {
+                if view.mode.starts_with('i') {
+                    SetCursorStyle::SteadyBar
+                } else {
+                    SetCursorStyle::SteadyBlock
+                }
+            })
+            .unwrap_or(SetCursorStyle::DefaultUserShape);
+        if desired != cursor_shape {
+            execute!(terminal.0.backend_mut(), desired)?;
+            cursor_shape = desired;
+        }
         let mut completed = None;
         execute!(terminal.0.backend_mut(), BeginSynchronizedUpdate)?;
         let drawn = terminal
@@ -108,7 +163,53 @@ pub fn run(
         if !event::poll(Duration::from_millis(30))? {
             continue;
         }
-        let Event::Key(key) = event::read()? else {
+        let event = event::read()?;
+        if let Event::Paste(text) = event {
+            let field = text_field(&app, &focus).map(|(field, _)| field);
+            if let Some(field) = field {
+                let text = if field == Field::Exclusions {
+                    text
+                } else {
+                    text.replace(['\r', '\n'], " ")
+                };
+                match &mut focus {
+                    Focus::Results => {
+                        paste(
+                            &mut app.query,
+                            &text,
+                            field,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                        app.offset = 0;
+                        app.refresh();
+                    }
+                    Focus::Exclusions(value) | Focus::Location(value) => paste(
+                        value,
+                        &text,
+                        field,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    ),
+                    Focus::Bookmarks { query, index } => {
+                        paste(
+                            query,
+                            &text,
+                            field,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                        *index = 0;
+                    }
+                    _ => {}
+                }
+            }
+            continue;
+        }
+        let Event::Key(key) = event else {
             continue;
         };
         if key.kind == KeyEventKind::Release {
@@ -119,6 +220,58 @@ pub fn run(
         };
         if key.modifiers.contains(M::CONTROL) && key.code == K::Char('c') {
             return Ok(None);
+        }
+        let capture = app.edit_view.as_ref().is_some_and(|v| {
+            (key.code == K::Esc && !v.normal())
+                || (v.command() && !key.modifiers.intersects(M::ALT | M::CONTROL))
+        });
+        if capture {
+            match &mut focus {
+                Focus::Results => {
+                    edit(
+                        &mut app.query,
+                        key,
+                        false,
+                        Field::Query,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                    app.refresh();
+                }
+                Focus::Exclusions(value) => edit(
+                    value,
+                    key,
+                    true,
+                    Field::Exclusions,
+                    &mut editor,
+                    &mut app.edit_view,
+                    &mut app.status,
+                ),
+                Focus::Location(value) => edit(
+                    value,
+                    key,
+                    false,
+                    Field::Location,
+                    &mut editor,
+                    &mut app.edit_view,
+                    &mut app.status,
+                ),
+                Focus::Bookmarks { query, index } => {
+                    edit(
+                        query,
+                        key,
+                        false,
+                        Field::Bookmarks,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                    *index = 0;
+                }
+                _ => {}
+            }
+            continue;
         }
         let ctrl = key.modifiers.contains(M::CONTROL);
         let alt = key.modifiers.contains(M::ALT);
@@ -176,7 +329,15 @@ pub fn run(
                     }
                     _ => {
                         let before = query.clone();
-                        edit(query, key, false);
+                        edit(
+                            query,
+                            key,
+                            false,
+                            Field::Bookmarks,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
                         if *query != before {
                             *index = 0;
                         }
@@ -210,7 +371,15 @@ pub fn run(
                 } else if key.code == K::Esc {
                     focus = Focus::Results;
                 } else {
-                    edit(text, key, true);
+                    edit(
+                        text,
+                        key,
+                        true,
+                        Field::Exclusions,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
                 }
             }
             Focus::Location(text) => {
@@ -232,7 +401,15 @@ pub fn run(
                 } else if key.code == K::Esc {
                     focus = Focus::Results;
                 } else {
-                    edit(text, key, false);
+                    edit(
+                        text,
+                        key,
+                        false,
+                        Field::Location,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
                 }
             }
             Focus::Marks { rows, index } => {
@@ -340,7 +517,15 @@ pub fn run(
                 }
                 _ => {
                     let before = app.query.clone();
-                    edit(&mut app.query, key, false);
+                    edit(
+                        &mut app.query,
+                        key,
+                        false,
+                        Field::Query,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
                     if app.query != before {
                         app.offset = 0;
                         app.refresh();
@@ -367,13 +552,68 @@ pub fn alt_numbered_key(key: KeyEvent) -> Option<u32> {
     }
     None
 }
-fn edit(text: &mut String, key: KeyEvent, multiline: bool) {
-    match key.code {
-        K::Backspace => {
-            text.pop();
+fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
+    match focus {
+        Focus::Results => Some((Field::Query, app.query.clone())),
+        Focus::Location(text) => Some((Field::Location, text.clone())),
+        Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
+        Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),
+        _ => None,
+    }
+}
+fn edit(
+    text: &mut String,
+    key: KeyEvent,
+    multiline: bool,
+    field: Field,
+    editor: &mut Option<Nvim>,
+    view: &mut Option<EditView>,
+    status: &mut String,
+) {
+    if let Some(e) = editor {
+        match e.input(field, key) {
+            Ok((updated, state)) => {
+                *text = updated;
+                *view = Some(state);
+            }
+            Err(error) => {
+                *status = format!("Using basic editing: {error}");
+                *editor = None;
+                *view = None;
+            }
         }
-        K::Enter if multiline => text.push('\n'),
-        K::Char(c) if !key.modifiers.intersects(M::CONTROL | M::ALT) => text.push(c),
-        _ => {}
+    } else {
+        match key.code {
+            K::Backspace => {
+                text.pop();
+            }
+            K::Enter if multiline => text.push('\n'),
+            K::Char(c) if !key.modifiers.intersects(M::CONTROL | M::ALT) => text.push(c),
+            _ => {}
+        }
+    }
+}
+fn paste(
+    text: &mut String,
+    value: &str,
+    field: Field,
+    editor: &mut Option<Nvim>,
+    view: &mut Option<EditView>,
+    status: &mut String,
+) {
+    if let Some(e) = editor {
+        match e.paste(field, value) {
+            Ok((updated, state)) => {
+                *text = updated;
+                *view = Some(state);
+            }
+            Err(error) => {
+                *status = format!("Using basic editing: {error}");
+                *editor = None;
+                *view = None;
+            }
+        }
+    } else {
+        text.push_str(value);
     }
 }

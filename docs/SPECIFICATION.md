@@ -1,7 +1,7 @@
 # picker specification
 
 Status: first implementation. The user authorized implementation on 2026-10-31.
-The active examples remain authoritative; sections 14–18 record decisions made for
+The active examples remain authoritative; sections 14–19 record decisions made for
 this version. See README.md for usage, implementation limits, and verification.
 
 ## 1. Purpose and source authority
@@ -501,3 +501,23 @@ Palette-only config reload runs off the input thread, retains working colors on
 invalid edits, honors a CLI-pinned palette name, and preserves session state.
 The cache/palette revision is committed before the separate experimental text
 editing work requested by the user.
+
+
+## 19. Experimental clean Neovim text editing
+
+The user requested a separate experimental commit providing Vim-like editing in
+all text fields, preferably a clean Neovim instance. Investigation/prototyping
+confirmed the documented stdio MessagePack-RPC API supports this. `--editor nvim`
+or `[editor] backend="nvim"` enables the real clean engine; default `basic` remains
+available and is the fallback on missing/broken Neovim. All four text fields use
+independent scratch buffers with real motions/operators/undo/registers, modal
+Escape, visible mode/cursor/selection, command-line editing, and bracketed paste.
+
+Picker shortcuts retain their application actions. Insert/Visual/pending Escape
+first returns toward Normal; Normal Escape clears/cancels as appropriate. During
+pending Vim input and command-line entry, editing input (including Enter) goes to
+Neovim. This explicit experimental mode supersedes the prior unconditional
+printable-query/Escape behavior only when enabled. No personal config/plugins or
+persistent editor files are used. The process is private, time-bounded on RPC,
+and reaped on exit. See [EDITING.md](EDITING.md) for tested behavior and the
+boundary between field editing and a full Neovim window UI.

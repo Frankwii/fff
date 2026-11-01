@@ -181,3 +181,18 @@ fn official_palette_variants_and_aliases() {
         Palette::named("tokyonight-night")
     );
 }
+
+#[test]
+fn experimental_editor_config_is_opt_in_and_validated() {
+    use picker::config::EditorBackend;
+    assert!(matches!(
+        parse("").unwrap().editor.backend,
+        EditorBackend::Basic
+    ));
+    assert!(matches!(
+        parse("[editor]\nbackend='nvim'").unwrap().editor.backend,
+        EditorBackend::Nvim
+    ));
+    assert!(parse("[editor]\nbackend='unknown'").is_err());
+    assert!(parse("[editor]\nbacked='nvim'").is_err());
+}

@@ -49,7 +49,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 A missing default file uses defaults. An explicitly requested missing file,
 invalid TOML, unknown field, unknown palette, or invalid setting produces a clear
 startup error naming the file. Picker does not create or rewrite your config.
-Palette edits reload live; bookmark/cache edits take effect on the next invocation.
+Palette edits reload live; bookmark/cache/editor edits take effect on the next invocation.
 Existing CLI discovery/output options
 continue to work independently of this file.
 
@@ -222,3 +222,15 @@ query/mark independence, LRU eviction, deterministic expiry, snapshot bounds,
 partial/error/cancelled-scan rejection, stale events, overlap attribution,
 filesystem reconciliation, empty-directory safety, and forced refresh. Terminal
 checks also revisit a directory after changing its files.
+
+
+## Experimental modal text editing
+
+```toml
+[editor]
+backend = "nvim" # Default: "basic"; CLI override: --editor nvim
+```
+
+This uses a clean headless Neovim instance for every editable field. See the
+[editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics,
+reserved picker shortcuts, dependency/fallback behavior, and tested boundaries.

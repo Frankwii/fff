@@ -2,6 +2,7 @@
 mod cache;
 pub mod config;
 pub mod discovery;
+pub mod editor;
 pub mod keys;
 mod palettes;
 pub mod reload;
@@ -118,6 +119,7 @@ pub struct App {
     pub status: String,
     pub physical_empty: bool,
     pub cache_pending: bool,
+    pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
     pub bookmarks: Vec<config::Bookmark>,
 }
@@ -148,6 +150,7 @@ impl App {
             status: String::new(),
             physical_empty: false,
             cache_pending: false,
+            edit_view: None,
             palette: config::Palette::default(),
             bookmarks: Vec::new(),
         }

@@ -95,6 +95,19 @@ impl Palette {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum EditorBackend {
+    #[default]
+    Basic,
+    Nvim,
+}
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct EditorConfig {
+    pub backend: EditorBackend,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CacheConfig {
@@ -135,6 +148,7 @@ pub struct Bookmark {
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawConfig {
+    editor: EditorConfig,
     ui: UiConfig,
     palettes: BTreeMap<String, BTreeMap<String, String>>,
     bookmarks: Vec<RawBookmark>,
@@ -160,6 +174,7 @@ struct RawBookmark {
 }
 #[derive(Default)]
 pub struct Settings {
+    pub editor: EditorConfig,
     pub palette: Palette,
     pub bookmarks: Vec<Bookmark>,
     pub cache: CacheConfig,
@@ -233,6 +248,7 @@ impl Settings {
             });
         }
         Ok(Self {
+            editor: raw.editor,
             palette,
             bookmarks,
             cache: raw.cache,

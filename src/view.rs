@@ -1,5 +1,5 @@
 //! Terminal presentation. Rendering returns the exact numbered targets in a frame.
-use crate::{App, Candidate, config::Palette, ui::Focus};
+use crate::{App, Candidate, config::Palette, editor::Field, ui::Focus};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -162,22 +162,22 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::Info { offset } => details(frame, area, app, offset),
         Focus::Exclusions(text) => prompt(
             frame,
-            app.palette,
+            app,
             area,
-            " Edit exclusions ",
+            Field::Exclusions,
+            "Edit exclusions",
             text,
             true,
-            &app.status,
         ),
         Focus::Bookmarks { query, index } => bookmarks(frame, area, app, query, *index),
         Focus::Location(text) => prompt(
             frame,
-            app.palette,
+            app,
             area,
-            " Go to directory ",
+            Field::Location,
+            "Go to directory",
             text,
             false,
-            &app.status,
         ),
         _ => {}
     }
@@ -250,36 +250,120 @@ fn header(frame: &mut Frame, area: Rect, app: &App) {
         Rect::new(area.x, area.y + 1, area.width, 1),
     );
 }
+fn mode_title(app: &App, field: Field, title: &str) -> String {
+    app.edit_view
+        .as_ref()
+        .filter(|v| v.field == field)
+        .map(|v| format!(" {title} · {} ", v.label()))
+        .unwrap_or_else(|| format!(" {title} "))
+}
+fn editable_line(
+    app: &App,
+    field: Field,
+    text: &str,
+    row: usize,
+    width: usize,
+) -> (Line<'static>, u16) {
+    let theme = app.palette;
+    let view = app.edit_view.as_ref().filter(|v| v.field == field);
+    let (text, column) = if let Some(v) = view.filter(|v| v.mode.starts_with('c')) {
+        (v.command.as_str(), v.command_column)
+    } else {
+        (
+            text,
+            view.filter(|v| v.row == row)
+                .map(|v| v.column)
+                .unwrap_or(text.len()),
+        )
+    };
+    let mut column = column.min(text.len());
+    while !text.is_char_boundary(column) {
+        column -= 1;
+    }
+    let cursor = safe(&text[..column]).width();
+    let start = cursor.saturating_add(1).saturating_sub(width);
+    let mut spans = Vec::new();
+    let mut used = 0;
+    let mut x = 0;
+    if start > 0 && width > 0 {
+        spans.push(styled("…", theme.muted));
+        used = 1;
+    }
+    for (byte, c) in text.char_indices() {
+        let shown = safe(c.to_string());
+        let w = shown.width();
+        if x < start {
+            x += w;
+            continue;
+        }
+        if used + w > width {
+            break;
+        }
+        let selected = view
+            .and_then(|v| {
+                v.anchor.map(|anchor| {
+                    let current = (v.row, v.column);
+                    let (begin, end) = if anchor <= current {
+                        (anchor, current)
+                    } else {
+                        (current, anchor)
+                    };
+                    if v.mode == "V" {
+                        row >= begin.0 && row <= end.0
+                    } else if v.mode == "\u{16}" {
+                        row >= begin.0
+                            && row <= end.0
+                            && byte >= anchor.1.min(current.1)
+                            && byte <= anchor.1.max(current.1)
+                    } else {
+                        (row, byte) >= begin && (row, byte) <= end
+                    }
+                })
+            })
+            .unwrap_or(false);
+        let style = Style::default().fg(theme.text).bg(if selected {
+            theme.selection
+        } else {
+            theme.panel
+        });
+        spans.push(Span::styled(shown, style));
+        used += w;
+        x += w;
+    }
+    (
+        Line::from(spans),
+        (cursor.saturating_sub(start) + usize::from(start > 0)).min(width.saturating_sub(1)) as u16,
+    )
+}
 fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let theme = app.palette;
-    let block =
-        panel(app.palette, " Filter ", focused, theme.accent).padding(Padding::horizontal(1));
+    let block = panel(
+        app.palette,
+        mode_title(app, Field::Query, "Filter"),
+        focused,
+        theme.accent,
+    )
+    .padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let prefix = "Query: ";
-    let value = if app.query.is_empty() {
-        styled("type to find a file or directory…", theme.muted)
-    } else {
-        styled(
-            elide(
-                &safe(&app.query),
-                inner.width.saturating_sub(prefix.len() as u16 + 1) as usize,
-            ),
-            theme.text,
-        )
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![styled(prefix, theme.accent), value])),
-        inner,
-    );
-    if focused {
-        let cursor = prefix.width() + safe(&app.query).width();
-        frame.set_cursor_position((
-            inner.x + cursor.min(inner.width.saturating_sub(1) as usize) as u16,
-            inner.y,
-        ));
+    let available = inner.width.saturating_sub(prefix.len() as u16) as usize;
+    let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
+    if app.query.is_empty()
+        && !app
+            .edit_view
+            .as_ref()
+            .is_some_and(|v| v.mode.starts_with('c'))
+    {
+        line = Line::from(styled("type to find a file or directory…", theme.muted));
+    }
+    line.spans.insert(0, styled(prefix, theme.accent));
+    frame.render_widget(Paragraph::new(line), inner);
+    if focused && inner.width > 0 {
+        frame.set_cursor_position((inner.x + prefix.len() as u16 + cursor, inner.y));
     }
 }
+
 fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> Rendered {
     let theme = app.palette;
     let block = panel(
@@ -689,13 +773,15 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
 }
 fn prompt(
     frame: &mut Frame,
-    theme: Palette,
+    app: &App,
     area: Rect,
+    field: Field,
     title: &str,
     text: &str,
     multiline: bool,
-    status: &str,
 ) {
+    let status = &app.status;
+    let theme = app.palette;
     let width = area.width.saturating_sub(4).min(84);
     let height = if multiline {
         area.height.saturating_sub(4).min(16)
@@ -709,12 +795,20 @@ fn prompt(
         width,
         height,
     );
-    let block = panel(theme, title, true, theme.marked).padding(Padding::horizontal(1));
+    let block = panel(theme, mode_title(app, field, title), true, theme.marked)
+        .padding(Padding::horizontal(1));
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
+    let modal = app.edit_view.is_some();
     let hint = if multiline {
-        "Exclusions: one glob per line; Ctrl+w applies, Esc cancels"
+        if modal {
+            "Exclusions: one glob per line; Ctrl+w applies; Esc normal / cancel"
+        } else {
+            "Exclusions: one glob per line; Ctrl+w applies, Esc cancels"
+        }
+    } else if modal {
+        "Location · Enter navigates · Esc normal / cancel"
     } else {
         "Location (Enter navigates, Esc cancels)"
     };
@@ -728,24 +822,34 @@ fn prompt(
         inner.width,
         inner.height.saturating_sub(3),
     );
-    let rows = text.split('\n').map(safe).collect::<Vec<_>>();
-    let start = rows.len().saturating_sub(editor.height as usize);
-    let shown: Vec<_> = rows
+    let view = app.edit_view.as_ref().filter(|v| v.field == field);
+    let rows = text.split('\n').collect::<Vec<_>>();
+    let cursor_row = view
+        .map(|v| if v.mode.starts_with('c') { 0 } else { v.row })
+        .unwrap_or(rows.len() - 1);
+    let start = cursor_row.saturating_sub(editor.height.saturating_sub(1) as usize);
+    let mut cursor_x = 0;
+    let shown = rows
         .iter()
+        .enumerate()
         .skip(start)
-        .map(|row| {
-            Line::from(styled(
-                elide(row, editor.width.saturating_sub(1) as usize),
-                theme.text,
-            ))
+        .take(editor.height as usize)
+        .map(|(row, text)| {
+            let (line, x) = editable_line(app, field, text, row, editor.width as usize);
+            if row == cursor_row {
+                cursor_x = x;
+            }
+            line
         })
-        .collect();
+        .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(shown), editor);
     if editor.height > 0 && editor.width > 0 {
-        let last = rows.last().unwrap();
         frame.set_cursor_position((
-            editor.x + last.width().min(editor.width.saturating_sub(1) as usize) as u16,
-            editor.y + (rows.len() - 1 - start).min(editor.height as usize - 1) as u16,
+            editor.x + cursor_x,
+            editor.y
+                + cursor_row
+                    .saturating_sub(start)
+                    .min(editor.height as usize - 1) as u16,
         ));
     }
     if !status.is_empty() {
@@ -768,7 +872,11 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
     );
     let block = panel(
         theme,
-        " Bookmarks · Enter opens · Esc returns ",
+        mode_title(
+            app,
+            Field::Bookmarks,
+            "Bookmarks · Enter opens · Esc returns",
+        ),
         true,
         theme.marked,
     )
@@ -776,13 +884,21 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
+    let (mut line, cursor) = editable_line(
+        app,
+        Field::Bookmarks,
+        query,
+        0,
+        inner.width.saturating_sub(6) as usize,
+    );
+    line.spans.insert(0, styled("Find: ", theme.marked));
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            styled("Find: ", theme.marked),
-            styled(safe(query), theme.text),
-        ])),
+        Paragraph::new(line),
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
+    if inner.width > 6 {
+        frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
+    }
     let list = Rect::new(
         inner.x,
         inner.y + 2,
@@ -1048,6 +1164,34 @@ mod tests {
                 .any(|c| c.fg == Color::Rgb(0x33, 0x44, 0x55))
         );
         assert!(buffer.content().iter().any(|c| c.bg == app.palette.panel));
+    }
+    #[test]
+    fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {
+        let mut app = fixture();
+        app.query = "abcdef".into();
+        app.edit_view = Some(crate::editor::EditView {
+            field: Field::Query,
+            mode: "v".into(),
+            blocking: false,
+            row: 0,
+            column: 1,
+            anchor: Some((0, 0)),
+            command: String::new(),
+            command_column: 0,
+        });
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        let mut focus = Focus::Results;
+        terminal
+            .draw(|f| {
+                render(f, &mut app, &mut focus);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(text(buffer).contains("Filter · VISUAL"));
+        assert_eq!(buffer[(10, 4)].bg, app.palette.selection);
+        assert_eq!(buffer[(11, 4)].bg, app.palette.selection);
+        let cursor = terminal.get_cursor_position().unwrap();
+        assert_eq!((cursor.x, cursor.y), (11, 4));
     }
     fn export_preview(buffer: &Buffer) {
         let Ok(path) = std::env::var("PICKER_PREVIEW") else {

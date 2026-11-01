@@ -98,8 +98,9 @@ ancestor prefixes; a matching directory prunes its subtree. Rules use globset
 syntax (`*`, `?`, classes, `**`), with literal separators. No `.gitignore` or other
 automatic ignore-file integration is enabled. Editor changes are session-local.
 Symlink directories can be selected/navigated, but traversal does not follow them.
-The built-in editors currently support append/backspace editing rather than a
-full editor buffer. No content search or file opener is included.
+The default `basic` text backend supports append/Backspace editing. Opt into real
+Neovim editing in all text fields with `--editor nvim` or `[editor] backend =
+"nvim"` in TOML; see [the experimental editing guide](docs/EDITING.md). No content search or file opener is included.
 
 The Ratatui interface supports configurable palettes, a distinctive current-directory
 banner, rounded pane borders, colored focus

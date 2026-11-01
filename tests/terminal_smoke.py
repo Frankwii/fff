@@ -16,6 +16,7 @@ import termios
 import tempfile
 import time
 import unittest
+import shutil
 from terminal_screen import Screen
 
 BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/picker")
@@ -409,6 +410,78 @@ class TerminalTests(unittest.TestCase):
             self.assertIn(b"48;2;225;226;231", s.ui)
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_query_operators_undo_redo_and_exact_stdout(self):
+        (self.root / "world.txt").touch()
+        s = self.start("--editor", "nvim")
+        s.send(b"hello world", b"Query: hello world")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"0dw", b"Query: world")
+        s.send(b"u", b"Query: hello world")
+        s.send(b"\x12", b"Query: world")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_location_and_bookmark_filter(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-vim-fields-") as folder:
+            target = Path(folder) / "notes"
+            target.mkdir()
+            (target / "note").touch()
+            config = Path(folder) / "config.toml"
+            config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
+            s = self.start("--config", str(config), implicit_root=True)
+            s.send(b"\x1bg", "INSERT")
+            s.send(b"junk " + os.fsencode(target), b"junk")
+            s.send(b"\x1b[27u", "NORMAL")
+            s.send(b"0dw\r", ("cwd", target))
+            s.send(b"\x1bb", "Bookmarks")
+            s.send(b"Junk Notes", "Find: Junk Notes")
+            s.send(b"\x1b[27u", "NORMAL")
+            s.send(b"0dw", "Find: Notes")
+            s.send(b"\r", ("cwd", target))
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_multiline_exclusions_and_pending_find(self):
+        (self.root / "main.tex").touch()
+        (self.root / "build").mkdir()
+        s = self.start("--editor", "nvim", "--exclude", "build")
+        s.send(b"\x1be", "INSERT")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"o*.tex", "*.tex")
+        s.send(b"\x17", "No matching results")
+        # First Escape enters Normal; another clears the main query.
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"0f", "PENDING")
+        s.send(b"x", "NORMAL")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_ignores_personal_init_files(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-clean-nvim-") as home:
+            config = Path(home) / ".config/nvim"
+            config.mkdir(parents=True)
+            marker = Path(home) / "init-loaded"
+            (config / "init.lua").write_text("vim.fn.writefile({'loaded'}, " + repr(str(marker)) + ")")
+            s = self.start("--editor", "nvim", "--no-config", environment={"HOME": home})
+            self.assertIn("INSERT", s.screen.text)
+            self.assertFalse(marker.exists())
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    def test_missing_nvim_falls_back_to_basic_input(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "nvim", "--no-config", environment={"PATH": ""})
+        self.assertIn("Using basic editing", s.screen.text)
+        s.send(b"file", b"Query: file")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
     def test_remapped_numbered_choice(self):
         (self.root / "file").touch()

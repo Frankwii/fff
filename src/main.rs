@@ -8,6 +8,9 @@ use std::{io, path::PathBuf, process::ExitCode};
     about = "Interactive fuzzy file picker. UI uses /dev/tty; selected paths use stdout."
 )]
 struct Args {
+    /// Experimental text editor backend (also configurable in TOML)
+    #[arg(long, value_enum)]
+    editor: Option<picker::config::EditorBackend>,
     /// Read this TOML configuration instead of the default config file
     #[arg(long, conflicts_with = "no_config")]
     config: Option<PathBuf>,
@@ -100,7 +103,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     app.palette = settings.palette;
     app.bookmarks = settings.bookmarks;
-    if let Some(paths) = ui::run(app, keys, settings.cache, watcher)? {
+    if let Some(paths) = ui::run(
+        app,
+        keys,
+        settings.cache,
+        watcher,
+        args.editor.unwrap_or(settings.editor.backend),
+    )? {
         write_paths(
             io::stdout().lock(),
             &paths,
