@@ -14,8 +14,15 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
-| `src/ui.rs` | Terminal lifecycle, input reader, wakeups, editing focus and key dispatch. |
-| `src/view.rs` | Ratatui frames, display paths, help and rendered numbered targets. |
+| `src/ui/mod.rs` | The session: focus states, wakeups and key dispatch. |
+| `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
+| `src/ui/input.rs` | Normal-mode list dispatch, text-field editing and paste, status timing, numbered keys. |
+| `src/ui/actions.rs` | Scope choice, file operations, running programs and their messages, bookmark/palette saves. |
+| `src/view/mod.rs` | Ratatui frame layout: query, location line, results, marks, footer, display paths. |
+| `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
+| `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
+| `src/view/guide.rs` | The F1 key guide and session details. |
+| `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Remembered locations: last directory and per-directory highlights, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback and deletion review. |
