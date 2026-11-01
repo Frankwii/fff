@@ -193,9 +193,32 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b ", "› [x]")
         s.send(b"\t", "› [ ]")
         s.send(b"\x1b", b"Marks (0)")
-        s.send(b"\x1bk", "›   1   · a")
+        s.send(b"\x1bk", "›   1    a")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a") + b"\n"))
+
+    def test_filetype_icons_default_cli_and_config_disable(self):
+        (self.root / "docs").mkdir()
+        (self.root / "main.rs").touch()
+        s = self.start("--editor", "basic", "--depth", "1")
+        s.wait_ui(" docs/")
+        s.wait_ui(" main.rs")
+        s.send(b"\t", "[x]  docs")  # marked rows carry the same icon
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        with tempfile.TemporaryDirectory(prefix="picker-icons-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\nicons=false\n")
+            for args in (("--no-icons",), ("--config", str(config))):
+                s = self.start("--editor", "basic", "--depth", "1", *args)
+                s.wait_ui("▸ docs/")
+                s.wait_ui("· main.rs")
+                self.assertNotIn("", s.screen.text)
+                s.send(b"\x1b[49;5u")  # Ctrl+1: numbering is unaffected
+                self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs") + b"\n"))
+                s.close()
+            self.session = None
 
     def test_page_zero_and_higher_digit_clamping(self):
         for i in range(30):

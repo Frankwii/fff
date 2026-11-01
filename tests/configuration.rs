@@ -198,3 +198,12 @@ fn editor_config_defaults_to_unspecified_nvim_and_is_validated() {
     assert!(parse("[editor]\nbackend='unknown'").is_err());
     assert!(parse("[editor]\nbacked='nvim'").is_err());
 }
+#[test]
+fn ui_icons_default_on_can_be_disabled_and_reject_non_booleans() {
+    assert!(parse("").unwrap().icons);
+    assert!(parse("[ui]\nicons=true").unwrap().icons);
+    assert!(!parse("[ui]\nicons=false\npalette='light'").unwrap().icons);
+    for text in ["[ui]\nicons='no'", "[ui]\nicons=0", "[ui]\nicon=false"] {
+        assert!(parse(text).is_err(), "accepted {text}");
+    }
+}

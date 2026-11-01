@@ -4,6 +4,7 @@ pub mod completion;
 pub mod config;
 pub mod discovery;
 pub mod editor;
+pub mod icons;
 pub mod keys;
 mod palettes;
 pub mod reload;
@@ -123,6 +124,8 @@ pub struct App {
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
     pub bookmarks: Vec<config::Bookmark>,
+    /// Draw Nerd Font filetype icons before result and marked names.
+    pub icons: bool,
 }
 
 impl App {
@@ -154,6 +157,7 @@ impl App {
             edit_view: None,
             palette: config::Palette::default(),
             bookmarks: Vec::new(),
+            icons: true,
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {

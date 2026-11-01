@@ -143,6 +143,12 @@ struct Args {
     #[arg(long = "map-key", value_name = "SOURCE=TARGET", help_heading = "Interface",
         add = ArgValueCompleter::new(completion::map_key_candidates))]
     key_maps: Vec<String>,
+    /// Hide Nerd Font filetype icons; overrides [ui] icons
+    ///
+    /// Rows then use the plain `▸`/`·` markers. Useful when the terminal font has
+    /// no Nerd Font glyphs.
+    #[arg(long, help_heading = "Interface")]
+    no_icons: bool,
     /// Read this TOML configuration instead of the default file
     #[arg(long, value_name = "FILE", conflicts_with = "no_config",
         value_hint = clap::ValueHint::FilePath, help_heading = "Configuration")]
@@ -226,6 +232,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     app.palette = settings.palette;
     app.bookmarks = settings.bookmarks;
+    app.icons = settings.icons && !args.no_icons;
     if let Some(paths) = ui::run(
         app,
         keys,
