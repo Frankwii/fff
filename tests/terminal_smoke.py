@@ -62,8 +62,9 @@ class Session:
         token = token.decode("utf-8") if isinstance(token, bytes) else token
         def matches():
             if location is not None:
-                lines = self.screen.text.splitlines()
-                return str(location) in lines[0] and "● complete" in lines[1]
+                # The integrated "@" line sits between the filter and results.
+                at = [l for l in self.screen.text.splitlines() if l.lstrip().startswith("@ ")]
+                return any(str(location) in l for l in at) and "● complete" in self.screen.text
             return token in self.screen.text
         if after is None and matches():
             return
@@ -195,7 +196,7 @@ class TerminalTests(unittest.TestCase):
     def test_page_zero_and_higher_digit_clamping(self):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
-        s = self.start(size=(20, 160))  # 9 visible result rows in the split layout
+        s = self.start(size=(18, 160))  # 9 visible result rows in the split layout
         s.send(b"\x1b[6~", b"file17")  # PageDown
         s.send(b"\x1b[48;5u")  # Ctrl+0 => last of the next 9 rows
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file17") + b"\n"))
@@ -304,7 +305,7 @@ class TerminalTests(unittest.TestCase):
     def test_alt_number_after_paging_uses_visible_labels(self):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
-        s = self.start(size=(20, 160))
+        s = self.start(size=(18, 160))
         s.send(b"\x1b[6~", b"file17")
         s.send(b"\x1b2")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file10") + b"\n"))
@@ -366,7 +367,9 @@ class TerminalTests(unittest.TestCase):
             config = Path(config_dir) / "config.toml"
             config.write_text("[ui]\npalette='custom'\n[palettes.custom]\nextends='light'\ncurrent_directory='#123456'\n")
             s = self.start("--config", str(config))
-            self.assertIn("CURRENT DIRECTORY", s.screen.text.splitlines()[0])
+            lines = s.screen.text.splitlines()
+            self.assertNotIn("CURRENT DIRECTORY", s.screen.text)
+            self.assertTrue(lines[3].lstrip().startswith(f"@ {self.root}"), s.screen.text)
             self.assertIn(b"48;2;18;52;86", s.ui)
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -376,6 +379,27 @@ class TerminalTests(unittest.TestCase):
             self.assertIn(b"48;2;49;94;69", s.ui)
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
+
+    def test_location_line_and_pinned_roots_replace_the_top_banner(self):
+        for name in ("notes", "papers"):
+            (self.root / name).mkdir()
+            (self.root / name / f"{name}.txt").touch()
+        (self.root / "notes" / "topic").mkdir()
+        s = Session(self.root / "notes", str(self.root / "papers"), "--editor", "basic", "--depth", "1")
+        self.session = s
+        lines = s.screen.text.splitlines()
+        self.assertIn("Filter", lines[0])
+        self.assertIn("depth 1 · ● complete · hidden: false", lines[2])
+        self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} r1"), s.screen.text)
+        self.assertTrue(lines[3].rstrip().endswith("pinned r1 notes · r2 papers"), s.screen.text)
+        self.assertIn("Files ·", lines[4])
+        s.send(b"topic", b"Query: topic")
+        s.send(b"\r", ("cwd", self.root / "notes" / "topic"))
+        at = next(l for l in s.screen.text.splitlines() if l.lstrip().startswith("@ "))
+        self.assertIn("topic r3", " ".join(at.split()))
+        self.assertIn("pinned r1 notes · r2 papers", at)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
 
     def test_revisit_after_file_changes_and_force_refresh(self):
         directory = self.root / "folder"
