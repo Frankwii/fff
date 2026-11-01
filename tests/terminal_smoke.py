@@ -826,7 +826,7 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("● complete   depth 1", lines[2])
         self.assertNotIn("hidden", lines[2])
         self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} "), s.screen.text)
-        self.assertTrue(lines[3].rstrip().endswith("pinned  notes  papers"), s.screen.text)
+        self.assertTrue(lines[3].rstrip().endswith("pinned  notes  papers  1  2  3"), s.screen.text)
         self.assertIn("Files ·", lines[4])
         s.send(b"topic", "❯ topic")
         s.send(b"\r", ("cwd", self.root / "notes" / "topic"))
@@ -1559,6 +1559,30 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[105;5u", ("cwd", far))
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_tabs_keep_directories_and_history_and_share_marks(self):
+        (self.root / "left").mkdir()
+        (self.root / "left" / "file").touch()
+        (self.root / "right").mkdir()
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s.send(b"ileft", "❯ left")
+        s.send(b"\r", ("cwd", self.root / "left"))
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\t", "Marks (1)")
+        # Down in Normal mode: tab 2, still in the launch directory.
+        s.send(b"\x1b[B", ("cwd", self.root))
+        s.send(b"\x1b[111;5u", "No earlier directory")
+        s.send(b"iright\r", ("cwd", self.root / "right"))
+        # Alt+Up works while typing: back to tab 1 where it was left.
+        s.send(b"\x1b[1;3A", ("cwd", self.root / "left"))
+        self.assertIn("Marks (1)", s.screen.text)
+        s.send(b"\x1b[111;5u", ("cwd", self.root))
+        s.send(b"\x1b[1;3A", ("cwd", self.root))
+        s.send(b"\x1b[1;3A", ("cwd", self.root / "right"))
+        s.send(b"\x1b[27u")
+        s.send(b"!")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "right") + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_rebound_operations_and_flag_completion(self):

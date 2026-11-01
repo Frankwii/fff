@@ -698,3 +698,37 @@ fn byte_level_policy_matches_path_components() {
         );
     }
 }
+#[test]
+fn tabs_keep_their_own_directory_and_history_and_share_marks() {
+    let f = Fixture::new();
+    let (a, b) = (f.0.join("a"), f.0.join("b"));
+    fs::create_dir(&a).unwrap();
+    fs::create_dir(&b).unwrap();
+    let mut app = App::browse(f.0.clone(), 1, Policy::default());
+    // Every tab starts in the session's first directory.
+    assert_eq!(app.tab_dirs(), vec![f.0.as_path(); 3]);
+    app.navigate(a.clone(), false);
+    app.marks.push(a.join("marked"));
+    // Tab 2 still shows the starting directory and has no history.
+    assert!(app.switch_tab(true));
+    assert_eq!((app.tab, &app.cwd), (1, &f.0));
+    assert!(!app.jump(true));
+    app.navigate(b.clone(), false);
+    // Up from tab 2 returns to tab 1 where it was left, with its own history.
+    assert!(app.switch_tab(false));
+    assert_eq!((app.tab, &app.cwd), (0, &a));
+    assert_eq!(app.marks, vec![a.join("marked")]);
+    assert!(app.jump(true));
+    assert_eq!(app.cwd, f.0);
+    // Wrapping around: Up from tab 1 is tab 3, still at the start.
+    assert!(!app.switch_tab(false));
+    assert_eq!(app.tab, 2);
+    assert_eq!(
+        app.tab_dirs(),
+        vec![f.0.as_path(), b.as_path(), f.0.as_path()]
+    );
+    // A vanished tab directory falls back to its nearest existing ancestor.
+    fs::remove_dir(&b).unwrap();
+    assert!(!app.switch_tab(false));
+    assert_eq!((app.tab, &app.cwd), (1, &f.0));
+}

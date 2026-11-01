@@ -156,6 +156,8 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             Bookmarks,
             Hidden,
             GoTo,
+            PrevTab,
+            NextTab,
         ]),
         Focus::Marks { .. } => Some(&[
             Down,

@@ -1314,6 +1314,12 @@ fn session(
                         .into();
                     }
                 }
+                // Tabs keep their own directory and history; marks are shared.
+                (K::Up | K::Down, false, true) => {
+                    if app.can_navigate() && app.switch_tab(key.code == K::Down) {
+                        discovery.start(app, true);
+                    }
+                }
                 (K::Char(' '), _, true) => {
                     focus = Focus::Marks {
                         rows: app.marks.clone(),

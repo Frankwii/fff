@@ -118,9 +118,13 @@ or cancels the bookmark form; exclusion and operation buffers keep Escape inside
 Neovim.
 It never exits the session. With basic editing it clears/closes immediately.
 
-Digits are Vim counts in Normal mode and query text in Insert/basic mode.
-Alt+j/Alt+k move list highlights in every mode. Up/Down control results and
-choosers (in the bookmark chooser they reorder bookmarks); in exclusions, filters and during command-line editing they go to Neovim.
+Digits are query text in Insert/basic mode. In Normal-mode results 1–9 set the
+search depth (`depth_digits` in `[keys.normal]`); elsewhere in Normal mode they
+are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
+the results highlight while typing and switch tabs in Normal-mode results
+(Alt+Up/Alt+Down switch tabs in every mode); they move choosers' highlights (in
+the bookmark chooser they reorder bookmarks); in exclusions, filters and during
+command-line editing they go to Neovim.
 
 ## Normal-mode list keys
 

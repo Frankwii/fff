@@ -230,6 +230,16 @@ pub enum EnterOutcome {
     Selected(Vec<PathBuf>),
 }
 
+/// How many tabs a session has. Each starts in the session's first directory.
+pub const TABS: usize = 3;
+/// A tab's own directory and Ctrl+o / Ctrl+i history. Marks, the query, depth
+/// and policies are shared by every tab.
+#[derive(Clone, Debug, Default)]
+pub struct Tab {
+    pub cwd: PathBuf,
+    pub back: Vec<PathBuf>,
+    pub forward: Vec<PathBuf>,
+}
 pub struct App {
     pub roots: Vec<PathBuf>,
     pub scope: Vec<PathBuf>,
@@ -288,6 +298,10 @@ pub struct App {
     /// Ctrl+o / Ctrl+i: directories left this session, and those jumped back from.
     pub back: Vec<PathBuf>,
     pub forward: Vec<PathBuf>,
+    /// The active tab. Its live state is `cwd`, `back` and `forward`; its slot
+    /// in `tabs` is only refreshed when another tab becomes active.
+    pub tab: usize,
+    pub tabs: Vec<Tab>,
 }
 
 impl App {
@@ -298,6 +312,7 @@ impl App {
         app
     }
     pub fn new(roots: Vec<PathBuf>, depth: usize, policy: Policy) -> Self {
+        let start = roots[0].clone();
         Self {
             cwd: roots[0].clone(),
             scope: roots.clone(),
@@ -340,6 +355,14 @@ impl App {
             records_location: false,
             back: Vec::new(),
             forward: Vec::new(),
+            tab: 0,
+            tabs: vec![
+                Tab {
+                    cwd: start.clone(),
+                    ..Tab::default()
+                };
+                TABS
+            ],
         }
     }
     /// Records the current directory's highlight, as most recently used.
@@ -391,6 +414,51 @@ impl App {
             self.go(target, false);
             return true;
         }
+    }
+    /// Alt+Down / Alt+Up: make the next or previous tab active, wrapping
+    /// around. Its directory is listed again (a vanished one falls back to its
+    /// nearest existing ancestor). Returns whether the directory changed.
+    pub fn switch_tab(&mut self, next: bool) -> bool {
+        self.tabs[self.tab] = Tab {
+            cwd: self.cwd.clone(),
+            back: std::mem::take(&mut self.back),
+            forward: std::mem::take(&mut self.forward),
+        };
+        self.tab = if next {
+            (self.tab + 1) % TABS
+        } else {
+            (self.tab + TABS - 1) % TABS
+        };
+        let Tab {
+            mut cwd,
+            back,
+            forward,
+        } = std::mem::take(&mut self.tabs[self.tab]);
+        self.back = back;
+        self.forward = forward;
+        while !cwd.is_dir() {
+            match cwd.parent() {
+                Some(parent) => cwd = parent.to_path_buf(),
+                None => break,
+            }
+        }
+        if cwd == self.cwd || !cwd.is_dir() {
+            return false;
+        }
+        self.go(cwd, false);
+        true
+    }
+    /// Every tab's directory, the active one live.
+    pub fn tab_dirs(&self) -> Vec<&Path> {
+        (0..TABS)
+            .map(|i| {
+                if i == self.tab {
+                    self.cwd.as_path()
+                } else {
+                    self.tabs[i].cwd.as_path()
+                }
+            })
+            .collect()
     }
     fn go(&mut self, path: PathBuf, retain_query: bool) {
         self.remember();

@@ -77,6 +77,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     true,
                 ),
                 ("Alt+b".into(), "open a bookmark", true),
+                (
+                    "Alt+↑  Alt+↓".into(),
+                    "previous / next of 3 tabs; marks shared",
+                    true,
+                ),
             ],
         ),
         (
@@ -163,6 +168,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 (normal(Hidden), "show / hide hidden entries", false),
                 (normal(GoTo), "go to a path, bookmark or zoxide", true),
                 (normal(Bookmarks), "open a bookmark", true),
+                (
+                    normal(PrevTab) + "  " + &normal(NextTab),
+                    "previous / next tab",
+                    true,
+                ),
                 (normal(Quit), "exit, return launch directory", true),
                 (normal(QuitCurrent), "exit, return current directory", true),
                 (
@@ -324,6 +334,25 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                     )
                 ),
                 theme.muted,
+            ));
+        }
+    }
+    if !app.no_dir {
+        sections.push((String::new(), theme.text));
+        sections.push(("TABS".into(), theme.accent));
+        for (i, dir) in app.tab_dirs().into_iter().enumerate() {
+            sections.push((
+                format!(
+                    "{}{} · {}",
+                    i + 1,
+                    if i == app.tab { " (active)" } else { "" },
+                    safe(dir.display().to_string())
+                ),
+                if i == app.tab {
+                    theme.text
+                } else {
+                    theme.muted
+                },
             ));
         }
     }

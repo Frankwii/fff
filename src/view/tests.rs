@@ -668,7 +668,16 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
         "{screen}"
     );
     assert!(!lines[2].contains("hidden"));
-    assert_eq!(lines[3].trim_end(), "  @  /home/frank/notes");
+    // The tab numbers end the line; the first tab is active.
+    assert!(lines[3].starts_with("  @  /home/frank/notes "), "{screen}");
+    assert!(lines[3].trim_end().ends_with(" 1  2  3"), "{screen}");
+    app.no_dir = true;
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(
+        !screen.lines().nth(3).unwrap().contains(" 1  2  3"),
+        "{screen}"
+    );
+    app.no_dir = false;
     assert!(lines[4].contains("Files ·"));
     assert!(!screen.contains("pinned"));
     app.scanning = true;
@@ -714,7 +723,7 @@ fn pinned_roots_are_compact_and_separate_from_the_current_directory() {
     assert!(line.starts_with("  @  /work/notes "), "{line}");
     assert!(
         line.trim_end()
-            .ends_with("\u{f435} pinned  notes  papers  library"),
+            .ends_with("\u{f435} pinned  notes  papers  library  1  2  3"),
         "{line}"
     );
     assert!(screen.lines().nth(4).unwrap().contains("Files ·"));
@@ -738,7 +747,10 @@ fn pinned_roots_are_compact_and_separate_from_the_current_directory() {
     let (screen, targets) = draw(&mut app, 50, 14);
     let lines: Vec<_> = screen.lines().collect();
     assert!(lines[3].contains("@ "), "{screen}");
-    assert!(lines[3].trim_end().ends_with("chapter"), "{screen}");
+    assert!(
+        lines[3].trim_end().ends_with("chapter   1  2  3"),
+        "{screen}"
+    );
     assert!(
         lines[4].starts_with("     \u{f435} pinned  notes  papers"),
         "{screen}"
