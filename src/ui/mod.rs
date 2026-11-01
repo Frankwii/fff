@@ -102,10 +102,9 @@ pub fn run(
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
-    backend: Option<crate::config::EditorBackend>,
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
-    let finish = session(&mut app, keys, cache, palettes, backend, performance);
+    let finish = session(&mut app, keys, cache, palettes, performance);
     app.remember();
     if let Some(path) = crate::state::path() {
         let last = if app.records_location {
@@ -126,7 +125,6 @@ fn session(
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
-    backend: Option<crate::config::EditorBackend>,
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
     let invocation = std::env::current_dir()?.canonicalize()?;
@@ -141,12 +139,10 @@ fn session(
     let notice = std::mem::take(&mut app.status);
     discovery.start(app, true);
     app.status = notice;
-    let mut editor = start_editor(backend, "nvim", &mut app.status);
+    let mut editor = start_editor("nvim")?;
     // A --no-dir session is a file choice: start ready to type the query.
-    if app.no_dir
-        && let Some(e) = &mut editor
-    {
-        e.reset_insert(Field::Query);
+    if app.no_dir {
+        editor.reset_insert(Field::Query);
     }
     let mut editor_directory = app.cwd.clone();
     warn_stranded(app);
@@ -191,7 +187,8 @@ fn session(
             editor_directory = app.cwd.clone();
             warn_stranded(app);
             // Carry the initiating field's editing mode into the new location.
-            if let Some(e) = &mut editor {
+            {
+                let e = &mut editor;
                 e.reset_preserving_mode(Field::Query);
             }
         }
@@ -228,15 +225,15 @@ fn session(
             app.edit_view = None;
             dirty = true;
         }
+        if let Some(error) = editor.broken() {
+            return Err(io::Error::other(format!("Neovim stopped: {error}")));
+        }
         if let Some((field, text)) = text_field(app, &focus) {
-            if let Some(e) = &mut editor {
+            {
+                let e = &mut editor;
                 match e.activate(field, &text) {
                     Ok(view) => app.edit_view = Some(view),
-                    Err(error) => {
-                        app.status = format!("Using basic editing: {error}");
-                        editor = None;
-                        app.edit_view = None;
-                    }
+                    Err(error) => e.break_with(error),
                 }
             }
         } else {
@@ -430,12 +427,11 @@ fn session(
         }
         // Multiline buffers keep Neovim's write/close lifecycle; single-line
         // names and destinations take Enter/Escape like the bookmark form.
-        let buffer_input = editor.is_some()
-            && match &focus {
-                Focus::Exclusions(_) | Focus::Filters(_) => true,
-                Focus::Operation(draft) => draft.multiline(),
-                _ => false,
-            };
+        let buffer_input = match &focus {
+            Focus::Exclusions(_) | Focus::Filters(_) => true,
+            Focus::Operation(draft) => draft.multiline(),
+            _ => false,
+        };
         if buffer_input {
             deliver(app, &mut focus, &mut editor, key);
             continue;
@@ -564,7 +560,8 @@ fn session(
                                     .iter()
                                     .position(|p| Some(p) == app.highlight.as_ref())
                                     .unwrap_or(0);
-                                if let Some(e) = &mut editor {
+                                {
+                                    let e = &mut editor;
                                     e.reset_at_row(Field::Operation, row);
                                 }
                                 focus = Focus::Operation(crate::operations::Draft {
@@ -795,7 +792,8 @@ fn session(
             if let Some(next) = next {
                 match next {
                     Ok(draft) => {
-                        if let Some(e) = &mut editor {
+                        {
+                            let e = &mut editor;
                             e.reset(Field::BookmarkName);
                             e.reset(Field::BookmarkPath);
                         }
@@ -846,7 +844,8 @@ fn session(
                 match app.bookmark_store.reload() {
                     Ok(bookmarks) => {
                         app.bookmarks = bookmarks;
-                        if let Some(e) = &mut editor {
+                        {
+                            let e = &mut editor;
                             e.reset(Field::Bookmarks);
                         }
                         focus = Focus::Bookmarks {
@@ -859,21 +858,6 @@ fn session(
                 }
                 continue;
             }
-        }
-        if editor.is_none()
-            && matches!(
-                focus,
-                Focus::BookmarkEdit(_) | Focus::Exclusions(_) | Focus::Filters(_)
-            )
-            && ctrl
-            && key.code == K::Char('s')
-        {
-            if matches!(focus, Focus::BookmarkEdit(_)) {
-                save_bookmark(app, &mut focus);
-            } else {
-                apply_globs(app, &mut focus, &mut discovery);
-            }
-            continue;
         }
         let navigation =
             key.code == K::Enter || (alt && matches!(key.code, K::Char('h' | 'l' | '0'..='9')));
@@ -894,7 +878,8 @@ fn session(
         match &mut focus {
             Focus::NewChoice => match key.code {
                 K::Char('f' | 'd') => {
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_insert(Field::FileName);
                     }
                     focus = Focus::Operation(crate::operations::Draft {
@@ -1114,7 +1099,8 @@ fn session(
                         .iter()
                         .position(|(_, glyph)| glyph.map(|g| g.to_string()) == draft.icon)
                         .unwrap_or(0);
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset(Field::BookmarkIcons);
                     }
                     focus = Focus::BookmarkIcons {
@@ -1247,7 +1233,8 @@ fn session(
                 } else if key.code == K::Tab {
                     prompt.complete(&app.cwd, app.home.as_deref());
                     // Hand the completed line back to Neovim, still typing.
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_preserving_mode(Field::Command);
                     }
                 } else {
@@ -1295,7 +1282,8 @@ fn session(
                     location.choose(key.code == K::Down);
                 } else if key.code == K::Tab {
                     location.complete(&app.cwd, app.home.as_deref());
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_preserving_mode(Field::Location);
                     }
                 } else {
@@ -1392,7 +1380,8 @@ fn session(
                         .collect::<Vec<_>>();
                     let frequent = crate::location::zoxide(&app.cwd);
                     // It exists for typing, like the run prompt.
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_insert(Field::Location);
                     }
                     focus = Focus::Location(crate::location::Location::new(

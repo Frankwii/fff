@@ -99,7 +99,7 @@ pub(super) fn scope(marks: &[PathBuf], current: Option<PathBuf>) -> Scope {
 /// otherwise nothing happens and each refused file is named with its reason.
 pub(super) fn start_extract(
     app: &mut App,
-    editor: &mut Option<crate::editor::Nvim>,
+    editor: &mut crate::editor::Nvim,
     archives: Vec<PathBuf>,
 ) -> Focus {
     let refused = archives
@@ -124,7 +124,8 @@ pub(super) fn start_extract(
         };
         return Focus::Results;
     }
-    if let Some(e) = editor {
+    {
+        let e = &mut *editor;
         e.reset(Field::Extraction);
     }
     Focus::Operation(crate::operations::Draft {
@@ -182,8 +183,9 @@ pub(super) fn edit_files(
         }
     }
 }
-pub(super) fn start_run(editor: &mut Option<Nvim>, paths: Vec<PathBuf>, exit: bool) -> Focus {
-    if let Some(e) = editor {
+pub(super) fn start_run(editor: &mut Nvim, paths: Vec<PathBuf>, exit: bool) -> Focus {
+    {
+        let e = &mut *editor;
         e.reset_insert(Field::Command);
     }
     Focus::Command(crate::run::Prompt::new(paths, exit))

@@ -219,7 +219,7 @@ pub(super) enum NormalKey {
 pub(super) fn normal_list_key(
     app: &mut App,
     focus: &mut Focus,
-    editor: &mut Option<Nvim>,
+    editor: &mut Nvim,
     key: KeyEvent,
 ) -> NormalKey {
     let Some(actions) = list_actions(focus) else {
@@ -275,7 +275,7 @@ pub(super) fn normal_list_key(
     }
 }
 /// Replay an unmatched sequence prefix into its original text field.
-pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: KeyEvent) {
+pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: KeyEvent) {
     let (text, field) = match focus {
         Focus::Results => (&mut app.query, Field::Query),
         Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
@@ -339,81 +339,44 @@ pub(super) fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
         _ => None,
     }
 }
-/// Starts the text engine. `None` means the default (Neovim) was not explicitly
-/// requested: then an unavailable or broken Neovim silently degrades to basic
-/// editing. An explicit `nvim` request reports the fallback in the status line.
-pub fn start_editor(
-    backend: Option<crate::config::EditorBackend>,
-    program: &str,
-    status: &mut String,
-) -> Option<Nvim> {
-    use crate::config::EditorBackend;
-    match backend.unwrap_or_default() {
-        EditorBackend::Basic => None,
-        EditorBackend::Nvim => match Nvim::start_program(program) {
-            Ok(editor) => Some(editor),
-            Err(error) => {
-                if backend.is_some() {
-                    *status = format!("Using basic editing: {error}");
-                }
-                None
-            }
-        },
-    }
+/// Starts the embedded Neovim every text field uses; fff needs it.
+pub fn start_editor(program: &str) -> io::Result<Nvim> {
+    Nvim::start_program(program).map_err(|error| {
+        io::Error::other(format!(
+            "fff needs Neovim ({program}) for its text fields: {error}"
+        ))
+    })
 }
 pub(super) fn edit(
     text: &mut String,
     key: KeyEvent,
-    multiline: bool,
+    _multiline: bool,
     field: Field,
-    editor: &mut Option<Nvim>,
+    editor: &mut Nvim,
     view: &mut Option<EditView>,
-    status: &mut String,
+    _status: &mut String,
 ) {
-    if let Some(e) = editor {
-        match e.input(field, key) {
-            Ok((updated, state)) => {
-                *text = updated;
-                *view = Some(state);
-            }
-            Err(error) => {
-                *status = format!("Using basic editing: {error}");
-                *editor = None;
-                *view = None;
-            }
+    match editor.input(field, key) {
+        Ok((updated, state)) => {
+            *text = updated;
+            *view = Some(state);
         }
-    } else {
-        match key.code {
-            K::Backspace => {
-                text.pop();
-            }
-            K::Enter if multiline => text.push('\n'),
-            K::Char(c) if !key.modifiers.intersects(M::CONTROL | M::ALT) => text.push(c),
-            _ => {}
-        }
+        Err(error) => editor.break_with(error),
     }
 }
 pub(super) fn paste(
     text: &mut String,
     value: &str,
     field: Field,
-    editor: &mut Option<Nvim>,
+    editor: &mut Nvim,
     view: &mut Option<EditView>,
-    status: &mut String,
+    _status: &mut String,
 ) {
-    if let Some(e) = editor {
-        match e.paste(field, value) {
-            Ok((updated, state)) => {
-                *text = updated;
-                *view = Some(state);
-            }
-            Err(error) => {
-                *status = format!("Using basic editing: {error}");
-                *editor = None;
-                *view = None;
-            }
+    match editor.paste(field, value) {
+        Ok((updated, state)) => {
+            *text = updated;
+            *view = Some(state);
         }
-    } else {
-        text.push_str(value);
+        Err(error) => editor.break_with(error),
     }
 }

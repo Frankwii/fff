@@ -95,6 +95,8 @@ pub struct Nvim {
     start_row: HashMap<Field, usize>,
     active: Option<Field>,
     buffers: HashMap<Field, Buffer>,
+    /// The first error that left Neovim unusable; fff then stops.
+    broken: Option<String>,
 }
 fn arr(values: impl IntoIterator<Item = Value>) -> Value {
     Value::Array(values.into_iter().collect())
@@ -159,6 +161,7 @@ impl Nvim {
             start_row: HashMap::new(),
             active: None,
             buffers: HashMap::new(),
+            broken: None,
         };
         // Attach a private UI so command errors are delivered as messages
         // instead of blocking a headless engine's RPC loop at a hit-enter prompt.
@@ -481,6 +484,14 @@ impl Nvim {
         };
         self.request("nvim_paste", vec![text.into(), false.into(), (-1).into()])?;
         self.snapshot(field)
+    }
+}
+impl Nvim {
+    pub fn break_with(&mut self, error: String) {
+        self.broken.get_or_insert(error);
+    }
+    pub fn broken(&self) -> Option<&str> {
+        self.broken.as_deref()
     }
 }
 impl Drop for Nvim {

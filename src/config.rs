@@ -106,19 +106,16 @@ impl Palette {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
+/// Neovim is the only text engine; `[editor] backend = "nvim"` is still accepted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EditorBackend {
-    /// Append/Backspace editing without an external engine
-    Basic,
-    /// Clean embedded Neovim; falls back to basic when unavailable
     #[default]
     Nvim,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EditorConfig {
-    /// `None` means the default backend was not explicitly chosen in TOML.
     pub backend: Option<EditorBackend>,
 }
 
