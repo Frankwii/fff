@@ -1,17 +1,14 @@
-//! File operations. All mutations go through Engine and its temporary BackupGuard.
+//! File operations. All mutations go through Engine.
 //! Linux directory descriptors pin parents; publishing never replaces an entry.
 use rustix::fs::{self as sys, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs::{self, File},
-    io::{self, Write},
+    io,
     os::{
         fd::AsRawFd,
-        unix::{
-            ffi::OsStrExt,
-            fs::{MetadataExt, PermissionsExt},
-        },
+        unix::fs::{MetadataExt, PermissionsExt},
     },
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -326,102 +323,6 @@ fn copy_entry(src: &File, name: &OsStr, dst: &File, to: &OsStr, nested: bool) ->
     }
     Ok(())
 }
-/// Temporary development guard. Replace this type's prepare method to remove
-/// backups later; callers must continue to use the same transaction boundary.
-#[derive(Clone)]
-pub struct BackupGuard {
-    root: PathBuf,
-}
-impl Default for BackupGuard {
-    fn default() -> Self {
-        Self {
-            root: "/tmp/fff/backup".into(),
-        }
-    }
-}
-impl BackupGuard {
-    /// Alternate root for isolated tests; production always uses Default.
-    pub fn at(root: PathBuf) -> Self {
-        Self { root }
-    }
-    fn directory(&self) -> Result<File> {
-        // Create each component without following symlinks. /tmp is shared;
-        // fff and backup must be owned by this uid and private.
-        let mut dir = File::from(
-            sys::openat(
-                sys::CWD,
-                "/",
-                OFlags::DIRECTORY | OFlags::RDONLY | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .map_err(err)?,
-        );
-        for component in self.root.components() {
-            let Component::Normal(name) = component else {
-                if matches!(component, Component::RootDir) {
-                    continue;
-                }
-                return Err("Invalid backup directory".into());
-            };
-            let private = name == OsStr::new("fff") || name == OsStr::new("backup");
-            match sys::mkdirat(&dir, name, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
-                Ok(()) => (),
-                Err(rustix::io::Errno::EXIST) => (),
-                Err(e) => return Err(err(e)),
-            }
-            dir = child_dir(&dir, name)?;
-            let m = dir.metadata().map_err(err)?;
-            if private && (m.uid() != rustix::process::geteuid().as_raw() || m.mode() & 0o077 != 0)
-            {
-                return Err("Backup directory must be private and owned by you".into());
-            }
-        }
-        Ok(dir)
-    }
-    fn prepare(&self, sources: &[&Entry], targets: &[PathBuf]) -> Result<PathBuf> {
-        let root = self.directory()?;
-        let name = unique();
-        sys::mkdirat(&root, &name, Mode::RUSR | Mode::WUSR | Mode::XUSR).map_err(err)?;
-        let batch = child_dir(&root, OsStr::new(&name))?;
-        let mut manifest = new_file(&batch, OsStr::new("manifest.txt"))?;
-        writeln!(
-            manifest,
-            "fff backup v1; original paths are hex-encoded Unix bytes"
-        )
-        .map_err(err)?;
-        for (i, entry) in sources.iter().enumerate() {
-            let hex = entry
-                .path
-                .as_os_str()
-                .as_bytes()
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>();
-            writeln!(manifest, "{i:04}\t{hex}\t{:?}", entry.path).map_err(err)?;
-            copy_tree(
-                &entry.parent,
-                &entry.name,
-                &batch,
-                OsStr::new(&format!("{i:04}")),
-            )?;
-        }
-        for path in targets {
-            let state = if fs::symlink_metadata(path).is_ok() {
-                "existing destination"
-            } else {
-                "absent"
-            };
-            writeln!(manifest, "{state}\t{:?}", path).map_err(err)?;
-        }
-        manifest.sync_all().map_err(err)?;
-        new_file(&batch, OsStr::new("COMPLETE"))?
-            .sync_all()
-            .map_err(err)?;
-        batch.sync_all().map_err(err)?;
-        root.sync_all().map_err(err)?;
-        Ok(self.root.join(name))
-    }
-}
 #[derive(Clone, Debug)]
 pub enum Request {
     /// `replace` lists confirmed existing destinations to overwrite; any other
@@ -475,24 +376,15 @@ pub struct Outcome {
     /// Set when the operation took effect but did not complete cleanly, such
     /// as a deletion stopped partway; `moved`/`removed` still list what happened.
     pub warning: Option<String>,
-    pub backup: PathBuf,
     pub moved: Vec<(PathBuf, PathBuf)>,
     pub removed: Vec<PathBuf>,
 }
 #[derive(Default)]
 pub struct Engine {
-    guard: BackupGuard,
     #[cfg(test)]
     hook: Option<Box<dyn Fn(usize)>>,
 }
 impl Engine {
-    pub fn with_guard(guard: BackupGuard) -> Self {
-        Self {
-            guard,
-            #[cfg(test)]
-            hook: None,
-        }
-    }
     fn checkpoint(&self, _index: usize) {
         #[cfg(test)]
         if let Some(hook) = &self.hook {
@@ -546,7 +438,7 @@ impl Engine {
                 return Err("Rename cannot change a parent directory".into());
             }
             // Unchanged rows take no part: an unchanged directory may contain
-            // renamed rows, and needs neither inventory nor backup.
+            // renamed rows, and needs no inventory.
             (sources, targets) = sources
                 .into_iter()
                 .zip(targets)
@@ -561,7 +453,6 @@ impl Engine {
                 return Ok(Outcome {
                     changed: false,
                     warning: None,
-                    backup: PathBuf::new(),
                     moved: vec![],
                     removed: vec![],
                 });
@@ -591,12 +482,6 @@ impl Engine {
                     "Cannot overwrite {:?}: it is or contains a selected path",
                     o.path
                 ));
-            }
-        }
-        let backup_path = self.guard.root.clone();
-        for e in src.iter().chain(dst.iter()).chain(old.iter()) {
-            if e.path.starts_with(&backup_path) || backup_path.starts_with(&e.path) {
-                return Err("Cannot operate inside or above the backup directory".into());
             }
         }
         let renaming = matches!(request, Request::Rename { .. });
@@ -689,23 +574,17 @@ impl Engine {
         {
             return Err("Moving across filesystems is not supported; copy first".into());
         }
-        let backup = self
-            .guard
-            .prepare(&src.iter().chain(&old).collect::<Vec<_>>(), &targets)
-            .map_err(|e| format!("Backup failed; nothing changed: {e}"))?;
+        // Last look before acting: every source and overwritten tree is
+        // still exactly as inventoried (and as confirmed, when confirmed).
         self.checkpoint(usize::MAX);
         for (s, was) in src.iter().chain(&old).zip(before.iter().chain(&replaced)) {
             if tree(s)? != *was {
-                return Err(format!(
-                    "Source changed; operation cancelled. Backup: {}",
-                    backup.display()
-                ));
+                return Err("Source changed; operation cancelled".into());
             }
         }
         let mut outcome = Outcome {
             changed: true,
             warning: None,
-            backup: backup.clone(),
             moved: vec![],
             removed: vec![],
         };
@@ -999,7 +878,7 @@ impl Engine {
             }
             Ok(())
         })();
-        result.map_err(|e| format!("{e}. Backup: {}", backup.display()))?;
+        result?;
         Ok(outcome)
     }
 }

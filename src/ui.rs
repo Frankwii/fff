@@ -1500,10 +1500,9 @@ fn perform_operation(
                 "Nothing to rename; no names changed".into()
             } else {
                 // Rename counts only the rows that changed.
-                let summary = summary.unwrap_or_else(|| {
+                summary.unwrap_or_else(|| {
                     format!("Renamed {}", entries(outcome.moved.iter().map(|(p, _)| p)))
-                });
-                format!("{summary} · backup: {}", outcome.backup.display())
+                })
             };
             if complete {
                 app.status_success = app.status.clone();

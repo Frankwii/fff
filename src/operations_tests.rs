@@ -4,7 +4,6 @@ struct Fixture {
     root: PathBuf,
     work: PathBuf,
     dest: PathBuf,
-    backup: PathBuf,
 }
 impl Fixture {
     fn new() -> Self {
@@ -12,79 +11,23 @@ impl Fixture {
         fs::create_dir(&root).unwrap();
         let work = root.join("work");
         let dest = root.join("dest");
-        let backup = root.join("backup");
         fs::create_dir(&work).unwrap();
         fs::create_dir(&dest).unwrap();
-        Self {
-            root,
-            work,
-            dest,
-            backup,
-        }
+        Self { root, work, dest }
     }
     fn engine(&self) -> Engine {
-        Engine::with_guard(BackupGuard::at(self.backup.clone()))
+        Engine::default()
     }
     fn file(&self, name: &str, data: &[u8]) -> PathBuf {
         let p = self.work.join(name);
         fs::write(&p, data).unwrap();
         p
     }
-    fn batches(&self) -> Vec<PathBuf> {
-        fs::read_dir(&self.backup)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect()
-    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
-}
-#[test]
-fn backup_is_complete_before_mutation_and_keeps_each_version() {
-    let f = Fixture::new();
-    let src = f.file("original", b"first");
-    let root = f.backup.clone();
-    let source = src.clone();
-    let mut e = f.engine();
-    e.hook = Some(Box::new(move |phase| {
-        if phase == usize::MAX {
-            assert_eq!(fs::read(&source).unwrap(), b"first");
-            let batch = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
-            assert!(batch.join("COMPLETE").exists());
-            assert_eq!(fs::read(batch.join("0000")).unwrap(), b"first");
-        }
-    }));
-    let out = e
-        .execute(Request::Copy {
-            sources: vec![src.clone()],
-            directory: f.dest.clone(),
-            replace: vec![],
-            confirmed: vec![],
-            into: None,
-        })
-        .unwrap();
-    assert!(out.backup.join("COMPLETE").exists());
-    assert!(
-        fs::read_to_string(out.backup.join("manifest.txt"))
-            .unwrap()
-            .contains("original")
-    );
-    fs::write(&src, b"second").unwrap();
-    fs::create_dir(f.root.join("other")).unwrap();
-    f.engine()
-        .execute(Request::Copy {
-            sources: vec![src],
-            directory: f.root.join("other"),
-            replace: vec![],
-            confirmed: vec![],
-            into: None,
-        })
-        .unwrap();
-    assert_eq!(f.batches().len(), 2);
-    assert_eq!(fs::read(out.backup.join("0000")).unwrap(), b"first");
 }
 #[test]
 fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following() {
@@ -94,7 +37,7 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
     fs::write(dir.join(".hidden"), b"hidden").unwrap();
     symlink("/does/not/exist", dir.join("broken")).unwrap();
     fs::set_permissions(dir.join(".hidden"), fs::Permissions::from_mode(0o751)).unwrap();
-    let out = f
+    let _ = f
         .engine()
         .execute(Request::Copy {
             sources: vec![dir.clone()],
@@ -104,7 +47,8 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
             into: None,
         })
         .unwrap();
-    for root in [f.dest.join("tree"), out.backup.join("0000")] {
+    {
+        let root = f.dest.join("tree");
         assert_eq!(fs::read(root.join(".hidden")).unwrap(), b"hidden");
         assert_eq!(
             fs::read_link(root.join("broken")).unwrap(),
@@ -118,7 +62,7 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
     assert!(dir.exists());
 }
 #[test]
-fn move_renames_file_and_directory_and_retains_backup() {
+fn move_renames_file_and_directory() {
     let f = Fixture::new();
     let a = f.file("a", b"a");
     let b = f.work.join("dir");
@@ -137,13 +81,12 @@ fn move_renames_file_and_directory_and_retains_backup() {
     assert!(!a.exists() && !b.exists());
     assert_eq!(out.moved.len(), 2);
     assert_eq!(fs::read(f.dest.join("dir/b")).unwrap(), b"b");
-    assert_eq!(fs::read(out.backup.join("0001/b")).unwrap(), b"b");
 }
 #[test]
 fn symlink_uses_real_absolute_paths_and_keeps_source_unchanged() {
     let f = Fixture::new();
     let src = f.file("a", b"a");
-    let out = f
+    let _ = f
         .engine()
         .execute(Request::Symlink {
             sources: vec![src.clone()],
@@ -153,7 +96,6 @@ fn symlink_uses_real_absolute_paths_and_keeps_source_unchanged() {
         })
         .unwrap();
     assert_eq!(fs::read_link(f.dest.join("a")).unwrap(), src);
-    assert_eq!(fs::read(out.backup.join("0000")).unwrap(), b"a");
     assert_eq!(fs::read(src).unwrap(), b"a");
 }
 #[test]
@@ -173,8 +115,7 @@ fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
         })
         .unwrap();
     assert_eq!(fs::read(f.dest.join(&name)).unwrap(), b"bytes");
-    let manifest = fs::read_to_string(out.backup.join("manifest.txt")).unwrap();
-    assert!(manifest.contains("ff"));
+    assert!(out.changed);
     assert!(rename_text(&[f.dest.join(&name)], &f.dest).is_err());
     f.engine()
         .execute(Request::Delete {
@@ -293,104 +234,6 @@ fn missing_source_and_special_files_abort_everything() {
     assert!(p.exists());
 }
 #[test]
-fn backup_failure_is_fail_closed_for_all_mutations() {
-    let f = Fixture::new();
-    let p = f.file("original", b"important");
-    fs::write(&f.backup, b"not a directory").unwrap();
-    for request in [
-        Request::Copy {
-            sources: vec![p.clone()],
-            directory: f.dest.clone(),
-            replace: vec![],
-            confirmed: vec![],
-            into: None,
-        },
-        Request::Move {
-            sources: vec![p.clone()],
-            directory: f.dest.clone(),
-            replace: vec![],
-            confirmed: vec![],
-            into: None,
-        },
-        Request::Symlink {
-            sources: vec![p.clone()],
-            directory: f.dest.clone(),
-            confirmed: vec![],
-            into: None,
-        },
-        Request::Delete {
-            sources: vec![p.clone()],
-            confirmed: vec![],
-        },
-        Request::Rename {
-            sources: vec![p.clone()],
-            targets: vec![f.work.join("renamed")],
-        },
-        Request::Create {
-            path: f.dest.join("new"),
-            directory: false,
-        },
-        Request::Create {
-            path: f.dest.join("newdir"),
-            directory: true,
-        },
-        Request::Extract {
-            archive: p.clone(),
-            destination: f.dest.clone(),
-        },
-    ] {
-        assert!(
-            f.engine()
-                .execute(request)
-                .unwrap_err()
-                .contains("Backup failed")
-        );
-        assert_eq!(fs::read(&p).unwrap(), b"important");
-        assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 0);
-        assert!(!f.work.join("renamed").exists());
-    }
-}
-#[test]
-fn backup_symlink_or_public_directory_is_refused() {
-    let f = Fixture::new();
-    symlink(&f.dest, &f.backup).unwrap();
-    let p = f.file("x", b"x");
-    assert!(
-        f.engine()
-            .execute(Request::Delete {
-                sources: vec![p.clone()],
-                confirmed: vec![],
-            })
-            .is_err()
-    );
-    assert!(p.exists());
-    fs::remove_file(&f.backup).unwrap();
-    fs::create_dir(&f.backup).unwrap();
-    fs::set_permissions(&f.backup, fs::Permissions::from_mode(0o777)).unwrap();
-    assert!(
-        f.engine()
-            .execute(Request::Delete {
-                sources: vec![p.clone()],
-                confirmed: vec![],
-            })
-            .is_err()
-    );
-    assert!(p.exists());
-}
-#[test]
-fn backup_directory_and_ancestors_are_protected() {
-    let f = Fixture::new();
-    assert!(
-        f.engine()
-            .execute(Request::Delete {
-                sources: vec![f.root.clone()],
-                confirmed: vec![],
-            })
-            .unwrap_err()
-            .contains("backup directory")
-    );
-}
-#[test]
 fn rename_row_count_empty_parent_change_directory_change_collisions_are_atomic() {
     let f = Fixture::new();
     let a = f.file("a", b"a");
@@ -424,23 +267,20 @@ fn rename_row_count_empty_parent_change_directory_change_collisions_are_atomic()
     }
 }
 #[test]
-fn rename_success_and_unchanged_does_not_make_backup() {
+fn rename_success_and_unchanged_changes_nothing() {
     let f = Fixture::new();
     let a = f.file("space ü", b"a");
     let text = rename_text(std::slice::from_ref(&a), &f.work).unwrap();
-    let out = f
+    let _ = f
         .engine()
         .execute(rename_request(vec![a.clone()], &f.work, &text).unwrap())
         .unwrap();
-    assert!(out.backup.as_os_str().is_empty());
-    assert!(!f.backup.exists());
-    let out = f
+    let _ = f
         .engine()
         .execute(rename_request(vec![a.clone()], &f.work, "new name").unwrap())
         .unwrap();
     assert!(!a.exists());
     assert_eq!(fs::read(f.work.join("new name")).unwrap(), b"a");
-    assert_eq!(fs::read(out.backup.join("0000")).unwrap(), b"a");
 }
 fn docs_tree(f: &Fixture) -> Vec<PathBuf> {
     let docs = f.work.join("docs");
@@ -463,7 +303,6 @@ fn renaming_a_directory_through_a_descendant_row_aborts() {
         let result = rename_request(sources, &f.work, text).and_then(|r| f.engine().execute(r));
         assert!(result.is_err(), "{text:?}");
         assert_eq!(fs::read(f.work.join("docs/myfile")).unwrap(), b"m");
-        assert!(!f.backup.exists());
     }
 }
 #[test]
@@ -563,7 +402,6 @@ fn unsafe_new_names_are_refused_before_any_change() {
     }
     let entries = fs::read_dir(&f.work).unwrap().count();
     assert_eq!(entries, 1);
-    assert!(!f.backup.exists());
     let draft = Draft {
         kind: EditKind::Extract(a.clone()),
         cwd: f.work.clone(),
@@ -587,11 +425,9 @@ fn rename_skips_unchanged_directories_that_contain_renamed_rows() {
     assert_eq!(fs::read(dir.join("g")).unwrap(), b"f");
     assert_eq!(out.moved, vec![(dir.join("f"), dir.join("g"))]);
     // Only the renamed file is backed up, not its unchanged parent.
-    assert_eq!(fs::read(out.backup.join("0000")).unwrap(), b"f");
-    assert!(!out.backup.join("0001").exists());
 }
 #[test]
-fn copies_and_backups_keep_modification_times() {
+fn copies_keep_modification_times() {
     let f = Fixture::new();
     let tree = f.work.join("tree");
     fs::create_dir(&tree).unwrap();
@@ -614,7 +450,7 @@ fn copies_and_backups_keep_modification_times() {
     for path in [tree.join("file"), tree.join("link"), tree.clone()] {
         set(&path);
     }
-    let out = f
+    let _ = f
         .engine()
         .execute(Request::Copy {
             sources: vec![tree.clone()],
@@ -624,7 +460,8 @@ fn copies_and_backups_keep_modification_times() {
             into: None,
         })
         .unwrap();
-    for root in [f.dest.join("tree"), out.backup.join("0000")] {
+    {
+        let root = f.dest.join("tree");
         for path in [root.join("file"), root.join("link"), root.clone()] {
             let modified = fs::symlink_metadata(&path).unwrap().modified().unwrap();
             assert_eq!(modified, old, "{path:?}");
@@ -645,11 +482,7 @@ fn create_file_and_directory_refuse_overwrites_and_record_absence() {
             .unwrap();
         assert!(path.exists());
         assert_eq!(path.is_dir(), directory);
-        assert!(
-            fs::read_to_string(out.backup.join("manifest.txt"))
-                .unwrap()
-                .contains("absent")
-        );
+        assert!(out.changed);
         assert!(
             f.engine()
                 .execute(Request::Create { path, directory })
@@ -658,7 +491,7 @@ fn create_file_and_directory_refuse_overwrites_and_record_absence() {
     }
 }
 #[test]
-fn delete_tree_and_links_preserves_external_target_and_backup() {
+fn delete_tree_and_links_preserves_external_target() {
     let f = Fixture::new();
     let dir = f.work.join("dir");
     fs::create_dir(&dir).unwrap();
@@ -675,12 +508,7 @@ fn delete_tree_and_links_preserves_external_target_and_backup() {
         .unwrap();
     assert!(!dir.exists());
     assert_eq!(fs::read(external).unwrap(), b"untouched");
-    assert_eq!(fs::read(out.backup.join("0000/child")).unwrap(), b"12345");
-    assert!(
-        fs::symlink_metadata(out.backup.join("0000/link"))
-            .unwrap()
-            .is_symlink()
-    );
+    assert!(out.removed == vec![dir]);
 }
 #[test]
 fn weights_group_in_descending_order_and_do_not_follow_links() {
@@ -762,7 +590,7 @@ fn racing_destination_rolls_back_earlier_moves() {
     assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"intruder");
 }
 #[test]
-fn source_changed_after_backup_never_gets_deleted() {
+fn source_changed_after_validation_never_gets_deleted() {
     let f = Fixture::new();
     let p = f.file("a", b"before");
     let source = p.clone();
@@ -782,7 +610,6 @@ fn source_changed_after_backup_never_gets_deleted() {
             .contains("Source changed")
     );
     assert_eq!(fs::read(p).unwrap(), b"after");
-    assert_eq!(fs::read(f.batches()[0].join("0000")).unwrap(), b"before");
 }
 #[test]
 fn delete_rolls_back_detached_sources_if_next_source_changes() {
@@ -848,10 +675,7 @@ fn extracts_tar_to_new_or_existing_directory_and_backs_up_archive() {
         .unwrap();
     assert_eq!(fs::read(dest.join("nested/file")).unwrap(), b"contents");
     assert_eq!(fs::metadata(&dest).unwrap().mode() & 0o777, 0o755);
-    assert_eq!(
-        fs::read(out.backup.join("0000")).unwrap(),
-        fs::read(&archive).unwrap()
-    );
+    assert!(out.changed && archive.exists());
     f.engine()
         .execute(Request::Extract {
             archive,
@@ -993,19 +817,27 @@ fn racing_copy_destination_rolls_back_every_published_copy() {
     assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"other");
 }
 #[test]
-fn unreadable_file_stops_backup_before_deletion() {
+fn unreadable_files_can_be_deleted_but_not_copied() {
+    // Deleting needs only the directory; copying must read the contents.
     let f = Fixture::new();
     let a = f.file("a", b"a");
     let b = f.file("b", b"b");
     fs::set_permissions(&b, fs::Permissions::from_mode(0o0)).unwrap();
-    let result = f.engine().execute(Request::Delete {
+    let copy = f.engine().execute(Request::Copy {
+        sources: vec![a.clone(), b.clone()],
+        directory: f.dest.clone(),
+        replace: vec![],
+        confirmed: vec![],
+        into: None,
+    });
+    assert!(copy.is_err());
+    assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 0);
+    let delete = f.engine().execute(Request::Delete {
         sources: vec![a.clone(), b.clone()],
         confirmed: vec![],
     });
-    fs::set_permissions(&b, fs::Permissions::from_mode(0o600)).unwrap();
-    assert!(result.is_err());
-    assert!(a.exists() && b.exists());
-    assert!(f.batches().iter().all(|p| !p.join("COMPLETE").exists()));
+    assert!(delete.is_ok());
+    assert!(!a.exists() && !b.exists());
 }
 #[test]
 fn zip_gzip_and_7zip_extract_without_external_commands_in_product() {
@@ -1194,10 +1026,6 @@ fn failed_move_rollback_never_overwrites_a_new_source_entry() {
     assert_eq!(fs::read(a).unwrap(), b"new source");
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"original a");
     assert!(b.exists());
-    assert_eq!(
-        fs::read(f.batches()[0].join("0000")).unwrap(),
-        b"original a"
-    );
 }
 #[test]
 fn failed_delete_rollback_retains_original_in_private_stage() {
@@ -1256,13 +1084,12 @@ fn readonly_destination_failure_leaves_sources_and_destinations_intact() {
         })
         .unwrap_err();
     fs::set_permissions(&f.dest, fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(error.contains("Backup:"));
+    assert!(error.contains("Permission denied"), "{error}");
     assert_eq!(fs::read(a).unwrap(), b"a");
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 0);
-    assert!(f.batches()[0].join("COMPLETE").exists());
 }
 #[test]
-fn cross_filesystem_moves_refuse_before_backup_when_available() {
+fn cross_filesystem_moves_refuse_when_available() {
     let f = Fixture::new();
     let other = Path::new("/dev/shm");
     if fs::metadata(other).is_ok_and(|m| m.dev() != fs::metadata(&f.work).unwrap().dev()) {
@@ -1280,12 +1107,11 @@ fn cross_filesystem_moves_refuse_before_backup_when_available() {
                 .contains("across filesystems")
         );
         assert!(a.exists());
-        assert!(!f.backup.exists());
     }
 }
 
 #[test]
-fn archive_preflight_reads_contents_and_creates_no_backup_or_output() {
+fn archive_preflight_reads_contents_and_creates_no_output() {
     let f = Fixture::new();
     let text = f.file("fake.zip", b"plain text");
     assert!(validate_archive(&text).is_err());
@@ -1295,7 +1121,6 @@ fn archive_preflight_reads_contents_and_creates_no_backup_or_output() {
     tar(&archive, &[("file", b'0', b"valid", "")]);
     validate_archive(&archive).unwrap();
     assert!(!f.work.join("file").exists());
-    assert!(!f.backup.exists());
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 0);
     symlink(&archive, f.work.join("link.zip")).unwrap();
     assert!(validate_archive(&f.work.join("link.zip")).is_err());
@@ -1309,7 +1134,6 @@ fn archive_preflight_reads_contents_and_creates_no_backup_or_output() {
             .contains("unsafe path")
     );
     assert!(!f.work.join("ok").exists());
-    assert!(!f.backup.exists());
 }
 #[test]
 fn archive_preflight_rejects_file_directory_conflicts_in_either_order() {
@@ -1325,7 +1149,6 @@ fn archive_preflight_rejects_file_directory_conflicts_in_either_order() {
         }
         tar(&path, &entries);
         assert!(validate_archive(&path).is_err());
-        assert!(!f.backup.exists());
         assert!(
             f.engine()
                 .execute(Request::Extract {
@@ -1358,21 +1181,19 @@ fn move_overwrites_only_confirmed_destinations_and_backs_them_up() {
         into: None,
     };
     assert!(f.engine().execute(unconfirmed).is_err());
-    assert!(a.exists() && c.exists() && !f.backup.exists());
     let plan = TransferPlan::new(Transfer::Move, sources, f.dest.clone()).unwrap();
     assert_eq!(
         plan.overwrites,
         vec![(f.dest.join("a"), 5), (f.dest.join("tree"), 8)]
     );
     let out = f.engine().execute(plan.request().unwrap()).unwrap();
+    assert!(out.warning.is_none());
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new a");
     // Directories are replaced as a whole, never merged.
     assert!(!f.dest.join("tree/old").exists());
     assert_eq!(fs::read(f.dest.join("tree/new")).unwrap(), b"new tree");
     assert_eq!(fs::read(f.dest.join("c")).unwrap(), b"c");
     assert!(!a.exists() && !tree.exists() && !c.exists());
-    assert_eq!(fs::read(out.backup.join("0003")).unwrap(), b"old a");
-    assert_eq!(fs::read(out.backup.join("0004/old")).unwrap(), b"old tree");
     // No staging directory is left behind.
     let mut names = fs::read_dir(&f.dest)
         .unwrap()
@@ -1454,14 +1275,13 @@ fn copy_overwrites_only_confirmed_destinations_and_keeps_sources() {
     let plan = TransferPlan::new(Transfer::Copy, sources, f.dest.clone()).unwrap();
     assert_eq!(plan.overwrites.len(), 2);
     let out = f.engine().execute(plan.request().unwrap()).unwrap();
+    assert!(out.warning.is_none());
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new a");
     assert!(!f.dest.join("tree/old").exists());
     assert_eq!(fs::read(f.dest.join("tree/new")).unwrap(), b"new tree");
-    // Copies keep their sources; the overwritten entries are in the backup.
+    // Copies keep their sources.
     assert_eq!(fs::read(&a).unwrap(), b"new a");
     assert_eq!(fs::read(tree.join("new")).unwrap(), b"new tree");
-    assert_eq!(fs::read(out.backup.join("0002")).unwrap(), b"old a");
-    assert_eq!(fs::read(out.backup.join("0003/old")).unwrap(), b"old tree");
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
     // Copying into the source's own directory would overwrite the source.
     assert!(TransferPlan::new(Transfer::Copy, vec![a.clone()], f.work.clone()).is_err());

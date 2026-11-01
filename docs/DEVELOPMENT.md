@@ -16,7 +16,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui.rs` | Terminal lifecycle, input reader, wakeups, editing focus and key dispatch. |
 | `src/view.rs` | Ratatui frames, display paths, help and rendered numbered targets. |
-| `src/operations.rs` | Mandatory backup guard, validation, staged file operations and deletion review. |
+| `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback and deletion review. |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
 | `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
@@ -48,9 +48,10 @@ listed separately in the [roadmap](ROADMAP.md).
 - Original paths remain separate from display abbreviations and icons. Keep
   palette attribution and [third-party notices](THIRD_PARTY_NOTICES.md).
 
-- File operations must pass through `Engine` / `BackupGuard`; no UI branch may
-  mutate a user path directly. Validate the full batch, complete backups, then
-  publish with no-replace semantics. See [file operations](OPERATIONS.md).
+- File operations must pass through `Engine`; no UI branch may mutate a user
+  path directly. Validate the full batch, bind destructive steps to confirmed
+  snapshots, stage, then publish with no-replace semantics, rolling back on
+  failure. See [file operations](OPERATIONS.md).
 
 ## Verification
 
@@ -63,8 +64,9 @@ cargo build --offline
 python3 tests/terminal_smoke.py
 ```
 
-`src/operations_tests.rs` covers backup failures, collisions, injected races and
-rollback, source changes, permissions, byte paths, links, malicious archives and
+`src/operations_tests.rs` covers collisions, confirmation binding, injected
+races and rollback, mount points (bind mounts in a user namespace via `unshare`),
+deferred signals, source changes, permissions, byte paths, links, malicious archives and
 archive limits. PTY tests cover Normal-only operation keys, prompts, save/discard
 and mark reconciliation. Some safety tests create temporary Unix sockets and
 need an environment that permits them.

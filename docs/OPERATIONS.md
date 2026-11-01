@@ -27,8 +27,8 @@ When a move or copy collides, the window becomes **Overwrite on move** /
 **Overwrite on copy** and lists the existing destinations with their sizes, like the deletion
 confirmation. **Escape** cancels the whole operation; **Enter** moves or copies
 everything and overwrites the listed entries. A directory is overwritten as a
-whole, never merged. The listed entries are backed up with the sources,
-detached into a private staging directory (for copies, only after every copy is
+whole, never merged. The listed entries are detached into a private staging
+directory (for copies, only after every copy is
 staged), and deleted only after every entry has been published; any failure
 rolls the publications back and restores them. Entries changed since
 confirmation, collisions that appear after confirmation, moving or copying a
@@ -44,7 +44,7 @@ Operations preserve original filesystem paths independently of abbreviated label
 and icons. Copy, move, symlink and delete support names containing non-UTF-8 bytes.
 Overlapping selections (a directory and one of its descendants) are refused;
 select each tree once. Moving/deleting the browsing directory or its ancestors,
-operating within or above the backup directory, and copying a directory into
+and copying a directory into
 itself are refused. Moves across filesystems are refused; copy first instead.
 Trees containing a mount point are refused for every operation, so a mounted
 share is never copied or deleted through its parent. Mount points are detected
@@ -68,8 +68,9 @@ with Neovim and `Ctrl+s` / `Esc` with basic editing. Destructive confirmations
 `marked`.
 
 A successful operation reports what it did in the footer with a `✓` in the
-`success` color, such as `Deleted 2 entries · backup: …` or
-`Renamed notes.md · backup: …`. Errors keep the `error` color.
+`success` color, such as `Deleted 2 entries` or `Renamed notes.md`. An operation
+that took effect only partly (a deletion stopped partway) reports a warning in
+the `error` color, as errors do.
 
 ## Buffer interactions
 
@@ -134,7 +135,7 @@ rows. If they exceed the available height, the final row reports how many more
 entries remain and their summed size. The top border shows the entry count and
 total size. **Enter** confirms and **Escape** cancels.
 A failed size calculation prevents deletion. After confirmation, all roots are
-backed up and detached into private staging directories before recursive
+detached into private staging directories before recursive
 deletion starts. If deleting one root fails, deletion stops: that root (with
 whatever remained of it, directory modes unchanged) and every root not yet
 deleted are moved back, and a warning says how many were deleted and which root
@@ -160,43 +161,24 @@ The destination directory of a move, copy or link is bound to the confirmation
 too. An overwritten entry that changes while detached is kept in its staging
 directory (and named in the message) instead of being deleted.
 
-## Temporary backup guard
+## Guarantees and limits
 
-Every operation passes through `BackupGuard` in `src/operations.rs`. This is a
-temporary development guard with no runtime bypass. Removing it later requires
-changing that central boundary, rather than editing individual operations.
+There is no undo: confirmed deletions and overwrites are as final as `rm`.
+Everything else is designed so that only confirmed data is ever removed.
 
-Before mutating any source or publishing any destination, fff copies every
-source tree into a new private batch below **`/tmp/fff/backup`**. This includes
-sources of copy, symlink and extraction operations. A backup error prevents the
-operation. New files/directories have no original contents to copy; their batch
-records the destination's absence before creation. Extraction never overwrites
-existing contents, so it backs up the archive rather than unrelated destination
-files. No automatic cleanup removes backup batches.
+Parents are pinned by directory descriptors and nothing follows a symlink.
+Destinations are published with no-replace renames; copies and extractions are
+staged completely before anything is published. Every tree is inventoried
+(identity and metadata of each entry) during validation and checked again right
+before each step that changes it; a difference cancels the operation. A failure
+partway through rolls earlier steps back, and anything that cannot be rolled
+back is named with its path.
 
-Each batch contains numbered copies (`0000`, `0001`, ...), `manifest.txt`, and a
-`COMPLETE` marker written only after the copies and manifest are synced. The
-manifest maps numbered copies to exact original Unix path bytes in hexadecimal,
-with a readable escaped path alongside, and records destination paths. Incomplete
-batches have no `COMPLETE` marker and are not evidence of a successful backup.
-The UI reports the backup path. To recover, inspect the manifest and copy the
-numbered entry back to its original location after checking any current entry.
-
-The guard refuses a symlinked, publicly accessible or foreign-owned backup root.
-Parents are pinned by directory descriptors. Sources are rechecked for ordinary
-concurrent changes; destination publication uses no-replace renames. A later
-move/copy publication failure rolls earlier publications back where possible.
-A delete I/O failure after recursive removal starts can leave a partially removed
-batch; retained backups are the recovery source. Failed rollback reports the
-problem and leaves originals in their staging directories when necessary.
-
-Copies and backups preserve file contents, ordinary permission bits, symlinks
-and access/modification times. They are not filesystem snapshots: ownership,
+Copies preserve file contents, ordinary permission bits, symlinks and
+access/modification times. They are not filesystem snapshots: ownership,
 extended attributes, ACLs, hard-link relationships and sparse allocation are not
-preserved. Concurrent
-writers can still race an operation; stop writers when a stable copy matters.
-Backups live in `/tmp`, so system cleanup or reboot may remove them. Operations
-currently run synchronously, including backup and size calculation.
+preserved. Concurrent writers can still race an operation; stop writers when a
+stable copy matters. Operations run synchronously, including size calculation.
 
 ## Archives and system requirements
 
@@ -210,7 +192,7 @@ libarchive reads supported ZIP, RAR, 7z, tar and compressed-tar archives. Built-
 gzip, bzip2, xz and zstd filters are enabled. Before opening the destination buffer, `e` performs a read-only validation of
 the highlighted file's contents, paths, payloads and extraction limits.
 Directories, unsupported, encrypted, corrupt or unsafe archives report an
-explanation and leave the main view open; no backup or staging is created.
+explanation and leave the main view open; no staging is created.
 Detection uses contents, not filename extensions. Validation runs again during
 extraction in case the archive changes after the prompt opens. Extraction stages all entries before publication and
 refuses existing top-level destinations rather than merging or overwriting them.

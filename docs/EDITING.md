@@ -87,7 +87,7 @@ existing bookmarks leave the stored data alone. Validation errors keep the
 previous data, close the editor, and show a short error at the bottom. Exclusion
 errors include the line number; blank lines are ignored.
 
-File operation details and the temporary backup guard are described in
+File operation details and safety guarantees are described in
 [the operation guide](OPERATIONS.md).
 
 Apart from that `ZZ` mapping, these editors have no fff Escape or Ctrl+s
