@@ -58,6 +58,8 @@ pub enum Step {
 #[derive(Clone, Debug)]
 pub struct NormalKeys {
     bindings: Vec<(Vec<KeyEvent>, ListAction)>,
+    /// Configured sequences as written, for the F1 key guide.
+    names: Vec<(ListAction, String)>,
     pending: Vec<KeyEvent>,
 }
 impl Default for NormalKeys {
@@ -66,6 +68,15 @@ impl Default for NormalKeys {
     }
 }
 impl NormalKeys {
+    /// The sequences bound to an action, e.g. `"gg"`, joined with " / ".
+    pub fn describe(&self, action: ListAction) -> String {
+        self.names
+            .iter()
+            .filter(|(a, _)| *a == action)
+            .map(|(_, name)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ")
+    }
     pub fn pending(&self) -> bool {
         !self.pending.is_empty()
     }
@@ -166,17 +177,20 @@ impl Default for NormalKeysConfig {
     }
 }
 impl NormalKeysConfig {
+    fn sequences(&self, action: ListAction) -> (&'static str, &Sequences) {
+        match action {
+            ListAction::Left => ("left", &self.left),
+            ListAction::Down => ("down", &self.down),
+            ListAction::Up => ("up", &self.up),
+            ListAction::Right => ("right", &self.right),
+            ListAction::First => ("first", &self.first),
+            ListAction::Last => ("last", &self.last),
+        }
+    }
     pub fn build(&self) -> Result<NormalKeys, String> {
         let mut bindings: Vec<(Vec<KeyEvent>, ListAction, &str)> = Vec::new();
         for action in ListAction::ALL {
-            let (name, value) = match action {
-                ListAction::Left => ("left", &self.left),
-                ListAction::Down => ("down", &self.down),
-                ListAction::Up => ("up", &self.up),
-                ListAction::Right => ("right", &self.right),
-                ListAction::First => ("first", &self.first),
-                ListAction::Last => ("last", &self.last),
-            };
+            let (name, value) = self.sequences(action);
             for text in value.list() {
                 let keys = parse_sequence(text).map_err(|e| format!("keys.normal.{name}: {e}"))?;
                 for (other, _, other_name) in &bindings {
@@ -194,7 +208,13 @@ impl NormalKeysConfig {
                 bindings.push((keys, action, name));
             }
         }
+        let mut names = Vec::new();
+        for action in ListAction::ALL {
+            let (_, value) = self.sequences(action);
+            names.extend(value.list().into_iter().map(|s| (action, s.to_string())));
+        }
         Ok(NormalKeys {
+            names,
             bindings: bindings.into_iter().map(|(k, a, _)| (k, a)).collect(),
             pending: Vec::new(),
         })

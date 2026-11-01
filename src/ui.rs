@@ -28,8 +28,10 @@ pub(crate) enum Focus {
         rows: Vec<PathBuf>,
         index: usize,
     },
+    /// F1 overlay: the key guide, or session details when `keys` is false.
     Info {
         offset: usize,
+        keys: bool,
     },
     Exclusions(String),
     Location(String),
@@ -445,10 +447,14 @@ pub fn run(
                     }
                 }
             }
-            Focus::Info { offset } => match key.code {
-                K::Esc | K::F(1) => focus = Focus::Results,
-                K::Down => *offset = offset.saturating_add(1),
-                K::Up => *offset = offset.saturating_sub(1),
+            Focus::Info { offset, keys } => match key.code {
+                K::Esc | K::F(1) | K::Char('q') => focus = Focus::Results,
+                K::Tab | K::BackTab | K::Left | K::Right => {
+                    *keys = !*keys;
+                    *offset = 0;
+                }
+                K::Down | K::Char('j') => *offset = offset.saturating_add(1),
+                K::Up | K::Char('k') => *offset = offset.saturating_sub(1),
                 K::PageDown => *offset = offset.saturating_add(page),
                 K::PageUp => *offset = offset.saturating_sub(page),
                 _ => {}
@@ -532,7 +538,12 @@ pub fn run(
                 }
             }
             Focus::Results => match (key.code, ctrl, alt) {
-                (K::F(1), _, _) => focus = Focus::Info { offset: 0 },
+                (K::F(1), _, _) => {
+                    focus = Focus::Info {
+                        offset: 0,
+                        keys: true,
+                    }
+                }
                 (K::Char('w'), true, _) => {
                     if let Some(p) = app.confirm(None) {
                         return Ok(Some(p));

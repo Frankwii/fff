@@ -70,6 +70,23 @@ fn elide(text: &str, width: usize) -> String {
     }
     format!("…{suffix}")
 }
+/// Keep the start of a message, measuring terminal columns.
+fn truncate(text: &str, width: usize) -> String {
+    if text.width() <= width {
+        return text.into();
+    }
+    let mut kept = String::new();
+    let mut used = 1;
+    for c in text.chars() {
+        let w = c.width().unwrap_or(0);
+        if used + w > width {
+            break;
+        }
+        kept.push(c);
+        used += w;
+    }
+    if width == 0 { kept } else { kept + "…" }
+}
 fn panel(theme: Palette, title: impl Into<String>, focused: bool, accent: Color) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
@@ -130,7 +147,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             Constraint::Length(3),
             Constraint::Length(location.len() as u16),
             Constraint::Min(3),
-            Constraint::Length(3),
+            Constraint::Length(1),
         ])
         .split(area);
     query(frame, layout[0], app, matches!(focus, Focus::Results));
@@ -160,7 +177,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     marks_pane(frame, marks, app, focus);
     footer(frame, layout[3], app, focus);
     match focus {
-        Focus::Info { offset } => details(frame, area, app, offset),
+        Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
         Focus::Exclusions(text) => prompt(
             frame,
             app,
@@ -186,56 +203,56 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     result
 }
 
+/// `~` for the home directory, presentation only.
+fn tilde(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Some(rest) => safe(format!("~/{}", rest.display())),
+        None => safe(path.display().to_string()),
+    }
+}
+/// A short label drawn on a tinted background, like a status-line segment.
+fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
+    Span::styled(format!(" {} ", text.into()), Style::default().fg(fg).bg(bg))
+}
+
 /// The integrated "@" prompt line names the single current directory. Explicit
-/// startup roots stay separate as compact "pinned" scopes, beside the path when
-/// both fit and on a second line otherwise.
+/// startup roots stay separate as compact pinned names, beside the path when both
+/// fit and on a second line otherwise.
 fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     let theme = app.palette;
-    let band = Style::default()
+    let badge = Style::default()
         .fg(theme.current_directory_text)
-        .bg(theme.current_directory);
-    // Scope numbers match the `rN` metadata on result rows.
-    let scope = if app.roots.is_empty() {
-        String::new()
-    } else {
-        app.scope
-            .iter()
-            .position(|p| p == &app.cwd)
-            .map(|i| format!(" r{}", i + 1))
-            .unwrap_or_default()
-    };
-    let path = safe(app.cwd.display().to_string());
+        .bg(theme.current_directory)
+        .add_modifier(Modifier::BOLD);
+    let path = tilde(&app.cwd, app.home.as_deref());
     let pinned = pinned_roots(app);
     let pinned_width = pinned.iter().map(|s| s.width()).sum::<usize>();
-    // " @ " + path + " " band, scope number, two-column gap, pinned roots.
-    let fixed = 4 + scope.width();
+    // " @ " badge, a space, the path, a space.
+    let fixed = 5;
     let inline = fixed + path.width() + 2 + pinned_width <= width;
     let shown = elide(&path, width.saturating_sub(fixed));
     let basename = app
         .cwd
         .file_name()
         .map(|s| safe(s.to_string_lossy()))
-        .unwrap_or_else(|| "/".into());
+        .unwrap_or_else(|| shown.clone());
     let (parent, last) = if shown.ends_with(&basename) {
         shown.split_at(shown.len() - basename.len())
     } else {
         ("", shown.as_str())
     };
     let mut first = vec![
-        Span::styled(" @ ", band.add_modifier(Modifier::BOLD)),
-        Span::styled(parent.to_string(), band),
-        Span::styled(
-            last.to_string(),
-            band.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        ),
-        Span::styled(" ", band),
-        styled(scope, theme.muted),
+        Span::styled(" @ ", badge),
+        Span::raw(" "),
+        styled(parent.to_string(), theme.muted),
+        bold(last.to_string(), theme.text),
     ];
     if pinned.is_empty() {
         return vec![Line::from(first)];
     }
     if inline {
-        let used = fixed + shown.width();
+        let used = fixed - 1 + shown.width();
         first.push(Span::raw(
             " ".repeat(width.saturating_sub(used + pinned_width)),
         ));
@@ -243,29 +260,26 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         return vec![Line::from(first)];
     }
     // Leading spaces align the pinned list with the path rather than "@".
-    let mut second = vec![Span::raw("   ")];
-    second.extend(fit_spans(pinned, width.saturating_sub(3)));
+    let mut second = vec![Span::raw("    ")];
+    second.extend(fit_spans(pinned, width.saturating_sub(4)));
     vec![Line::from(first), Line::from(second)]
 }
 
-/// `pinned r1 notes · r2 papers`; a root that is also the current directory is
-/// bold and underlined. F1 shows each root's full path.
+/// `pinned  notes  papers`: a pin glyph (or the word) then each root's name; the
+/// root that is also the current directory is bold. F1 shows full paths.
 fn pinned_roots(app: &App) -> Vec<Span<'static>> {
     let theme = app.palette;
     if app.roots.is_empty() {
         return Vec::new();
     }
-    let mut spans = vec![styled("pinned", theme.muted)];
-    for (i, root) in app.roots.iter().enumerate() {
-        let name = root
-            .file_name()
-            .map(|s| safe(s.to_string_lossy()))
-            .unwrap_or_else(|| safe(root.display().to_string()));
-        spans.push(styled(
-            format!("{}r{} ", if i == 0 { " " } else { " · " }, i + 1),
-            theme.muted,
-        ));
-        let span = styled(name, theme.text);
+    let label = if app.icons {
+        "\u{f435} pinned"
+    } else {
+        "pinned"
+    };
+    let mut spans = vec![styled(label, theme.muted)];
+    for root in &app.roots {
+        let span = styled(format!("  {}", root_name(root)), theme.text);
         spans.push(if root == &app.cwd {
             span.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
@@ -274,76 +288,78 @@ fn pinned_roots(app: &App) -> Vec<Span<'static>> {
     }
     spans
 }
+fn root_name(root: &Path) -> String {
+    root.file_name()
+        .map(|s| safe(s.to_string_lossy()))
+        .unwrap_or_else(|| safe(root.display().to_string()))
+}
 
-/// Keep whole root entries that fit, then summarize the rest as ` +N (F1)`.
+/// Keep whole root names that fit, then summarize the rest as `  +N (F1)`.
 fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     let total = spans.iter().map(|s| s.width()).sum::<usize>();
     if total <= width {
         return spans;
     }
-    // spans[0] is the label; each root contributes a (number, name) pair.
-    let roots = (spans.len() - 1) / 2;
+    // spans[0] is the label; each root is one span.
+    let roots = spans.len() - 1;
     let mut kept = vec![spans[0].clone()];
     let mut used = spans[0].width();
-    for (shown, pair) in spans[1..].chunks(2).enumerate() {
-        let more = format!(" +{} (F1)", roots - shown);
-        let pair_width = pair.iter().map(|s| s.width()).sum::<usize>();
-        if used + pair_width + format!(" +{} (F1)", roots - shown - 1).width() > width {
+    for (shown, root) in spans[1..].iter().enumerate() {
+        let more = format!("  +{} (F1)", roots - shown);
+        if used + root.width() + format!("  +{} (F1)", roots - shown - 1).width() > width {
             kept.push(Span::styled(
                 elide(&more, width.saturating_sub(used)),
                 spans[0].style,
             ));
             break;
         }
-        kept.extend(pair.iter().cloned());
-        used += pair_width;
+        kept.push(root.clone());
+        used += root.width();
     }
     kept
 }
 
-/// Depth, discovery progress, and policies on the filter's bottom border.
-/// Narrow frames shorten the progress label, then drop trailing policies, which
-/// F1 always lists.
+/// Session state as pills on the filter's bottom border: discovery progress and
+/// depth always, then only settings that differ from the defaults. Narrow frames
+/// drop trailing pills and shorten the progress label; F1 lists everything.
 fn status_line(app: &App, width: usize) -> Line<'static> {
     let theme = app.palette;
+    let bg = theme.selection;
     let (scan, color) = if app.cache_pending {
-        (
-            [
-                "◌ cached · refreshing (incomplete)",
-                "◌ refreshing (incomplete)",
-                "◌ incomplete",
-            ],
-            theme.marked,
-        )
+        (["◌ cached · refreshing", "◌ incomplete"], theme.marked)
     } else if app.scanning {
-        (
-            ["◌ scanning (incomplete)", "◌ incomplete", "◌ incomplete"],
-            theme.marked,
-        )
+        (["◌ scanning · incomplete", "◌ incomplete"], theme.marked)
     } else {
-        (["● complete"; 3], theme.success)
+        (["● complete"; 2], theme.success)
     };
-    let mut policies = vec![
-        format!("hidden: {}", app.policy.hidden),
-        format!("exclusions: {}", app.policy.ignore),
-    ];
+    let mut optional = Vec::new();
     if let Some(glob) = &app.policy.glob {
-        policies.push(format!("glob {}", safe(glob.glob().glob())));
+        optional.push(pill(safe(glob.glob().glob()), theme.accent, bg));
     }
-    let depth = format!(" depth {} · ", app.depth);
-    let mut keep = policies.len();
+    if app.no_dir {
+        optional.push(pill("files only", theme.accent, bg));
+    }
+    if app.policy.hidden {
+        optional.push(pill("hidden shown", theme.accent, bg));
+    }
+    if !app.policy.ignore {
+        optional.push(pill("exclusions off", theme.marked, bg));
+    }
+    let depth = pill(format!("depth {}", app.depth), theme.text, bg);
+    let mut keep = optional.len();
     let mut label = 0;
     loop {
-        let rest: String = policies[..keep].iter().map(|p| format!(" · {p}")).collect();
-        let fits = depth.width() + scan[label].width() + rest.width() < width;
-        if fits || (keep == 0 && label == 2) {
-            return Line::from(vec![
-                styled(depth, theme.muted),
-                styled(scan[label], color),
-                styled(rest + " ", theme.muted),
-            ]);
+        let spans: Vec<Span<'static>> = [pill(scan[label], color, bg), depth.clone()]
+            .into_iter()
+            .chain(optional[..keep].iter().cloned())
+            .flat_map(|p| [Span::raw(" "), p])
+            .chain([Span::raw(" ")])
+            .collect();
+        let used = spans.iter().map(|s| s.width()).sum::<usize>();
+        if used <= width || (keep == 0 && label == 1) {
+            return Line::from(spans);
         }
-        if keep > 0 && label == 0 {
+        if keep > 0 {
             keep -= 1;
         } else {
             label += 1;
@@ -447,8 +463,8 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     .title_bottom(status_line(app, area.width.saturating_sub(4) as usize).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let prefix = "Query: ";
-    let available = inner.width.saturating_sub(prefix.len() as u16) as usize;
+    let prefix = "❯ ";
+    let available = inner.width.saturating_sub(prefix.width() as u16) as usize;
     let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
     if app.query.is_empty()
         && !app
@@ -456,12 +472,12 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
             .as_ref()
             .is_some_and(|v| v.mode.starts_with('c'))
     {
-        line = Line::from(styled("type to find a file or directory…", theme.muted));
+        line = Line::from(styled("type to filter names…", theme.muted));
     }
-    line.spans.insert(0, styled(prefix, theme.accent));
+    line.spans.insert(0, bold(prefix, theme.accent));
     frame.render_widget(Paragraph::new(line), inner);
     if focused && inner.width > 0 {
-        frame.set_cursor_position((inner.x + prefix.len() as u16 + cursor, inner.y));
+        frame.set_cursor_position((inner.x + prefix.width() as u16 + cursor, inner.y));
     }
 }
 
@@ -558,7 +574,9 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             }
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
-            let meta = format!(" d{} r{} ", c.depth, c.root + 1);
+            // Labels are relative to the current directory, so the scope a row
+            // came from is already visible; F1 shows its depth and root.
+            let meta = " ";
             let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
             let available = inner.width.saturating_sub(
                 (prefix.width() + "● ".width() + kind.width() + meta.width()) as u16,
@@ -571,7 +589,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
                 styled(kind, icon_color(theme, group)),
             ];
             spans.extend(filename_spans(app.palette, &name, c, &app.query));
-            spans.push(styled(" ".repeat(gap) + &meta, theme.muted));
+            spans.push(styled(" ".repeat(gap) + meta, theme.muted));
             frame.render_widget(
                 Paragraph::new(Line::from(spans)).style(Style::default().bg(bg)),
                 row,
@@ -624,10 +642,13 @@ fn filename_spans(
             if matched {
                 wanted.next();
             }
+            // The parent part of a label is dimmed so the name stands out.
             let span = styled(
                 c.to_string(),
                 if matched {
                     theme.marked
+                } else if i < start {
+                    theme.muted
                 } else if candidate.directory {
                     theme.accent
                 } else {
@@ -650,8 +671,7 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         format!(" Marks ({}) ", app.marks.len()),
         focused,
         theme.marked,
-    )
-    .title_bottom(Line::from(styled(" Alt+Space · switch pane ", theme.muted)));
+    );
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (rows, index) = match focus {
@@ -684,13 +704,17 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
                 String::new()
             };
             let title = format!(
-                "{} [{}] {icon}{}{}",
+                "{} {} {icon}{}{}",
                 if index.and_then(|i| rows.get(i)) == Some(path) {
                     "›"
                 } else {
                     " "
                 },
-                if app.marks.contains(path) { "x" } else { " " },
+                if app.marks.contains(path) {
+                    "●"
+                } else {
+                    "○"
+                },
                 safe(
                     path.file_name()
                         .unwrap_or(path.as_os_str())
@@ -702,15 +726,16 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
                 title,
                 if missing { theme.error } else { theme.marked },
             ))];
-            // Compact labels wrap; F1 retains exact absolute paths.
-            lines.extend(
-                wrap_text(
-                    &display_path(path, &app.cwd),
-                    inner.width.saturating_sub(2).max(1) as usize,
-                )
-                .into_iter()
-                .map(|s| Line::from(styled(format!("  {s}"), theme.muted))),
-            );
+            // Compact labels wrap; F1 retains exact absolute paths. A label that
+            // is just the name (a mark in the current directory) adds nothing.
+            let label = display_path(path, &app.cwd);
+            if label.contains('/') {
+                lines.extend(
+                    wrap_text(&label, inner.width.saturating_sub(2).max(1) as usize)
+                        .into_iter()
+                        .map(|s| Line::from(styled(format!("  {s}"), theme.muted))),
+                );
+            }
             lines.push(Line::from(""));
             ListItem::new(Text::from(lines))
         })
@@ -722,6 +747,7 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         &mut state,
     );
 }
+/// One line: the selected path (or a status message) and the F1 pointer.
 fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     let theme = app.palette;
     let selected = if let Focus::Marks { rows, index } = focus {
@@ -729,39 +755,32 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     } else {
         app.highlight.as_ref()
     };
-    let path = selected
-        .map(|p| display_path(p, &app.cwd))
-        .unwrap_or_else(|| ".".into());
-    let hint = if app.status.is_empty() {
-        Line::from(styled(elide(&path, area.width as usize), theme.muted))
+    let help = [bold("F1", theme.accent), styled(" keys ", theme.muted)];
+    let help_width = help.iter().map(|s| s.width()).sum::<usize>();
+    let available = (area.width as usize).saturating_sub(help_width + 2);
+    let mut spans = if app.status.is_empty() {
+        let path = selected
+            .map(|p| display_path(p, &app.cwd))
+            .unwrap_or_else(|| ".".into());
+        let path = elide(&path, available);
+        let split = path.rfind('/').map(|i| i + 1).unwrap_or(0);
+        vec![
+            Span::raw(" "),
+            styled(path[..split].to_string(), theme.muted),
+            styled(path[split..].to_string(), theme.text),
+        ]
     } else {
-        Line::from(styled(safe(&app.status), theme.error))
+        vec![
+            Span::raw(" "),
+            styled(truncate(&safe(&app.status), available), theme.error),
+        ]
     };
-    let keys = Line::from(vec![
-        bold(" Enter ", theme.accent),
-        styled("open / return  ", theme.muted),
-        bold("Alt+# ", theme.accent),
-        styled("open row  ", theme.muted),
-        bold("Ctrl+# ", theme.accent),
-        styled("choose only  ", theme.muted),
-        bold("Tab ", theme.marked),
-        styled("mark  ", theme.muted),
-        bold("Ctrl+w ", theme.marked),
-        styled("return marks", theme.muted),
-    ]);
-    let help = if area.width >= 136 {
-        "Alt+h parent · Alt+l enter · Alt+b bookmarks · Alt+g location · Alt+←/→ depth · Alt+p/P palette · F5 refresh · F1 details · Ctrl+c quit"
-    } else if area.width >= 115 {
-        "Alt+h parent · Alt+l enter · Alt+b bookmarks · Alt+g location · Alt+←/→ depth · F5 refresh · F1 details · Ctrl+c quit"
-    } else if area.width >= 94 {
-        "Alt+h parent · Alt+l enter · Alt+b bookmarks · Alt+p/P palette · F5 refresh · Ctrl+c quit"
-    } else if area.width >= 75 {
-        "Alt+h parent · Alt+l enter · Alt+b bookmarks · F5 refresh · Ctrl+c quit"
-    } else {
-        "Ctrl+c quit · Alt+b bookmarks · F1 details"
-    };
-    let more = Line::from(styled(help, theme.muted));
-    frame.render_widget(Paragraph::new(vec![hint, keys, more]), area);
+    let used = spans.iter().map(|s| s.width()).sum::<usize>();
+    spans.push(Span::raw(
+        " ".repeat((area.width as usize).saturating_sub(used + help_width)),
+    ));
+    spans.extend(help);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut rows = vec![String::new()];
@@ -777,24 +796,193 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
     rows
 }
-fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
+/// F1 overlay with two tabs: the key guide (default) and session details.
+fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize, keys: bool) {
     let theme = app.palette;
-    let block = panel(
-        app.palette,
-        " Session details · Esc returns ",
-        true,
-        theme.accent,
-    )
-    .padding(Padding::horizontal(1));
+    let tab = |name: &'static str, active: bool| {
+        if active {
+            pill(name, theme.background, theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            styled(format!(" {name} "), theme.muted)
+        }
+    };
+    let block = panel(theme, "", true, theme.accent)
+        .title(Line::from(vec![
+            Span::raw(" "),
+            tab("Keys", keys),
+            Span::raw(" "),
+            tab("Session", !keys),
+            Span::raw(" "),
+        ]))
+        .title_bottom(
+            Line::from(vec![
+                bold(" Tab", theme.accent),
+                styled(" switches  ", theme.muted),
+                bold("↑↓", theme.accent),
+                styled(" scroll  ", theme.muted),
+                bold("Esc", theme.accent),
+                styled(" closes ", theme.muted),
+            ])
+            .right_aligned(),
+        )
+        .padding(Padding::new(2, 2, 1, 0));
     let inner = block.inner(area);
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
-    let mut sections = vec![
+    let lines = if keys {
+        key_guide(app, inner.width as usize)
+    } else {
+        session_lines(app, inner.width as usize)
+    };
+    *offset = (*offset).min(lines.len().saturating_sub(inner.height as usize));
+    frame.render_widget(
+        Paragraph::new(lines).scroll(((*offset).min(u16::MAX as usize) as u16, 0)),
+        inner,
+    );
+}
+
+/// A titled group of (keys, description, needs navigation) rows in the F1 guide.
+type GuideSection = (&'static str, Vec<(String, &'static str, bool)>);
+/// Every binding, grouped. Navigation keys are dimmed with `--no-dir`, and the
+/// Normal-mode section shows the configured `[keys.normal]` sequences.
+fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
+    use crate::normal_keys::ListAction::*;
+    let theme = app.palette;
+    let normal = |action| {
+        let keys = app.normal_keys.describe(action);
+        if keys.is_empty() { "—".into() } else { keys }
+    };
+    // (keys, description, needs navigation)
+    let sections: Vec<GuideSection> = vec![
+        (
+            "Navigate",
+            vec![
+                ("↑↓  Alt+k Alt+j".into(), "move the highlight", false),
+                ("PgUp PgDn".into(), "previous / next page", false),
+                ("Enter".into(), "open dir, or return file + marks", false),
+                ("Alt+l".into(), "enter the highlighted directory", true),
+                ("Alt+h".into(), "parent directory, keeping query", true),
+                ("Alt+g".into(), "go to a typed location", true),
+                ("Alt+b".into(), "open a bookmark", true),
+            ],
+        ),
+        (
+            "Select and return",
+            vec![
+                ("Tab".into(), "mark / unmark, then move down", false),
+                ("Alt+Space".into(), "focus the marked list", false),
+                ("Ctrl+w".into(), "return the marked paths", false),
+                ("Alt+1…9 Alt+0".into(), "activate row n like Enter", false),
+                (
+                    "Ctrl+1…9 Ctrl+0".into(),
+                    "return row n now, ignoring marks",
+                    false,
+                ),
+                (String::new(), "0 is the last visible row", false),
+                ("Ctrl+c".into(), "quit without returning anything", false),
+            ],
+        ),
+        (
+            "Search",
+            vec![
+                ("type".into(), "fuzzy-filter names", false),
+                ("Esc".into(), "leave Insert, then clear query", false),
+                ("Alt+← Alt+→".into(), "search shallower / deeper", false),
+                ("Alt+.".into(), "show / hide hidden entries", false),
+                ("Alt+H".into(), "exclusions on / off", false),
+                ("Alt+e".into(), "edit exclusions (Ctrl+w applies)", false),
+                ("F5".into(), "rescan, bypassing the cache", false),
+            ],
+        ),
+        (
+            "Normal mode in lists",
+            vec![
+                (normal(Down) + "  " + &normal(Up), "move down / up", false),
+                (normal(Left), "parent directory, like Alt+h", true),
+                (normal(Right), "enter directory, like Alt+l", true),
+                (
+                    normal(First) + "  " + &normal(Last),
+                    "first / last row",
+                    false,
+                ),
+                ("i  a".into(), "back to Insert mode", false),
+            ],
+        ),
+        (
+            "Look",
+            vec![
+                ("Alt+p".into(), "choose a palette (live preview)", false),
+                ("Alt+P".into(), "reload palette from config", false),
+                ("F1".into(), "this guide · Tab: session", false),
+            ],
+        ),
+    ];
+    let key_width = 17;
+    let column = |section: &GuideSection, width: usize| {
+        let mut lines = vec![vec![bold(section.0.to_uppercase(), theme.marked)]];
+        if app.no_dir && section.1.iter().any(|entry| entry.2) {
+            lines.push(vec![styled("crossed out: off with --no-dir", theme.muted)]);
+        }
+        for (keys, description, navigation) in &section.1 {
+            let description = elide(description, width.saturating_sub(key_width));
+            if keys.is_empty() {
+                lines.push(vec![styled(
+                    format!("{:key_width$}{description}", ""),
+                    theme.muted,
+                )]);
+                continue;
+            }
+            let key = format!("{:<key_width$}", elide(keys, key_width - 1));
+            let mut line = vec![bold(key, theme.accent), styled(description, theme.text)];
+            if *navigation && app.no_dir {
+                line = line
+                    .into_iter()
+                    .map(|span| {
+                        span.fg(theme.muted)
+                            .add_modifier(Modifier::CROSSED_OUT)
+                            .remove_modifier(Modifier::BOLD)
+                    })
+                    .collect();
+            }
+            lines.push(line);
+        }
+        lines.push(Vec::new());
+        lines
+    };
+    // Two columns side by side when wide enough; otherwise one.
+    let gap = 4;
+    let half = width.saturating_sub(gap) / 2;
+    if half >= key_width + 32 {
+        let (left, right) = sections.split_at(2);
+        let left: Vec<_> = left.iter().flat_map(|s| column(s, half)).collect();
+        let right: Vec<_> = right.iter().flat_map(|s| column(s, half)).collect();
+        (0..left.len().max(right.len()))
+            .map(|i| {
+                let mut spans = left.get(i).cloned().unwrap_or_default();
+                let used = spans.iter().map(|s| s.width()).sum::<usize>();
+                spans.push(Span::raw(" ".repeat(half + gap - used.min(half))));
+                spans.extend(right.get(i).cloned().unwrap_or_default());
+                Line::from(spans)
+            })
+            .collect()
+    } else {
+        sections
+            .iter()
+            .flat_map(|s| column(s, width))
+            .map(Line::from)
+            .collect()
+    }
+}
+
+/// Exact paths, scopes, policies, palette, and marks.
+fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    let theme = app.palette;
+    let mut sections: Vec<(String, Color)> = vec![
         ("CURRENT DIRECTORY".into(), theme.accent),
         (safe(app.cwd.display().to_string()), theme.text),
         (String::new(), theme.text),
         (
-            format!("DEPTH {}  ·  QUERY {}", app.depth, safe(&app.query)),
+            format!("Depth {} · query “{}”", app.depth, safe(&app.query)),
             theme.muted,
         ),
         (String::new(), theme.text),
@@ -803,12 +991,11 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
     for (i, path) in app.scope.iter().enumerate() {
         sections.push((
             format!(
-                "r{} · {} · {}",
-                i + 1,
+                "{} · {}",
                 if i < app.roots.len() {
-                    "pinned root"
+                    "pinned"
                 } else {
-                    "current directory"
+                    "current"
                 },
                 safe(path.display().to_string())
             ),
@@ -823,9 +1010,9 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
             let root = &app.scope[candidate.root];
             sections.push((
                 format!(
-                    "d{} · r{} · {}",
+                    "depth {} below {} · {}",
                     candidate.depth,
-                    candidate.root + 1,
+                    root_name(root),
                     safe(
                         path.strip_prefix(root)
                             .unwrap_or(path)
@@ -841,8 +1028,14 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
     sections.push(("POLICIES".into(), theme.accent));
     sections.push((
         format!(
-            "Hidden: {} · exclusions: {}",
-            app.policy.hidden, app.policy.ignore
+            "Hidden: {} · exclusions: {}{}",
+            app.policy.hidden,
+            app.policy.ignore,
+            if app.no_dir {
+                " · files only (--no-dir)"
+            } else {
+                ""
+            }
         ),
         theme.text,
     ));
@@ -868,10 +1061,6 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
     sections.push((String::new(), theme.text));
     sections.push(("PALETTE".into(), theme.accent));
     sections.push((safe(&app.palette_name), theme.text));
-    sections.push((
-        "Alt+p choose (live preview, session only) · Alt+P reload from config".into(),
-        theme.muted,
-    ));
     sections.push((String::new(), theme.text));
     sections.push(("MARKED PATHS".into(), theme.marked));
     sections.extend(app.marks.iter().map(|p| {
@@ -884,19 +1073,21 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
             if p.exists() { theme.text } else { theme.error },
         )
     }));
-    let lines: Vec<_> = sections
+    sections
         .into_iter()
         .flat_map(|(text, color)| {
-            wrap_text(&text, inner.width.max(1) as usize)
-                .into_iter()
-                .map(move |s| Line::from(styled(s, color)))
+            // Section headings are the only accent- or marked-colored entries.
+            let heading = color == theme.accent || color == theme.marked;
+            wrap_text(&text, width.max(1)).into_iter().map(move |s| {
+                let span = styled(s, color);
+                Line::from(if heading {
+                    span.add_modifier(Modifier::BOLD)
+                } else {
+                    span
+                })
+            })
         })
-        .collect();
-    *offset = (*offset).min(lines.len().saturating_sub(inner.height as usize));
-    frame.render_widget(
-        Paragraph::new(lines).scroll(((*offset).min(u16::MAX as usize) as u16, 0)),
-        inner,
-    );
+        .collect()
 }
 fn prompt(
     frame: &mut Frame,
@@ -1265,7 +1456,9 @@ mod tests {
         );
         assert!(buffer.content().iter().any(|c| c.bg == theme.selection));
         assert!(buffer.content().iter().any(|c| c.fg == theme.accent));
-        assert!(screen.contains("Alt+#"));
+        // Keys live in the F1 guide; the footer only points to it.
+        assert!(screen.contains("F1 keys"));
+        assert!(!screen.contains("Alt+#"));
         assert!(screen.contains("[MISSING]"));
         export_preview(buffer);
     }
@@ -1301,8 +1494,8 @@ mod tests {
             terminal
                 .draw(|f| targets = render(f, &mut app, &mut focus).targets)
                 .unwrap();
-            // Filter (3), location line (1), footer (3), and pane borders (2).
-            assert!(targets.len() <= height.saturating_sub(9) as usize);
+            // Filter (3), location line (1), footer (1), and pane borders (2).
+            assert!(targets.len() <= height.saturating_sub(7) as usize);
         }
     }
     #[test]
@@ -1321,7 +1514,7 @@ mod tests {
             })
             .unwrap();
         let screen = text(terminal.backend().buffer());
-        assert!(screen.contains("› [ ]"));
+        assert!(screen.contains("› ○"));
         assert!(
             terminal
                 .backend()
@@ -1330,13 +1523,16 @@ mod tests {
                 .iter()
                 .any(|c| c.fg == theme.marked)
         );
-        focus = Focus::Info { offset: usize::MAX };
+        focus = Focus::Info {
+            offset: usize::MAX,
+            keys: false,
+        };
         terminal
             .draw(|f| {
                 render(f, &mut app, &mut focus);
             })
             .unwrap();
-        assert!(matches!(focus,Focus::Info { offset } if offset<100));
+        assert!(matches!(focus,Focus::Info { offset, .. } if offset<100));
     }
     #[test]
     fn relative_labels_compact_parents_without_changing_targets() {
@@ -1408,11 +1604,14 @@ mod tests {
                 .lines()
                 .nth(3)
                 .unwrap()
-                .starts_with("  @ /home/frank/notes ")
+                .starts_with("  @  /home/frank/notes")
         );
+        // The "@" badge uses the current-directory roles; the basename is bold.
         assert_eq!(buffer[(1, 3)].bg, Color::Rgb(0x12, 0x34, 0x56));
         assert_eq!(buffer[(2, 3)].fg, Color::Rgb(0xfe, 0xfd, 0xfa));
-        assert!(buffer[(16, 3)].modifier.contains(Modifier::UNDERLINED));
+        assert_eq!(buffer[(17, 3)].symbol(), "n");
+        assert!(buffer[(17, 3)].modifier.contains(Modifier::BOLD));
+        assert!(!buffer[(16, 3)].modifier.contains(Modifier::BOLD));
         assert!(
             buffer
                 .content()
@@ -1460,7 +1659,10 @@ mod tests {
             .unwrap();
         let screen = text(terminal.backend().buffer());
         assert!(screen.contains("built-in · current"));
-        focus = Focus::Info { offset: 0 };
+        focus = Focus::Info {
+            offset: 0,
+            keys: false,
+        };
         terminal
             .draw(|f| {
                 render(f, &mut app, &mut focus);
@@ -1468,7 +1670,17 @@ mod tests {
             .unwrap();
         let screen = text(terminal.backend().buffer());
         assert!(screen.contains("PALETTE"));
-        assert!(screen.contains("Alt+P reload from config"));
+        focus = Focus::Info {
+            offset: 0,
+            keys: true,
+        };
+        terminal
+            .draw(|f| {
+                render(f, &mut app, &mut focus);
+            })
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("reload palette from config"));
     }
     #[test]
     fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {
@@ -1493,10 +1705,10 @@ mod tests {
             .unwrap();
         let buffer = terminal.backend().buffer();
         assert!(text(buffer).contains("Filter · VISUAL"));
-        assert_eq!(buffer[(10, 1)].bg, app.palette.selection);
-        assert_eq!(buffer[(11, 1)].bg, app.palette.selection);
+        assert_eq!(buffer[(5, 1)].bg, app.palette.selection);
+        assert_eq!(buffer[(6, 1)].bg, app.palette.selection);
         let cursor = terminal.get_cursor_position().unwrap();
-        assert_eq!((cursor.x, cursor.y), (11, 1));
+        assert_eq!((cursor.x, cursor.y), (6, 1));
     }
     #[test]
     fn bookmark_chooser_shows_configured_and_default_icons() {
@@ -1546,38 +1758,39 @@ mod tests {
         let (screen, _) = draw(&mut app, 120, 26);
         let lines: Vec<_> = screen.lines().collect();
         assert!(lines[0].contains("Filter"));
-        assert!(lines[1].contains("Query:"));
+        assert!(lines[1].contains("❯ type to filter"));
+        // Progress and depth always; only non-default settings get a pill.
         assert!(
-            lines[2].contains("depth 3 · ● complete · hidden: false · exclusions: false"),
+            lines[2].contains("● complete   depth 3   exclusions off"),
             "{screen}"
         );
-        assert_eq!(lines[3].trim_end(), "  @ /home/frank/notes");
+        assert!(!lines[2].contains("hidden"));
+        assert_eq!(lines[3].trim_end(), "  @  /home/frank/notes");
         assert!(lines[4].contains("Files ·"));
         assert!(!screen.contains("pinned"));
         app.scanning = true;
         app.policy.glob = Some(crate::glob("*.tex").unwrap());
         let (screen, _) = draw(&mut app, 120, 26);
         assert!(
-            screen.contains(
-                "◌ scanning (incomplete) · hidden: false · exclusions: false · glob *.tex"
-            )
+            screen.contains("◌ scanning · incomplete   depth 3   *.tex   exclusions off"),
+            "{screen}"
         );
         // The minimum frame keeps depth and an explicit incomplete label.
         let (screen, targets) = draw(&mut app, 36, 12);
         let status = screen.lines().nth(2).unwrap();
-        assert!(status.contains("depth 3 · ◌ incomplete"), "{screen}");
+        assert!(status.contains("◌ incomplete   depth 3"), "{screen}");
         assert!(
             screen
                 .lines()
                 .nth(3)
                 .unwrap()
-                .contains("@ /home/frank/notes")
+                .contains("@  /home/frank/notes")
         );
         assert!(screen.lines().nth(3).unwrap().contains("notes"));
         assert!(!targets.is_empty());
     }
     #[test]
-    fn pinned_roots_are_compact_and_numbered_like_result_scopes() {
+    fn pinned_roots_are_compact_and_separate_from_the_current_directory() {
         let roots: Vec<PathBuf> = vec![
             "/work/notes".into(),
             "/work/papers".into(),
@@ -1585,16 +1798,17 @@ mod tests {
         ];
         let mut app = App::new(roots, 2, crate::Policy::default());
         app.scanning = false;
-        // Wide: path and pinned roots share one line; the current root is r1.
+        // Wide: path and pinned root names share one line.
         let (screen, _) = draw(&mut app, 120, 26);
         let line = screen.lines().nth(3).unwrap();
-        assert!(line.starts_with("  @ /work/notes  r1 "), "{line}");
+        assert!(line.starts_with("  @  /work/notes "), "{line}");
         assert!(
             line.trim_end()
-                .ends_with("pinned r1 notes · r2 papers · r3 library")
+                .ends_with("\u{f435} pinned  notes  papers  library"),
+            "{line}"
         );
         assert!(screen.lines().nth(4).unwrap().contains("Files ·"));
-        // Away from every root, the current directory is the next scope number.
+        // Away from every root, the pinned list moves to a second line.
         app.navigate(
             "/work/notes/a-rather-long-topic-directory-name/chapter".into(),
             false,
@@ -1602,19 +1816,22 @@ mod tests {
         let (screen, targets) = draw(&mut app, 50, 14);
         let lines: Vec<_> = screen.lines().collect();
         assert!(lines[3].contains("@ "), "{screen}");
-        assert!(lines[3].contains("chapter  r4"), "{screen}");
+        assert!(lines[3].trim_end().ends_with("chapter"), "{screen}");
         assert!(
-            lines[4].starts_with("    pinned r1 notes · r2 papers"),
+            lines[4].starts_with("     \u{f435} pinned  notes  papers"),
             "{screen}"
         );
         assert!(lines[5].contains("Files ·"));
-        assert!(targets.len() <= 14 - 10);
+        assert!(targets.len() <= 14 - 8);
         // Too narrow for all roots: keep whole entries and point to F1.
+        app.icons = false;
+        app.roots
+            .push("/srv/archive/collected-correspondence".into());
         let (screen, _) = draw(&mut app, 36, 12);
         let pinned = screen.lines().nth(4).unwrap();
-        assert!(pinned.contains("pinned r1 notes"), "{screen}");
-        assert!(pinned.contains("(F1)"), "{screen}");
-        assert!(!pinned.contains("library"));
+        assert!(pinned.contains("pinned  notes  papers"), "{screen}");
+        assert!(pinned.contains("+2 (F1)"), "{screen}");
+        assert!(!pinned.contains("library") && !pinned.contains("correspondence"));
     }
     #[test]
     fn location_line_stays_distinct_without_color() {
@@ -1635,10 +1852,10 @@ mod tests {
             })
             .unwrap();
         let buffer = terminal.backend().buffer();
-        // Without colors, "@" plus bold/underline still identify the location.
+        // Without colors, "@" plus a bold basename still identify the location.
         assert_eq!(buffer[(2, 3)].symbol(), "@");
         assert!(buffer[(2, 3)].modifier.contains(Modifier::BOLD));
-        assert!(buffer[(18, 3)].modifier.contains(Modifier::UNDERLINED));
+        assert!(buffer[(17, 3)].modifier.contains(Modifier::BOLD));
         assert!(text(buffer).contains("● complete"));
     }
     #[test]
@@ -1667,31 +1884,68 @@ mod tests {
                 .draw(|f| targets = render(f, &mut app, &mut focus).targets)
                 .unwrap();
             let buffer = terminal.backend().buffer().clone();
-            // The metadata column ends at the same cell on every row.
-            let meta: Vec<_> = (0..buffer.area.height)
-                .filter_map(|y| {
-                    (1..buffer.area.width - 4).find(|&x| {
-                        ["d", "1", " ", "r", "1"]
-                            .iter()
-                            .enumerate()
-                            .all(|(i, s)| buffer[(x + i as u16, y)].symbol() == *s)
-                    })
-                })
-                .collect();
-            assert_eq!(meta.len(), app.rows.len());
-            assert!(meta.iter().all(|&x| x == meta[0]), "{meta:?}");
+            let screen = text(&buffer);
+            // Names start in the same column with or without icons.
+            let start = screen
+                .lines()
+                .find_map(|l| l.find("research/").map(|i| l[..i].chars().count()))
+                .unwrap();
             assert_eq!(targets.len(), app.rows.len());
-            frames.push((text(&buffer), meta[0], targets));
+            frames.push((screen, start, targets));
         }
-        let (on, on_meta, on_targets) = &frames[0];
-        let (off, off_meta, off_targets) = &frames[1];
-        assert_eq!((on_meta, on_targets), (off_meta, off_targets));
+        let (on, on_start, on_targets) = &frames[0];
+        let (off, off_start, off_targets) = &frames[1];
+        assert_eq!((on_start, on_targets), (off_start, off_targets));
         assert!(on.contains("\u{f07b} research/")); // folder
         assert!(on.contains("\u{e7a8} …")); // rust, elided keeping the basename
         assert!(on.contains("tail.rs"));
-        assert!(on.contains("[x] \u{f15c} report.tex")); // marked row
+        assert!(on.contains("● \u{f15c} report.tex")); // marked row
         assert!(off.contains("▸ research/") && off.contains("· todo.txt"));
-        assert!(!off.contains('\u{f07b}') && off.contains("[x] report.tex"));
+        assert!(!off.contains('\u{f07b}') && off.contains("● report.tex"));
+    }
+    #[test]
+    fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
+        let mut app = fixture();
+        app.normal_keys = crate::normal_keys::NormalKeysConfig {
+            down: crate::normal_keys::Sequences::Many(vec!["j".into(), "<space>j".into()]),
+            ..Default::default()
+        }
+        .build()
+        .unwrap();
+        let mut focus = Focus::Info {
+            offset: 0,
+            keys: true,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        // Two columns at this width, every group present, the footer gone.
+        let row = screen.lines().find(|l| l.contains("NAVIGATE")).unwrap();
+        assert!(row.contains("SEARCH"), "{screen}");
+        for group in ["SELECT AND RETURN", "NORMAL MODE IN LISTS", "LOOK"] {
+            assert!(screen.contains(group), "{screen}");
+        }
+        assert!(screen.contains("j / <space>j  k"), "{screen}");
+        assert!(screen.contains("gg  G"), "{screen}");
+        assert!(!screen.contains("off with --no-dir"));
+        app.no_dir = true;
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(text(buffer).contains("crossed out: off with --no-dir"));
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                let line: String = (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                line.find("Alt+l")
+                    .map(|i| (line[..i].chars().count() as u16, y))
+            })
+            .unwrap();
+        assert!(buffer[(x, y)].modifier.contains(Modifier::CROSSED_OUT));
     }
     fn export_preview(buffer: &Buffer) {
         let Ok(path) = std::env::var("PICKER_PREVIEW") else {

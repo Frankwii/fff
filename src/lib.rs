@@ -134,6 +134,8 @@ pub struct App {
     /// `--no-dir`: a static file choice. Directories are never listed, entered,
     /// or returned, and the current directory cannot change.
     pub no_dir: bool,
+    /// Home directory, shown as `~` in the location line (presentation only).
+    pub home: Option<PathBuf>,
 }
 
 impl App {
@@ -173,6 +175,7 @@ impl App {
                 .collect(),
             normal_keys: normal_keys::NormalKeys::default(),
             no_dir: false,
+            home: None,
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {

@@ -728,6 +728,38 @@ retained query. This supersedes section 19/20.1's "navigation resets to Insert".
 The first field activation at startup and the subordinate fields still begin in
 Insert mode. The basic backend has no modes and is unchanged.
 
+### 21.4 F1 key guide and visual overhaul
+
+User request: an F1 binding "that shows a guide for all other keybinds", removing
+them from the bottom; an appearance overhaul, e.g. a nicer "depth 3 …" line; and
+"what even is the 'r1' column?" — labels "could be made to look nicer", with the
+design left to the implementer's taste.
+
+- F1 opens an overlay with two tabs, **Keys** (default) and **Session**. Tab,
+  BackTab or Left/Right switch tabs; Up/Down, j/k and page keys scroll; Escape, q
+  or F1 close. Keys lists every binding in groups (Navigate, Select and return,
+  Search, Normal mode in lists, Look), in two columns when wide. Normal-mode
+  entries show the configured `[keys.normal]` sequences; with `--no-dir` the
+  navigation entries are crossed out with a note. Session holds the former F1
+  details (exact paths, scopes as pinned/current, highlighted path with its depth
+  and root, policies, palette, marks).
+- The footer is one line: the highlighted path (parent dimmed) or a status message
+  (truncated at its end), and an `F1 keys` pointer. The footer's key hint lines
+  and the marked pane's Alt+Space hint are removed; numbered row labels remain.
+  Results gain the two freed rows.
+- The filter's bottom border shows pills: progress (`● complete`, `◌ scanning ·
+  incomplete`, `◌ cached · refreshing`, or `◌ incomplete` when narrow) and
+  `depth N`, then only non-default settings: glob, `files only`, `hidden shown`,
+  `exclusions off`. F1 lists every policy.
+- The per-row `dN rN` metadata column is removed. Labels are relative to the
+  current directory, so they already show where a row lives; F1 gives exact depth
+  and root. Pinned roots are listed by name (`pinned  notes  papers`, with a pin
+  glyph when icons are on) instead of `rN` numbers. This supersedes the "scope
+  number" display in sections 15 and 20.5; depth ordering is unchanged.
+- The `@` line is a badge in the current-directory colors followed by the path,
+  with `~` for the home directory, a dimmed parent and a bold basename. The query
+  prompt is `❯`; marks show `●`/`○` instead of `[x]`/`[ ]`.
+
 ### 21.5 Static file choice with `--no-dir`
 
 User request: a `--no-dir` flag that "makes directories don't show up on the

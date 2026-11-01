@@ -56,14 +56,15 @@ Result labels, marked paths, and the selected-path footer are relative to the
 current browsing directory. A single `../` is kept; two or more leading parent
 steps collapse to `.../` (for example, `../../papers/report.tex` becomes
 `.../papers/report.tex`). This affects display only. The `@` line identifies the
-current directory, and F1 retains exact absolute paths and scope-relative labels.
-Each result shows its depth and scope number; F1 displays full scope paths and
-session details.
-Explicit root arguments appear as compact `pinned r1 notes · r2 papers` entries
-on (or, when narrow, directly under) the `@` line; their numbers match the `rN`
-scope labels on result rows, and the current directory's own scope number
-follows its path. Depth, discovery progress, and hidden/exclusion/glob policies
-are shown on the filter's bottom border, shortened on narrow terminals. Discovery runs in a cancellable background worker and incomplete
+current directory (with `~` for your home), dimming the parent path. Result labels
+dim their parent part too, so names stand out; the label already shows which
+scope a row came from. F1's Session tab keeps exact absolute paths, every scope,
+and the highlighted row's depth and root.
+Explicit root arguments appear as compact `pinned  notes  papers` names on (or,
+when narrow, directly under) the `@` line. Discovery progress and depth are pills
+on the filter's bottom border, followed only by settings that differ from the
+defaults (glob, `files only`, `hidden shown`, `exclusions off`); narrow terminals
+drop trailing pills. Discovery runs in a cancellable background worker and incomplete
 results are labeled. Query edits filter known results without restarting discovery.
 
 | Key | Action |
@@ -91,7 +92,7 @@ results are labeled. Query edits filter known results without restarting discove
 | Alt+. | Toggle hidden entries |
 | Alt+H | Toggle exclusion enforcement (uppercase H) |
 | Alt+e | Built-in exclusion editor; Enter adds a line, Backspace deletes, Ctrl+w applies |
-| F1 | Inspect full paths, roots, policies, rules and marks; arrows/page keys scroll |
+| F1 | Key guide (every binding, including configured Normal-mode keys); Tab switches to session details: full paths, scopes, policies, rules and marks. Arrows, j/k and page keys scroll; Esc, q or F1 closes |
 | F5 | Bypass the current cached snapshot and refresh discovery |
 | Ctrl+c | Cancel without selected paths |
 
@@ -141,7 +142,8 @@ directory>` line between the filter and the results, rounded pane borders, color
 and selection, and highlighted fuzzy matches. At 80 columns or wider, marked
 paths appear in a pane to the right of the working list. Narrower terminals stack
 the panes; Alt+Space expands the marked pane for inspection. Long marked labels
-wrap, and F1 shows complete session details. The minimum working size is 36 × 12;
+wrap. The bottom line shows only the highlighted path (or a status message) and
+an `F1 keys` pointer; the bindings live in the F1 guide. The minimum working size is 36 × 12;
 a smaller terminal shows a resize hint with no invisible numbered targets. Frames
 use diff rendering and synchronized updates to reduce flicker. `NO_COLOR` is
 honored; shortcut text, selection arrows, and missing/progress labels remain visible.

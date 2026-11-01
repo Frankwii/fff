@@ -153,7 +153,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "2.txt").touch()
         (self.root / "other").touch()
         s = self.start()
-        s.send(b"2", b"Query: 2")
+        s.send(b"2", "❯ 2")
         s.send(b"\x1b", b"other")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -176,10 +176,10 @@ class TerminalTests(unittest.TestCase):
         (self.root / "main.tex").touch()
         s = self.start("--depth", "1", "--exclude", "build")
         s.send(b"\x1b[1;3C", b"depth 2")  # Alt+Right
-        s.send(b"\x1bH", b"exclusions: false")
+        s.send(b"\x1bH", "exclusions off")
         s.send(b"\x1be", b"one glob per line")
         before_apply = len(s.ui)
-        s.send(b"\r*.tex\x17", b"Query:")
+        s.send(b"\r*.tex\x17", "❯")
         self.assertNotIn(b"No matching results", s.ui[before_apply:])
         s.send(b"\x1bH", b"No matching results")
         s.send(b"\x03")
@@ -190,8 +190,8 @@ class TerminalTests(unittest.TestCase):
         (self.root / "b").touch()
         s = self.start()
         s.send(b"\t", b"Marks (1)")
-        s.send(b"\x1b ", "› [x]")
-        s.send(b"\t", "› [ ]")
+        s.send(b"\x1b ", "› ●")
+        s.send(b"\t", "› ○")
         s.send(b"\x1b", b"Marks (0)")
         s.send(b"\x1bk", "›   1    a")
         s.send(b"\r")
@@ -203,7 +203,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--editor", "basic", "--depth", "1")
         s.wait_ui(" docs/")
         s.wait_ui(" main.rs")
-        s.send(b"\t", "[x]  docs")  # marked rows carry the same icon
+        s.send(b"\t", "●  docs")  # marked rows carry the same icon
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
@@ -223,7 +223,7 @@ class TerminalTests(unittest.TestCase):
     def test_page_zero_and_higher_digit_clamping(self):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
-        s = self.start(size=(18, 160))  # 9 visible result rows in the split layout
+        s = self.start(size=(16, 160))  # 9 visible result rows in the split layout
         s.send(b"\x1b[6~", b"file17")  # PageDown
         s.send(b"\x1b[48;5u")  # Ctrl+0 => last of the next 9 rows
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file17") + b"\n"))
@@ -256,7 +256,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1bg", b"Location (Enter navigates")
             s.send(os.fsencode(other) + b"\r", ("cwd", other))
             self.assertIn(other, s.screen.text)
-            s.send(b"b", b"Query: b")
+            s.send(b"b", "❯ b")
             s.send(b"\r")
             expected = os.fsencode(self.root / "a") + b"\n" + os.fsencode(target) + b"\n"
             self.assertEqual(s.finish(), (0, expected))
@@ -282,7 +282,7 @@ class TerminalTests(unittest.TestCase):
         self.root.mkdir()
         (self.root / "leaf-only").touch()
         s = self.start("--depth", "1", implicit_root=True)
-        s.send(b"leaf-only", b"Query: leaf-only")
+        s.send(b"leaf-only", "❯ leaf-only")
         s.send(b"\x1bh", ("cwd", parent))
         s.wait_ui(b"No matching results")
         self.assertIn(str(parent), s.screen.text)
@@ -298,7 +298,7 @@ class TerminalTests(unittest.TestCase):
         for alt_two, alt_zero in [(b"\x1b2", b"\x1b0"), (b"\x1b[50;3u", b"\x1b[48;3u")]:
             with self.subTest(alt_two=alt_two):
                 s = self.start("--null", "--depth", "1", implicit_root=True)
-                s.send(b"c.txt", b"Query: c.txt")
+                s.send(b"c.txt", "❯ c.txt")
                 s.send(b"\t", b"Marks (1)")
                 s.send(b"\x1b", b"Files \xc2\xb7 3")
                 s.send(alt_two, ("cwd", directory))
@@ -332,7 +332,7 @@ class TerminalTests(unittest.TestCase):
     def test_alt_number_after_paging_uses_visible_labels(self):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
-        s = self.start(size=(18, 160))
+        s = self.start(size=(16, 160))
         s.send(b"\x1b[6~", b"file17")
         s.send(b"\x1b2")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file10") + b"\n"))
@@ -344,13 +344,13 @@ class TerminalTests(unittest.TestCase):
         self.assertGreater(title.index("Marks (0)"), title.index("Files ·"))
         self.assertIn(b"38;2;", s.ui)
         s.send(b"\t", b"Marks (1)")
-        s.send(b"\x1b ", "› [x]")
+        s.send(b"\x1b ", "› ●")
         # Resize to a compact stacked layout, then exercise the same marked row.
         fcntl.ioctl(s.master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 60, 0, 0))
         s.screen = Screen(24, 60)
         os.kill(s.pid, signal.SIGWINCH)
         s.wait_ui("Marks (1)")
-        s.send(b"\t", "› [ ]")
+        s.send(b"\t", "› ○")
         s.send(b"\x1b", b"Marks (0)")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -367,6 +367,20 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x17")
         self.assertEqual(s.finish(), (0, os.fsencode(target) + b"\n"))
 
+    def test_f1_opens_key_guide_and_tab_switches_to_session(self):
+        (self.root / "file").touch()
+        s = self.start()
+        self.assertIn("F1 keys", s.screen.text)
+        self.assertNotIn("Alt+#", s.screen.text)
+        s.send(b"\x1bOP", "SELECT AND RETURN")  # F1
+        self.assertIn("Alt+Space", s.screen.text)
+        s.send(b"\t", "CURRENT DIRECTORY")
+        s.send(b"\t", "SELECT AND RETURN")
+        s.send(b"\x1b[27u", "F1 keys")  # Escape closes
+        self.assertNotIn("SELECT AND RETURN", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_no_dir_lists_only_files_and_disables_navigation(self):
         folder = self.root / "folder"
         folder.mkdir()
@@ -380,7 +394,7 @@ class TerminalTests(unittest.TestCase):
         # Parent, enter, location and bookmarks all stay put with a notice.
         for key in (b"\x1bh", b"\x1bl", b"\x1bg", b"\x1bb"):
             s.send(key, "disabled with --no-dir")
-            self.assertTrue(any(l.lstrip().startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
+            self.assertTrue(any(" ".join(l.split()).startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
             self.assertNotIn("Go to directory", s.screen.text)
             self.assertNotIn("Bookmarks ·", s.screen.text)
         # A no-match query: Ctrl+number does not fall back to the directory.
@@ -422,7 +436,7 @@ class TerminalTests(unittest.TestCase):
             s = self.start("--config", str(config))
             lines = s.screen.text.splitlines()
             self.assertNotIn("CURRENT DIRECTORY", s.screen.text)
-            self.assertTrue(lines[3].lstrip().startswith(f"@ {self.root}"), s.screen.text)
+            self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root}"), s.screen.text)
             self.assertIn(b"48;2;18;52;86", s.ui)
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -442,15 +456,16 @@ class TerminalTests(unittest.TestCase):
         self.session = s
         lines = s.screen.text.splitlines()
         self.assertIn("Filter", lines[0])
-        self.assertIn("depth 1 · ● complete · hidden: false", lines[2])
-        self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} r1"), s.screen.text)
-        self.assertTrue(lines[3].rstrip().endswith("pinned r1 notes · r2 papers"), s.screen.text)
+        self.assertIn("● complete   depth 1", lines[2])
+        self.assertNotIn("hidden", lines[2])
+        self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} "), s.screen.text)
+        self.assertTrue(lines[3].rstrip().endswith("pinned  notes  papers"), s.screen.text)
         self.assertIn("Files ·", lines[4])
-        s.send(b"topic", b"Query: topic")
+        s.send(b"topic", "❯ topic")
         s.send(b"\r", ("cwd", self.root / "notes" / "topic"))
         at = next(l for l in s.screen.text.splitlines() if l.lstrip().startswith("@ "))
-        self.assertIn("topic r3", " ".join(at.split()))
-        self.assertIn("pinned r1 notes · r2 papers", at)
+        self.assertIn(f"@ {self.root / 'notes' / 'topic'} ", " ".join(at.split()))
+        self.assertIn("pinned  notes  papers", at)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -492,11 +507,11 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_query_operators_undo_redo_and_exact_stdout(self):
         (self.root / "world.txt").touch()
         s = self.start("--editor", "nvim")
-        s.send(b"hello world", b"Query: hello world")
+        s.send(b"hello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"0dw", b"Query: world")
-        s.send(b"u", b"Query: hello world")
-        s.send(b"\x12", b"Query: world")
+        s.send(b"0dw", "❯ world")
+        s.send(b"u", "❯ hello world")
+        s.send(b"\x12", "❯ world")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
 
@@ -566,15 +581,15 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "beta") + b"\n"))
         s.close()
         s = self.session = Session(self.root, "--editor", "nvim", "--no-config")
-        s.send(b"gamma", b"Query: gamma")
+        s.send(b"gamma", "❯ gamma")
         s.send(b"\x1b[27u", "NORMAL")
         # Unbound continuations reach Neovim intact: gU, ge.
-        s.send(b"0gUiw", b"Query: GAMMA")
-        s.send(b"u", b"Query: gamma")
+        s.send(b"0gUiw", "❯ GAMMA")
+        s.send(b"u", "❯ gamma")
         s.send(b"$ge", "NORMAL")  # plain e would stay on the last letter
-        s.send(b"ix", b"Query: xgamma")
+        s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"x", b"Query: gamma")
+        s.send(b"x", "❯ gamma")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "gamma") + b"\n"))
 
@@ -591,7 +606,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"h", ("cwd", self.root))
         self.assertIn("Filter · NORMAL", s.screen.text)
         # i returns to Insert; typing filters as usual.
-        s.send(b"ifol", "Query: fol")
+        s.send(b"ifol", "❯ fol")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -649,7 +664,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim", "--no-config", environment={"PATH": ""})
         self.assertIn("Using basic editing", s.screen.text)
-        s.send(b"file", b"Query: file")
+        s.send(b"file", "❯ file")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
@@ -658,9 +673,9 @@ class TerminalTests(unittest.TestCase):
         (self.root / "world.txt").touch()
         s = self.start(editor=None)
         self.assertIn("INSERT", s.screen.text)
-        s.send(b"hello world", b"Query: hello world")
+        s.send(b"hello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"0dw", b"Query: world")
+        s.send(b"0dw", "❯ world")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
 
@@ -669,7 +684,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--no-config", environment={"PATH": ""}, editor=None)
         self.assertNotIn("Using basic editing", s.screen.text)
         self.assertNotIn("INSERT", s.screen.text)
-        s.send(b"file", b"Query: file")
+        s.send(b"file", "❯ file")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
@@ -687,7 +702,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"nord", "Find: nord")
         self.assertIn(b"48;2;46;52;64", s.ui[mark:])  # live nord preview
         mark = len(s.ui)
-        s.send(b"\x1b[27u", "Query:")  # Escape reverts to midnight
+        s.send(b"\x1b[27u", "❯")  # Escape reverts to midnight
         self.assertNotIn("Palettes ·", s.screen.text)
         self.assertIn(b"48;2;15;23;36", s.ui[mark:])
         s.send(b"\x1bpforest", "Find: forest")
@@ -708,7 +723,7 @@ class TerminalTests(unittest.TestCase):
             mark = len(s.ui)
             config.write_text("[ui]\npalette='tokyonight-day'\n")
             time.sleep(1.2)  # two watcher polls
-            s.send(b"x", "Query: x")
+            s.send(b"x", "❯ x")
             self.assertNotIn(b"48;2;225;226;231", s.ui[mark:])
             # Only changed cells are redrawn; the query panel uses mocha's text color.
             self.assertIn(b"38;2;205;214;244", s.ui[mark:])
@@ -759,7 +774,7 @@ class TerminalTests(unittest.TestCase):
         mark = len(s.ui)
         s.send(b"0dw", "Find: nord")
         self.assertIn(b"48;2;46;52;64", s.ui[mark:])
-        s.send(b"\x1b[27u", "Query:")
+        s.send(b"\x1b[27u", "❯")
         self.assertNotIn("Palettes ·", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))

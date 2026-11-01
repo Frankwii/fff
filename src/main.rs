@@ -46,7 +46,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>picker --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
 
-<bold><green>Keys:</green></bold> (complete table in the README; F1 shows session details)
+<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in picker for the full guide; Tab there shows session details)
   <cyan>type</cyan>  filter          <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
@@ -267,6 +267,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
     app.no_dir = args.no_dir;
+    app.home = std::env::var_os("HOME")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
     if let Some(paths) = ui::run(
         app,
         keys,
