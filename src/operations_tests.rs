@@ -63,6 +63,7 @@ fn backup_is_complete_before_mutation_and_keeps_each_version() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     assert!(out.backup.join("COMPLETE").exists());
@@ -79,6 +80,7 @@ fn backup_is_complete_before_mutation_and_keeps_each_version() {
             directory: f.root.join("other"),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     assert_eq!(f.batches().len(), 2);
@@ -99,6 +101,7 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     for root in [f.dest.join("tree"), out.backup.join("0000")] {
@@ -128,6 +131,7 @@ fn move_renames_file_and_directory_and_retains_backup() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     assert!(!a.exists() && !b.exists());
@@ -145,6 +149,7 @@ fn symlink_uses_real_absolute_paths_and_keeps_source_unchanged() {
             sources: vec![src.clone()],
             directory: f.dest.clone(),
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     assert_eq!(fs::read_link(f.dest.join("a")).unwrap(), src);
@@ -164,6 +169,7 @@ fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     assert_eq!(fs::read(f.dest.join(&name)).unwrap(), b"bytes");
@@ -192,6 +198,7 @@ fn all_collisions_are_checked_before_any_copy_or_move() {
                 directory: f.dest.clone(),
                 replace: vec![],
                 confirmed: vec![],
+                into: None,
             }
         } else {
             Request::Copy {
@@ -199,6 +206,7 @@ fn all_collisions_are_checked_before_any_copy_or_move() {
                 directory: f.dest.clone(),
                 replace: vec![],
                 confirmed: vec![],
+                into: None,
             }
         };
         assert!(
@@ -224,6 +232,7 @@ fn dangling_destination_symlink_is_a_collision() {
                 directory: f.dest.clone(),
                 replace: vec![],
                 confirmed: vec![],
+                into: None,
             })
             .is_err()
     );
@@ -243,6 +252,7 @@ fn rejects_overlapping_sources_and_destination_in_source() {
                 directory: f.dest.clone(),
                 replace: vec![],
                 confirmed: vec![],
+                into: None,
             })
             .is_err()
     );
@@ -253,6 +263,7 @@ fn rejects_overlapping_sources_and_destination_in_source() {
                 directory: dir,
                 replace: vec![],
                 confirmed: vec![],
+                into: None,
             })
             .is_err()
     );
@@ -292,17 +303,20 @@ fn backup_failure_is_fail_closed_for_all_mutations() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         },
         Request::Move {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         },
         Request::Symlink {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
             confirmed: vec![],
+            into: None,
         },
         Request::Delete {
             sources: vec![p.clone()],
@@ -607,6 +621,7 @@ fn copies_and_backups_keep_modification_times() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap();
     for root in [f.dest.join("tree"), out.backup.join("0000")] {
@@ -737,6 +752,7 @@ fn racing_destination_rolls_back_earlier_moves() {
                 directory: f.dest.clone(),
                 replace: vec![],
                 confirmed: vec![],
+                into: None,
             })
             .unwrap_err()
             .contains("rolled back")
@@ -918,9 +934,19 @@ fn corrupt_archive_and_destination_symlink_leave_disk_untouched() {
 }
 #[test]
 fn safe_archive_paths_and_new_name_validation() {
-    for p in ["../a", "/a", "C:/a", "a\\b", "a/../../b"] {
-        assert!(crate::archive::safe_path(Path::new(p)).is_err());
+    for p in [
+        "../a",
+        "/a",
+        "a\\b",
+        "a/../../b",
+        "a\nb",
+        "x\u{1b}[2J",
+        ".fff-stage-1-2-3/x",
+    ] {
+        assert!(crate::archive::safe_path(Path::new(p)).is_err(), "{p:?}");
     }
+    // Colons are ordinary on Linux, as in timestamps.
+    assert!(crate::archive::safe_path(Path::new("logs/12:30:00.txt")).is_ok());
     assert_eq!(
         crate::archive::safe_path(Path::new("./a/b")).unwrap(),
         Path::new("a/b")
@@ -957,6 +983,7 @@ fn racing_copy_destination_rolls_back_every_published_copy() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap_err()
         .contains("rolled back")
@@ -1134,7 +1161,7 @@ fn changes_after_detaching_delete_roots_are_restored_without_removal() {
             confirmed: vec![],
         })
         .unwrap_err()
-        .contains("deletion cancelled")
+        .contains("nothing changed")
     );
     assert_eq!(fs::read(dir.join("new")).unwrap(), b"new data");
     assert_eq!(fs::read(dir.join("original")).unwrap(), b"keep");
@@ -1160,6 +1187,7 @@ fn failed_move_rollback_never_overwrites_a_new_source_entry() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap_err();
     assert!(error.contains("rollback incomplete"));
@@ -1191,7 +1219,11 @@ fn failed_delete_rollback_retains_original_in_private_stage() {
             confirmed: vec![],
         })
         .unwrap_err();
-    assert!(error.contains("retained in staging"));
+    // The staging path holding the original is named.
+    assert!(
+        error.contains("could not restore") && error.contains(".fff-stage-"),
+        "{error}"
+    );
     assert_eq!(fs::read(a).unwrap(), b"new source");
     let stage = fs::read_dir(&f.work)
         .unwrap()
@@ -1220,6 +1252,7 @@ fn readonly_destination_failure_leaves_sources_and_destinations_intact() {
             directory: f.dest.clone(),
             replace: vec![],
             confirmed: vec![],
+            into: None,
         })
         .unwrap_err();
     fs::set_permissions(&f.dest, fs::Permissions::from_mode(0o700)).unwrap();
@@ -1241,6 +1274,7 @@ fn cross_filesystem_moves_refuse_before_backup_when_available() {
                     directory: other.into(),
                     replace: vec![],
                     confirmed: vec![],
+                    into: None,
                 })
                 .unwrap_err()
                 .contains("across filesystems")
@@ -1321,6 +1355,7 @@ fn move_overwrites_only_confirmed_destinations_and_backs_them_up() {
         directory: f.dest.clone(),
         replace: vec![],
         confirmed: vec![],
+        into: None,
     };
     assert!(f.engine().execute(unconfirmed).is_err());
     assert!(a.exists() && c.exists() && !f.backup.exists());
@@ -1367,6 +1402,7 @@ fn move_overwrite_refuses_changed_self_and_containing_destinations() {
         directory: f.work.clone(),
         replace: vec![inner.clone()],
         confirmed: vec![],
+        into: None,
     };
     assert!(f.engine().execute(request).is_err());
     assert_eq!(fs::read(&nested).unwrap(), b"n");
@@ -1411,6 +1447,7 @@ fn copy_overwrites_only_confirmed_destinations_and_keeps_sources() {
         directory: f.dest.clone(),
         replace: vec![],
         confirmed: vec![],
+        into: None,
     };
     assert!(f.engine().execute(unconfirmed).is_err());
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"old a");
@@ -1515,6 +1552,7 @@ fn bind_mounts_in_namespace() {
         directory: f.dest.clone(),
         replace: vec![],
         confirmed: vec![],
+        into: None,
     };
     assert!(f.engine().execute(copy).is_err());
     assert_eq!(fs::read(outside.join("precious")).unwrap(), b"keep");
@@ -1529,6 +1567,7 @@ fn bind_mounts_in_namespace() {
         directory: alias.join("sub"),
         replace: vec![],
         confirmed: vec![],
+        into: None,
     };
     let error = f.engine().execute(into_itself).unwrap_err();
     assert!(error.contains("inside a source"), "{error}");
@@ -1554,8 +1593,14 @@ fn bind_mounts_in_namespace() {
         }
     }));
     let plan = DeletePlan::new(roots.to_vec()).unwrap();
-    let error = e.execute(plan.request().unwrap()).unwrap_err();
-    assert!(error.contains("back in place"), "{error}");
+    // Partly done: reported as a warning, with what was removed listed.
+    let out = e.execute(plan.request().unwrap()).unwrap();
+    let error = out.warning.unwrap();
+    assert!(
+        error.contains("Deleted 1 of 3") && error.contains("back in place"),
+        "{error}"
+    );
+    assert_eq!(out.removed, vec![roots[0].clone()]);
     assert_eq!(fs::read(outside.join("precious")).unwrap(), b"keep");
     // r0 was deleted; r1 failed partway and is back with whatever remained;
     // r2 was never touched.
@@ -1622,6 +1667,7 @@ fn copy_rollback_never_pulls_back_an_entry_it_did_not_publish() {
         directory: f.dest.clone(),
         replace: vec![],
         confirmed: vec![],
+        into: None,
     };
     let error = e.execute(request).unwrap_err();
     assert!(error.contains("rollback incomplete"), "{error}");
@@ -1665,4 +1711,109 @@ fn new_files_get_ordinary_permissions_and_plans_refuse_repeated_names() {
         .err()
         .unwrap();
     assert!(error.contains("Two selected entries"), "{error}");
+}
+#[test]
+fn a_failed_delete_restores_exact_directory_modes() {
+    if !in_namespace("operations::tests::modes_in_namespace") {
+        modes_in_namespace();
+    }
+}
+#[test]
+#[ignore = "runs inside a user and mount namespace"]
+fn modes_in_namespace() {
+    if std::env::var_os("FFF_IN_NAMESPACE").is_none() {
+        return;
+    }
+    let f = Fixture::new();
+    let root = f.work.join("A");
+    fs::create_dir_all(root.join("sub/m")).unwrap();
+    let mut e = f.engine();
+    let (work, outside) = (f.work.clone(), f.root.join("outside"));
+    fs::create_dir(&outside).unwrap();
+    e.hook = Some(Box::new(move |phase| {
+        if phase == usize::MAX - 2 {
+            let stage = fs::read_dir(&work).unwrap().next().unwrap().unwrap().path();
+            fs::set_permissions(stage.join("entry/sub"), fs::Permissions::from_mode(0o2555))
+                .unwrap();
+            bind(&outside, &stage.join("entry/sub/m"));
+        }
+    }));
+    let plan = DeletePlan::new(vec![root.clone()]).unwrap();
+    let out = e.execute(plan.request().unwrap()).unwrap();
+    assert!(out.warning.is_some());
+    // The read-only, setgid directory is back exactly as it was.
+    assert_eq!(
+        fs::metadata(root.join("sub")).unwrap().mode() & 0o7777,
+        0o2555
+    );
+}
+#[test]
+fn overwritten_entries_changed_while_detached_are_kept() {
+    let f = Fixture::new();
+    let a = f.file("a", b"new");
+    fs::write(f.dest.join("a"), b"old").unwrap();
+    let plan = TransferPlan::new(Transfer::Move, vec![a], f.dest.clone()).unwrap();
+    let mut e = f.engine();
+    let dest = f.dest.clone();
+    e.hook = Some(Box::new(move |phase| {
+        if phase == 0 {
+            // A writer appends to the detached entry before it is deleted.
+            let stage = fs::read_dir(&dest)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .find(|p| p.join("0").exists())
+                .unwrap();
+            fs::write(stage.join("0"), b"old, then written").unwrap();
+        }
+    }));
+    let out = e.execute(plan.request().unwrap()).unwrap();
+    let warning = out.warning.unwrap();
+    assert!(
+        warning.contains("changed while being overwritten"),
+        "{warning}"
+    );
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new");
+    let kept = fs::read_dir(&f.dest)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.join("0").exists())
+        .unwrap();
+    assert_eq!(fs::read(kept.join("0")).unwrap(), b"old, then written");
+}
+#[test]
+fn transfers_bind_the_confirmed_destination_directory() {
+    let f = Fixture::new();
+    let a = f.file("a", b"a");
+    fs::create_dir(f.root.join("other")).unwrap();
+    symlink(&f.dest, f.root.join("here")).unwrap();
+    let plan = TransferPlan::new(Transfer::Move, vec![a.clone()], f.root.join("here")).unwrap();
+    fs::remove_file(f.root.join("here")).unwrap();
+    symlink(f.root.join("other"), f.root.join("here")).unwrap();
+    let error = f.engine().execute(plan.request().unwrap()).unwrap_err();
+    assert!(error.contains("destination directory changed"), "{error}");
+    assert!(a.exists());
+}
+#[test]
+fn extracted_files_respect_the_umask_and_delete_plans_refuse_overlaps() {
+    let f = Fixture::new();
+    let archive = f.work.join("a.tar");
+    tar(&archive, &[("open", b'0', b"x", "")]);
+    f.engine()
+        .execute(Request::Extract {
+            archive,
+            destination: f.dest.join("out"),
+        })
+        .unwrap();
+    let reference = f.work.join("reference");
+    fs::File::create(&reference).unwrap();
+    // tar() writes mode 0644; never more permissive than the umask allows.
+    let mode = fs::metadata(f.dest.join("out/open")).unwrap().mode() & 0o777;
+    assert_eq!(
+        mode & !(fs::metadata(&reference).unwrap().mode() & 0o777),
+        0
+    );
+    let dir = f.work.join("d");
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("x"), b"x").unwrap();
+    assert!(DeletePlan::new(vec![dir.clone(), dir.join("x")]).is_err());
 }

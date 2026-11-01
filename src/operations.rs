@@ -181,7 +181,7 @@ fn mount_root(parent: &File, name: &OsStr) -> Result<bool> {
     let x = sys::statx(
         parent,
         name,
-        AtFlags::SYMLINK_NOFOLLOW,
+        AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT,
         sys::StatxFlags::BASIC_STATS,
     )
     .map_err(err)?;
@@ -435,17 +435,22 @@ pub enum Request {
         directory: PathBuf,
         replace: Vec<PathBuf>,
         confirmed: Vec<Snapshot>,
+        /// Device and inode of `directory` when confirmed.
+        into: Option<(u64, u64)>,
     },
     Move {
         sources: Vec<PathBuf>,
         directory: PathBuf,
         replace: Vec<PathBuf>,
         confirmed: Vec<Snapshot>,
+        /// Device and inode of `directory` when confirmed.
+        into: Option<(u64, u64)>,
     },
     Symlink {
         sources: Vec<PathBuf>,
         directory: PathBuf,
         confirmed: Vec<Snapshot>,
+        into: Option<(u64, u64)>,
     },
     Rename {
         sources: Vec<PathBuf>,
@@ -467,6 +472,9 @@ pub enum Request {
 #[derive(Debug)]
 pub struct Outcome {
     pub changed: bool,
+    /// Set when the operation took effect but did not complete cleanly, such
+    /// as a deletion stopped partway; `moved`/`removed` still list what happened.
+    pub warning: Option<String>,
     pub backup: PathBuf,
     pub moved: Vec<(PathBuf, PathBuf)>,
     pub removed: Vec<PathBuf>,
@@ -552,6 +560,7 @@ impl Engine {
             if sources.is_empty() {
                 return Ok(Outcome {
                     changed: false,
+                    warning: None,
                     backup: PathBuf::new(),
                     moved: vec![],
                     removed: vec![],
@@ -648,6 +657,18 @@ impl Engine {
         {
             return Err("Files changed since confirmation; review again".into());
         }
+        let into = match &request {
+            Request::Copy { into, .. }
+            | Request::Move { into, .. }
+            | Request::Symlink { into, .. } => *into,
+            _ => None,
+        };
+        if let Some(into) = into {
+            let m = dst[0].parent.metadata().map_err(err)?;
+            if (m.dev(), m.ino()) != into {
+                return Err("The destination directory changed since confirmation".into());
+            }
+        }
         // Compare identities as well as spellings: an alias of a source
         // directory (a bind mount, another letter case) is still that source.
         if matches!(request, Request::Copy { .. } | Request::Move { .. }) {
@@ -683,6 +704,7 @@ impl Engine {
         }
         let mut outcome = Outcome {
             changed: true,
+            warning: None,
             backup: backup.clone(),
             moved: vec![],
             removed: vec![],
@@ -726,7 +748,7 @@ impl Engine {
                         }
                         done.push(i);
                     }
-                    over.finish()?;
+                    outcome.warning = over.finish();
                     let names = rename_map(&sources, &targets);
                     outcome.moved = src
                         .iter()
@@ -798,7 +820,7 @@ impl Engine {
                         }
                         done.push(i);
                     }
-                    over.finish()?;
+                    outcome.warning = over.finish();
                 }
                 Request::Delete { .. } => {
                     // Detach all selected roots before deleting any contents;
@@ -817,23 +839,13 @@ impl Engine {
                             }
                         });
                         if let Err(e) = result {
-                            let mut rollback = true;
                             for j in (0..i).rev() {
                                 let s = &src[j];
-                                let restored =
+                                held[j].keep =
                                     rename(&held[j].dir, OsStr::new("entry"), &s.parent, &s.name)
-                                        .is_ok();
-                                held[j].keep = !restored;
-                                rollback &= restored;
+                                        .is_err();
                             }
-                            return Err(format!(
-                                "{e}; {}",
-                                if rollback {
-                                    "deletion cancelled"
-                                } else {
-                                    "rollback incomplete; original data retained in staging"
-                                }
-                            ));
+                            return Err(format!("{e}; {}", unrestored(&held)));
                         }
                         held[i].keep = true;
                     }
@@ -846,58 +858,39 @@ impl Engine {
                         }
                     });
                     if let Err(error) = validation {
-                        let mut rollback = true;
                         for (i, st) in held.iter_mut().enumerate().rev() {
-                            let restored =
+                            st.keep =
                                 rename(&st.dir, OsStr::new("entry"), &src[i].parent, &src[i].name)
-                                    .is_ok();
-                            st.keep = !restored;
-                            rollback &= restored;
+                                    .is_err();
                         }
-                        return Err(format!(
-                            "{error}; {}",
-                            if rollback {
-                                "deletion cancelled"
-                            } else {
-                                "rollback incomplete; originals retained in staging"
-                            }
-                        ));
+                        return Err(format!("{error}; {}", unrestored(&held)));
                     }
                     self.checkpoint(usize::MAX - 2);
                     for i in 0..held.len() {
                         if let Err(e) = remove_tree(&held[i].dir, OsStr::new("entry")) {
                             // Put back what remains of this root and every root not
                             // yet deleted, so nothing is left hidden in staging.
-                            let mut stranded = vec![];
                             for (j, st) in held.iter_mut().enumerate().skip(i) {
                                 let s = &src[j];
                                 st.keep = rename(&st.dir, OsStr::new("entry"), &s.parent, &s.name)
                                     .is_err();
-                                if st.keep {
-                                    stranded.push(st.path.join("entry"));
-                                }
                             }
-                            let deleted = if i == 0 {
-                                String::new()
-                            } else {
-                                format!("deleted {i} of {}; ", src.len())
+                            let rest = match held.len() - i - 1 {
+                                0 => String::new(),
+                                1 => ", and the entry after it,".into(),
+                                n => format!(", and the {n} entries after it,"),
                             };
-                            return Err(if stranded.is_empty() {
-                                format!(
-                                    "Could not delete {:?}: {e}; {deleted}the rest is back in place",
-                                    sources[i]
-                                )
+                            let back = if held[i..].iter().all(|st| !st.keep) {
+                                format!("What remains of it{rest} is back in place.")
                             } else {
-                                format!(
-                                    "Could not delete {:?}: {e}; {deleted}could not restore {}",
-                                    sources[i],
-                                    stranded
-                                        .iter()
-                                        .map(|p| format!("{p:?}"))
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                )
-                            });
+                                format!("Could {}.", &unrestored(&held[i..])[6..])
+                            };
+                            outcome.warning = Some(format!(
+                                "Deleted {i} of {}; {:?} was only partly deleted ({e}). {back}",
+                                held.len(),
+                                sources[i],
+                            ));
+                            return Ok(());
                         }
                         held[i].keep = false;
                         outcome.removed.push(sources[i].clone());
@@ -1010,6 +1003,19 @@ impl Engine {
         Ok(outcome)
     }
 }
+/// After putting detached delete roots back: what, if anything, remains staged.
+fn unrestored(held: &[Stage]) -> String {
+    let stranded = held
+        .iter()
+        .filter(|st| st.keep)
+        .map(|st| format!("{:?}", st.path.join("entry")))
+        .collect::<Vec<_>>();
+    if stranded.is_empty() {
+        "nothing changed".into()
+    } else {
+        format!("could not restore {}", stranded.join(", "))
+    }
+}
 /// Termination signals arriving during an operation are held until it ends,
 /// then delivered with their default action, so no operation stops halfway.
 mod interrupt {
@@ -1020,9 +1026,10 @@ mod interrupt {
     static BUSY: AtomicUsize = AtomicUsize::new(0);
     static PENDING: AtomicI32 = AtomicI32::new(0);
     extern "C" fn held(signal: libc::c_int) {
-        if BUSY.load(Ordering::SeqCst) > 0 {
-            PENDING.store(signal, Ordering::SeqCst);
-        } else {
+        // Record first, then check: an operation ending concurrently either
+        // sees the record or leaves BUSY at zero for this handler to see.
+        PENDING.store(signal, Ordering::SeqCst);
+        if BUSY.load(Ordering::SeqCst) == 0 {
             deliver(signal);
         }
     }
@@ -1072,15 +1079,20 @@ mod interrupt {
 /// publication and deleted only after every entry has been published.
 struct Overwrite<'a> {
     old: &'a [Entry],
+    expected: &'a [BTreeMap<PathBuf, Stamp>],
     stage: Option<Stage>,
 }
 impl<'a> Overwrite<'a> {
     fn detach(
         old: &'a [Entry],
-        expected: &[BTreeMap<PathBuf, Stamp>],
+        expected: &'a [BTreeMap<PathBuf, Stamp>],
         dst: &[Entry],
     ) -> Result<Self> {
-        let mut over = Self { old, stage: None };
+        let mut over = Self {
+            old,
+            expected,
+            stage: None,
+        };
         if old.is_empty() {
             return Ok(over);
         }
@@ -1132,20 +1144,31 @@ impl<'a> Overwrite<'a> {
             _ => "entries remain at their destinations".into(),
         }
     }
-    fn finish(self) -> Result<()> {
-        if let Some(mut stage) = self.stage {
-            for j in 0..self.old.len() {
-                remove_tree(&stage.dir, OsStr::new(&j.to_string())).map_err(|e| {
-                    format!(
-                        "Published, but removing overwritten entries failed: {e}; \
-                         they remain in {:?}",
-                        stage.path
-                    )
-                })?;
+    /// Deletes the overwritten entries once every new entry is published.
+    /// An entry changed while detached is kept, never deleted unconfirmed.
+    fn finish(self) -> Option<String> {
+        let mut stage = self.stage?;
+        let mut kept = vec![];
+        for (j, o) in self.old.iter().enumerate() {
+            let name = j.to_string();
+            let removed = detached_matches(&stage.dir, OsStr::new(&name), &self.expected[j])
+                .and_then(|same| {
+                    if same {
+                        remove_tree(&stage.dir, OsStr::new(&name))
+                    } else {
+                        Err("it changed while being overwritten".into())
+                    }
+                });
+            if let Err(e) = removed {
+                kept.push(format!(
+                    "{:?} ({e}) is kept as {:?}",
+                    o.name,
+                    stage.path.join(&name)
+                ));
             }
-            stage.keep = false;
         }
-        Ok(())
+        stage.keep = !kept.is_empty();
+        (!kept.is_empty()).then(|| format!("Done, but {}", kept.join("; ")))
     }
 }
 pub const STAGE_PREFIX: &str = ".fff-stage-";
@@ -1183,9 +1206,11 @@ pub fn stranded(dir: &Path) -> Vec<PathBuf> {
             let Some(rest) = name.to_str().and_then(|n| n.strip_prefix(STAGE_PREFIX)) else {
                 return false;
             };
-            // Names start with the creating process id; skip live operations.
+            // Names start with the creating process id; skip operations still
+            // running in a live fff (the same executable, despite pid reuse).
             let pid = rest.split('-').next().unwrap_or_default();
-            !Path::new("/proc").join(pid).exists() || pid.is_empty()
+            let exe = fs::read_link(Path::new("/proc").join(pid).join("exe")).ok();
+            pid.is_empty() || exe.is_none() || exe != std::env::current_exe().ok()
         })
         .map(|e| e.path())
         .collect()
@@ -1205,11 +1230,25 @@ fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
     }
     if m.is_dir() {
         let dir = child_dir(parent, name)?;
-        // Copied read-only directories must still be removable on rollback.
-        dir.set_permissions(fs::Permissions::from_mode(m.mode() & 0o777 | 0o700))
-            .map_err(err)?;
-        for item in fs::read_dir(fdpath(&dir)).map_err(err)? {
-            remove_tree(&dir, &item.map_err(err)?.file_name())?;
+        // Read-only directories must be writable to empty them; if deletion
+        // then fails, the directory gets its exact mode back.
+        let original = m.mode() & 0o7777;
+        let unlocked = original & 0o700 != 0o700;
+        if unlocked {
+            dir.set_permissions(fs::Permissions::from_mode(original | 0o700))
+                .map_err(err)?;
+        }
+        let emptied = (|| {
+            for item in fs::read_dir(fdpath(&dir)).map_err(err)? {
+                remove_tree(&dir, &item.map_err(err)?.file_name())?;
+            }
+            Ok(())
+        })();
+        if let Err(e) = emptied {
+            if unlocked {
+                let _ = dir.set_permissions(fs::Permissions::from_mode(original));
+            }
+            return Err(e);
         }
         sys::unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(err)
     } else {
@@ -1453,6 +1492,18 @@ impl DeletePlan {
         if sources.is_empty() {
             return Err("No files selected".into());
         }
+        let resolved = sources
+            .iter()
+            .map(|p| Entry::at(p).map(|e| e.path))
+            .collect::<Result<Vec<_>>>()?;
+        for (i, a) in resolved.iter().enumerate() {
+            if resolved[..i]
+                .iter()
+                .any(|b| a.starts_with(b) || b.starts_with(a))
+            {
+                return Err("Overlapping selections; select each tree only once".into());
+            }
+        }
         let (snapshots, sizes): (Vec<_>, Vec<_>) = sources
             .iter()
             .map(|p| snapshot(p))
@@ -1485,6 +1536,7 @@ pub enum Transfer {
 pub struct TransferPlan {
     pub kind: Transfer,
     pub directory: PathBuf,
+    into: (u64, u64),
     pub sources: Vec<(PathBuf, u64)>,
     pub overwrites: Vec<(PathBuf, u64)>,
     snapshots: Vec<Snapshot>,
@@ -1506,6 +1558,8 @@ impl TransferPlan {
             snapshots.push(snap);
             listed.push((source.clone(), size));
         }
+        let m = fs::metadata(&directory).map_err(err)?;
+        let into = (m.dev(), m.ino());
         let mut overwrites = vec![];
         for source in &sources {
             let target = directory.join(source.file_name().ok_or("Invalid source")?);
@@ -1526,6 +1580,7 @@ impl TransferPlan {
         Ok(Self {
             kind,
             directory,
+            into,
             sources: listed,
             overwrites,
             snapshots,
@@ -1536,23 +1591,27 @@ impl TransferPlan {
         let directory = self.directory.clone();
         let replace = self.overwrites.iter().map(|(p, _)| p.clone()).collect();
         let confirmed = self.snapshots.clone();
+        let into = Some(self.into);
         Ok(match self.kind {
             Transfer::Move => Request::Move {
                 sources,
                 directory,
                 replace,
                 confirmed,
+                into,
             },
             Transfer::Copy => Request::Copy {
                 sources,
                 directory,
                 replace,
                 confirmed,
+                into,
             },
             Transfer::Link => Request::Symlink {
                 sources,
                 directory,
                 confirmed,
+                into,
             },
         })
     }

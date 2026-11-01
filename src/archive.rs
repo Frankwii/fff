@@ -55,11 +55,19 @@ impl Reader {
         }
     }
 }
-/// Absolute, parent-traversing and Windows-style names are refused even on Linux.
+/// Absolute, parent-traversing and backslash-separated names are refused even on
+/// Linux, as are control characters (a newline would forge a second name) and
+/// names fff reserves for its own staging directories.
 pub fn safe_path(path: &Path) -> Result<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
-    if path.as_os_str().as_bytes().contains(&b'\\')
-        || path.as_os_str().as_bytes().contains(&b':')
+    let bytes = path.as_os_str().as_bytes();
+    if bytes.contains(&b'\\')
+        || bytes.iter().any(|b| *b < 0x20 || *b == 0x7f)
+        || path.components().any(|c| {
+            c.as_os_str()
+                .as_bytes()
+                .starts_with(crate::operations::STAGE_PREFIX.as_bytes())
+        })
         || path.is_absolute()
         || path
             .components()
@@ -190,7 +198,8 @@ fn scan(input: File, stage: Option<&File>) -> Result<()> {
                     OpenOptions::new()
                         .write(true)
                         .create_new(true)
-                        .mode(0o600)
+                        // The archive's permission bits, limited by the umask.
+                        .mode(mode & 0o777)
                         .open(&target)
                         .map_err(|e| e.to_string())?,
                 )
@@ -221,10 +230,7 @@ fn scan(input: File, stage: Option<&File>) -> Result<()> {
                     .map_err(|e| e.to_string())?;
             }
         }
-        use std::os::unix::fs::PermissionsExt;
         if let Some(file) = file {
-            file.set_permissions(fs::Permissions::from_mode(mode & 0o777))
-                .map_err(|e| e.to_string())?;
             file.sync_all().map_err(|e| e.to_string())?;
         }
     }

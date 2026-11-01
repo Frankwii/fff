@@ -52,7 +52,8 @@ with the kernel's mount-root flag, which also catches bind mounts from the same
 filesystem, and by device number for other filesystems and subvolumes. Recursive
 copy and deletion check again at every directory, in case something is mounted
 after validation. Sockets, devices and other
-special files are refused. Symlinks are copied or
+special files are refused anywhere in a tree, as are trees deeper than 128
+levels or with more than 100,000 entries. Symlinks are copied or
 removed as links; recursive operations never follow them.
 
 ## Dialogs and messages
@@ -135,9 +136,11 @@ total size. **Enter** confirms and **Escape** cancels.
 A failed size calculation prevents deletion. After confirmation, all roots are
 backed up and detached into private staging directories before recursive
 deletion starts. If deleting one root fails, deletion stops: that root (with
-whatever remained of it) and every root not yet deleted are moved back, and the
-message says how many were deleted. Anything that cannot be moved back is named
-with its staging path.
+whatever remained of it, directory modes unchanged) and every root not yet
+deleted are moved back, and a warning says how many were deleted and which root
+was only partly deleted. Marks of the deleted roots are removed. Anything that
+cannot be moved back, here or in any other rollback, is named with its staging
+path.
 
 ## Confirmations and interruptions
 
@@ -153,6 +156,9 @@ A kill that cannot be held (`SIGKILL`, power loss) can leave hidden
 `.fff-stage-*` directories holding data; when fff enters a directory with such a
 leftover from a process that no longer runs, the status line names it.
 Rollbacks only move back entries this operation published, verified by identity.
+The destination directory of a move, copy or link is bound to the confirmation
+too. An overwritten entry that changes while detached is kept in its staging
+directory (and named in the message) instead of being deleted.
 
 ## Temporary backup guard
 
@@ -208,8 +214,10 @@ explanation and leave the main view open; no backup or staging is created.
 Detection uses contents, not filename extensions. Validation runs again during
 extraction in case the archive changes after the prompt opens. Extraction stages all entries before publication and
 refuses existing top-level destinations rather than merging or overwriting them.
-It refuses absolute paths, parent traversal, Windows-style paths, duplicate
-entries, links, and special files. Limits are 10,000 entries, 64 path components,
+It refuses absolute paths, parent traversal, backslash separators, control
+characters in names, names reserved for fff's staging directories, duplicate
+entries, links, and special files. Colons are allowed. Extracted files keep the
+archive's permission bits, limited by your umask. Limits are 10,000 entries, 64 path components,
 2 GiB per file and 4 GiB total extracted bytes. Exceeding a limit discards staging.
 
 Executing commands on chosen files remains unimplemented.

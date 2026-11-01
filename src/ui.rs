@@ -1491,7 +1491,12 @@ fn perform_operation(
             if clear_selection {
                 app.marks.clear();
             }
-            app.status = if !outcome.changed {
+            let complete = outcome.warning.is_none();
+            app.status = if let Some(warning) = outcome.warning {
+                // It took effect, but not completely: marks above reflect what
+                // happened; the message is shown as a problem.
+                warning
+            } else if !outcome.changed {
                 "Nothing to rename; no names changed".into()
             } else {
                 // Rename counts only the rows that changed.
@@ -1500,7 +1505,9 @@ fn perform_operation(
                 });
                 format!("{summary} · backup: {}", outcome.backup.display())
             };
-            app.status_success = app.status.clone();
+            if complete {
+                app.status_success = app.status.clone();
+            }
         }
         Err(error) => app.status = error,
     }
