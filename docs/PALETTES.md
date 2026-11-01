@@ -82,7 +82,9 @@ Built-in colors come from these upstream definitions:
 
 Fuzzy file finder maps upstream colors to semantic UI roles. It uses each family's canvas,
 text and signature accents for directories, focus, marks, status and the `@`
-badge; syntax-highlighting rules are not reproduced. The numeric mappings live
+badge; symbolic links use the family's blue (Base16 `base0D`; Dracula cyan and
+Rosé Pine foam), executables its green and empty files its red.
+Syntax-highlighting rules are not reproduced. The numeric mappings live
 in `src/palettes.rs`, with Fuzzy file finder's own palettes in `src/config.rs`.
 
 Light variants keep upstream accents even where their contrast is lower; a test

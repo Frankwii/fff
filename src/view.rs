@@ -190,47 +190,13 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     footer(frame, layout[3], app, focus);
     match focus {
         Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
-        Focus::Operation(draft) => {
-            let (title, multiline) = match draft.kind {
-                crate::operations::EditKind::Rename(_) => ("Rename files", true),
-                crate::operations::EditKind::Extract(_) => ("Extract archive", false),
-                crate::operations::EditKind::New(true) => ("New directory", false),
-                crate::operations::EditKind::New(false) => ("New file", false),
-            };
-            prompt(
-                frame,
-                app,
-                area,
-                draft.field(),
-                title,
-                &draft.text,
-                multiline,
-            );
+        Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
+        Focus::NewChoice => new_choice(frame, main, app),
+        Focus::DeleteChoice { current, selected } => {
+            delete_choice(frame, main, app, current, selected.len())
         }
-        Focus::NewChoice => operation_notice(
-            frame,
-            area,
-            app,
-            "Create",
-            "Create a file (f) or directory (d)? Esc cancels",
-            None,
-        ),
-        Focus::DeleteChoice { .. } => operation_notice(
-            frame,
-            area,
-            app,
-            "Delete",
-            "Delete current (c) or selected (s)? Esc cancels",
-            None,
-        ),
-        Focus::DeleteConfirm(rows) => operation_notice(
-            frame,
-            area,
-            app,
-            "Delete permanently",
-            "The current files will be permanently deleted. Enter confirms · Esc cancels",
-            Some(&rows.rows),
-        ),
+        Focus::MoveConfirm(plan) => replace_confirmation(frame, main, app, plan),
+        Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
         Focus::Exclusions(text) => prompt(
             frame,
             app,
@@ -682,7 +648,13 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
                 styled(if marked { "● " } else { "  " }, theme.marked),
                 styled(kind, icon_color(theme, group)),
             ];
-            spans.extend(filename_spans(app.palette, &name, c, &app.query));
+            spans.extend(filename_spans(
+                app.palette,
+                &name,
+                c,
+                &app.query,
+                name_color(theme, c),
+            ));
             spans.push(styled(" ".repeat(gap) + meta, theme.muted));
             frame.render_widget(
                 Paragraph::new(Line::from(spans)).style(Style::default().bg(bg)),
@@ -707,11 +679,28 @@ fn icon_color(theme: Palette, group: crate::icons::Group) -> Color {
         Group::Config | Group::Other => theme.muted,
     }
 }
+/// Links, then directories, empty files and executables get their own roles.
+/// Only visible rows are inspected, so discovery stays free of extra stats.
+fn name_color(theme: Palette, candidate: &Candidate) -> Color {
+    path_color(theme, &candidate.path, candidate.directory)
+}
+fn path_color(theme: Palette, path: &Path, directory: bool) -> Color {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_symlink() => theme.link,
+        _ if directory => theme.accent,
+        Ok(m) if m.is_file() && m.len() == 0 => theme.empty,
+        Ok(m) if m.is_file() && std::os::unix::fs::MetadataExt::mode(&m) & 0o111 != 0 => {
+            theme.executable
+        }
+        _ => theme.text,
+    }
+}
 fn filename_spans(
     theme: Palette,
     label: &str,
     candidate: &Candidate,
     query: &str,
+    name: Color,
 ) -> Vec<Span<'static>> {
     let basename = candidate
         .path
@@ -744,10 +733,8 @@ fn filename_spans(
                     theme.marked
                 } else if i < start {
                     theme.muted
-                } else if candidate.directory {
-                    theme.accent
                 } else {
-                    theme.text
+                    name
                 },
             );
             if matched {
@@ -863,6 +850,14 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
             Span::raw(" "),
             styled(path[..split].to_string(), theme.muted),
             styled(path[split..].to_string(), theme.text),
+        ]
+    } else if app.status == app.status_success {
+        vec![
+            Span::raw(" "),
+            styled(
+                truncate(&format!("✓ {}", safe(&app.status)), available),
+                theme.success,
+            ),
         ]
     } else {
         vec![
@@ -1236,11 +1231,7 @@ fn prompt(
     .min(area.height);
     let dialog = Rect::new(
         area.x + (area.width - width) / 2,
-        if matches!(field, Field::FileName | Field::Extraction) && !multiline {
-            area.bottom().saturating_sub(height)
-        } else {
-            area.y + (area.height - height) / 2
-        },
+        area.y + (area.height - height) / 2,
         width,
         height,
     );
@@ -1250,26 +1241,7 @@ fn prompt(
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
     let modal = app.edit_view.is_some();
-    let hint: String = if matches!(
-        field,
-        Field::Operation | Field::FileName | Field::Extraction
-    ) {
-        let help = if multiline {
-            "One path per row; filenames only."
-        } else if title == "Extract archive" {
-            "Destination; empty extracts beside the archive."
-        } else {
-            "Enter a name in the current directory."
-        };
-        format!(
-            "{help} {}",
-            if modal {
-                "Write to apply; close to discard."
-            } else {
-                "Ctrl+s applies; Esc discards."
-            }
-        )
-    } else if multiline {
+    let hint: String = if multiline {
         if modal {
             "Exclusions: one glob per line; write saves; close discards".into()
         } else {
@@ -1292,6 +1264,25 @@ fn prompt(
         inner.width,
         inner.height.saturating_sub(3 + u16::from(commanding)),
     );
+    edit_rows(frame, app, field, text, editor);
+    if commanding {
+        command_line(
+            frame,
+            app,
+            field,
+            Rect::new(inner.x, editor.bottom(), inner.width, 1),
+        );
+    }
+    if !status.is_empty() {
+        frame.render_widget(
+            Paragraph::new(styled(safe(status), theme.error)),
+            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        );
+    }
+}
+/// Buffer rows scrolled to keep the cursor visible, with the terminal cursor placed.
+fn edit_rows(frame: &mut Frame, app: &App, field: Field, text: &str, editor: Rect) {
+    let view = app.edit_view.as_ref().filter(|v| v.field == field);
     let rows = text.split('\n').collect::<Vec<_>>();
     let cursor_row = view.map(|v| v.row).unwrap_or(rows.len() - 1);
     let start = cursor_row.saturating_sub(editor.height.saturating_sub(1) as usize);
@@ -1319,85 +1310,379 @@ fn prompt(
                     .min(editor.height as usize - 1) as u16,
         ));
     }
-    if commanding {
-        command_line(
-            frame,
-            app,
-            field,
-            Rect::new(inner.x, editor.bottom(), inner.width, 1),
-        );
-    }
-    if !status.is_empty() {
-        frame.render_widget(
-            Paragraph::new(styled(safe(status), theme.error)),
-            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
-        );
-    }
 }
 
-fn operation_notice(
-    frame: &mut Frame,
-    area: Rect,
-    app: &App,
-    title: &str,
-    hint: &str,
-    rows: Option<&[(PathBuf, u64)]>,
-) {
-    let width = area.width.saturating_sub(4).min(100);
-    let height = if rows.is_some() {
-        area.height.saturating_sub(4).min(22)
-    } else {
-        7.min(area.height)
-    };
+/// File-operation dialogs share one geometry: a sheet spanning the outer edges
+/// of the result and mark panes, resting on their bottom border, as tall as its
+/// content. Key hints sit in the bottom border; an optional summary sits top right.
+struct Sheet<'a> {
+    title: String,
+    accent: Color,
+    keys: &'a [(&'a str, &'a str)],
+    summary: Option<String>,
+}
+fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet: Sheet) -> Rect {
+    let Sheet {
+        title,
+        accent,
+        keys,
+        summary,
+    } = sheet;
+    let theme = app.palette;
+    let height = height.min(main.height);
     let dialog = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
+        main.x,
+        main.bottom().saturating_sub(height),
+        main.width,
         height,
     );
-    let block = panel(app.palette, format!(" {title} "), true, app.palette.error)
-        .padding(Padding::horizontal(1));
+    let rule = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+    let mut hints = vec![];
+    for (i, (key, label)) in keys.iter().enumerate() {
+        if i > 0 {
+            hints.push(Span::styled("───", rule));
+        }
+        hints.push(bold(format!(" {key}"), accent));
+        hints.push(styled(format!(": {label} "), theme.text));
+    }
+    let mut block = panel(theme, title, true, accent)
+        .padding(Padding::horizontal(1))
+        .title_bottom(Line::from(hints).centered());
+    if let Some(summary) = summary {
+        block = block
+            .title_top(Line::from(styled(format!(" {summary} "), theme.muted)).right_aligned());
+    }
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
-    frame.render_widget(
-        Paragraph::new(styled(hint, app.palette.error)).wrap(Wrap { trim: false }),
-        Rect::new(inner.x, inner.y, inner.width, 3.min(inner.height)),
+    inner
+}
+/// Word-wraps styled prose; `*key*` segments are drawn as bold keys.
+fn prose(theme: Palette, accent: Color, text: &str, width: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::default()];
+    let mut used = 0;
+    for (i, part) in text.split('*').enumerate() {
+        let style = if i % 2 == 1 {
+            Style::default().fg(accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        // Keep each word's trailing space with it so lines break between words.
+        for word in part.split_inclusive(' ') {
+            let w = word.trim_end().width();
+            if used > 0 && used + w > width {
+                lines.push(Line::default());
+                used = 0;
+            }
+            let word = if used == 0 { word.trim_start() } else { word };
+            used += word.width();
+            lines
+                .last_mut()
+                .unwrap()
+                .spans
+                .push(Span::styled(word.to_string(), style));
+        }
+    }
+    lines
+}
+fn count(n: usize) -> String {
+    if n == 1 {
+        "1 entry".into()
+    } else {
+        format!("{n} entries")
+    }
+}
+fn quoted(path: &Path, app: &App) -> String {
+    let mut name = display_path(path, &app.cwd);
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()) && !name.ends_with('/') {
+        name.push('/');
+    }
+    name
+}
+/// Paths with right-aligned sizes, styled like result rows, heaviest first.
+fn size_lines(
+    app: &App,
+    rows: &[(PathBuf, u64)],
+    capacity: usize,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let theme = app.palette;
+    crate::operations::deletion_rows(rows, capacity)
+        .into_iter()
+        .map(|(listed, size)| {
+            let mut spans = vec![styled(
+                format!("{:>10}  ", crate::operations::human_size(size)),
+                theme.muted,
+            )];
+            let room = width.saturating_sub(12);
+            match listed {
+                crate::operations::Listed::Path(path) => {
+                    let directory = std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir());
+                    let (glyph, group) = crate::icons::marker(&path, directory, app.icons);
+                    let name = elide(&quoted(&path, app), room.saturating_sub(glyph.width()));
+                    let split = name.trim_end_matches('/').rfind('/').map_or(0, |i| i + 1);
+                    spans.push(styled(glyph, icon_color(theme, group)));
+                    spans.push(styled(name[..split].to_string(), theme.muted));
+                    spans.push(styled(
+                        name[split..].to_string(),
+                        path_color(theme, &path, directory),
+                    ));
+                }
+                crate::operations::Listed::More(n) => {
+                    // Align with the names, past the icon column.
+                    let glyph = crate::icons::marker(Path::new(""), false, app.icons).0;
+                    spans.push(Span::raw(" ".repeat(glyph.width())));
+                    spans.push(
+                        styled(
+                            format!("and {n} more {}", if n == 1 { "entry" } else { "entries" }),
+                            theme.muted,
+                        )
+                        .italic(),
+                    )
+                }
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
+fn total(rows: &[(PathBuf, u64)]) -> String {
+    let bytes = rows
+        .iter()
+        .fold(0u64, |n, (_, size)| n.saturating_add(*size));
+    format!(
+        "{} · {}",
+        count(rows.len()),
+        crate::operations::human_size(bytes)
+    )
+}
+/// A short explanation above a listing of the affected paths and their sizes.
+fn listing(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    title: &str,
+    text: &str,
+    keys: &[(&str, &str)],
+    rows: &[(PathBuf, u64)],
+) {
+    let theme = app.palette;
+    let width = main.width.saturating_sub(4) as usize;
+    let body = prose(theme, theme.error, text, width);
+    // Borders, prose, a blank line, then as many rows as fit.
+    let height = (body.len() + rows.len() + 3) as u16;
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        height,
+        Sheet {
+            title: format!(" {title} "),
+            accent: theme.error,
+            keys,
+            summary: Some(total(rows)),
+        },
     );
-    if let Some(rows) = rows {
-        let capacity = inner.height.saturating_sub(4) as usize;
-        let lines = crate::operations::deletion_rows(rows, capacity)
-            .into_iter()
-            .map(|(name, size)| {
-                Line::from(styled(
-                    format!("{}  {}", crate::operations::human_size(size), safe(name)),
-                    app.palette.text,
-                ))
-            })
-            .collect::<Vec<_>>();
-        frame.render_widget(
-            Paragraph::new(lines),
-            Rect::new(
-                inner.x,
-                inner.y + 3,
-                inner.width,
-                inner.height.saturating_sub(4),
+    let capacity = (inner.height as usize).saturating_sub(body.len() + 1);
+    let mut lines = body;
+    lines.push(Line::default());
+    lines.extend(size_lines(app, rows, capacity, inner.width as usize));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+fn delete_confirmation(frame: &mut Frame, main: Rect, app: &App, rows: &[(PathBuf, u64)]) {
+    let (what, them) = if rows.len() == 1 {
+        ("this entry", "it")
+    } else {
+        ("these entries", "them")
+    };
+    listing(
+        frame,
+        main,
+        app,
+        "Delete permanently",
+        &format!(
+            "Press *Enter* to permanently delete {what}, including everything inside \
+             directories. Press *Esc* to keep {them}."
+        ),
+        &[("Enter", "Delete"), ("Esc", "Cancel")],
+        rows,
+    );
+}
+fn replace_confirmation(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    plan: &crate::operations::MovePlan,
+) {
+    let one = plan.rows.len() == 1;
+    listing(
+        frame,
+        main,
+        app,
+        "Replace on move",
+        &format!(
+            "Moving {} here would replace {} with the same name. Press *Enter* to move \
+             everything and permanently replace {}, or *Esc* to cancel the whole move.",
+            count(plan.sources.len()),
+            if one {
+                "this existing entry"
+            } else {
+                "these existing entries"
+            },
+            if one { "it" } else { "them" },
+        ),
+        &[("Enter", "Replace"), ("Esc", "Cancel move")],
+        &plan.rows,
+    );
+}
+/// A one-keystroke choice: prose naming each key, keys repeated in the border.
+fn choice(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    title: &str,
+    text: &str,
+    keys: &[(&str, &str)],
+) {
+    let theme = app.palette;
+    let body = prose(
+        theme,
+        theme.marked,
+        text,
+        main.width.saturating_sub(4) as usize,
+    );
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        body.len() as u16 + 2,
+        Sheet {
+            title: format!(" {title} "),
+            accent: theme.marked,
+            keys,
+            summary: None,
+        },
+    );
+    frame.render_widget(Paragraph::new(body), inner);
+}
+fn delete_choice(frame: &mut Frame, main: Rect, app: &App, current: &Path, selected: usize) {
+    choice(
+        frame,
+        main,
+        app,
+        "Delete",
+        &format!(
+            "Press *s* to delete the selection ({}), or *c* to delete only the current \
+             entry, {}. Sizes are shown for confirmation before anything is deleted.",
+            count(selected),
+            quoted(current, app),
+        ),
+        &[("s", "Selection"), ("c", "Current"), ("Esc", "Cancel")],
+    );
+}
+fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
+    choice(
+        frame,
+        main,
+        app,
+        "Create",
+        &format!(
+            "Press *f* to create a file or *d* to create a directory in {}. \
+             You will name it next.",
+            tilde(&app.cwd, app.home.as_deref()),
+        ),
+        &[("f", "File"), ("d", "Directory"), ("Esc", "Cancel")],
+    );
+}
+/// Rename, extraction and creation buffers. Rename fills the pane area; the
+/// single-line buffers are as tall as their explanation plus one input row.
+fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::operations::Draft) {
+    use crate::operations::EditKind;
+    let theme = app.palette;
+    let field = draft.field();
+    let here = tilde(&app.cwd, app.home.as_deref());
+    let (title, text) = match &draft.kind {
+        EditKind::Rename(_) => (
+            "Rename files",
+            "Edit names in place: one entry per row, in the same order. Rename a \
+             directory on its own row; rows inside it may use its old or new name."
+                .to_string(),
+        ),
+        EditKind::Extract(archive) => (
+            "Extract archive",
+            format!(
+                "Type the directory to extract {} into, relative to {here}. Leave it \
+                 empty to extract beside the archive.",
+                quoted(archive, app)
             ),
-        );
-        let total = rows
-            .iter()
-            .fold(0u64, |n, (_, size)| n.saturating_add(*size));
+        ),
+        EditKind::New(true) => (
+            "New directory",
+            format!("Type a name for the new directory in {here}."),
+        ),
+        EditKind::New(false) => (
+            "New file",
+            format!("Type a name for the new file in {here}."),
+        ),
+    };
+    let keys: &[(&str, &str)] = if app.edit_view.is_some() {
+        &[(":wq", "Apply"), (":q!", "Discard")]
+    } else {
+        &[("Ctrl+s", "Apply"), ("Esc", "Discard")]
+    };
+    let body = prose(
+        theme,
+        theme.marked,
+        &text,
+        main.width.saturating_sub(4) as usize,
+    );
+    let multiline = matches!(draft.kind, EditKind::Rename(_));
+    // Borders, prose, a blank line, the input, and a row for commands or errors.
+    let height = if multiline {
+        main.height
+    } else {
+        body.len() as u16 + 5
+    };
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        height,
+        Sheet {
+            title: mode_title(app, field, title),
+            accent: theme.marked,
+            keys,
+            summary: None,
+        },
+    );
+    let top = (body.len() as u16 + 1).min(inner.height);
+    frame.render_widget(
+        Paragraph::new(body),
+        Rect::new(inner.x, inner.y, inner.width, top),
+    );
+    // Single-line inputs carry the query box's prompt glyph.
+    let indent = if multiline { 0 } else { 2 };
+    if !multiline {
         frame.render_widget(
-            Paragraph::new(styled(
-                format!(
-                    "{} paths · {} total",
-                    rows.len(),
-                    crate::operations::human_size(total)
-                ),
-                app.palette.marked,
-            )),
-            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+            Paragraph::new(bold("❯ ", theme.marked)),
+            Rect::new(inner.x, inner.y + top, indent.min(inner.width), 1),
         );
+    }
+    let editor = Rect::new(
+        inner.x + indent,
+        inner.y + top,
+        inner.width.saturating_sub(indent),
+        inner.height.saturating_sub(top + 1),
+    );
+    edit_rows(frame, app, field, &draft.text, editor);
+    let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
+    if app
+        .edit_view
+        .as_ref()
+        .is_some_and(|v| v.field == field && v.mode.starts_with('c'))
+    {
+        command_line(frame, app, field, last);
+    } else if !app.status.is_empty() && app.status != app.status_success {
+        frame.render_widget(Paragraph::new(styled(safe(&app.status), theme.error)), last);
     }
 }
 fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) -> Vec<usize> {
@@ -1941,6 +2226,74 @@ mod tests {
         ];
         app
     }
+    #[test]
+    fn result_names_are_colored_by_file_kind() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("fff-kinds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("folder")).unwrap();
+        std::fs::write(root.join("empty"), b"").unwrap();
+        std::fs::write(root.join("plain"), b"text").unwrap();
+        std::fs::write(root.join("script"), b"#!/bin/sh").unwrap();
+        std::fs::set_permissions(root.join("script"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        std::os::unix::fs::symlink("plain", root.join("link")).unwrap();
+        std::os::unix::fs::symlink("folder", root.join("dirlink")).unwrap();
+        let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+        for (name, directory) in [
+            ("empty", false),
+            ("plain", false),
+            ("script", false),
+            ("link", false),
+            ("dirlink", true),
+            ("folder", true),
+        ] {
+            app.insert(
+                0,
+                Candidate {
+                    path: root.join(name),
+                    directory,
+                    depth: 1,
+                    root: 0,
+                },
+            );
+        }
+        app.refresh();
+        app.scanning = false;
+        app.highlight = None;
+        let theme = app.palette;
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal
+            .draw(|frame| {
+                results_pane(frame, frame.area(), &mut app, false);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let color_of = |name: &str| {
+            let row = (0..buffer.area.height)
+                .find(|&y| {
+                    (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                        .contains(&format!(" {name}"))
+                })
+                .unwrap_or_else(|| panic!("{name} not shown"));
+            let line = (0..buffer.area.width)
+                .map(|x| buffer[(x, row)].symbol())
+                .collect::<String>();
+            let column = line[..line.find(&format!(" {name}")).unwrap() + 1]
+                .chars()
+                .count();
+            buffer[(column as u16, row)].fg
+        };
+        assert_eq!(color_of("empty"), theme.empty);
+        assert_eq!(color_of("plain"), theme.text);
+        assert_eq!(color_of("script"), theme.executable);
+        assert_eq!(color_of("link"), theme.link);
+        assert_eq!(color_of("dirlink/"), theme.link);
+        assert_eq!(color_of("folder/"), theme.accent);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
     fn text(buffer: &Buffer) -> String {
         (0..buffer.area.height)
             .map(|y| {
@@ -2198,30 +2551,64 @@ mod tests {
         assert!(screen.contains("reload palette from config"));
     }
     #[test]
+    fn operation_sheets_align_with_the_pane_edges_and_list_keys_in_the_border() {
+        for (width, height) in [(120, 26), (50, 16)] {
+            let mut app = fixture();
+            let current = app.cwd.join("todo.txt");
+            let mut focus = Focus::DeleteChoice {
+                current,
+                selected: app.marks.clone(),
+            };
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(frame, &mut app, &mut focus);
+                })
+                .unwrap();
+            let screen = text(terminal.backend().buffer());
+            let lines = screen.lines().collect::<Vec<_>>();
+            let files = lines.iter().position(|l| l.contains("╭ Files")).unwrap();
+            let sheet = lines.iter().position(|l| l.contains("╭ Delete")).unwrap();
+            let bottom = lines.len() - 2;
+            // Same outer columns as the panes, resting on their bottom border row.
+            assert!(sheet > files);
+            assert_eq!(lines[sheet].find('╭'), lines[files].find('╭'), "{screen}");
+            assert_eq!(
+                lines[sheet].trim_end().chars().count(),
+                lines[0].trim_end().chars().count(),
+                "{screen}"
+            );
+            assert!(lines[bottom].starts_with(" ╰"), "{screen}");
+            assert!(
+                lines[bottom].contains(" s: Selection ─── c: Current ─── Esc: Cancel "),
+                "{screen}"
+            );
+            assert!(screen.contains("Press s to delete the selection (2 entries)"));
+        }
+    }
+    #[test]
     fn deletion_confirmation_groups_the_smallest_rows_with_summed_sizes() {
         let app = fixture();
         let rows = (2..=7)
-            .map(|n| (PathBuf::from(format!("/file-{n}")), n))
+            .map(|n| (app.cwd.join(format!("file-{n}")), n))
             .collect::<Vec<_>>();
-        let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 9)).unwrap();
         terminal
-            .draw(|frame| {
-                operation_notice(
-                    frame,
-                    frame.area(),
-                    &app,
-                    "Delete permanently",
-                    "The current files will be permanently deleted. Enter confirms · Esc cancels",
-                    Some(&rows),
-                )
-            })
+            .draw(|frame| delete_confirmation(frame, frame.area(), &app, &rows))
             .unwrap();
         let screen = text(terminal.backend().buffer());
-        assert!(screen.contains("3 more files/folders"), "{screen}");
-        assert!(screen.contains("9 B  3 more"), "{screen}");
+        let grouped = screen
+            .lines()
+            .find(|l| l.contains("and 3 more entries"))
+            .unwrap();
+        assert!(grouped.contains(" 9 B "), "{screen}");
         assert!(screen.find("file-7").unwrap() < screen.find("file-6").unwrap());
         assert!(!screen.contains("file-4"));
-        assert!(screen.contains("6 paths · 27 B total"));
+        assert!(screen.contains("6 entries · 27 B"), "{screen}");
+        assert!(
+            screen.contains(" Enter: Delete ─── Esc: Cancel "),
+            "{screen}"
+        );
     }
 
     #[test]
@@ -2493,7 +2880,7 @@ mod tests {
     fn location_line_stays_distinct_without_color() {
         let mut app = fixture();
         app.palette = crate::config::Settings::parse(
-            "[ui]\npalette='plain'\n[palettes.plain]\nbackground='default'\npanel='default'\ntext='default'\nmuted='default'\nborder='default'\naccent='default'\nmarked='default'\nsuccess='default'\nerror='default'\nselection='default'\ncurrent_directory='default'\ncurrent_directory_text='default'",
+            "[ui]\npalette='plain'\n[palettes.plain]\nbackground='default'\npanel='default'\ntext='default'\nmuted='default'\nborder='default'\naccent='default'\nmarked='default'\nsuccess='default'\nerror='default'\nselection='default'\ncurrent_directory='default'\ncurrent_directory_text='default'\nlink='default'\nexecutable='default'\nempty='default'",
             Path::new("/cfg"),
             None,
             None,

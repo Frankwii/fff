@@ -111,6 +111,15 @@ color for that role. Unspecified roles are inherited.
 | `selection` | Highlighted-row background. |
 | `current_directory` | Background of the `@ <current directory>` segment below the filter. |
 | `current_directory_text` | Foreground of that segment; `@` and the basename are bold, the basename underlined. |
+| `link` | Result names of symbolic links, including links to directories. Built-ins use their family's blue. |
+| `executable` | Result names of regular files with any execute bit. Built-ins reuse `success`. |
+| `empty` | Result names of empty (zero-byte) regular files. Built-ins reuse `error`. |
+
+Result names use the first matching role: `link`, `accent` for directories,
+`empty`, `executable`, then `text`. Only visible rows are inspected, so the
+colors follow the file's current state without slowing discovery. A custom
+palette that overrides `success` or `error` keeps the inherited `executable` and
+`empty` colors unless it sets them too.
 
 `NO_COLOR` is honored. Labels, selection arrows, bold focus borders, and textual
 progress/missing indicators remain useful without color.

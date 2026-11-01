@@ -41,6 +41,7 @@ pub(crate) enum Focus {
         selected: Vec<PathBuf>,
     },
     DeleteConfirm(crate::operations::DeletePlan),
+    MoveConfirm(crate::operations::MovePlan),
     NewChoice,
     Location(String),
     Bookmarks {
@@ -488,15 +489,28 @@ pub fn run(
                         app.status = "No files selected".into();
                     } else {
                         let directory = app.cwd.clone();
-                        let request = match key.code {
-                            K::Char('v') => crate::operations::Request::Move { sources, directory },
-                            K::Char('s') => {
-                                crate::operations::Request::Symlink { sources, directory }
-                            }
-                            _ => crate::operations::Request::Copy { sources, directory },
-                        };
-                        perform_operation(&mut app, &mut discovery, request);
                         focus = Focus::Results;
+                        let request = match key.code {
+                            // Existing destinations need confirmation before overwriting.
+                            K::Char('v') => {
+                                match crate::operations::MovePlan::new(sources, directory) {
+                                    Ok(plan) if plan.rows.is_empty() => plan.request(),
+                                    Ok(plan) => {
+                                        focus = Focus::MoveConfirm(plan);
+                                        continue;
+                                    }
+                                    Err(error) => Err(error),
+                                }
+                            }
+                            K::Char('s') => {
+                                Ok(crate::operations::Request::Symlink { sources, directory })
+                            }
+                            _ => Ok(crate::operations::Request::Copy { sources, directory }),
+                        };
+                        match request {
+                            Ok(request) => perform_operation(&mut app, &mut discovery, request),
+                            Err(error) => app.status = error,
+                        }
                     }
                 }
                 K::Char('x') => {
@@ -807,6 +821,21 @@ pub fn run(
                 K::Char('c') => focus = delete_confirmation(vec![current.clone()], &mut app.status),
                 K::Char('s') => focus = delete_confirmation(selected.clone(), &mut app.status),
                 K::Esc => focus = Focus::Results,
+                _ => {}
+            },
+            Focus::MoveConfirm(plan) => match key.code {
+                K::Enter => {
+                    let request = plan.request();
+                    focus = Focus::Results;
+                    match request {
+                        Ok(r) => perform_operation(&mut app, &mut discovery, r),
+                        Err(e) => app.status = e,
+                    }
+                }
+                K::Esc => {
+                    focus = Focus::Results;
+                    app.status = "Move cancelled; nothing changed".into();
+                }
                 _ => {}
             },
             Focus::DeleteConfirm(plan) => match key.code {
@@ -1402,30 +1431,32 @@ fn perform_operation(
         Request::Move { .. } | Request::Copy { .. } | Request::Symlink { .. }
     );
     let destructive = match &request {
-        Request::Move { sources, .. }
-        | Request::Rename { sources, .. }
-        | Request::Delete { sources } => Some(sources),
-        _ => None,
+        Request::Move {
+            sources, replace, ..
+        } => sources.iter().chain(replace).collect(),
+        Request::Rename { sources, .. } | Request::Delete { sources } => sources.iter().collect(),
+        _ => vec![],
     };
-    if destructive.is_some_and(|sources| {
-        sources.iter().any(|p| {
-            let resolved = p
-                .parent()
-                .and_then(|parent| parent.canonicalize().ok())
-                .and_then(|parent| p.file_name().map(|name| parent.join(name)));
-            app.cwd.starts_with(p) || resolved.is_some_and(|path| app.cwd.starts_with(path))
-        })
+    if destructive.iter().any(|p| {
+        let resolved = p
+            .parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .and_then(|parent| p.file_name().map(|name| parent.join(name)));
+        app.cwd.starts_with(p) || resolved.is_some_and(|path| app.cwd.starts_with(path))
     }) {
         app.status = "Cannot change the current directory or its ancestors".into();
         return;
     }
+    let summary = operation_summary(&request);
     match crate::operations::Engine::default().execute(request) {
         Ok(outcome) => {
             for marked in &mut app.marks {
+                // Nested renames report final paths; the deepest match wins.
                 if let Some((from, to)) = outcome
                     .moved
                     .iter()
-                    .find(|(from, _)| marked.starts_with(from))
+                    .filter(|(from, _)| marked.starts_with(from))
+                    .max_by_key(|(from, _)| from.components().count())
                 {
                     let suffix = marked.strip_prefix(from).expect("prefix checked");
                     *marked = if suffix.as_os_str().is_empty() {
@@ -1441,18 +1472,59 @@ fn perform_operation(
                 app.marks.clear();
             }
             app.status = if !outcome.changed {
-                "No changes".into()
-            } else if outcome.backup.as_os_str().is_empty() {
-                "Operation complete".into()
+                "Nothing to rename; no names changed".into()
             } else {
-                format!("Operation complete · backup: {}", outcome.backup.display())
+                // Rename counts only the rows that changed.
+                let summary = summary.unwrap_or_else(|| {
+                    format!("Renamed {}", entries(outcome.moved.iter().map(|(p, _)| p)))
+                });
+                format!("{summary} · backup: {}", outcome.backup.display())
             };
+            app.status_success = app.status.clone();
         }
         Err(error) => app.status = error,
     }
     let message = std::mem::take(&mut app.status);
     discovery.force_refresh(app);
     app.status = message;
+}
+/// "README.md" for one entry, "3 entries" for several.
+fn entries<'a>(paths: impl ExactSizeIterator<Item = &'a PathBuf>) -> String {
+    let count = paths.len();
+    match paths.last() {
+        Some(path) if count == 1 => path
+            .file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy()
+            .into_owned(),
+        _ => format!("{count} entries"),
+    }
+}
+/// What a successful request did; rename is summarized from its outcome.
+fn operation_summary(request: &crate::operations::Request) -> Option<String> {
+    use crate::operations::Request;
+    Some(match request {
+        Request::Move {
+            sources, replace, ..
+        } if !replace.is_empty() => format!(
+            "Moved {}, replacing {}",
+            entries(sources.iter()),
+            entries(replace.iter())
+        ),
+        Request::Move { sources, .. } => format!("Moved {}", entries(sources.iter())),
+        Request::Copy { sources, .. } => format!("Copied {}", entries(sources.iter())),
+        Request::Symlink { sources, .. } => format!("Linked {}", entries(sources.iter())),
+        Request::Delete { sources } => format!("Deleted {}", entries(sources.iter())),
+        Request::Create { path, directory } => format!(
+            "Created {} {}",
+            if *directory { "directory" } else { "file" },
+            entries(std::iter::once(path))
+        ),
+        Request::Extract { destination, .. } => {
+            format!("Extracted into {}", destination.display())
+        }
+        Request::Rename { .. } => return None,
+    })
 }
 fn bookmark_saved(app: &App, action: &str) -> String {
     match &app.bookmark_store.path {

@@ -133,8 +133,8 @@ Printable source characters are reserved for editing. Normal-mode sequences are
 configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURATION.md).
 
 File operations make a mandatory backup under `/tmp/fff/backup` before applying
-changes and refuse overwrites. Rename and destination/name buffers use `:wq` to
-apply or `:q!` to discard. See [file operations](docs/OPERATIONS.md) for the backup
+changes; only a confirmed move overwrites. Rename and destination/name buffers
+use `:wq` to apply or `:q!` to discard. See [file operations](docs/OPERATIONS.md) for the backup
 layout, deletion confirmation, archive limits and current boundaries. Building
 requires libarchive development files; the operation engine requires Linux 5.6+.
 

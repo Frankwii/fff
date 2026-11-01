@@ -351,6 +351,9 @@ fn built_in_palettes_keep_text_readable() {
             ("marked", p.marked),
             ("success", p.success),
             ("error", p.error),
+            ("link", p.link),
+            ("executable", p.executable),
+            ("empty", p.empty),
         ] {
             assert!(contrast(color, p.panel) >= 2.0, "{name} {role}");
         }

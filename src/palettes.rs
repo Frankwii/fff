@@ -184,3 +184,44 @@ pub fn colors(name: &str) -> Option<[u32; 12]> {
         _ => return None,
     })
 }
+/// Symbolic-link blue for each built-in, taken from the same upstream family
+/// (Base16 palettes use base0D; Dracula and Rosé Pine use their cyan/foam).
+pub fn link(name: &str) -> Option<u32> {
+    Some(match name {
+        "midnight" => 0x7fb4ff,
+        "light" => 0x1f5fbf,
+        "forest" => 0x8cc4ff,
+        "catppuccin-latte" => 0x1e66f5,
+        "catppuccin-frappe" => 0x8caaee,
+        "catppuccin-macchiato" => 0x8aadf4,
+        "catppuccin-mocha" => 0x89b4fa,
+        "nord" => 0x81a1c1,
+        "gruvbox-dark" | "gruvbox" => 0x83a598,
+        "gruvbox-light" => 0x076678,
+        "tokyonight-night" | "tokyonight" | "tokyonight-storm" => 0x7aa2f7,
+        "tokyonight-moon" => 0x82aaff,
+        "tokyonight-day" => 0x2e7de9,
+        "dracula" => 0x8be9fd,
+        "everforest-dark" | "everforest" => 0x7fbbb3,
+        "everforest-light" => 0x3a94c5,
+        "kanagawa-wave" | "kanagawa" => 0x7e9cd8,
+        "kanagawa-dragon" => 0x8ba4b0,
+        "onedark" => 0x61afef,
+        "rose-pine" | "rose-pine-moon" => 0x9ccfd8,
+        "rose-pine-dawn" => 0x56949f,
+        "solarized-dark" | "solarized" | "solarized-light" => 0x268bd2,
+        "ayu-dark" => 0x59c2ff,
+        "ayu-light" => 0x399ee6,
+        "ayu-mirage" => 0x73d0ff,
+        "monokai" => 0x66d9ef,
+        "material-darker" => 0x82aaff,
+        "zenburn" => 0x7cb8bb,
+        "ocean" => 0x8fa1b3,
+        "eighties" => 0x6699cc,
+        "ashes" => 0x95aec7,
+        "atelier-dune" => 0x6684e1,
+        "black-metal" => 0x888888,
+        "tomorrow-night" => 0x81a2be,
+        _ => return None,
+    })
+}

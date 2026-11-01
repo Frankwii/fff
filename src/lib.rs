@@ -230,6 +230,9 @@ pub struct App {
     pub generation: u64,
     pub scanning: bool,
     pub status: String,
+    /// The status text of the last success; it shows as success only while
+    /// `status` still equals it, so any later message reverts to an error.
+    pub status_success: String,
     pub physical_empty: bool,
     pub cache_pending: bool,
     pub edit_view: Option<editor::EditView>,
@@ -277,6 +280,7 @@ impl App {
             generation: 0,
             scanning: true,
             status: String::new(),
+            status_success: String::new(),
             physical_empty: false,
             cache_pending: false,
             edit_view: None,

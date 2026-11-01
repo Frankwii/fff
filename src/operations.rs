@@ -2,7 +2,7 @@
 //! Linux directory descriptors pin parents; publishing never replaces an entry.
 use rustix::fs::{self as sys, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs::{self, File},
     io::{self, Write},
@@ -102,9 +102,6 @@ impl Entry {
             path: parent_path.join(&name),
             name,
         })
-    }
-    fn pinned(&self) -> PathBuf {
-        fdpath(&self.parent).join(&self.name)
     }
 }
 type Stamp = (u64, u64, u64, i64, i64, i64, i64, u32);
@@ -325,7 +322,7 @@ impl BackupGuard {
         }
         Ok(dir)
     }
-    fn prepare(&self, sources: &[Entry], targets: &[PathBuf]) -> Result<PathBuf> {
+    fn prepare(&self, sources: &[&Entry], targets: &[PathBuf]) -> Result<PathBuf> {
         let root = self.directory()?;
         let name = unique();
         sys::mkdirat(&root, &name, Mode::RUSR | Mode::WUSR | Mode::XUSR).map_err(err)?;
@@ -375,9 +372,11 @@ pub enum Request {
         sources: Vec<PathBuf>,
         directory: PathBuf,
     },
+    /// `replace` lists confirmed existing destinations; any other collision aborts.
     Move {
         sources: Vec<PathBuf>,
         directory: PathBuf,
+        replace: Vec<PathBuf>,
     },
     Symlink {
         sources: Vec<PathBuf>,
@@ -429,7 +428,9 @@ impl Engine {
     pub fn execute(&self, request: Request) -> Result<Outcome> {
         let (mut sources, mut targets) = match &request {
             Request::Copy { sources, directory }
-            | Request::Move { sources, directory }
+            | Request::Move {
+                sources, directory, ..
+            }
             | Request::Symlink { sources, directory } => (
                 sources.clone(),
                 sources
@@ -470,6 +471,11 @@ impl Engine {
                 .zip(targets)
                 .filter(|(s, t)| s != t)
                 .unzip();
+            // Rows may be nested. Renaming parents first is safe because every
+            // entry keeps its parent pinned by descriptor, not by path.
+            let mut pairs = sources.into_iter().zip(targets).collect::<Vec<_>>();
+            pairs.sort_by_key(|(s, _)| s.components().count());
+            (sources, targets) = pairs.into_iter().unzip();
             if sources.is_empty() {
                 return Ok(Outcome {
                     changed: false,
@@ -487,15 +493,38 @@ impl Engine {
             .iter()
             .map(|p| Entry::at(p))
             .collect::<Result<Vec<_>>>()?;
+        let old = match &request {
+            Request::Move { replace, .. } => replace
+                .iter()
+                .map(|p| Entry::at(p))
+                .collect::<Result<Vec<_>>>()?,
+            _ => vec![],
+        };
+        for o in &old {
+            if !dst.iter().any(|d| d.path == o.path) {
+                return Err(format!("Not a move destination: {:?}", o.path));
+            }
+            if src.iter().any(|s| s.path.starts_with(&o.path)) {
+                return Err(format!(
+                    "Cannot overwrite {:?}: it is or contains a moved path",
+                    o.path
+                ));
+            }
+        }
         let backup_path = self.guard.root.clone();
-        for e in src.iter().chain(dst.iter()) {
+        for e in src.iter().chain(dst.iter()).chain(old.iter()) {
             if e.path.starts_with(&backup_path) || backup_path.starts_with(&e.path) {
                 return Err("Cannot operate inside or above the backup directory".into());
             }
         }
+        let renaming = matches!(request, Request::Rename { .. });
         for (i, a) in src.iter().enumerate() {
             for b in &src[..i] {
-                if a.path.starts_with(&b.path) || b.path.starts_with(&a.path) {
+                if a.path == b.path {
+                    return Err("The same path is selected twice".into());
+                }
+                // Renames keep their parents, so nested rows cannot collide.
+                if !renaming && (a.path.starts_with(&b.path) || b.path.starts_with(&a.path)) {
                     return Err("Overlapping selections; select each tree only once".into());
                 }
             }
@@ -512,7 +541,7 @@ impl Engine {
                         check_name(&d.name)?;
                     }
                 }
-                _ if existing => {
+                _ if existing && !old.iter().any(|o| o.path == d.path) => {
                     return Err(format!("Destination already exists: {:?}", d.path));
                 }
                 // Copies, moves and links keep names that already exist.
@@ -523,19 +552,14 @@ impl Engine {
             {
                 return Err("Rename cannot change a parent directory".into());
             }
-            if src.iter().any(|s| d.path.starts_with(&s.path)) {
+            // A rename target inside a renamed ancestor stays in its pinned parent.
+            // Exchanges and cycles are refused above as existing destinations.
+            if !renaming && src.iter().any(|s| d.path.starts_with(&s.path)) {
                 return Err("Destination is inside a source".into());
             }
         }
         let before = src.iter().map(tree).collect::<Result<Vec<_>>>()?;
-        if matches!(request, Request::Rename { .. }) {
-            // Exchanges and cycles deliberately refuse existing destinations.
-            for s in &src {
-                if fs::symlink_metadata(s.pinned()).map_err(err)?.is_dir() {
-                    return Err("Directory names cannot be changed in the rename buffer".into());
-                }
-            }
-        }
+        let replaced = old.iter().map(tree).collect::<Result<Vec<_>>>()?;
         if matches!(request, Request::Move { .. } | Request::Rename { .. })
             && src.iter().zip(&dst).any(|(s, d)| {
                 s.parent.metadata().map(|m| m.dev()).ok()
@@ -546,10 +570,10 @@ impl Engine {
         }
         let backup = self
             .guard
-            .prepare(&src, &targets)
+            .prepare(&src.iter().chain(&old).collect::<Vec<_>>(), &targets)
             .map_err(|e| format!("Backup failed; nothing changed: {e}"))?;
         self.checkpoint(usize::MAX);
-        for (s, was) in src.iter().zip(&before) {
+        for (s, was) in src.iter().chain(&old).zip(before.iter().chain(&replaced)) {
             if tree(s)? != *was {
                 return Err(format!(
                     "Source changed; operation cancelled. Backup: {}",
@@ -566,6 +590,52 @@ impl Engine {
         let result = (|| -> Result<()> {
             match request {
                 Request::Move { .. } | Request::Rename { .. } => {
+                    // Confirmed overwrites are detached into a private stage
+                    // first, and deleted only once every move has published.
+                    let mut held = match old.is_empty() {
+                        true => None,
+                        false => Some(Stage::new(&dst[0].parent)?),
+                    };
+                    let restore = |held: &mut Option<Stage>, count: usize| {
+                        let Some(stage) = held else {
+                            return true;
+                        };
+                        let mut restored = true;
+                        for (j, o) in old.iter().enumerate().take(count).rev() {
+                            restored &=
+                                rename(&stage.dir, OsStr::new(&j.to_string()), &o.parent, &o.name)
+                                    .is_ok();
+                        }
+                        stage.keep = !restored;
+                        restored
+                    };
+                    if let Some(stage) = &mut held {
+                        for (j, o) in old.iter().enumerate() {
+                            let result = tree(o).and_then(|now| {
+                                if now == replaced[j] {
+                                    rename(
+                                        &o.parent,
+                                        &o.name,
+                                        &stage.dir,
+                                        OsStr::new(&j.to_string()),
+                                    )
+                                } else {
+                                    Err("An entry to overwrite changed".into())
+                                }
+                            });
+                            if let Err(e) = result {
+                                return Err(format!(
+                                    "{e}; {}",
+                                    if restore(&mut held, j) {
+                                        "nothing moved"
+                                    } else {
+                                        "restore incomplete; originals retained in staging"
+                                    }
+                                ));
+                            }
+                            stage.keep = true;
+                        }
+                    }
                     let mut done: Vec<usize> = vec![];
                     for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
                         if s.path == d.path {
@@ -586,6 +656,7 @@ impl Engine {
                                 let b: &Entry = &dst[j];
                                 rollback &= rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
                             }
+                            rollback &= restore(&mut held, old.len());
                             return Err(format!(
                                 "{e}; {}",
                                 if rollback {
@@ -597,12 +668,26 @@ impl Engine {
                         }
                         done.push(i);
                     }
+                    if let Some(mut stage) = held {
+                        for j in 0..old.len() {
+                            remove_tree(&stage.dir, OsStr::new(&j.to_string()))?;
+                        }
+                        stage.keep = false;
+                    }
+                    let names = rename_map(&sources, &targets);
                     outcome.moved = src
                         .iter()
                         .zip(&dst)
                         .enumerate()
                         .filter(|(_, (s, d))| s.path != d.path)
-                        .map(|(i, (_, d))| (sources[i].clone(), d.path.clone()))
+                        .map(|(i, (_, d))| {
+                            let to = if renaming {
+                                renamed(&sources[i], &names)
+                            } else {
+                                d.path.clone()
+                            };
+                            (sources[i].clone(), to)
+                        })
                         .collect();
                 }
                 Request::Copy { .. } | Request::Symlink { .. } => {
@@ -864,14 +949,11 @@ pub fn check_name(name: &OsStr) -> Result<()> {
     }
     Ok(())
 }
-/// The buffer numbers each row, then lists its scope-relative original path,
-/// never an abbreviated label. Numbers identify rows, so lines may be reordered.
+/// The buffer contains scope-relative original paths, never abbreviated labels.
 pub fn rename_text(sources: &[PathBuf], cwd: &Path) -> Result<String> {
-    let width = sources.len().to_string().len();
     sources
         .iter()
-        .enumerate()
-        .map(|(i, p)| {
+        .map(|p| {
             let text = p
                 .strip_prefix(cwd)
                 .unwrap_or(p)
@@ -880,48 +962,76 @@ pub fn rename_text(sources: &[PathBuf], cwd: &Path) -> Result<String> {
             if text.contains(['\n', '\r']) {
                 return Err("Rename cannot edit names containing newlines".into());
             }
-            Ok(format!("{:0width$} {text}", i + 1))
+            Ok(text.to_owned())
         })
         .collect::<Result<Vec<_>>>()
         .map(|v| v.join("\n"))
 }
+/// Each renamed source path with its new final name.
+fn rename_map(sources: &[PathBuf], targets: &[PathBuf]) -> HashMap<PathBuf, OsString> {
+    sources
+        .iter()
+        .zip(targets)
+        .filter_map(|(s, t)| Some((s.clone(), t.file_name()?.to_owned())))
+        .collect()
+}
+/// Where `path` ends up once every renamed ancestor (and itself) has its new name.
+fn renamed(path: &Path, names: &HashMap<PathBuf, OsString>) -> PathBuf {
+    let mut original = PathBuf::new();
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        original.push(component);
+        result.push(names.get(&original).map_or(component.as_os_str(), |n| n));
+    }
+    result
+}
+/// Rows map to sources by position. Each row may change only its final name;
+/// its parent may be written with either the original or the renamed directory
+/// names, so a directory is renamed on its own row, never through a descendant.
 pub fn rename_request(sources: Vec<PathBuf>, cwd: &Path, text: &str) -> Result<Request> {
     let lines = text.split('\n').collect::<Vec<_>>();
     if lines.len() != sources.len() {
         return Err("Rename row count changed; nothing renamed".into());
     }
-    let mut targets = vec![None; sources.len()];
-    for (row, line) in lines.iter().enumerate() {
-        let parsed = line
-            .split_once(' ')
-            .filter(|(id, _)| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
-            .and_then(|(id, name)| Some((id.parse::<usize>().ok()?.checked_sub(1)?, name)));
-        let Some((index, name)) = parsed.filter(|(index, _)| *index < sources.len()) else {
+    let written = lines
+        .iter()
+        .enumerate()
+        .map(|(row, s)| {
+            let p = Path::new(s);
+            if s.is_empty() || p.file_name().is_none() {
+                return Err(format!(
+                    "Rename line {} has no filename; nothing renamed",
+                    row + 1
+                ));
+            }
+            if p.components().any(|c| matches!(c, Component::ParentDir)) {
+                return Err(format!(
+                    "Rename line {} contains '..'; nothing renamed",
+                    row + 1
+                ));
+            }
+            Ok(if p.is_absolute() {
+                p.to_owned()
+            } else {
+                cwd.join(p)
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let names = rename_map(&sources, &written);
+    let mut targets = vec![];
+    for (row, (source, target)) in sources.iter().zip(&written).enumerate() {
+        let (Some(parent), Some(name)) = (source.parent(), target.file_name()) else {
+            return Err("Cannot rename a filesystem root".into());
+        };
+        let wrote = target.parent();
+        if wrote != Some(parent) && wrote != Some(renamed(parent, &names).as_path()) {
             return Err(format!(
-                "Rename line {} must start with its row number; nothing renamed",
+                "Rename line {} changes its directory; rename a directory on its own line. \
+                 Nothing renamed",
                 row + 1
             ));
-        };
-        if name.is_empty() {
-            return Err("Rename has an empty filename; nothing renamed".into());
         }
-        if targets[index].is_some() {
-            return Err(format!(
-                "Rename row number {} appears twice; nothing renamed",
-                index + 1
-            ));
-        }
-        let p = PathBuf::from(name);
-        targets[index] = Some(if p.is_absolute() { p } else { cwd.join(p) });
-    }
-    // The row count matches and no number repeats, so every row is present.
-    let targets = targets.into_iter().flatten().collect::<Vec<_>>();
-    if sources
-        .iter()
-        .zip(&targets)
-        .any(|(source, target)| source.parent() != target.parent())
-    {
-        return Err("Rename cannot change a parent directory; nothing renamed".into());
+        targets.push(parent.join(name));
     }
     Ok(Request::Rename { sources, targets })
 }
@@ -1003,8 +1113,14 @@ pub fn human_size(bytes: u64) -> String {
         format!("{n:.1} {unit}")
     }
 }
+/// One row of a size listing: a path, or how many smaller entries were grouped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Listed {
+    Path(PathBuf),
+    More(usize),
+}
 /// Heaviest entries first, reserving a final row for all remaining entries.
-pub fn deletion_rows(rows: &[(PathBuf, u64)], capacity: usize) -> Vec<(String, u64)> {
+pub fn deletion_rows(rows: &[(PathBuf, u64)], capacity: usize) -> Vec<(Listed, u64)> {
     if capacity == 0 {
         return vec![];
     }
@@ -1017,11 +1133,11 @@ pub fn deletion_rows(rows: &[(PathBuf, u64)], capacity: usize) -> Vec<(String, u
     };
     let mut out = sorted[..take]
         .iter()
-        .map(|(p, n)| (format!("{:?}", p), *n))
+        .map(|(p, n)| (Listed::Path(p.clone()), *n))
         .collect::<Vec<_>>();
     if take < sorted.len() {
         out.push((
-            format!("{} more files/folders", sorted.len() - take),
+            Listed::More(sorted.len() - take),
             sorted[take..]
                 .iter()
                 .fold(0u64, |n, (_, size)| n.saturating_add(*size)),
@@ -1058,6 +1174,55 @@ impl DeletePlan {
         }
         Ok(Request::Delete {
             sources: self.rows.iter().map(|(p, _)| p.clone()).collect(),
+        })
+    }
+}
+
+/// A move into `directory`; `rows` lists existing destinations it would
+/// overwrite, with their sizes, for confirmation.
+#[derive(Clone)]
+pub struct MovePlan {
+    pub sources: Vec<PathBuf>,
+    pub directory: PathBuf,
+    pub rows: Vec<(PathBuf, u64)>,
+    snapshots: Vec<BTreeMap<PathBuf, Stamp>>,
+}
+impl MovePlan {
+    pub fn new(sources: Vec<PathBuf>, directory: PathBuf) -> Result<Self> {
+        if sources.is_empty() {
+            return Err("No files selected".into());
+        }
+        let mut rows = vec![];
+        let mut snapshots = vec![];
+        for source in &sources {
+            let target = directory.join(source.file_name().ok_or("Invalid source")?);
+            if fs::symlink_metadata(&target).is_err() {
+                continue;
+            }
+            let entry = Entry::at(&target)?;
+            if Entry::at(source)?.path == entry.path {
+                return Err(format!("{:?} is already in this directory", entry.name));
+            }
+            snapshots.push(tree(&entry)?);
+            rows.push((target.clone(), weight(&target)?));
+        }
+        Ok(Self {
+            sources,
+            directory,
+            rows,
+            snapshots,
+        })
+    }
+    pub fn request(&self) -> Result<Request> {
+        for ((path, _), was) in self.rows.iter().zip(&self.snapshots) {
+            if tree(&Entry::at(path)?)? != *was {
+                return Err("Files changed since confirmation; review the move again".into());
+            }
+        }
+        Ok(Request::Move {
+            sources: self.sources.clone(),
+            directory: self.directory.clone(),
+            replace: self.rows.iter().map(|(p, _)| p.clone()).collect(),
         })
     }
 }

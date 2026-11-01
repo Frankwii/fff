@@ -120,6 +120,7 @@ fn move_renames_file_and_directory_and_retains_backup() {
         .execute(Request::Move {
             sources: vec![a.clone(), b.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap();
     assert!(!a.exists() && !b.exists());
@@ -153,6 +154,7 @@ fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
         .execute(Request::Move {
             sources: vec![src.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap();
     assert_eq!(fs::read(f.dest.join(&name)).unwrap(), b"bytes");
@@ -178,6 +180,7 @@ fn all_collisions_are_checked_before_any_copy_or_move() {
             Request::Move {
                 sources,
                 directory: f.dest.clone(),
+                replace: vec![],
             }
         } else {
             Request::Copy {
@@ -270,6 +273,7 @@ fn backup_failure_is_fail_closed_for_all_mutations() {
         Request::Move {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         },
         Request::Symlink {
             sources: vec![p.clone()],
@@ -350,9 +354,8 @@ fn rename_row_count_empty_parent_change_directory_change_collisions_are_atomic()
     let b = f.file("b", b"b");
     let dir = f.work.join("dir");
     fs::create_dir(&dir).unwrap();
-    assert!(rename_request(vec![a.clone(), b.clone()], &f.work, "1 one").is_err());
+    assert!(rename_request(vec![a.clone(), b.clone()], &f.work, "one").is_err());
     assert!(rename_request(vec![a.clone()], &f.work, "").is_err());
-    assert!(rename_request(vec![a.clone()], &f.work, "1 ").is_err());
     for (sources, targets) in [
         (
             vec![a.clone(), b.clone()],
@@ -360,7 +363,7 @@ fn rename_row_count_empty_parent_change_directory_change_collisions_are_atomic()
         ),
         (
             vec![a.clone(), dir.clone()],
-            vec![f.work.join("new"), f.work.join("newdir")],
+            vec![f.work.join("new"), f.work.join("b")],
         ),
         (
             vec![a.clone(), b.clone()],
@@ -390,54 +393,91 @@ fn rename_success_and_unchanged_does_not_make_backup() {
     assert!(!f.backup.exists());
     let out = f
         .engine()
-        .execute(rename_request(vec![a.clone()], &f.work, "1 new name").unwrap())
+        .execute(rename_request(vec![a.clone()], &f.work, "new name").unwrap())
         .unwrap();
     assert!(!a.exists());
     assert_eq!(fs::read(f.work.join("new name")).unwrap(), b"a");
     assert_eq!(fs::read(out.backup.join("0000")).unwrap(), b"a");
 }
-#[test]
-fn rename_rows_are_numbered_and_may_be_reordered() {
-    let f = Fixture::new();
-    let a = f.file("a", b"a");
-    let b = f.file("b", b"b");
-    let sources = vec![a.clone(), b.clone()];
-    assert_eq!(rename_text(&sources, &f.work).unwrap(), "1 a\n2 b");
-    let many = (0..10)
-        .map(|i| f.work.join(i.to_string()))
-        .collect::<Vec<_>>();
-    assert!(rename_text(&many, &f.work).unwrap().starts_with("01 0\n"));
-    // Sorting or moving lines cannot attach a new name to another row.
-    f.engine()
-        .execute(rename_request(sources, &f.work, "2 b_new\n1 a_new").unwrap())
-        .unwrap();
-    assert_eq!(fs::read(f.work.join("a_new")).unwrap(), b"a");
-    assert_eq!(fs::read(f.work.join("b_new")).unwrap(), b"b");
+fn docs_tree(f: &Fixture) -> Vec<PathBuf> {
+    let docs = f.work.join("docs");
+    fs::create_dir(&docs).unwrap();
+    fs::write(docs.join("myfile"), b"m").unwrap();
+    vec![docs.clone(), docs.join("myfile")]
 }
 #[test]
-fn malformed_rename_lines_change_nothing() {
-    let f = Fixture::new();
-    let a = f.file("a", b"a");
-    let b = f.file("b", b"b");
+fn renaming_a_directory_through_a_descendant_row_aborts() {
     for text in [
-        "1 x\n2 y\n",
-        "1 x",
-        "x\n2 y",
-        " 1 x\n2 y",
-        "1x\n2 y",
-        "1 x\n1 y",
-        "0 x\n2 y",
-        "1 x\n3 y",
-        "-1 x\n2 y",
-        "1 x\n2 ",
-        "1 x\n99999999999999999999999 y",
+        "docs\ndocuments/myfile",
+        "documents\nDocuments/myfile",
+        "docs\ndocuments/my_file",
+        "docs\n/elsewhere/myfile",
+        "docs\nmyfile",
+        "docs\ndocs/../myfile",
     ] {
-        assert!(
-            rename_request(vec![a.clone(), b.clone()], &f.work, text).is_err(),
-            "{text:?}"
+        let f = Fixture::new();
+        let sources = docs_tree(&f);
+        let result = rename_request(sources, &f.work, text).and_then(|r| f.engine().execute(r));
+        assert!(result.is_err(), "{text:?}");
+        assert_eq!(fs::read(f.work.join("docs/myfile")).unwrap(), b"m");
+        assert!(!f.backup.exists());
+    }
+}
+#[test]
+fn directory_and_descendant_rows_rename_together_in_either_spelling() {
+    for text in ["documents\ndocs/my_file", "documents\ndocuments/my_file"] {
+        let f = Fixture::new();
+        let sources = docs_tree(&f);
+        let out = f
+            .engine()
+            .execute(rename_request(sources, &f.work, text).unwrap())
+            .unwrap();
+        assert!(!f.work.join("docs").exists());
+        assert_eq!(fs::read(f.work.join("documents/my_file")).unwrap(), b"m");
+        let documents = f.work.join("documents");
+        assert_eq!(
+            out.moved,
+            vec![
+                (f.work.join("docs"), documents.clone()),
+                (f.work.join("docs/myfile"), documents.join("my_file")),
+            ]
         );
     }
-    assert!(a.exists() && b.exists() && !f.backup.exists());
+}
+#[test]
+fn nested_renames_follow_every_renamed_ancestor_and_roll_back() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.work.join("a/b")).unwrap();
+    fs::write(f.work.join("a/b/c"), b"c").unwrap();
+    let rows = |names: [&str; 3]| names.map(|p| f.work.join(p)).to_vec();
+    // Directory rows alone carry their descendants along.
+    let out = f
+        .engine()
+        .execute(rename_request(rows(["a", "a/b", "a/b/c"]), &f.work, "A\nA/B\nA/B/c").unwrap())
+        .unwrap();
+    assert_eq!(fs::read(f.work.join("A/B/c")).unwrap(), b"c");
+    assert_eq!(out.moved.len(), 2);
+    let current = rows(["A", "A/B", "A/B/c"]);
+    // A mixed spelling is neither the original nor the final parent.
+    assert!(rename_request(current.clone(), &f.work, "x\nx/y\nA/y/z").is_err());
+    // A late collision is found before anything is renamed.
+    fs::write(f.work.join("A/B/taken"), b"t").unwrap();
+    let request = rename_request(current.clone(), &f.work, "x\nx/y\nx/y/taken").unwrap();
+    assert!(f.engine().execute(request).is_err());
+    // A racing entry rolls back the parents renamed first.
+    let mut e = f.engine();
+    let racer = f.work.join("x/y/z");
+    e.hook = Some(Box::new(move |phase| {
+        if phase == 2 {
+            fs::write(&racer, b"race").unwrap();
+        }
+    }));
+    let error = e
+        .execute(rename_request(current, &f.work, "x\nx/y\nx/y/z").unwrap())
+        .unwrap_err();
+    assert!(error.contains("rolled back"), "{error}");
+    assert_eq!(fs::read(f.work.join("A/B/c")).unwrap(), b"c");
+    assert_eq!(fs::read(f.work.join("A/B/z")).unwrap(), b"race");
 }
 #[test]
 fn unsafe_new_names_are_refused_before_any_change() {
@@ -463,14 +503,7 @@ fn unsafe_new_names_are_refused_before_any_change() {
     }
     let f = Fixture::new();
     let a = f.file("a", b"a");
-    for text in [
-        "1 a2\r",
-        "1 \u{1b}[31mx",
-        "1 x ",
-        "1 -rf",
-        "1 ~",
-        "1 a\u{fffd}",
-    ] {
+    for text in ["a2\r", "\u{1b}[31mx", "x ", "-rf", "~", "a\u{fffd}"] {
         let request = rename_request(vec![a.clone()], &f.work, text).unwrap();
         assert!(f.engine().execute(request).is_err(), "{text:?}");
     }
@@ -503,10 +536,10 @@ fn rename_skips_unchanged_directories_that_contain_renamed_rows() {
     fs::write(dir.join("f"), b"f").unwrap();
     let sources = vec![dir.clone(), dir.join("f")];
     let text = rename_text(&sources, &f.work).unwrap();
-    assert_eq!(text, "1 sub\n2 sub/f");
+    assert_eq!(text, "sub\nsub/f");
     let out = f
         .engine()
-        .execute(rename_request(sources, &f.work, "1 sub\n2 sub/g").unwrap())
+        .execute(rename_request(sources, &f.work, "sub\nsub/g").unwrap())
         .unwrap();
     assert_eq!(fs::read(dir.join("g")).unwrap(), b"f");
     assert_eq!(out.moved, vec![(dir.join("f"), dir.join("g"))]);
@@ -621,7 +654,7 @@ fn weights_group_in_descending_order_and_do_not_follow_links() {
         grouped.iter().map(|(_, n)| *n).collect::<Vec<_>>(),
         vec![5, 3, 3]
     );
-    assert_eq!(grouped[2].0, "2 more files/folders");
+    assert_eq!(grouped[2].0, Listed::More(2));
     assert_eq!(deletion_rows(&rows, 1)[0].1, 11);
     assert!(deletion_rows(&rows, 0).is_empty());
     assert_eq!(human_size(1024 * 1024), "1.0 MiB");
@@ -651,7 +684,8 @@ fn racing_destination_rolls_back_earlier_moves() {
         engine
             .execute(Request::Move {
                 sources: vec![a.clone(), b.clone()],
-                directory: f.dest.clone()
+                directory: f.dest.clone(),
+                replace: vec![],
             })
             .unwrap_err()
             .contains("rolled back")
@@ -1067,6 +1101,7 @@ fn failed_move_rollback_never_overwrites_a_new_source_entry() {
         .execute(Request::Move {
             sources: vec![a.clone(), b.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap_err();
     assert!(error.contains("rollback incomplete"));
@@ -1142,7 +1177,8 @@ fn cross_filesystem_moves_refuse_before_backup_when_available() {
             f.engine()
                 .execute(Request::Move {
                     sources: vec![a.clone()],
-                    directory: other.into()
+                    directory: other.into(),
+                    replace: vec![],
                 })
                 .unwrap_err()
                 .contains("across filesystems")
@@ -1204,4 +1240,92 @@ fn archive_preflight_rejects_file_directory_conflicts_in_either_order() {
         );
         assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 0);
     }
+}
+#[test]
+fn move_overwrites_only_confirmed_destinations_and_backs_them_up() {
+    let f = Fixture::new();
+    let a = f.file("a", b"new a");
+    let tree = f.work.join("tree");
+    fs::create_dir(&tree).unwrap();
+    fs::write(tree.join("new"), b"new tree").unwrap();
+    let c = f.file("c", b"c");
+    fs::write(f.dest.join("a"), b"old a").unwrap();
+    fs::create_dir(f.dest.join("tree")).unwrap();
+    fs::write(f.dest.join("tree/old"), b"old tree").unwrap();
+    let sources = vec![a.clone(), tree.clone(), c.clone()];
+    // Without confirmation any collision aborts everything.
+    let unconfirmed = Request::Move {
+        sources: sources.clone(),
+        directory: f.dest.clone(),
+        replace: vec![],
+    };
+    assert!(f.engine().execute(unconfirmed).is_err());
+    assert!(a.exists() && c.exists() && !f.backup.exists());
+    let plan = MovePlan::new(sources, f.dest.clone()).unwrap();
+    assert_eq!(
+        plan.rows,
+        vec![(f.dest.join("a"), 5), (f.dest.join("tree"), 8)]
+    );
+    let out = f.engine().execute(plan.request().unwrap()).unwrap();
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new a");
+    // Directories are replaced as a whole, never merged.
+    assert!(!f.dest.join("tree/old").exists());
+    assert_eq!(fs::read(f.dest.join("tree/new")).unwrap(), b"new tree");
+    assert_eq!(fs::read(f.dest.join("c")).unwrap(), b"c");
+    assert!(!a.exists() && !tree.exists() && !c.exists());
+    assert_eq!(fs::read(out.backup.join("0003")).unwrap(), b"old a");
+    assert_eq!(fs::read(out.backup.join("0004/old")).unwrap(), b"old tree");
+    // No staging directory is left behind.
+    let mut names = fs::read_dir(&f.dest)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(names, ["a", "c", "tree"]);
+}
+#[test]
+fn move_overwrite_refuses_changed_self_and_containing_destinations() {
+    let f = Fixture::new();
+    let a = f.file("a", b"a");
+    fs::write(f.dest.join("a"), b"old").unwrap();
+    let plan = MovePlan::new(vec![a.clone()], f.dest.clone()).unwrap();
+    fs::write(f.dest.join("a"), b"changed").unwrap();
+    assert!(plan.request().is_err());
+    // Moving a path into its own directory would replace itself.
+    assert!(MovePlan::new(vec![a.clone()], f.work.clone()).is_err());
+    // A destination that contains a moved path cannot be replaced.
+    let inner = f.work.join("x");
+    fs::create_dir(&inner).unwrap();
+    let nested = inner.join("x");
+    fs::write(&nested, b"n").unwrap();
+    let request = Request::Move {
+        sources: vec![nested.clone()],
+        directory: f.work.clone(),
+        replace: vec![inner.clone()],
+    };
+    assert!(f.engine().execute(request).is_err());
+    assert_eq!(fs::read(&nested).unwrap(), b"n");
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"changed");
+}
+#[test]
+fn failed_overwriting_move_restores_replaced_entries() {
+    let f = Fixture::new();
+    let a = f.file("a", b"new a");
+    let b = f.file("b", b"new b");
+    fs::write(f.dest.join("a"), b"old a").unwrap();
+    let plan = MovePlan::new(vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
+    let mut e = f.engine();
+    let racer = f.dest.join("b");
+    e.hook = Some(Box::new(move |phase| {
+        if phase == 1 {
+            fs::write(&racer, b"race").unwrap();
+        }
+    }));
+    let error = e.execute(plan.request().unwrap()).unwrap_err();
+    assert!(error.contains("rolled back"), "{error}");
+    assert_eq!(fs::read(&a).unwrap(), b"new a");
+    assert_eq!(fs::read(&b).unwrap(), b"new b");
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"old a");
+    assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"race");
+    assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
 }

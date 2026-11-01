@@ -16,9 +16,20 @@ its prompt buffers use Ctrl+s to apply and Escape to discard.
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
-fall back to the highlighted path. Target names retain their source basenames;
-existing files, directories and dangling symlinks are collisions, never overwrite
-targets. Repeated basenames in one selection also stop the operation. To operate
+fall back to the highlighted path. Target names retain their source basenames.
+For copy and symlink, existing files, directories and dangling symlinks are
+collisions and never overwrite targets. Repeated basenames in one selection
+also stop the operation.
+
+When a move collides, a **Replace on move** window lists the existing
+destinations with their sizes, like the deletion confirmation. **Escape** cancels
+the whole move; **Enter** moves everything and replaces the listed entries. A
+replaced directory is replaced as a whole, never merged. The listed entries are
+backed up with the sources, detached into a private staging directory, and
+deleted only after every move has been published; any failure rolls the moves
+back and restores them. Entries changed since confirmation, collisions that
+appear after confirmation, moving a path into its own directory, and replacing
+an entry that contains a moved path all abort the move. To operate
 on paths from another directory, mark them before navigating to the destination.
 Successful move, copy and symlink operations clear the entire marked list.
 Deletion unmarks only the deleted paths and their descendants, so deleting an
@@ -37,6 +48,21 @@ never backed up, copied or deleted through its parent. Sockets, devices and othe
 special files are refused. Symlinks are copied or
 removed as links; recursive operations never follow them.
 
+## Dialogs and messages
+
+Every file-operation dialog is a sheet spanning the outer edges of the result
+and mark panes and resting on their bottom border, as tall as its content (the
+rename buffer fills the pane area). The text explains what each key does, and
+the bottom border repeats the keys, for example
+`─ s: Selection ─── c: Current ─── Esc: Cancel ─`. Buffers list `:wq` / `:q!`
+with Neovim and `Ctrl+s` / `Esc` with basic editing. Destructive confirmations
+(deletion, replacing on move) use the `error` color; choices and buffers use
+`marked`.
+
+A successful operation reports what it did in the footer with a `✓` in the
+`success` color, such as `Deleted 2 entries · backup: …` or
+`Renamed notes.md · backup: …`. Errors keep the `error` color.
+
 ## Buffer interactions
 
 Rename, extraction destinations, and new names follow the same lifecycle as
@@ -44,20 +70,24 @@ exclusions and bookmark editing: **write and close (`:wq`) to apply**, or **clos
 without writing (`:q!`) to discard**. `:w` records a snapshot but keeps editing;
 a later close applies that snapshot, discarding subsequent unwritten edits.
 Escape and native Neovim commands stay inside the buffer. The command line
-appears below its contents. The application has no additional `ZZ` binding;
+appears on the buffer's last row. The application has no additional `ZZ` binding;
 Neovim's own `ZZ` and `ZQ` retain their meanings.
 
 The rename buffer freezes the filtered result list in its displayed order,
 including rows below the current page. It contains scope-relative paths, without
-abbreviations, and exactly one original path per row. Each line starts with
-its zero-padded row number and a space (`01 notes/a.txt`); the number identifies
-the original path, so lines may be reordered or sorted, but numbers must stay.
-Keep the row count; edit only filenames. Parent paths and directory rows must
-stay unchanged. A missing, repeated or out-of-range row number, changed parent,
-changed directory name, empty row, duplicate destination, existing destination,
-unsafe new name, or changed row count aborts the entire plan before any rename.
-Swaps/cycles are refused because they target existing entries. Unchanged rows
-take no part, so an unchanged directory may contain renamed rows. An unchanged
+abbreviations, and exactly one original path per row. Rows map to original
+paths by position, so keep the row count and order; edit only final names.
+Directory rows may be renamed on their own line. Descendant rows may spell
+their parent with either the original or the renamed directory names, so with
+rows `docs` and `docs/myfile`, both `documents` + `docs/my_file` and
+`documents` + `documents/my_file` rename the directory and the file. A
+descendant row cannot rename a directory: `docs` + `documents/myfile`, or
+`documents` + `Documents/myfile`, abort. Parents are renamed first; each entry
+stays pinned to its parent directory, and a later failure rolls earlier renames
+back. Any other parent change, `..`, empty row, duplicate destination, existing
+destination, unsafe new name, or changed row count aborts the entire plan
+before any rename. Swaps/cycles are refused because they target existing
+entries. Unchanged rows take no part. An unchanged
 buffer does nothing. Names containing newlines or non-UTF-8 bytes
 cannot be represented safely here, so opening that rename buffer is refused.
 
@@ -68,7 +98,8 @@ Neovim lines show as U+FFFD) abort the operation. Copy, move and symlink keep
 existing source names unchanged. Extraction destinations starting with `~` are
 refused because fff does not expand them.
 
-The extraction and creation buffers appear at the bottom. Normal-mode Enter
+Single-line extraction and creation buffers show the query box's `❯` prompt.
+Normal-mode Enter
 is ignored, and `o` / `O` enter Insert mode without adding a row. Insert-mode
 Enter is also ignored; command-line Enter still executes `:wq` / `:q!`. An empty extraction
 destination uses the archive's parent directory, even if the highlighted archive
@@ -82,16 +113,17 @@ entries are refused. Rename and extraction buffers start in Normal mode.
 
 ## Deletion confirmation
 
-When marks exist, `x` first asks for **current (`c`)** or **selected (`s`)**.
-With no marks it goes directly to confirmation for the highlighted path.
-The confirmation says **The current files will be permanently deleted** and
-shows the paths and their cumulative logical sizes. Directory sizes include
+When marks exist, `x` first asks whether to delete the **selection (`s`)** or
+only the **current** highlighted entry (**`c`**). With no marks it goes directly
+to confirmation for the highlighted path. The **Delete permanently** window
+lists the paths and their cumulative logical sizes. Directory sizes include
 hidden descendants; symlinks count their own link bytes, never target contents.
 Hard-linked entries count separately. Sizes use B, KiB, MiB, GiB and TiB.
 
-Rows sort by decreasing size. If they exceed the available height, the final
-row reports the remaining file/folder count and their summed size. The footer
-shows the full selection total. **Enter** confirms and **Escape** cancels.
+Rows sort by decreasing size, sizes right-aligned and names styled like result
+rows. If they exceed the available height, the final row reports how many more
+entries remain and their summed size. The top border shows the entry count and
+total size. **Enter** confirms and **Escape** cancels.
 Changed trees require a new confirmation; a failed size calculation prevents
 deletion. After confirmation, all roots are backed up and detached into private
 staging directories before recursive deletion starts.

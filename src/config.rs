@@ -21,6 +21,10 @@ pub struct Palette {
     pub selection: Color,
     pub current_directory: Color,
     pub current_directory_text: Color,
+    /// Result names of symbolic links, executable files and empty files.
+    pub link: Color,
+    pub executable: Color,
+    pub empty: Color,
 }
 impl Default for Palette {
     fn default() -> Self {
@@ -47,7 +51,8 @@ impl Palette {
             ],
             _ => crate::palettes::colors(name)?,
         };
-        let c = colors.map(|n| Color::Rgb((n >> 16) as u8, (n >> 8) as u8, n as u8));
+        let rgb = |n: u32| Color::Rgb((n >> 16) as u8, (n >> 8) as u8, n as u8);
+        let c = colors.map(rgb);
         Some(Self {
             background: c[0],
             panel: c[1],
@@ -61,6 +66,9 @@ impl Palette {
             selection: c[9],
             current_directory: c[10],
             current_directory_text: c[11],
+            link: rgb(crate::palettes::link(name)?),
+            executable: c[7],
+            empty: c[8],
         })
     }
     fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
@@ -89,6 +97,9 @@ impl Palette {
             "selection" => &mut self.selection,
             "current_directory" => &mut self.current_directory,
             "current_directory_text" => &mut self.current_directory_text,
+            "link" => &mut self.link,
+            "executable" => &mut self.executable,
+            "empty" => &mut self.empty,
             _ => return Err(format!("Unknown palette color: {key}")),
         } = color;
         Ok(())
