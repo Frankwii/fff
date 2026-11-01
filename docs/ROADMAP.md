@@ -25,20 +25,24 @@ TODO without leaving the browser.
   the row's right-hand column and the match highlighted. Marks, Tab, Enter,
   Ctrl+w, gx/gX and E keep working; E opens `$EDITOR` at the matched line when
   the editor accepts `+N`.
-- **Streaming and cancellable.** Files are read by the existing breadth-first
-  scan, in background workers, as rows arrive; typing restarts the search
-  without blocking. Binary files, files over a size limit, excluded paths and
-  hidden entries (unless shown) are skipped, so it respects the same policy as
-  name filtering.
+- **Inside documents, not only text.** Searching PDFs matters as much as
+  plain text, so the likely backend is [rga](https://github.com/phiresky/ripgrep-all)
+  (ripgrep-all), which also reads EPUB, Office documents, archives and more,
+  with its own extraction cache. It would run without a shell, on the files
+  the name query and the scope allow, with its output parsed into rows; when
+  rga is missing, plain-text search (ripgrep, or a built-in reader) still
+  works and the query box says which backend is active.
+- **Streaming and cancellable.** Matches stream in as they are found; typing
+  restarts the search without blocking, and an obsolete search is stopped.
+  Excluded paths and hidden entries (unless shown) are skipped, so it respects
+  the same policy as name filtering.
 - **Literal first.** The content query is a case-smart literal substring (the
-  common case, and fast); a `/regex/` form could follow. Fuzzy matching makes
-  little sense for contents.
+  common case, and fast); a `/regex/` form could follow, since rga and ripgrep
+  accept regular expressions. Fuzzy matching makes little sense for contents.
+  For PDFs a match reports its page where the backend provides one.
 - **Visible mode.** The query box title and a pill in its border say which
   query is being edited and whether the content filter is active; Escape
   clears the content query before the name query.
-- **No external tools.** Reading happens in-process (no grep or shell), so
-  results arrive through the same generation and cancellation checks as
-  discovery, and nothing is executed.
 
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.

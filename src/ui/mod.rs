@@ -436,6 +436,13 @@ fn session(
                 KeyEvent::new(K::Char(letter), M::NONE)
             }
             NormalKey::Consumed => continue,
+            NormalKey::Depth(depth) => {
+                if app.depth != depth {
+                    app.depth = depth;
+                    discovery.start(app, false);
+                }
+                continue;
+            }
             NormalKey::Quit(current) => {
                 if app.no_dir {
                     return Ok(Finish::Paths(Vec::new()));

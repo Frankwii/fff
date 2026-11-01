@@ -130,12 +130,13 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | gg / G | First / last row in Normal-mode lists |
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l | Enter highlighted directory only |
-| Alt+g | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
+| Alt+g / `/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Back / forward through the folders visited this session (Ctrl+i needs a terminal that tells it from Tab) |
-| Alt+b | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
+| Alt+b / b in Normal | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |
-| Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 |
+| Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (Right / Left in Normal-mode results) |
+| 1 … 9 in Normal | Search results to that depth |
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
@@ -143,10 +144,10 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
-| Alt+. | Toggle hidden entries |
+| Alt+. / . in Normal | Toggle hidden entries |
 | Alt+H | Toggle exclusion enforcement |
-| Alt+e | Edit session-local exclusions |
-| Alt+f | Edit session-local file filters (`--glob`), one glob per line |
+| Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
+| Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
 | v / p / s in Normal | Move / copy / symlink all marked paths into the current directory, after confirmation |
 | x in Normal | Choose current/selected deletion, review sizes, then Enter confirms |
 | r in Normal | Batch rename the filtered results in a buffer |
@@ -167,10 +168,12 @@ text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#runn
 
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
-Insert/basic mode and Vim counts in Normal mode. Chords are case-sensitive.
+Insert/basic mode; in Normal-mode results 1–9 set the search depth
+(`depth_digits = false` in `[keys.normal]` makes them Vim counts again). Chords are case-sensitive.
 Ctrl+digits require distinct terminal reporting; fff requests the Kitty
 keyboard protocol and never guesses ambiguous input. Alt+digits also support
-ESC+digit reporting. Remap chords with `--map-key`:
+ESC+digit reporting. Remap chords with `--map-key`, or permanently in the
+[`[keys.map]`](docs/CONFIGURATION.md#chord-remapping) configuration table:
 
 ```sh
 fff --map-key ctrl+n=down --map-key ctrl+p=up

@@ -36,9 +36,19 @@ pub enum ListAction {
     Extract,
     Edit,
     New,
+    /// Same as Alt+← in the results: search one level shallower.
+    Shallower,
+    /// Same as Alt+→ in the results: search one level deeper.
+    Deeper,
+    /// Same as Alt+b in the results: open the bookmark chooser.
+    Bookmarks,
+    /// Same as Alt+. in the results: show or hide hidden entries.
+    Hidden,
+    /// Same as Alt+g in the results: the go-to prompt.
+    GoTo,
 }
 impl ListAction {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 24] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -58,6 +68,11 @@ impl ListAction {
         Self::Extract,
         Self::Edit,
         Self::New,
+        Self::Shallower,
+        Self::Deeper,
+        Self::Bookmarks,
+        Self::Hidden,
+        Self::GoTo,
     ];
     /// The default letter of a file operation: the view handles operations by
     /// it, whatever sequence the configuration binds.
@@ -82,6 +97,11 @@ impl ListAction {
             Self::Up => 'k',
             Self::Right => 'l',
             Self::Mark => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            Self::Shallower => return Some(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)),
+            Self::Deeper => return Some(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)),
+            Self::Bookmarks => 'b',
+            Self::Hidden => '.',
+            Self::GoTo => 'g',
             Self::First
             | Self::Last
             | Self::Quit
@@ -117,6 +137,8 @@ pub enum Step {
 
 #[derive(Clone, Debug)]
 pub struct NormalKeys {
+    /// Plain digits 1–9 set the results' search depth (`depth_digits`).
+    pub depth_digits: bool,
     bindings: Vec<(Vec<KeyEvent>, ListAction)>,
     /// Configured sequences as written, for the F1 key guide.
     names: Vec<(ListAction, String)>,
@@ -128,12 +150,18 @@ impl Default for NormalKeys {
     }
 }
 impl NormalKeys {
-    /// The sequences bound to an action, e.g. `"gg"`, joined with " / ".
+    /// The sequences bound to an action, e.g. `"gg"`, joined with " / ";
+    /// arrow names are shown as arrows.
     pub fn describe(&self, action: ListAction) -> String {
         self.names
             .iter()
             .filter(|(a, _)| *a == action)
-            .map(|(_, name)| name.as_str())
+            .map(|(_, name)| {
+                name.replace("<left>", "←")
+                    .replace("<right>", "→")
+                    .replace("<up>", "↑")
+                    .replace("<down>", "↓")
+            })
             .collect::<Vec<_>>()
             .join(" / ")
     }
@@ -239,6 +267,13 @@ pub struct NormalKeysConfig {
     pub extract: Sequences,
     pub edit: Sequences,
     pub new: Sequences,
+    pub shallower: Sequences,
+    pub deeper: Sequences,
+    pub bookmarks: Sequences,
+    pub hidden: Sequences,
+    pub go_to: Sequences,
+    /// Plain digits 1–9 set the search depth in Normal-mode results.
+    pub depth_digits: bool,
 }
 impl Default for NormalKeysConfig {
     fn default() -> Self {
@@ -263,6 +298,12 @@ impl Default for NormalKeysConfig {
             extract: one("e"),
             edit: one("E"),
             new: one("n"),
+            shallower: one("<left>"),
+            deeper: one("<right>"),
+            bookmarks: one("b"),
+            hidden: one("."),
+            go_to: one("/"),
+            depth_digits: true,
         }
     }
 }
@@ -288,6 +329,11 @@ impl NormalKeysConfig {
             ListAction::Extract => ("extract", &self.extract),
             ListAction::Edit => ("edit", &self.edit),
             ListAction::New => ("new", &self.new),
+            ListAction::Shallower => ("shallower", &self.shallower),
+            ListAction::Deeper => ("deeper", &self.deeper),
+            ListAction::Bookmarks => ("bookmarks", &self.bookmarks),
+            ListAction::Hidden => ("hidden", &self.hidden),
+            ListAction::GoTo => ("go_to", &self.go_to),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
@@ -296,6 +342,13 @@ impl NormalKeysConfig {
             let (name, value) = self.sequences(action);
             for text in value.list() {
                 let keys = parse_sequence(text).map_err(|e| format!("keys.normal.{name}: {e}"))?;
+                if self.depth_digits
+                    && matches!(keys[0].code, KeyCode::Char(c) if c.is_ascii_digit() && c != '0')
+                {
+                    return Err(format!(
+                        "keys.normal.{name}: {text:?} starts with a digit, which sets the depth; set depth_digits = false first"
+                    ));
+                }
                 for (other, _, other_name) in &bindings {
                     let shorter = keys.len().min(other.len());
                     if keys[..shorter]
@@ -317,13 +370,15 @@ impl NormalKeysConfig {
             names.extend(value.list().into_iter().map(|s| (action, s.to_string())));
         }
         Ok(NormalKeys {
+            depth_digits: self.depth_digits,
             names,
             bindings: bindings.into_iter().map(|(k, a, _)| (k, a)).collect(),
             pending: Vec::new(),
         })
     }
 }
-/// Printable characters, one key each; `<space>` and `<lt>` name space and `<`.
+/// Printable characters, one key each; `<space>` and `<lt>` name space and `<`,
+/// `<left>`, `<right>`, `<up>` and `<down>` the arrow keys.
 fn parse_sequence(text: &str) -> Result<Vec<KeyEvent>, String> {
     let mut keys = Vec::new();
     let mut rest = text;
@@ -333,11 +388,15 @@ fn parse_sequence(text: &str) -> Result<Vec<KeyEvent>, String> {
                 .find('>')
                 .ok_or_else(|| format!("unterminated key name in {text:?}"))?;
             let key = match rest[1..end].to_ascii_lowercase().as_str() {
-                "space" => ' ',
-                "lt" => '<',
+                "space" => KeyCode::Char(' '),
+                "lt" => KeyCode::Char('<'),
+                "left" => KeyCode::Left,
+                "right" => KeyCode::Right,
+                "up" => KeyCode::Up,
+                "down" => KeyCode::Down,
                 other => {
                     return Err(format!(
-                        "unsupported key <{other}> in {text:?}; use printable keys, <space>, or <lt>"
+                        "unsupported key <{other}> in {text:?}; use printable keys, <space>, <lt>, or an arrow (<left> <right> <up> <down>)"
                     ));
                 }
             };
@@ -345,14 +404,14 @@ fn parse_sequence(text: &str) -> Result<Vec<KeyEvent>, String> {
         } else if c.is_control() {
             return Err(format!("control character in {text:?}"));
         } else {
-            (c, c.len_utf8())
+            (KeyCode::Char(c), c.len_utf8())
         };
-        let modifiers = if key.is_uppercase() {
+        let modifiers = if matches!(key, KeyCode::Char(c) if c.is_uppercase()) {
             KeyModifiers::SHIFT
         } else {
             KeyModifiers::NONE
         };
-        keys.push(KeyEvent::new(KeyCode::Char(key), modifiers));
+        keys.push(KeyEvent::new(key, modifiers));
         rest = &rest[len..];
     }
     Ok(keys)
@@ -383,6 +442,29 @@ mod tests {
         assert_eq!(k.feed(key('w'), all), Step::Pass);
         assert_eq!(k.feed(key(' '), all), Step::Action(ListAction::Mark));
         assert_eq!(k.feed(key('Z'), all), Step::Pass);
+    }
+    #[test]
+    fn defaults_bind_arrows_and_results_shortcuts() {
+        let mut k = NormalKeys::default();
+        let arrow = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        assert_eq!(
+            k.feed(arrow(KeyCode::Left), all),
+            Step::Action(ListAction::Shallower)
+        );
+        assert_eq!(
+            k.feed(arrow(KeyCode::Right), all),
+            Step::Action(ListAction::Deeper)
+        );
+        assert_eq!(k.feed(key('b'), all), Step::Action(ListAction::Bookmarks));
+        assert_eq!(k.feed(key('.'), all), Step::Action(ListAction::Hidden));
+        assert_eq!(k.feed(key('/'), all), Step::Action(ListAction::GoTo));
+        let alt = |code| Some(KeyEvent::new(code, KeyModifiers::ALT));
+        assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
+        assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
+        assert_eq!(k.describe(ListAction::Deeper), "→");
+        assert!(k.depth_digits);
+        let alt_left = KeyEvent::new(KeyCode::Left, KeyModifiers::ALT);
+        assert_eq!(k.feed(alt_left, all), Step::Pass);
     }
     #[test]
     fn kitty_shifted_lowercase_matches_uppercase_binding() {

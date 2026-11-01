@@ -56,6 +56,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
   <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> return marks
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
+  results take <cyan>←/→</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>/</cyan> location, <cyan>b</cyan> bookmarks,
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
@@ -65,7 +66,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
   config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
-  file icons ([ui] icons) and Normal-mode list keys ([keys.normal]).
+  file icons ([ui] icons), Normal-mode list keys ([keys.normal]) and chord
+  remapping ([keys.map], applied before --map-key).
   <cyan>fff --check-config</cyan> validates it and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
@@ -180,7 +182,7 @@ struct Args {
     /// Modifiers are ctrl+, alt+ and shift+; key names are enter, esc, tab, space,
     /// backspace, up, down, left, right, pageup, pagedown, f1, f5 or a single
     /// character. Letter case matters. Repeatable; later rules for the same
-    /// SOURCE win.
+    /// SOURCE win, and these override the configuration's [keys.map].
     #[arg(long = "map-key", value_name = "SOURCE=TARGET", help_heading = "Interface",
         add = ArgValueCompleter::new(completion::map_key_candidates))]
     key_maps: Vec<String>,
@@ -262,7 +264,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             )
             .exit()
     };
-    let keys = KeyMap::parse(&args.key_maps).unwrap_or_else(|e| usage("--map-key", &e));
+    if let Err(e) = KeyMap::parse(&args.key_maps) {
+        usage("--map-key", &e);
+    }
     let mut policy = Policy {
         hidden: args.hidden,
         ignore: !args.no_exclusions,
@@ -279,6 +283,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         args.no_config,
         args.palette.as_deref(),
     )?;
+    // Configured [keys.map] chords first, so --map-key rules override them.
+    let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
     if args.check_config {
         match &settings.source {
             Some(path) => eprintln!("fff: configuration valid: {}", path.display()),

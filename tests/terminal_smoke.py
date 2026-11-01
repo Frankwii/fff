@@ -208,6 +208,27 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, b"child\0"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):
+        (self.root / "dir").mkdir()
+        (self.root / "dir" / "deep.txt").touch()
+        (self.root / ".secret").touch()
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s.send(b"2", "deep.txt")
+        s.send(b"1")
+        s.wait_absent("deep.txt")
+        s.send(b"\x1b[C", "deep.txt")
+        s.send(b"\x1b[D")
+        s.wait_absent("deep.txt")
+        s.send(b".", ".secret")
+        s.send(b"/", "Go to directory · INSERT")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Go to directory")
+        s.send(b"b", "Bookmarks")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_quit_from_pinned_root_uses_invocation_not_root(self):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim")

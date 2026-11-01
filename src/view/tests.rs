@@ -1,4 +1,3 @@
-
 use super::*;
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 fn fixture() -> App {
@@ -847,12 +846,23 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
     let screen = text(terminal.backend().buffer());
     // Two columns at this width, every group present, the footer gone.
     let row = screen.lines().find(|l| l.contains("NAVIGATE")).unwrap();
-    assert!(row.contains("SEARCH"), "{screen}");
-    for group in ["SELECT AND RETURN", "NORMAL MODE IN LISTS", "LOOK"] {
+    assert!(row.contains("NORMAL MODE IN LISTS"), "{screen}");
+    for group in [
+        "SELECT AND RETURN",
+        "SEARCH",
+        "EXCLUSIONS AND FILTERS",
+        "LOOK",
+        "BOOKMARKS",
+    ] {
         assert!(screen.contains(group), "{screen}");
     }
     assert!(screen.contains("j / <space>j  k"), "{screen}");
     assert!(screen.contains("gg  G"), "{screen}");
+    assert!(
+        screen.contains("←  →") && screen.contains("1…9"),
+        "{screen}"
+    );
+    assert!(screen.contains("Alt+e") && screen.contains("one glob per line"));
     assert!(!screen.contains("off with --no-dir"));
     app.no_dir = true;
     terminal

@@ -80,3 +80,16 @@ rename = "r"
 extract = "e"
 edit = "E"       # open in $EDITOR, and create a file or directory.
 new = "n"
+shallower = "<left>" # Results only: same as Alt+Left / Alt+Right (depth),
+deeper = "<right>"
+bookmarks = "b"  # Alt+b (bookmark chooser),
+hidden = "."     # Alt+. (hidden entries),
+go_to = "/"      # and Alt+g (go-to prompt).
+depth_digits = true # Results only: 1-9 set the search depth.
+
+# Remap any chord to a default chord, like --map-key (which wins on conflict).
+# "none" disables a chord. See CONFIGURATION.md.
+# [keys.map]
+# "ctrl+n" = "down"
+# "ctrl+g" = "alt+g"
+# "alt+g" = "none"
