@@ -1045,6 +1045,11 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "run a program on current / marked, exit",
                     true,
                 ),
+                (
+                    "E".into(),
+                    "open current / marked in $EDITOR, come back",
+                    true,
+                ),
                 ("i  a".into(), "enter Insert mode", false),
             ],
         ),
@@ -1856,6 +1861,7 @@ fn scope_choice(
         crate::ui::ScopedAction::Delete => ("Delete", "delete"),
         crate::ui::ScopedAction::Run(false) => ("Run", "run a program on"),
         crate::ui::ScopedAction::Run(true) => ("Run and exit", "run a program on"),
+        crate::ui::ScopedAction::Edit => ("Edit", "open in $EDITOR"),
     };
     choice(
         frame,

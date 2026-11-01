@@ -389,6 +389,33 @@ impl Plan {
         }
     }
 }
+/// E: `$EDITOR`, split and resolved like a typed command, on the given paths.
+pub fn editor_plan(paths: Vec<PathBuf>, cwd: &Path, home: Option<&Path>) -> Result<Plan, String> {
+    let value = match std::env::var("EDITOR") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => {
+            return Err(
+                "$EDITOR is not set; set it to your editor, e.g. export EDITOR=nvim".into(),
+            );
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err("$EDITOR is not valid UTF-8".into());
+        }
+    };
+    let words = split(&value, home).map_err(|e| format!("$EDITOR ({value}): {e}"))?;
+    let Some((name, args)) = words.split_first() else {
+        return Err("$EDITOR is empty; set it to your editor, e.g. export EDITOR=nvim".into());
+    };
+    Ok(Plan {
+        program: resolve_or_suggest(name, cwd).map_err(|e| format!("$EDITOR: {e}"))?,
+        name: name.clone(),
+        args: args.to_vec(),
+        paths,
+        cwd: cwd.to_owned(),
+        exit: false,
+        line: value.trim().to_owned(),
+    })
+}
 /// After a failed program, keeps its messages on screen until Enter.
 pub fn pause_after_failure(line: &str, status: ExitStatus) {
     use io::{BufRead, Write};

@@ -215,8 +215,33 @@ pub enum Finish {
     /// gX: the terminal is restored; the caller replaces fff with the program.
     Exec(crate::run::Plan),
 }
+/// Runs a session, then remembers where it was for the next one.
 pub fn run(
     mut app: App,
+    keys: crate::keys::KeyMap,
+    cache: crate::config::CacheConfig,
+    palettes: crate::reload::PaletteWatcher,
+    backend: Option<crate::config::EditorBackend>,
+    performance: crate::config::PerformanceConfig,
+) -> io::Result<Finish> {
+    let finish = session(&mut app, keys, cache, palettes, backend, performance);
+    app.remember();
+    if let Some(path) = crate::state::path() {
+        let last = if app.records_location {
+            Some(app.cwd.clone())
+        } else {
+            crate::state::load(&path).last
+        };
+        let state = crate::state::State {
+            last,
+            positions: std::mem::take(&mut app.positions),
+        };
+        let _ = crate::state::save(&path, &state);
+    }
+    finish
+}
+fn session(
+    app: &mut App,
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
@@ -230,7 +255,10 @@ pub fn run(
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
-    discovery.start(&mut app, true);
+    // Starting a scan clears the status; keep a startup notice (resuming).
+    let notice = std::mem::take(&mut app.status);
+    discovery.start(app, true);
+    app.status = notice;
     let mut editor = start_editor(backend, "nvim", &mut app.status);
     // A --no-dir session is a file choice: start ready to type the query.
     if app.no_dir
@@ -239,7 +267,7 @@ pub fn run(
         e.reset_insert(Field::Query);
     }
     let mut editor_directory = app.cwd.clone();
-    warn_stranded(&mut app);
+    warn_stranded(app);
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     let mut status = StatusTimer::default();
@@ -251,25 +279,25 @@ pub fn run(
     let mut page = 1;
     let mut bookmark_targets = Vec::new();
     loop {
-        dirty |= status.tick(&mut app);
+        dirty |= status.tick(app);
         for update in palettes.updates() {
             dirty = true;
             match update {
-                Ok(state) => palette_reloaded(&mut app, &mut focus, state),
+                Ok(state) => palette_reloaded(app, &mut focus, state),
                 Err(error) => {
                     app.status = format!("Palette reload failed; keeping current colors: {error}")
                 }
             }
         }
-        dirty |= discovery.drain(&mut app);
+        dirty |= discovery.drain(app);
         discovery.idle(
-            &app,
+            app,
             matches!(focus, Focus::Results),
             std::time::Instant::now(),
         );
         if editor_directory != app.cwd {
             editor_directory = app.cwd.clone();
-            warn_stranded(&mut app);
+            warn_stranded(app);
             // Carry the initiating field's editing mode into the new location.
             if let Some(e) = &mut editor {
                 e.reset_preserving_mode(Field::Query);
@@ -283,13 +311,13 @@ pub fn run(
                 focus = Focus::Results;
                 if let Some(request) = request {
                     match request {
-                        Ok(request) => perform_operation(&mut app, &mut discovery, request),
+                        Ok(request) => perform_operation(app, &mut discovery, request),
                         Err(error) => app.status = error,
                     }
                 }
             } else if matches!(focus, Focus::Exclusions(_) | Focus::Filters(_)) {
                 if view.saved {
-                    apply_globs(&mut app, &mut focus, &mut discovery);
+                    apply_globs(app, &mut focus, &mut discovery);
                 } else {
                     focus = Focus::Results;
                 }
@@ -297,7 +325,7 @@ pub fn run(
                 // Enter and Escape are the form's keys; Neovim's own
                 // ZZ/:wq and ZQ/:q! still save or cancel it.
                 if view.saved {
-                    save_bookmark(&mut app, &mut focus);
+                    save_bookmark(app, &mut focus);
                 } else {
                     focus = Focus::Bookmarks {
                         query: draft.query.clone(),
@@ -308,7 +336,7 @@ pub fn run(
             app.edit_view = None;
             dirty = true;
         }
-        if let Some((field, text)) = text_field(&app, &focus) {
+        if let Some((field, text)) = text_field(app, &focus) {
             if let Some(e) = &mut editor {
                 match e.activate(field, &text) {
                     Ok(view) => app.edit_view = Some(view),
@@ -328,7 +356,7 @@ pub fn run(
             // Show a partial list-key sequence like Neovim's own pending input.
             view.blocking = true;
         }
-        dirty |= preview.tick(&mut app, &focus, std::time::Instant::now());
+        dirty |= preview.tick(app, &focus, std::time::Instant::now());
         let desired = app
             .edit_view
             .as_ref()
@@ -349,7 +377,7 @@ pub fn run(
             execute!(terminal.0.backend_mut(), BeginSynchronizedUpdate)?;
             let drawn = terminal
                 .0
-                .draw(|frame| completed = Some(crate::view::render(frame, &mut app, &mut focus)))
+                .draw(|frame| completed = Some(crate::view::render(frame, app, &mut focus)))
                 .map(|_| ());
             let ended = execute!(terminal.0.backend_mut(), EndSynchronizedUpdate);
             drawn?;
@@ -366,7 +394,7 @@ pub fn run(
         }
         // Both input and discovery wake this wait immediately. The timeout only
         // services due re-sorts, status expiry, palette reload and idle prefetch.
-        let wait = if discovery.busy(&app) || app.normal_keys.pending() {
+        let wait = if discovery.busy(app) || app.normal_keys.pending() {
             30
         } else {
             250
@@ -390,9 +418,9 @@ pub fn run(
         if let Event::Paste(text) = event {
             // A held-back Normal-mode prefix reaches Neovim before the paste.
             for pending in app.normal_keys.take_pending() {
-                deliver(&mut app, &mut focus, &mut editor, pending);
+                deliver(app, &mut focus, &mut editor, pending);
             }
-            let field = text_field(&app, &focus).map(|(field, _)| field);
+            let field = text_field(app, &focus).map(|(field, _)| field);
             if let Some(field) = field {
                 let text = if matches!(field, Field::Exclusions | Field::Filters | Field::Operation)
                 {
@@ -492,7 +520,7 @@ pub fn run(
         if key.kind == KeyEventKind::Release {
             continue;
         }
-        status.before_key(&mut app);
+        status.before_key(app);
         let Some(key) = keys.translate(key) else {
             continue;
         };
@@ -508,10 +536,10 @@ pub fn run(
                 _ => false,
             };
         if buffer_input {
-            deliver(&mut app, &mut focus, &mut editor, key);
+            deliver(app, &mut focus, &mut editor, key);
             continue;
         }
-        let key = match normal_list_key(&mut app, &mut focus, &mut editor, key) {
+        let key = match normal_list_key(app, &mut focus, &mut editor, key) {
             NormalKey::Pass(key) => key,
             NormalKey::Consumed => continue,
             NormalKey::Quit(current) => {
@@ -545,9 +573,13 @@ pub fn run(
         let file_normal = matches!(focus, Focus::Marks { .. })
             || (matches!(focus, Focus::Results)
                 && app.edit_view.as_ref().is_some_and(|v| v.normal()));
+        // Shift is how uppercase letters (E) arrive with the Kitty protocol.
         if file_normal
-            && key.modifiers.is_empty()
-            && matches!(key.code, K::Char('v' | 'p' | 'x' | 'r' | 'e' | 'n' | 's'))
+            && key.modifiers.difference(M::SHIFT).is_empty()
+            && matches!(
+                key.code,
+                K::Char('v' | 'p' | 'x' | 'r' | 'e' | 'E' | 'n' | 's')
+            )
         {
             let current = match &focus {
                 Focus::Marks { rows, index } => rows.get(*index).cloned(),
@@ -584,6 +616,20 @@ pub fn run(
                     Scope::Nothing => app.status = "No current file".into(),
                 },
                 K::Char('n') => focus = Focus::NewChoice,
+                // $EDITOR on the current or marked paths: no review, it only edits.
+                K::Char('E') => match scope(&app.marks, current) {
+                    Scope::Ask(current, selected) => {
+                        focus = Focus::ScopeChoice {
+                            current,
+                            selected,
+                            action: ScopedAction::Edit,
+                        }
+                    }
+                    Scope::Ready(paths) => {
+                        edit_files(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?
+                    }
+                    Scope::Nothing => app.status = "Nothing to edit".into(),
+                },
                 K::Char('r') => {
                     let sources = app
                         .rows
@@ -614,7 +660,7 @@ pub fn run(
                     }
                 }
                 K::Char('e') => match scope(&app.marks, current) {
-                    Scope::Ready(paths) => focus = start_extract(&mut app, &mut editor, paths),
+                    Scope::Ready(paths) => focus = start_extract(app, &mut editor, paths),
                     Scope::Ask(current, selected) => {
                         focus = Focus::ScopeChoice {
                             current,
@@ -767,10 +813,10 @@ pub fn run(
         if matches!(focus, Focus::Results)
             && let Some(digit) = alt_numbered_key(key)
         {
-            discovery.checkpoint(&app);
+            discovery.checkpoint(app);
             match app.enter_numbered(digit) {
                 EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
-                EnterOutcome::Navigated => discovery.start(&mut app, true),
+                EnterOutcome::Navigated => discovery.start(app, true),
                 EnterOutcome::Stay => {}
             }
             continue;
@@ -786,9 +832,9 @@ pub fn run(
             if let Some(&target) =
                 bookmark_targets.get(index.min(bookmark_targets.len().saturating_sub(1)))
             {
-                discovery.checkpoint(&app);
+                discovery.checkpoint(app);
                 if app.open_bookmark(target) {
-                    discovery.start(&mut app, true);
+                    discovery.start(app, true);
                     focus = Focus::Results;
                 }
             }
@@ -893,9 +939,9 @@ pub fn run(
             && key.code == K::Char('s')
         {
             if matches!(focus, Focus::BookmarkEdit(_)) {
-                save_bookmark(&mut app, &mut focus);
+                save_bookmark(app, &mut focus);
             } else {
-                apply_globs(&mut app, &mut focus, &mut discovery);
+                apply_globs(app, &mut focus, &mut discovery);
             }
             continue;
         }
@@ -907,7 +953,7 @@ pub fn run(
                 Focus::Results | Focus::Bookmarks { .. } | Focus::Location(_)
             )
         {
-            discovery.checkpoint(&app);
+            discovery.checkpoint(app);
         }
         let palette = palette_key(key);
         let glob_field = if matches!(focus, Focus::Filters(_)) {
@@ -946,9 +992,14 @@ pub fn run(
                     _ => continue,
                 };
                 focus = match action {
-                    ScopedAction::Extract => start_extract(&mut app, &mut editor, paths),
+                    ScopedAction::Extract => start_extract(app, &mut editor, paths),
                     ScopedAction::Delete => delete_confirmation(paths, &mut app.status),
                     ScopedAction::Run(exit) => start_run(&mut editor, paths, *exit),
+                    ScopedAction::Edit => {
+                        focus = Focus::Results;
+                        edit_files(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?;
+                        continue;
+                    }
                 };
             }
             Focus::TransferConfirm(plan) => match key.code {
@@ -956,7 +1007,7 @@ pub fn run(
                     let request = plan.request();
                     focus = Focus::Results;
                     match request {
-                        Ok(r) => perform_operation(&mut app, &mut discovery, r),
+                        Ok(r) => perform_operation(app, &mut discovery, r),
                         Err(e) => app.status = e,
                     }
                 }
@@ -976,7 +1027,7 @@ pub fn run(
                     let request = plan.request();
                     focus = Focus::Results;
                     match request {
-                        Ok(r) => perform_operation(&mut app, &mut discovery, r),
+                        Ok(r) => perform_operation(app, &mut discovery, r),
                         Err(e) => app.status = e,
                     }
                 }
@@ -994,7 +1045,7 @@ pub fn run(
                     match draft.request() {
                         Ok(r) => {
                             focus = Focus::Results;
-                            perform_operation(&mut app, &mut discovery, r);
+                            perform_operation(app, &mut discovery, r);
                         }
                         Err(e) => app.status = e,
                     }
@@ -1002,7 +1053,7 @@ pub fn run(
                     let request = draft.request();
                     focus = Focus::Results;
                     match request {
-                        Ok(r) => perform_operation(&mut app, &mut discovery, r),
+                        Ok(r) => perform_operation(app, &mut discovery, r),
                         Err(e) => app.status = e,
                     }
                 } else {
@@ -1031,7 +1082,7 @@ pub fn run(
                         // colors that were actually applied.
                         app.palette = *original;
                         focus = Focus::Results;
-                        reload_palette(&mut app, &palettes);
+                        reload_palette(app, &palettes);
                         continue;
                     }
                     _ if key.code == K::Esc || palette == Some(PaletteKey::Choose) => {
@@ -1088,7 +1139,7 @@ pub fn run(
                         if let Some(&target) = matches.get(*index)
                             && app.open_bookmark(target)
                         {
-                            discovery.start(&mut app, true);
+                            discovery.start(app, true);
                             focus = Focus::Results;
                         }
                     }
@@ -1118,7 +1169,7 @@ pub fn run(
                         index: draft.index,
                     };
                 } else if key.code == K::Enter {
-                    save_bookmark(&mut app, &mut focus);
+                    save_bookmark(app, &mut focus);
                 } else if matches!(key.code, K::Tab | K::BackTab | K::Up | K::Down) {
                     draft.field = draft.field.next(
                         matches!(key.code, K::BackTab | K::Up) || key.modifiers.contains(M::SHIFT),
@@ -1209,7 +1260,7 @@ pub fn run(
                     {
                         Ok(bookmarks) => {
                             app.bookmarks = bookmarks;
-                            app.status = bookmark_saved(&app, "Bookmark deleted");
+                            app.status = bookmark_saved(app, "Bookmark deleted");
                             focus = Focus::Bookmarks {
                                 query: String::new(),
                                 index: (*target).min(app.bookmarks.len().saturating_sub(1)),
@@ -1281,30 +1332,7 @@ pub fn run(
                 K::Enter => {
                     let plan = plan.clone();
                     focus = Focus::Results;
-                    // The program gets the terminal: stop reading input and
-                    // leave fff's screen until it ends.
-                    drop(std::mem::replace(&mut input, Input::idle()));
-                    terminal.suspend();
-                    let status = plan.wait();
-                    if let Ok(status) = &status
-                        && !status.success()
-                    {
-                        crate::run::pause_after_failure(&plan.line, *status);
-                    }
-                    terminal.resume()?;
-                    input = Input::start(wake.clone());
-                    app.status = match status {
-                        Ok(status) if status.success() => {
-                            let done = format!("{} finished", plan.name);
-                            app.status_success = done.clone();
-                            done
-                        }
-                        Ok(status) => format!("{} {}", plan.line, crate::run::describe(status)),
-                        Err(error) => format!("Could not run {}: {error}", plan.name),
-                    };
-                    let message = std::mem::take(&mut app.status);
-                    discovery.force_refresh(&mut app);
-                    app.status = message;
+                    run_here(&mut terminal, &mut input, &wake, app, &mut discovery, &plan)?;
                 }
                 K::Esc => {
                     app.status = "Run cancelled; nothing ran".into();
@@ -1323,7 +1351,7 @@ pub fn run(
                     match path.canonicalize() {
                         Ok(path) if path.is_dir() => {
                             app.navigate(path, false);
-                            discovery.start(&mut app, true);
+                            discovery.start(app, true);
                             focus = Focus::Results;
                         }
                         _ => app.status = "Location must be an accessible directory".into(),
@@ -1390,11 +1418,11 @@ pub fn run(
                 }
                 (K::Char('l'), _, true) => {
                     if app.navigate_highlighted() {
-                        discovery.start(&mut app, true);
+                        discovery.start(app, true);
                     }
                 }
                 (K::Char('p' | 'P'), _, true) if palette == Some(PaletteKey::Reload) => {
-                    reload_palette(&mut app, &palettes)
+                    reload_palette(app, &palettes)
                 }
                 (K::Char('p'), _, true) => {
                     let index = app
@@ -1409,11 +1437,11 @@ pub fn run(
                         original: app.palette,
                     };
                 }
-                (K::F(5), _, _) => discovery.force_refresh(&mut app),
+                (K::F(5), _, _) => discovery.force_refresh(app),
                 (K::Char('h'), _, true) => {
                     if let Some(p) = app.cwd.parent().map(PathBuf::from) {
                         app.navigate(p, true);
-                        discovery.start(&mut app, true);
+                        discovery.start(app, true);
                     }
                 }
                 (K::Char('j'), _, true) | (K::Down, false, false) => app.step(true),
@@ -1431,19 +1459,19 @@ pub fn run(
                 }
                 (K::Right, _, true) => {
                     app.depth = app.depth.saturating_add(1);
-                    discovery.start(&mut app, false);
+                    discovery.start(app, false);
                 }
                 (K::Left, _, true) => {
                     app.depth = app.depth.saturating_sub(1).max(1);
-                    discovery.start(&mut app, false);
+                    discovery.start(app, false);
                 }
                 (K::Char('.'), _, true) => {
                     app.policy.hidden = !app.policy.hidden;
-                    discovery.start(&mut app, false);
+                    discovery.start(app, false);
                 }
                 (K::Char('H'), _, true) => {
                     app.policy.ignore = !app.policy.ignore;
-                    discovery.start(&mut app, false);
+                    discovery.start(app, false);
                 }
                 (K::Esc, _, _) => {
                     app.query.clear();
@@ -1464,7 +1492,7 @@ pub fn run(
                         .cloned();
                     match app.enter(target) {
                         EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
-                        EnterOutcome::Navigated => discovery.start(&mut app, true),
+                        EnterOutcome::Navigated => discovery.start(app, true),
                         EnterOutcome::Stay => {}
                     }
                 }
@@ -1627,6 +1655,8 @@ pub enum ScopedAction {
     Delete,
     /// gx (false) or gX (true).
     Run(bool),
+    /// E: $EDITOR.
+    Edit,
 }
 enum Scope {
     Ready(Vec<PathBuf>),
@@ -1681,6 +1711,55 @@ fn start_extract(
         cwd: app.cwd.clone(),
         text: String::new(),
     })
+}
+/// gx and E: the program gets the terminal (fff stops reading input and leaves
+/// its screen) and fff comes back when it ends, pausing first after a failure.
+fn run_here(
+    terminal: &mut Terminal,
+    input: &mut Input,
+    wake: &std::sync::mpsc::SyncSender<()>,
+    app: &mut App,
+    discovery: &mut Discovery,
+    plan: &crate::run::Plan,
+) -> io::Result<()> {
+    drop(std::mem::replace(input, Input::idle()));
+    terminal.suspend();
+    let status = plan.wait();
+    if let Ok(status) = &status
+        && !status.success()
+    {
+        crate::run::pause_after_failure(&plan.line, *status);
+    }
+    terminal.resume()?;
+    *input = Input::start(wake.clone());
+    let message = match status {
+        Ok(status) if status.success() => {
+            let done = format!("{} finished", plan.name);
+            app.status_success = done.clone();
+            done
+        }
+        Ok(status) => format!("{} {}", plan.line, crate::run::describe(status)),
+        Err(error) => format!("Could not run {}: {error}", plan.name),
+    };
+    discovery.force_refresh(app);
+    app.status = message;
+    Ok(())
+}
+fn edit_files(
+    terminal: &mut Terminal,
+    input: &mut Input,
+    wake: &std::sync::mpsc::SyncSender<()>,
+    app: &mut App,
+    discovery: &mut Discovery,
+    paths: Vec<PathBuf>,
+) -> io::Result<()> {
+    match crate::run::editor_plan(paths, &app.cwd, app.home.as_deref()) {
+        Ok(plan) => run_here(terminal, input, wake, app, discovery, &plan),
+        Err(error) => {
+            app.status = error;
+            Ok(())
+        }
+    }
 }
 fn start_run(editor: &mut Option<Nvim>, paths: Vec<PathBuf>, exit: bool) -> Focus {
     if let Some(e) = editor {

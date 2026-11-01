@@ -12,9 +12,10 @@ not implemented features or commitments:
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
 
-File operations and running programs (gx/gX) ship in 0.3.0; see [the
-operation guide](OPERATIONS.md). Buffer
+File operations shipped in 0.3.0; running programs (gx/gX, E), the shell
+integration and remembered locations in 0.4.0. See [the operation
+guide](OPERATIONS.md). Buffer
 editors share write-on-close application and unwritten-edit discard behavior.
 
-The current release is 0.3.0. Version 1.0 is planned once the remaining roadmap
+The current release is 0.4.0. Version 1.0 is planned once the remaining roadmap
 above is implemented. Earlier versions will not be retroactively renumbered.

@@ -22,7 +22,7 @@ fn stdout(output: &Output) -> String {
 fn help_describes_defaults_examples_exit_codes_and_completions() {
     let long = stdout(&fff(&["--help"], None));
     for text in [
-        "[default: 3]",
+        "[default: 2]",
         "Examples:",
         "Exit status:",
         "130",
@@ -79,7 +79,10 @@ fn dynamic_completion_reads_custom_palettes_from_the_named_config() {
 
 #[test]
 fn renamed_binary_reports_fff_version_and_usage() {
-    assert_eq!(stdout(&fff(&["--version"], None)).trim(), "fff 0.3.0");
+    assert_eq!(
+        stdout(&fff(&["--version"], None)).trim(),
+        format!("fff {}", env!("CARGO_PKG_VERSION"))
+    );
     let help = stdout(&fff(&["--help"], None));
     assert!(help.contains("Usage: fff"), "{help}");
 }

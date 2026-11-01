@@ -37,7 +37,7 @@ Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 const AFTER_LONG_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
   <cyan>fff</cyan>
-      Browse from the current directory, three levels deep.
+      Browse from the current directory, two levels deep.
   <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'</cyan>
       Search two pinned roots for TeX and PDF files.
   <cyan>eval \"$(fff --init zsh)\"</cyan>
@@ -59,6 +59,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
+  <cyan>E</cyan> open current/marked paths in $EDITOR. Each folder remembers its cursor.
   <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.
 
 <bold><green>Configuration file:</green></bold>
@@ -105,7 +106,7 @@ struct Args {
     /// Maximum discovery depth below each scope (immediate children = 1)
     ///
     /// Change it during the session with Alt+Left / Alt+Right.
-    #[arg(short, long, default_value_t = 3, value_name = "N", help_heading = "Search",
+    #[arg(short, long, default_value_t = 2, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: u32,
     /// Only list files whose basename matches GLOB; repeat to allow several
@@ -131,6 +132,12 @@ struct Args {
     /// bare names; files sharing a name gain the shortest distinguishing parents.
     #[arg(long, help_heading = "Search")]
     no_dir: bool,
+    /// Start in the current directory instead of where the last session ended
+    ///
+    /// Without ROOTS and without --output-paths, fff resumes in the directory
+    /// you were last browsing ([ui] resume, on by default).
+    #[arg(long, help_heading = "Search")]
+    here: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
     #[arg(long, help_heading = "Search")]
     hidden: bool,
@@ -298,11 +305,26 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             roots.push(path);
         }
     }
-    let mut app = if roots.is_empty() {
+    // Interactive sessions without roots resume where the last one ended;
+    // scripts (--output-paths) and pinned roots always start as asked.
+    let state = fuzzy_file_finder::state::path()
+        .map(|p| fuzzy_file_finder::state::load(&p))
+        .unwrap_or_default();
+    let records_location = roots.is_empty() && !args.output_paths;
+    let resume = (records_location && settings.resume && !args.here)
+        .then_some(state.last.as_ref())
+        .flatten()
+        .filter(|last| last.is_dir() && **last != invocation);
+    let mut app = if let Some(last) = resume {
+        App::browse(last.clone(), args.depth as usize, policy)
+    } else if roots.is_empty() {
         App::browse(invocation.clone(), args.depth as usize, policy)
     } else {
         App::new(roots, args.depth as usize, policy)
     };
+    app.records_location = records_location;
+    app.positions = state.positions;
+    app.wanted = app.remembered(&app.cwd.clone());
     app.apply_palette(fuzzy_file_finder::reload::PaletteState::from_settings(
         &settings,
     ));
@@ -314,6 +336,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
+    if resume.is_some() {
+        app.status =
+            "Resumed where you left off; q returns to where you started, --here starts there"
+                .into();
+        app.status_success = app.status.clone();
+    }
     app.bookmark_store = fuzzy_file_finder::bookmarks::Store::new(
         settings.bookmark_path,
         app.bookmarks.clone(),

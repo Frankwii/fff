@@ -206,6 +206,7 @@ struct UiConfig {
     palette: String,
     icons: bool,
     message_seconds: u64,
+    resume: bool,
 }
 impl Default for UiConfig {
     fn default() -> Self {
@@ -213,6 +214,7 @@ impl Default for UiConfig {
             palette: "midnight".into(),
             icons: true,
             message_seconds: 4,
+            resume: true,
         }
     }
 }
@@ -240,6 +242,8 @@ pub struct Settings {
     /// How long status messages stay visible (`[ui] message_seconds`); `None`
     /// keeps them until replaced.
     pub message_timeout: Option<std::time::Duration>,
+    /// Start where the last session ended (`[ui] resume`), in the default mode.
+    pub resume: bool,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
     /// Active bookmark save destination, including a missing default config.
@@ -306,6 +310,7 @@ impl Settings {
             normal_keys,
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
+            resume: raw.ui.resume,
             source: None,
             bookmark_path: None,
         })

@@ -50,6 +50,9 @@ class Session:
             os.environ["TERM"] = "xterm-256color"
             os.environ["COLORTERM"] = "truecolor"
             os.environ.pop("NO_COLOR", None)
+            # Remembered locations live beside the test directory, never in
+            # the tester's own state.
+            os.environ["XDG_STATE_HOME"] = str(root) + "-state"
             if environment: os.environ.update(environment)
             if "--config" not in args and "--no-config" not in args and not environment:
                 args=(*args,"--no-config")
@@ -175,6 +178,7 @@ class TerminalTests(unittest.TestCase):
     def tearDown(self):
         if self.session:
             self.session.close()
+        shutil.rmtree(self.tmp.name + "-state", ignore_errors=True)
         self.tmp.cleanup()
 
     def start(self, *args, **kwargs):
@@ -433,6 +437,8 @@ class TerminalTests(unittest.TestCase):
             (self.root / name).touch()
         for chord in (b"\x1b0", b"\x1b9"):
             with self.subTest(chord=chord):
+                # Each run starts fresh, without the previous run's cursor.
+                shutil.rmtree(str(self.root) + "-state", ignore_errors=True)
                 s = self.start("--null")
                 s.send(b"\t", b"Marks (1)")
                 s.send(chord)
@@ -1442,6 +1448,70 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ifile", "❯ file")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(sub) + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_directories_remember_their_cursor_and_sessions_resume(self):
+        for folder in ["one", "two"]:
+            (self.root / folder).mkdir()
+            for name in ["a", "b", "c"]:
+                (self.root / folder / name).write_text(name)
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True, output_paths=False)
+        def highlighted():
+            return next(l for l in s.screen.text.splitlines() if "›" in l and "❯" not in l)
+        s.send(b"j", "› 2/0")
+        self.assertIn("two/", highlighted())
+        s.send(b"l", ("cwd", self.root / "two"))
+        s.send(b"jj", "› 3/0")
+        # Going up highlights the folder we came from...
+        s.send(b"h", ("cwd", self.root))
+        s.wait_ui("› 2/0")
+        self.assertIn("two/", highlighted())
+        # ...and coming back restores the cursor left there.
+        s.send(b"l", ("cwd", self.root / "two"))
+        s.wait_ui("› 3/0")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        s.close()
+        # A new session resumes in the last browsed folder, on the same row.
+        s = self.session = Session(self.root, "--editor", "nvim", "--depth", "1",
+                                   implicit_root=True, output_paths=False)
+        s.wait_ui(("cwd", self.root / "two"))
+        s.wait_ui("› 3/0")
+        self.assertIn("Resumed where you left off", s.screen.text)
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        s.close()
+        # --here and the picker mode start where they are launched.
+        for args, kwargs in [(("--here",), {"output_paths": False}), ((), {})]:
+            s = self.session = Session(self.root, "--editor", "nvim", "--depth", "1",
+                                       *args, implicit_root=True, **kwargs)
+            self.assertNotIn("Resumed", s.screen.text)
+            s.wait_ui(("cwd", self.root))
+            s.send(b"\x03")
+            self.assertEqual(s.finish()[0], 130)
+            s.close()
+        self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_E_opens_editor_without_review_and_explains_a_bad_editor(self):
+        (self.root / "alpha").write_text("a")
+        log = self.root / "log"
+        env = self.run_environment("myeditor", f'printf "%s\\n" "$@" > "{log}"\n')
+        s = self.start("--no-config", "--editor", "nvim", implicit_root=True,
+                       environment={**env, "EDITOR": "myeditor -p"})
+        s.send(b"E", "myeditor finished")
+        self.assertEqual(log.read_text().splitlines(), ["-p", str(self.root / "alpha")])
+        s.send(b"\x03")
+        s.finish()
+        s.close()
+        for value, message in [("", "$EDITOR is empty"), ("myeditr", "$EDITOR: myeditr: command not found; did you mean myeditor?")]:
+            s = self.session = Session(self.root, "--no-config", "--editor", "nvim", implicit_root=True,
+                                       environment={**env, "EDITOR": value})
+            s.send(b"E", message)
+            s.send(b"\x03")
+            s.finish()
+            s.close()
+        self.session = None
 
     def run_environment(self, name, body):
         # A program on PATH, outside the browsed directory.

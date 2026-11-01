@@ -16,7 +16,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui.rs` | Terminal lifecycle, input reader, wakeups, editing focus and key dispatch. |
 | `src/view.rs` | Ratatui frames, display paths, help and rendered numbered targets. |
-| `src/run.rs` | gx/gX: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
+| `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
+| `src/state.rs` | Remembered locations: last directory and per-directory highlights, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback and deletion review. |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |

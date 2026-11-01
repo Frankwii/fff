@@ -14,6 +14,7 @@ mod palettes;
 mod prefetch;
 pub mod reload;
 pub mod run;
+pub mod state;
 pub mod ui;
 mod view;
 
@@ -276,6 +277,13 @@ pub struct App {
     pub home: Option<PathBuf>,
     /// Status messages clear after this long; `None` keeps them until replaced.
     pub status_timeout: Option<std::time::Duration>,
+    /// Each directory's last highlighted entry, least recently left first.
+    pub positions: Vec<(PathBuf, PathBuf)>,
+    /// A highlight to restore as soon as its row is listed (scans stream in),
+    /// unless the user moves first.
+    pub wanted: Option<PathBuf>,
+    /// Whether this session's directory is where the next one resumes.
+    pub records_location: bool,
 }
 
 impl App {
@@ -323,10 +331,31 @@ impl App {
             labels: HashMap::new(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
+            positions: Vec::new(),
+            wanted: None,
+            records_location: false,
         }
     }
+    /// Records the current directory's highlight, as most recently used.
+    pub fn remember(&mut self) {
+        let Some(highlight) = self.highlight.clone() else {
+            return;
+        };
+        self.positions.retain(|(dir, _)| *dir != self.cwd);
+        self.positions.push((self.cwd.clone(), highlight));
+        let excess = self.positions.len().saturating_sub(state::CAPACITY);
+        self.positions.drain(..excess);
+    }
+    pub fn remembered(&self, dir: &Path) -> Option<PathBuf> {
+        self.positions
+            .iter()
+            .rev()
+            .find(|(d, _)| d == dir)
+            .map(|(_, entry)| entry.clone())
+    }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
-        self.cwd = path;
+        self.remember();
+        let from = std::mem::replace(&mut self.cwd, path);
         self.scope = self.roots.clone();
         if !self.scope.contains(&self.cwd) {
             self.scope.push(self.cwd.clone());
@@ -337,6 +366,14 @@ impl App {
         self.offset = 0;
         self.highlight = None;
         self.highlight_top = false;
+        // Going up highlights the folder we came from; otherwise restore what
+        // was highlighted here last time.
+        self.wanted = from
+            .strip_prefix(&self.cwd)
+            .ok()
+            .and_then(|rest| rest.components().next())
+            .map(|child| self.cwd.join(child))
+            .or_else(|| self.remembered(&self.cwd));
     }
     pub fn eligible(&self, c: &Candidate) -> bool {
         if c.depth > self.depth {
@@ -461,6 +498,13 @@ impl App {
         self.keep_highlight();
     }
     fn keep_highlight(&mut self) {
+        if let Some(wanted) = &self.wanted
+            && !self.highlight_top
+            && self.rows.iter().any(|c| &c.path == wanted)
+        {
+            self.highlight = self.wanted.take();
+            return;
+        }
         if self.highlight_top
             || !self
                 .rows
@@ -471,6 +515,8 @@ impl App {
         }
     }
     pub fn move_by(&mut self, amount: isize) {
+        // Moving, even before rows arrive, means the user chose a position.
+        self.wanted = None;
         if self.rows.is_empty() {
             return;
         }
@@ -606,6 +652,7 @@ impl App {
             }
             self.highlight = Some(candidate.path.clone());
             self.highlight_top = false;
+            self.wanted = None;
             if candidate.directory {
                 // A cached file that became a directory is not entered either.
                 if !self.can_navigate() {

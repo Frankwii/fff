@@ -1,6 +1,6 @@
 # File operations
 
-Version 0.3.0 adds operations from results and the marked list. These keys act
+Operations act on results and the marked list. These keys act
 only in Neovim Normal mode (the marked list always accepts them). Insert mode
 keeps them as text. The basic editor can invoke operations from the marked list;
 its prompt buffers use Ctrl+s to apply and Escape to discard.
@@ -14,6 +14,8 @@ its prompt buffers use Ctrl+s to apply and Escape to discard.
 | `r` | Open a batch rename buffer for every currently filtered result |
 | `e` | Extract the current or marked archives into a prompted directory |
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
+| `E` | Open the current or marked paths in `$EDITOR`, then come back |
+| `gx` / `gX` | Run a program on the current or marked paths; come back / exit into it |
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
 fall back to the highlighted path. Because they are also common Vim keys, each
@@ -180,6 +182,13 @@ program it resolved to, and the paths in argument order. **Enter** runs it;
   then owns the terminal; the exit status is the program's. In the default mode
   the shell integration then changes to the directory you were browsing, as `!`
   would.
+
+`E` opens the current or marked paths in `$EDITOR`, then comes back, like
+`gx` but with no prompt and no review (it only edits). It uses the same current
+/ selection / all choice. `$EDITOR` is split into words and resolved like a
+typed command, so `nvim -p` or `code --wait` work. When it is unset, empty,
+badly quoted or not a known command, nothing runs and the status line says
+which, suggesting the closest command name when there is one.
 
 Programs always read and write the terminal (`/dev/tty`), never fff's stdout,
 so both work while fff's output is redirected. They start in the browsing

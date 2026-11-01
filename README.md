@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.3.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.4.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -67,10 +67,11 @@ fallback unless explicitly requested. See [editing](docs/EDITING.md).
 This section describes what each confirmation returns with `--output-paths`; in
 the default mode the same keys choose a directory instead (see above).
 
-Without root arguments, browsing starts in the invocation directory and follows
-navigation. Explicit roots stay pinned: results combine their descendants with
+Without root arguments, browsing starts in the invocation directory (or, in the
+default mode, where your last session ended; see [remembered
+locations](docs/CONFIGURATION.md#remembered-locations)) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
-depth. Default depth is **3**; immediate children are depth 1. Shallower matches
+depth. Default depth is **2**; immediate children are depth 1. Shallower matches
 always come first, followed within each depth by directories and fuzzy ranking.
 Matching is a case-insensitive ordered subsequence of the basename.
 
@@ -153,6 +154,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | F1 | Key guide; Tab switches to Session details |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
+| E in Normal | Open the current or marked paths in `$EDITOR`, then come back |
 | q / ! in Normal | Exit to the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
 

@@ -11,6 +11,8 @@ palette = "midnight"
 icons = true
 # Seconds before red status messages clear by themselves; 0 keeps them.
 message_seconds = 4
+# Start where the last session ended (default mode without ROOTS); --here overrides.
+resume = true
 
 [palettes.ember]
 # Custom palettes inherit a built-in; unspecified roles keep its values.
