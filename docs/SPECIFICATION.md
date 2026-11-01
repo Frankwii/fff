@@ -1,7 +1,8 @@
 # picker specification
 
-Status: pre-implementation. This document records intended behavior; it does not
-claim the Cargo scaffold implements any picker functionality.
+Status: first implementation. The user authorized implementation on 2026-10-31.
+The active examples remain authoritative; sections 14–17 record decisions made for
+this version. See README.md for usage, implementation limits, and verification.
 
 ## 1. Purpose and source authority
 
@@ -18,9 +19,9 @@ did.
 Use these sources in this order:
 
 1. Explicit user instructions and subsequent decisions.
-2. Active curated examples in `tui_functionality_examples/`, subject to that
+2. Active curated examples in `docs/tui_functionality_examples/`, subject to that
    directory's `AGENTS.md`.
-3. This consolidation and `tui_functionality_examples/KEYBINDINGS.md`, subordinate
+3. This consolidation and `docs/tui_functionality_examples/KEYBINDINGS.md`, subordinate
    to those examples.
 4. Earlier conversation proposals and `reference_scripts/` for historical intent.
 
@@ -59,7 +60,7 @@ Keep the following concepts distinct, regardless of the chosen code structure:
 | Concept | Meaning and lifetime |
 | --- | --- |
 | Invocation directory | Process working directory at startup; stable base for relative output. |
-| Current directory | Exactly one browsed location, initially the first startup root. |
+| Current directory | Exactly one browsed location, initially the first explicit startup root, or the invocation directory when no roots were supplied. |
 | Search roots | Ordered, deduplicated directories supplied at startup; fixed during the session. |
 | Maximum depth | Common discovery limit for all roots; minimum 1; proposed initial value 3. |
 | Filename query | Text used to fuzzy-filter discovered candidates. |
@@ -80,8 +81,8 @@ Depth changes preserve current directory, roots, filename query, glob constraint
 and marks. Visibility/exclusion changes preserve current directory, roots, depth,
 query, and marks. Marks survive navigation and search refreshes.
 
-The relationship between fixed startup roots and navigation-driven listings needs
-clarification before that part is implemented; see section 12.
+The user clarified that discovery combines descendants of the current directory
+and all fixed startup roots. Exactly one current directory is retained; see section 14.
 
 ## 4. Discovery, matching, and order
 
@@ -138,7 +139,8 @@ than the transcript's earlier history-restoration proposal.
 
 The current directory and maximum depth are visible. Roots and each result's
 effective depth and root-relative path are inspectable. The marked collection is
-shown with full paths and can receive focus.
+shown with compact relative labels and can receive focus. Exact absolute paths
+remain inspectable in F1 details (user display decision in section 16).
 
 An empty directory and a query with no matches leave the session usable. Users
 can edit the query, clear it, or navigate upward. Enter in an empty directory
@@ -227,7 +229,11 @@ format is undecided. The active baseline is:
 | Enter | Navigate or confirm as in section 6 | 01, 02, 04, 05 |
 | Alt+h | Parent, retaining query and resetting scroll/highlight | 02 |
 | Alt+j | Next highlighted result | 02 |
-| Alt+l | Location entry; final acceptance behavior unresolved | 04 |
+| Alt+k | Previous highlighted result or marked-list item | Explicit user decision |
+| Alt+l | Enter highlighted directories only; never confirm output | User decision, section 17 |
+| Alt+g | Location entry | User decision, section 17 |
+| Alt+b | Bookmark chooser | User decision, section 17 |
+| F5 | Force discovery refresh, bypassing the current snapshot | User decision, section 17 |
 | Alt+Right / Alt+Left | Increase/decrease depth by 1, minimum 1 | 03, 04, 05, 13 |
 | Tab | Toggle mark; advance when possible | 05 |
 | Alt+Space | Switch between results and marked list | 05 |
@@ -238,6 +244,7 @@ format is undecided. The active baseline is:
 | Escape | Clear main query, or leave marked list | 01, 02, 05, 08 |
 | Ctrl+c | Quit without selected paths | 08 |
 | Ctrl+1 ... Ctrl+9, Ctrl+0 | Immediate visible choice | 03, 05, 12, 13 |
+| Alt+1 ... Alt+9, Alt+0 | Activate visible choice using Enter behavior | 14 / explicit user decision |
 | PageUp / PageDown | Change visible page and numbered targets | 12 |
 
 In main results, Escape clears a nonempty query while discovery continues. With
@@ -301,30 +308,175 @@ work can proceed once authorized.
 
 | Item | Established facts and unresolved detail |
 | --- | --- |
-| Navigation versus fixed roots | Examples require directory browsing to follow navigation, and startup roots to remain fixed. They do not fully define how the two scopes compose, especially outside a root. |
-| Location entry | Example 04 enters `/home/frank` via Alt+l and then says Enter returns `turing.pdf`. It does not explain why accepting a directory location confirms the previously highlighted file or whether another Enter is intended. |
-| Parent-navigation fixture | Example 02 preserves `sh` when returning to `short_notes` but describes an empty directory even though `proofs` exists. That phrase may mean no matches. Its next step expects `short_notes` and `scratch` to match `sh`, although `scratch` lacks an `h` for strict subsequence matching. Clarify the fixture/matching expectation. |
+| Navigation versus fixed roots | Resolved by the user: descendants of the single current directory and all fixed startup roots. See section 14. |
+| Location entry | Enter in the location prompt navigates without confirmation; the prompt moved to Alt+g when the user requested navigation-only Alt+l (section 17). |
+| Parent-navigation fixture | Example 02 describes an empty directory even though `proofs` exists; this can be presented as no matching results. The previous consolidation incorrectly claimed `scratch` lacks an `h`: its final letter is `h`, and `sh` is a valid subsequence. Both `short_notes` and `scratch` match, with adjacency favoring `short_notes`. Curated examples are unchanged. |
 | History | Parent navigation preserves the current query and resets scroll/highlight per active example 02. The older transcript proposed restoring per-directory query/cursor/scroll history; revisits and back/forward behavior are not fully specified by active examples. |
 | Ctrl+d | The examples README mentions Ctrl+C or Ctrl+D as explicit exits. No active example establishes a Ctrl+d binding; keep it out of the active binding table pending a decision. |
 | Query terminology | Active example 08 says content query, while content search is deferred. Its Escape/session-preservation assertions remain applicable; the wording does not activate content search. |
-| Matching policy | Exact scoring, basename versus root-relative-path matching, and normalization beyond the case-insensitive examples need decisions. |
-| Glob behavior | Example 03 defines traversal through nonmatching parents and a file-only result fixture. General directory-display behavior under glob constraints and CLI syntax remain undecided. |
-| Exclusions | Hidden visibility and exclusion enforcement are distinct. Rule syntax, ordinary ignore-file integration, startup policy, and editor lifecycle need decisions. |
-| Empty results | Enter behavior is specified for an empty directory; numbered-choice fallback is specified for any zero-visible-results state. Enter with a no-match query or incomplete empty scan is not settled. |
-| Missing marks | Active example 05 disallows silent partial confirmation. The recovery interaction and handling of different confirmation commands need decisions. |
-| Defaults and CLI | Startup depth 3 is proposed. Flag names, missing-root/default-root handling, output defaults, exit codes, remapping configuration, and supported platforms/terminals are undecided. |
+| Matching policy | First-version basename/subsequence scoring approved; see section 14. Additional normalization remains open. |
+| Glob behavior | First version uses `--glob` on file basenames only and traverses parents; approved in section 14. |
+| Exclusions | First version uses explicit glob exclusions, enforced by default, and a built-in session editor; section 14. External editor lifecycle remains open. |
+| Empty results | Approved first-version behavior: Enter does nothing on no-match results in a nonempty directory or during an incomplete empty scan. Numbered fallback remains unchanged. |
+| Missing marks | Approved first-version behavior: block Enter/Ctrl+w until missing marks are unmarked; numbered choice bypasses marks. |
+| Defaults and CLI | Approved first-version defaults are in section 14; implemented flags and key remapping are in README.md. Physical terminal compatibility and non-Unix support remain unverified. |
 
 ## 13. Acceptance-source map
 
 | Active example | Primary contract |
 | --- | --- |
-| [01](../tui_functionality_examples/01_directory_browsing.md) | Subsequence filtering, directory entry, first-visit query, no-match survival. |
-| [02](../tui_functionality_examples/02_navigation_history.md) | Parent navigation, query retention, empty-directory confirmation. |
-| [03](../tui_functionality_examples/03_recursive_search.md) | Live depth, file glob traversal, immediate depth eligibility. |
-| [04](../tui_functionality_examples/04_multiple_search_roots.md) | Fixed ordered roots, effective depth, overlap deduplication. |
-| [05](../tui_functionality_examples/05_persistent_selection.md) | Persistent marks, marked-list focus, confirmation rules, missing marks. |
-| [07](../tui_functionality_examples/07_visibility_and_exclusions.md) | Hidden visibility, editable exclusions, enforcement toggle. |
-| [08](../tui_functionality_examples/08_escape_and_cancellation.md) | Escape preserves discovery/session; explicit cancellation. |
-| [10](../tui_functionality_examples/10_return_paths.md) | Invocation-time path/output configuration. |
-| [12](../tui_functionality_examples/12_numbered_immediate_choice.md) | Visible numbered choice, marks bypass, fallback, output bytes, terminal decoding. |
-| [13](../tui_functionality_examples/13_depth_ordering.md) | Exact sort tuple, live insertion, rendered targets, highlight stability. |
+| [01](tui_functionality_examples/01_directory_browsing.md) | Subsequence filtering, directory entry, first-visit query, no-match survival. |
+| [02](tui_functionality_examples/02_navigation_history.md) | Parent navigation, query retention, empty-directory confirmation. |
+| [03](tui_functionality_examples/03_recursive_search.md) | Live depth, file glob traversal, immediate depth eligibility. |
+| [04](tui_functionality_examples/04_multiple_search_roots.md) | Fixed ordered roots, effective depth, overlap deduplication. |
+| [05](tui_functionality_examples/05_persistent_selection.md) | Persistent marks, marked-list focus, confirmation rules, missing marks. |
+| [07](tui_functionality_examples/07_visibility_and_exclusions.md) | Hidden visibility, editable exclusions, enforcement toggle. |
+| [08](tui_functionality_examples/08_escape_and_cancellation.md) | Escape preserves discovery/session; explicit cancellation. |
+| [10](tui_functionality_examples/10_return_paths.md) | Invocation-time path/output configuration. |
+| [12](tui_functionality_examples/12_numbered_immediate_choice.md) | Visible numbered choice, marks bypass, fallback, output bytes, terminal decoding. |
+| [13](tui_functionality_examples/13_depth_ordering.md) | Exact sort tuple, live insertion, rendered targets, highlight stability. |
+| [14](tui_functionality_examples/14_numbered_enter.md) | Alt+digit activation follows Enter; split results/marked panes. |
+
+
+## 14. First-version decisions (2026-10-31)
+
+The user explicitly authorized implementation, clarified discovery as
+“Descendants of the current directory *and* all fixed roots,” and approved the
+proposed first-version defaults and choices below. These decisions supersede the
+corresponding open items in section 12; unaddressed questions remain open.
+
+- Keep startup roots fixed and ordered, with exactly one current directory.
+  Discovery uses their union with the current directory. Effective depth is the
+  minimum positive relative depth across these locations. For implementation
+  ties, the additional current-directory scope follows fixed roots; duplicate
+  scope paths are omitted.
+- Use basename matching with case-insensitive ordered subsequences. The initial
+  scoring policy rewards adjacency and word starts and favors early matches.
+  No normalization beyond Unicode lowercase conversion is added.
+- Default depth is 3. Without explicit root arguments, start browsing at the
+  invocation directory with no fixed roots; directory/parent navigation moves
+  the sole discovery scope. Explicit root arguments remain fixed. Output defaults
+  to absolute newline-separated paths; independent relative and NUL flags are
+  available. Relative paths always use the invocation directory as their base.
+- Enforce explicit glob exclusions initially, hide hidden entries, and do not
+  load ordinary ignore files automatically. Positive file globs show only files
+  while permitting traversal through nonmatching directories.
+- Use a built-in exclusion editor initially. Ctrl+w validates and applies edits;
+  rules remain session-local. Escape cancels prompts. A full external-editor
+  lifecycle is left for future work.
+- Missing marks block Enter/Ctrl+w until unmarked. Numbered selection bypasses
+  marks as established in example 12. Enter on no-match results in a physically
+  nonempty directory does nothing; incomplete empty scans cannot confirm.
+- Alt+l accepts a directory location and navigates; it never confirms a previously
+  highlighted file. Directory navigation clears the query; parent navigation
+  preserves it and resets scroll/highlight.
+
+Implementation choices: Crossterm terminal I/O on `/dev/tty`, a bounded worker
+channel with generation checks and cancellation, explicit original path storage,
+CLI key remapping, arrow-key movement in results/marks, and a scrollable F1 details
+view. No async runtime, automatic ignore rules, content search, or opener is used.
+Success exits 0, cancellation 130, startup/I/O failure 1. Symlink directories are
+not recursively followed. Built-in editors currently offer append/backspace
+editing. These are initial implementation choices, not additions to the curated
+acceptance examples.
+
+Verification separates deterministic state/discovery checks from Linux PTY
+integration. CSI-u Ctrl+digit events are decoded through Crossterm; ambiguous
+legacy input is not interpreted as a numbered chord. Physical terminal/hardware
+compatibility and non-Unix support remain unverified. A richer editor, persistent
+configuration, history beyond the specified first-visit/parent behavior, and a
+terminal compatibility matrix remain open.
+
+User follow-up: Alt+k moves the highlight upward in results and the marked list,
+alongside the Up arrow.
+
+
+Navigation bug fix following the user's report with `cargo run`: an implicit
+starting directory is a browsing location, not an explicit fixed root. Previously
+pinning it left old entries visible after directory and parent navigation. Keep
+fixed-root union behavior when root arguments are explicitly supplied. Omit the
+current directory itself from candidate results so it cannot be re-entered as
+its own highlighted result through an ancestor scope. This implements the active
+01/02 navigation contracts while retaining the user's explicit fixed-root union
+rule. Regression checks exercise nested Enter (legacy and CSI-u) and parent
+navigation at depth 1 with a retained query.
+
+
+## 15. Numbered Enter and interface revision
+
+The user requested Alt+number to activate the same visible target as Ctrl+number,
+with the behavior of manually highlighting that entry and pressing Enter. Active
+example 14 records this decision. Both use the last completed frame's labels,
+1–9 with clamping and 0 for the last row. Directory targets navigate without
+confirmation; file targets confirm ordered marks plus the target once and exit.
+Alt+number uses the same missing-mark checks as Enter. With zero visible rows it
+follows Enter's empty-state rules, including staying open for a no-match query in
+a nonempty directory or incomplete scan. Ctrl+number retains example 12's
+single-path output and unconditional current-directory fallback.
+
+The user also authorized a visual redesign and requested marks on the right.
+The implementation now uses Ratatui with the existing Crossterm input layer.
+At widths of at least 80 columns, results and marked paths appear side by side;
+narrower terminals stack panes and give marks more room when focused. Borders,
+selection backgrounds, directory colors, matched-letter emphasis, explicit
+shortcut labels, and textual progress/missing states distinguish information.
+Full marked paths wrap; session details and prompts use dedicated panels. A
+36-column by 12-row minimum avoids assigning shortcuts to invisible rows. UI
+output still uses `/dev/tty`; selected path bytes remain isolated on stdout.
+Tests cover both state transitions and complete rendered frames, including
+paging, resize, focus, and real Crossterm decoding of ESC+digit / CSI-u Alt+digit.
+
+
+## 16. Compact relative display paths
+
+The user requested display paths relative to the current root and `.../` in place
+of a long chain of parent-directory steps. Use the single current browsing
+directory as the common display base for results, marked paths, and the selected
+path footer. Descendants show `topic/file.tex`; siblings one level up retain
+`../file.tex`; two or more leading `..` components collapse to `.../`, for example
+`../../papers/file.tex` becomes `.../papers/file.tex`. Labels update after
+navigation, including for results discovered through fixed roots and persistent
+marks. The current-directory header remains an absolute anchor; F1 details retain
+exact absolute paths and discovery-root-relative labels. This explicit user
+request supersedes the earlier full-absolute-path marked-pane display requirement.
+
+Abbreviation is presentation only. Filesystem identity, discovery attribution,
+sort order, numbered targets, navigation, mark storage, and output formatting
+continue to use original paths. In particular, `--relative` output still uses the
+invocation directory as its base and never substitutes `.../` abbreviations.
+
+
+## 17. TOML configuration, bookmarks, caching, and navigation revision
+
+The user explicitly requested configurable TOML palettes and bookmarks,
+navigation-only Alt+l, caching of completed searches for quick revisits with
+thorough tests, and a more distinctive current-directory display. The full
+implemented format and controls are documented in [CONFIGURATION.md](CONFIGURATION.md)
+and [the sample config](config.example.toml).
+
+- Optional config lookup uses XDG_CONFIG_HOME or HOME/.config. `--config`,
+  `--no-config`, `--palette`, and `--check-config` provide explicit overrides and
+  validation. No config is created or rewritten automatically. Invalid fields,
+  colors, palettes, bookmark names, and cache limits fail before entering the TUI.
+- Built-in midnight/light/forest palettes and named custom palettes control all
+  semantic UI colors, including current-directory banner foreground/background.
+  The header highlights the basename with bold/underline and a colored band.
+- Alt+l enters only a highlighted directory and never selects files or confirms
+  an empty-directory output. It preserves marks/depth like directory Enter.
+  The location prompt moves to Alt+g. This supersedes example 04's Alt+l binding.
+- Alt+b opens an ordered, fuzzy-name-filtered bookmark chooser. Enter navigates
+  directories; unavailable paths remain recoverable errors in the chooser. Names
+  are unique; paths support ~/ and config-directory-relative paths. Bookmark
+  navigation clears the query while preserving marks, fixed roots, and depth.
+- Completed successful scans populate a bounded session LRU cache. Keys include
+  current directory, ordered scopes, depth, hidden/exclusion policies and rules,
+  and file glob. Query/highlight/marks are not restored. Cache hits install an
+  initial candidate subset synchronously and revalidate in the background, with
+  visible incomplete status, stale-event guards, and reconciliation of deletions
+  and kind changes. Empty cached results cannot confirm until freshly verified.
+  Cancelled/failed/stale scans are not stored. Defaults: 16 entries, 4096 paths
+  each, expiry after 60 seconds. F5 bypasses the current snapshot; config can
+  disable the cache. Cache tests inject time/events and use filesystem fixtures.
+
+Current curated scenarios remain unchanged; explicit user decisions in this
+section take precedence where earlier bindings or visual defaults disagree.

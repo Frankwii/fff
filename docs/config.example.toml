@@ -1,0 +1,35 @@
+# Copy to ~/.config/picker/config.toml (or use --config PATH).
+# Check without opening the TUI: picker --config PATH --check-config
+
+[ui]
+# Built-ins: midnight, light, forest. Or select a custom palette defined below.
+palette = "midnight"
+
+[palettes.ember]
+# Custom palettes inherit a built-in; unspecified roles keep its values.
+extends = "midnight"
+accent = "#f0a76c"
+marked = "#e8c979"
+current_directory = "#623a28"
+current_directory_text = "#fff3df"
+# All color roles accept "#RRGGBB" or "default" for the terminal's own color.
+# Other roles: background, panel, text, muted, border, success, error, selection.
+
+[[bookmarks]]
+name = "Home"
+path = "~"
+
+[[bookmarks]]
+name = "Notes"
+path = "~/notes"
+
+[[bookmarks]]
+name = "Project notes"
+# Relative to this config file's directory, not the invocation directory.
+path = "../../notes"
+
+[cache]
+enabled = true
+max_entries = 16       # LRU snapshots of completed discovery scopes; 1..128.
+max_candidates = 4096 # Maximum paths stored per snapshot; 1..100000.
+ttl_seconds = 60      # Snapshot expiry from completion time; 1..86400.

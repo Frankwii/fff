@@ -4,7 +4,7 @@ Read [docs/SPECIFICATION.md](docs/SPECIFICATION.md) before changing program beha
 It consolidates the product intent, active acceptance examples, proposed technical
 direction, and unresolved decisions.
 
-Read `tui_functionality_examples/AGENTS.md` and relevant active examples as well.
+Read `docs/tui_functionality_examples/AGENTS.md` and relevant active examples as well.
 Explicit user instructions take precedence. Active examples take precedence over
 the consolidated specification and `KEYBINDINGS.md` if they disagree. Do not treat
 examples marked `STATUS: Delayed until future versions` as active requirements,
@@ -14,5 +14,6 @@ Keep behavior changes traceable to an active example or a user decision. Preserv
 unresolved decisions as unresolved until clarified; do not change curated examples
 to make an implementation pass. Technical proposals are not settled product rules.
 
-The current work is specification and initialization only. Do not infer permission
-to implement the application merely from the presence of this specification.
+The user authorized the first implementation on 2026-10-31. First-version user
+decisions are recorded in docs/SPECIFICATION.md sections 14–17. Keep future behavior
+changes within active examples and explicit user decisions.

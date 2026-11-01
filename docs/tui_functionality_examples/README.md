@@ -42,6 +42,7 @@ Printable characters always edit the focused query or prompt. Plain digits remai
 11. [Unusual names, missing files, and errors](11_filenames_and_errors.md)
 12. [Numbered immediate choice](12_numbered_immediate_choice.md)
 13. [Shallower-first display ordering during live updates](13_depth_ordering.md)
+14. [Numbered Enter with Alt+digits](14_numbered_enter.md)
 
 ## Proposed defaults and open decisions
 

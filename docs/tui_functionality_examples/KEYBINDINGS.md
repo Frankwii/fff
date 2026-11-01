@@ -1,6 +1,6 @@
 # Keybindings and interaction contract
 
-The non-delayed functionality examples take precedence over this document. Only bindings present in at least one active example are listed here. Explicit user instructions supersede both. Delayed examples do not define active bindings.
+The non-delayed functionality examples take precedence over this document. Bindings below come from active examples or explicit user decisions. Explicit user instructions supersede both. Delayed examples do not define active bindings.
 
 Printable characters edit the focused query or input. Plain digits remain query text. Ctrl means Control; Alt may also be called Meta. Lowercase and uppercase bindings are distinct.
 
@@ -11,7 +11,11 @@ Printable characters edit the focused query or input. Plain digits remain query 
 | Enter | Enter a highlighted directory. On a highlighted file, return all marked paths plus that file and exit. In an empty directory, return all marked paths plus the current directory and exit. | 01, 02, 04, 05 |
 | Alt+h | Navigate to the parent, preserving the query and resetting scroll and highlight. | 02 |
 | Alt+j | Move the highlight to the next result. | 02 |
-| Alt+l | Edit the current directory through location entry. | 04 |
+| Alt+k | Move the highlight to the previous result or marked-list item. | Explicit user decision |
+| Alt+l | Enter the highlighted directory without ever confirming files or empty-directory output. | Explicit user decision; supersedes 04 |
+| Alt+g | Location entry; Enter navigates, Escape cancels. | Explicit user decision |
+| Alt+b | Open/close the bookmark chooser; type to filter names, Enter to visit. | Explicit user decision |
+| F5 | Bypass the current discovery snapshot and refresh. | Explicit user decision |
 | Alt+Right | Increase maximum discovery depth by 1. | 03, 04, 05, 13 |
 | Alt+Left | Decrease maximum discovery depth by 1, clamped at 1. | 03, 04, 13 |
 | Tab | Toggle the highlighted item's mark, then advance if a following result exists. | 05 |
@@ -24,6 +28,8 @@ Printable characters edit the focused query or input. Plain digits remain query 
 | Ctrl+c | Exit without returning paths. | 08 |
 | Ctrl+1 through Ctrl+9 | Immediately return only the corresponding visible option and exit; if the requested index exceeds the visible count, return the last visible option. | 03, 05, 12, 13 |
 | Ctrl+0 | Immediately return only the last visible option and exit. | 12 |
+| Alt+1 through Alt+9 | Activate the corresponding visible option exactly like highlighting it and pressing Enter; clamp to the last visible option. | 14 |
+| Alt+0 | Activate the last visible option using Enter behavior. | 14 |
 | PageUp / PageDown | Change the visible page of results; update numbered shortcuts accordingly. | 12 |
 
 Search roots are fixed at startup. No live root-editing bindings are defined. Depth adjustments preserve the query, current directory, roots, and marks.
@@ -51,6 +57,16 @@ While editing exclusions, Ctrl+w applies the edited list rather than confirming 
 The first nine visible result rows are addressable with Ctrl+1 through Ctrl+9. Ctrl+0 addresses the last visible result, even when more than ten rows are visible. Intermediate rows beyond the first nine have no shortcut. With fewer than nine visible results, higher digit shortcuts select the last visible result. With no visible results, any numbered shortcut returns only the current directory and exits, ignoring marks. This includes queries with no matches as well as empty directories.
 
 Headers, separators, and messages do not consume numbers. Filtering and paging update the targets. A shortcut uses the labels from the most recently fully rendered results; queued discovery updates cannot redirect it before rendering. It returns the target path and exits, for both files and directories, without navigating or including marks.
+
+## Numbered Enter
+
+Alt+digits use the same rendered labels and paging rules as Ctrl+digits. Directories
+are entered; files confirm marks plus that file and exit, exactly like Enter.
+Missing marks block confirmation. With no visible rows, Alt+digits follow Enter: a
+completed physically empty directory confirms marks plus the current directory;
+no-match results in a nonempty directory or an incomplete scan stay open. Unlike
+Ctrl+digits, Alt+digits do not bypass marks or force an empty-results fallback.
+Both shortcut families are active only in main results focus.
 
 ## Terminal input
 
