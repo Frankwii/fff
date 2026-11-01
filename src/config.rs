@@ -147,6 +147,8 @@ impl CacheConfig {
 pub struct Bookmark {
     pub name: String,
     pub path: PathBuf,
+    /// Optional label drawn before the name in the chooser, e.g. a Nerd Font glyph.
+    pub icon: Option<String>,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -182,6 +184,7 @@ impl Default for UiConfig {
 struct RawBookmark {
     name: String,
     path: String,
+    icon: Option<String>,
 }
 #[derive(Default)]
 pub struct Settings {
@@ -251,6 +254,16 @@ impl Settings {
                     bookmark.name
                 ));
             }
+            // One or two terminal columns keep the chooser's names aligned.
+            let icon = bookmark.icon.map(|icon| icon.trim().to_string());
+            if let Some(icon) = &icon
+                && !(1..=2).contains(&unicode_width::UnicodeWidthStr::width(icon.as_str()))
+            {
+                return Err(format!(
+                    "Bookmark {:?}: icon must be one or two terminal columns wide, got {icon:?}",
+                    bookmark.name
+                ));
+            }
             let path = if bookmark.path == "~" {
                 home.ok_or("Cannot expand ~ without HOME")?.to_path_buf()
             } else if let Some(suffix) = bookmark.path.strip_prefix("~/") {
@@ -266,6 +279,7 @@ impl Settings {
             bookmarks.push(Bookmark {
                 name: bookmark.name,
                 path,
+                icon,
             });
         }
         let available = Palette::names()

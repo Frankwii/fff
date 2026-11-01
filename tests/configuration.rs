@@ -46,6 +46,21 @@ fn bookmarks_preserve_order_expand_home_and_resolve_relative_to_config() {
     assert_eq!(s.bookmarks[1].path, Path::new("/home/user/My Papers"));
     assert_eq!(s.bookmarks[2].path, Path::new("/config/picker/../notes"));
     assert_eq!(s.bookmarks[3].path, Path::new("/missing"));
+    assert!(s.bookmarks.iter().all(|b| b.icon.is_none()));
+}
+#[test]
+fn bookmark_icons_are_optional_short_labels() {
+    let s = parse(
+        "[[bookmarks]]\nname='Downloads'\nicon='\u{f10e9}'\npath='/home/user/Downloads/'\n\
+         [[bookmarks]]\nname='Wide'\nicon=' 📁 '\npath='/w'",
+    )
+    .unwrap();
+    assert_eq!(s.bookmarks[0].icon.as_deref(), Some("\u{f10e9}"));
+    assert_eq!(s.bookmarks[1].icon.as_deref(), Some("📁"));
+    for icon in ["''", "'   '", "'abc'", "'📁📁'"] {
+        let text = format!("[[bookmarks]]\nname='A'\nicon={icon}\npath='/a'");
+        assert!(parse(&text).is_err(), "accepted icon {icon}");
+    }
 }
 #[test]
 fn malformed_unknown_and_out_of_range_settings_fail_clearly() {

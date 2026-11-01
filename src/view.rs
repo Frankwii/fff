@@ -1039,25 +1039,42 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
             list,
         );
     } else {
+        // Configured icons always show; others get the folder glyph when file
+        // icons are enabled, or blank padding so names stay aligned.
+        let icon_column = app.icons || app.bookmarks.iter().any(|b| b.icon.is_some());
         let items: Vec<_> = matches
             .iter()
             .map(|&i| {
                 let b = &app.bookmarks[i];
                 let available = b.path.is_dir();
+                let color = if available { theme.marked } else { theme.error };
+                let mut title = Vec::new();
+                if icon_column {
+                    let icon = match &b.icon {
+                        Some(icon) => safe(icon),
+                        None if app.icons => crate::icons::icon(&b.path, true).glyph.to_string(),
+                        None => String::new(),
+                    };
+                    let pad = 3usize.saturating_sub(icon.width());
+                    title.push(styled(icon + &" ".repeat(pad), color));
+                }
+                title.push(bold(
+                    format!(
+                        "{}{}",
+                        safe(&b.name),
+                        if available { "" } else { " [unavailable]" }
+                    ),
+                    color,
+                ));
+                let indent = if icon_column { "   " } else { "" };
                 ListItem::new(vec![
-                    Line::from(bold(
-                        format!(
-                            "{}{}",
-                            safe(&b.name),
-                            if available { "" } else { " [unavailable]" }
-                        ),
-                        if available { theme.marked } else { theme.error },
-                    )),
+                    Line::from(title),
                     Line::from(styled(
-                        elide(
-                            &display_path(&b.path, &app.cwd),
-                            list.width.saturating_sub(2) as usize,
-                        ),
+                        indent.to_string()
+                            + &elide(
+                                &display_path(&b.path, &app.cwd),
+                                list.width.saturating_sub(2 + indent.len() as u16) as usize,
+                            ),
                         theme.muted,
                     )),
                     Line::from(""),
@@ -1475,6 +1492,39 @@ mod tests {
         assert_eq!(buffer[(11, 1)].bg, app.palette.selection);
         let cursor = terminal.get_cursor_position().unwrap();
         assert_eq!((cursor.x, cursor.y), (11, 1));
+    }
+    #[test]
+    fn bookmark_chooser_shows_configured_and_default_icons() {
+        let mut app = fixture();
+        let bookmark = |name: &str, icon: Option<&str>| crate::config::Bookmark {
+            name: name.into(),
+            path: "/tmp".into(),
+            icon: icon.map(str::to_string),
+        };
+        app.bookmarks = vec![
+            bookmark("Downloads", Some("\u{f10e9}")),
+            bookmark("Temp", None),
+        ];
+        let mut focus = Focus::Bookmarks {
+            query: String::new(),
+            index: 0,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("\u{f10e9}  Downloads"), "{screen}");
+        assert!(screen.contains("\u{f07b}  Temp"), "{screen}");
+        app.icons = false;
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        // The configured icon stays; the other name keeps its alignment.
+        assert!(screen.contains("\u{f10e9}  Downloads"), "{screen}");
+        assert!(screen.contains("   Temp"), "{screen}");
+        assert!(!screen.contains('\u{f07b}'), "{screen}");
     }
     fn draw(app: &mut App, width: u16, height: u16) -> (String, Vec<PathBuf>) {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

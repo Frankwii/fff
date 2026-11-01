@@ -26,6 +26,7 @@ path = "~"
 
 [[bookmarks]]
 name = "Notes"
+icon = "󰠮"   # Optional: 1-2 columns, e.g. a Nerd Font glyph; default is a folder.
 path = "~/notes"
 
 [[bookmarks]]

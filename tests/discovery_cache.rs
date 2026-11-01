@@ -285,14 +285,17 @@ fn bookmarks_filter_and_navigate_without_mutating_roots_depth_or_marks() {
         picker::config::Bookmark {
             name: "My notes".into(),
             path: directory.clone(),
+            icon: None,
         },
         picker::config::Bookmark {
             name: "File".into(),
             path: file.clone(),
+            icon: None,
         },
         picker::config::Bookmark {
             name: "Missing".into(),
             path: f.0.join("missing"),
+            icon: None,
         },
     ];
     assert_eq!(app.matching_bookmarks("mnt"), vec![0]);

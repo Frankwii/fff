@@ -699,6 +699,16 @@ literals and placeholders) and is plain under `NO_COLOR` or when not a terminal.
 A second set of user requests on 2026-11-01. Each subsection records one request
 and its implementation; they supersede earlier text where they conflict.
 
+### 21.1 Bookmark icons
+
+User request: customizable bookmark icons as a separate `icon` key, e.g.
+`icon = "󱃩"` beside `name` and `path`. The optional value is trimmed and must be
+one or two terminal columns wide; `--check-config` rejects anything else. The
+bookmark chooser draws it before the name in the bookmark's color. Bookmarks
+without an icon use the Nerd Font folder glyph when `[ui] icons` is enabled.
+Explicit icons are shown even when file icons are disabled, since the user chose
+them; names stay aligned in either case. Icons are presentation only.
+
 ### 21.6 Default configuration path
 
 User request: "Make the default config path be `$XDG_CONFIG_HOME/picker/config.toml`".

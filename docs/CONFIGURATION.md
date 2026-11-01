@@ -141,10 +141,15 @@ or output paths, and the row layout has the same width either way.
 
 ## Bookmarks
 
-Each `[[bookmarks]]` entry has a unique, nonempty `name` and a nonempty `path`.
-Entries appear in config order:
+Each `[[bookmarks]]` entry has a unique, nonempty `name`, a nonempty `path`, and
+an optional `icon`. Entries appear in config order:
 
 ```toml
+[[bookmarks]]
+name = "Downloads"
+icon = "󱃩"
+path = "~/Downloads/"
+
 [[bookmarks]]
 name = "Research papers"
 path = "~/Documents/Research papers"
@@ -157,6 +162,11 @@ path = "/mnt/shared/work"
 name = "Nearby notes"
 path = "../../notes"
 ```
+
+`icon` is any text one or two terminal columns wide (surrounding spaces are
+trimmed), typically a Nerd Font glyph or an emoji. It is drawn before the name in
+the chooser. Bookmarks without one show the folder icon when `[ui] icons` is on;
+a configured `icon` always shows, even with file icons off.
 
 Path rules:
 
