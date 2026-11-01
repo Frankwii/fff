@@ -43,7 +43,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 | Default | Read `$XDG_CONFIG_HOME/picker/config.toml`, or `~/.config/picker/config.toml` when XDG is unset/empty/not absolute. |
 | `--config PATH` | Read exactly this file, replacing default-file lookup. Relative `PATH` is relative to the invocation directory. |
 | `--no-config` | Ignore the default file and use built-in settings. Cannot be combined with `--config`. |
-| `--palette NAME` | Override `[ui].palette`; custom palettes still come from the selected config file. |
+| `--palette NAME` | Override `[ui].palette`; custom palettes still come from the selected config file. Shell completion offers built-in and custom names. |
 | `--check-config` | Validate the selected configuration and exit. |
 
 A missing default file uses defaults. An explicitly requested missing file,

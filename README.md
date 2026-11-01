@@ -17,8 +17,28 @@ directory and follows navigation; the initial directory is not pinned as a fixed
 search root. Defaults: depth 3,
 absolute paths, newline records, hidden entries off, explicit exclusions enforced.
 Use `--null` (`-0`) for exact record boundaries and `--relative` for paths relative
-to the invocation directory. `--help` lists options. Success exits 0, Ctrl+c exits
-130 with no selected paths, and startup/I/O errors exit 1.
+to the invocation directory. `-h` summarizes options; `--help` adds defaults,
+examples, a key summary and exit codes. Success exits 0, Ctrl+c exits 130 with no
+selected paths, startup/I/O errors exit 1, and command-line usage errors exit 2.
+
+### Shell completions
+
+Completions call back into the installed `picker`, so they always match its
+version. Add one line to your shell's startup file:
+
+```sh
+source <(picker --completions bash)        # ~/.bashrc
+source <(picker --completions zsh)         # ~/.zshrc (after compinit)
+picker --completions fish | source         # ~/.config/fish/config.fish
+```
+
+`elvish` and `powershell` are also accepted; `COMPLETE=SHELL picker` prints the
+same script. Completion covers options, root directories, `--config` files,
+`--editor`, palette names (built-ins plus custom palettes from the configuration
+that command line would load) and `--map-key` chords. The script completes the
+command name `picker` and calls back the binary exactly as it was invoked to
+generate the script (a relative path such as `./target/release/picker` is made
+absolute).
 
 Results combine descendants of the one current directory and every fixed startup
 root explicitly passed on the command line. Navigation changes only the current

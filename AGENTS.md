@@ -17,3 +17,10 @@ to make an implementation pass. Technical proposals are not settled product rule
 The user authorized the first implementation on 2026-10-31. First-version user
 decisions are recorded in docs/SPECIFICATION.md sections 14–19. Keep future behavior
 changes within active examples and explicit user decisions.
+
+When adding or changing a CLI argument whose values make sense to complete
+(paths, enumerations, palette or other names, structured values like key chords),
+wire up shell completion (`value_hint`, a `ValueEnum`/possible values, or an
+`ArgValueCompleter` in `src/completion.rs`) and keep the completion tests in
+`src/main.rs` and `tests/cli.rs` passing. Free-form values such as numbers or
+globs need no completion; list them in `FREE_FORM` in `src/main.rs` instead.
