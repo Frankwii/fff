@@ -475,6 +475,72 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_normal_mode_list_keys_and_g_passthrough(self):
+        for name in ("alpha", "beta", "gamma"):
+            (self.root / name).touch()
+        s = self.start("--editor", "nvim", "--no-config")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"g", "PENDING")
+        s.send(b"g", "NORMAL")
+        # G = last, k = Alt+k, gg = first, j = Alt+j; the query is untouched.
+        s.send(b"Gkggjj")
+        s.send(b"k\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "beta") + b"\n"))
+        s.close()
+        s = self.session = Session(self.root, "--editor", "nvim", "--no-config")
+        s.send(b"gamma", b"Query: gamma")
+        s.send(b"\x1b[27u", "NORMAL")
+        # Unbound continuations reach Neovim intact: gU, ge.
+        s.send(b"0gUiw", b"Query: GAMMA")
+        s.send(b"u", b"Query: gamma")
+        s.send(b"$ge", "NORMAL")  # plain e would stay on the last letter
+        s.send(b"ix", b"Query: xgamma")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"x", b"Query: gamma")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "gamma") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_normal_mode_h_and_l_navigate_like_alt(self):
+        directory = self.root / "folder"
+        directory.mkdir()
+        (directory / "file").touch()
+        s = self.start("--editor", "nvim", "--no-config", "--depth", "1", implicit_root=True)
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"l", ("cwd", directory))
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"h", ("cwd", self.root))
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_normal_mode_keys_in_marks_bookmarks_and_config(self):
+        for name in ("alpha", "beta", "gamma"):
+            (self.root / name).touch()
+        with tempfile.TemporaryDirectory(prefix="picker-normal-keys-") as folder:
+            for name in ("one", "two", "three"):
+                (Path(folder) / name).mkdir()
+            config = Path(folder) / "config.toml"
+            config.write_text(
+                "[keys.normal]\nfirst='<space>t'\nlast=['G','<space>b']\ndown='none'\n"
+                + "".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
+            )
+            s = self.start("--editor", "nvim", "--config", str(config), implicit_root=True)
+            s.send(b"\t\t\t", b"Marks (3)")
+            s.send(b"\x1b ", "Marks (3)")
+            # Marks list: last, then first via the remapped sequence; Tab unmarks.
+            s.send(b"G\t", b"Marks (2)")
+            s.send(b" t\t", b"Marks (1)")
+            s.send(b"\x1b[27u", "INSERT")
+            s.send(b"\x1bb", "Bookmarks")
+            s.send(b"\x1b[27u", "NORMAL")
+            # j is unbound here, so it reaches Neovim and leaves "one" highlighted.
+            s.send(b" b t")
+            s.send(b"j\r", ("cwd", Path(folder) / "one"))
+            s.send(b"\x17")
+            self.assertEqual(s.finish(), (0, os.fsencode(self.root / "beta") + b"\n"))
+
     def test_missing_nvim_falls_back_to_basic_input(self):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim", "--no-config", environment={"PATH": ""})

@@ -153,6 +153,12 @@ struct RawConfig {
     palettes: BTreeMap<String, BTreeMap<String, String>>,
     bookmarks: Vec<RawBookmark>,
     cache: CacheConfig,
+    keys: KeysConfig,
+}
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct KeysConfig {
+    normal: crate::normal_keys::NormalKeysConfig,
 }
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -178,6 +184,7 @@ pub struct Settings {
     pub palette: Palette,
     pub bookmarks: Vec<Bookmark>,
     pub cache: CacheConfig,
+    pub normal_keys: crate::normal_keys::NormalKeys,
 }
 impl Settings {
     pub fn parse(
@@ -188,6 +195,7 @@ impl Settings {
     ) -> Result<Self, String> {
         let raw: RawConfig = toml::from_str(text).map_err(|e| e.to_string())?;
         raw.cache.validate()?;
+        let normal_keys = raw.keys.normal.build()?;
         let mut palettes = BTreeMap::new();
         for (name, values) in &raw.palettes {
             if Palette::named(name).is_some() {
@@ -252,6 +260,7 @@ impl Settings {
             palette,
             bookmarks,
             cache: raw.cache,
+            normal_keys,
         })
     }
     pub fn load(

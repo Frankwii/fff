@@ -37,3 +37,13 @@ ttl_seconds = 60      # Snapshot stale age; retained for provisional replay unti
 # Opt-in experiment; requires nvim on PATH. See EDITING.md.
 [editor]
 backend = "basic" # Change to "nvim" for genuine modal text editing.
+
+# Plain keys for list views (results, bookmarks, marks) in Neovim Normal mode.
+# A string or list of sequences; "none" disables. See CONFIGURATION.md.
+[keys.normal]
+left = "h"    # Same as Alt+h in the view.
+down = "j"    # Same as Alt+j.
+up = "k"      # Same as Alt+k.
+right = "l"   # Same as Alt+l.
+first = "gg"  # First row; a lone g waits, other continuations reach Neovim.
+last = "G"    # Last row.

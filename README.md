@@ -43,6 +43,7 @@ results are labeled. Query edits filter known results without restarting discove
 | Enter | Enter directory; return marks plus highlighted file; return current directory plus marks when physically empty and no candidate is highlighted |
 | Up / Alt+k | Move highlight up (results and marked list) |
 | Down / Alt+j | Move highlight down (results and marked list) |
+| h / j / k / l, gg / G | In Neovim Normal mode (and in the marked list): same as Alt+h/j/k/l; first/last row. Configurable via `[keys.normal]` |
 | Alt+h | Parent directory, retaining query and resetting highlight/scroll |
 | Alt+l | Enter the highlighted directory; never confirm files or empty directories |
 | Alt+g | Location prompt; Enter navigates, Escape cancels |

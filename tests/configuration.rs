@@ -196,3 +196,17 @@ fn experimental_editor_config_is_opt_in_and_validated() {
     assert!(parse("[editor]\nbackend='unknown'").is_err());
     assert!(parse("[editor]\nbacked='nvim'").is_err());
 }
+#[test]
+fn normal_mode_list_keys_are_validated() {
+    assert!(parse("[keys.normal]\nfirst=['gg','<space>g']\nlast='none'\nleft=''\n").is_ok());
+    for bad in [
+        "[keys.normal]\nfirst='g'\nlast='gg'\n",
+        "[keys.normal]\ndown='x'\nup='x'\n",
+        "[keys.normal]\nfirst='<c-d>'\n",
+        "[keys.normal]\ntop='gg'\n",
+        "[keys.insert]\ndown='j'\n",
+        "[keys.normal]\nfirst=1\n",
+    ] {
+        assert!(parse(bad).is_err(), "accepted {bad:?}");
+    }
+}

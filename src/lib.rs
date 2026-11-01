@@ -4,6 +4,7 @@ pub mod config;
 pub mod discovery;
 pub mod editor;
 pub mod keys;
+pub mod normal_keys;
 mod palettes;
 pub mod reload;
 pub mod ui;
@@ -122,6 +123,7 @@ pub struct App {
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
     pub bookmarks: Vec<config::Bookmark>,
+    pub normal_keys: normal_keys::NormalKeys,
 }
 
 impl App {
@@ -153,6 +155,7 @@ impl App {
             edit_view: None,
             palette: config::Palette::default(),
             bookmarks: Vec::new(),
+            normal_keys: normal_keys::NormalKeys::default(),
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {

@@ -103,6 +103,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     app.palette = settings.palette;
     app.bookmarks = settings.bookmarks;
+    app.normal_keys = settings.normal_keys;
     if let Some(paths) = ui::run(
         app,
         keys,

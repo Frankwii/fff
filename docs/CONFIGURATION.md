@@ -234,3 +234,30 @@ backend = "nvim" # Default: "basic"; CLI override: --editor nvim
 This uses a clean headless Neovim instance for every editable field. See the
 [editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics,
 reserved picker shortcuts, dependency/fallback behavior, and tested boundaries.
+
+## Normal-mode list keys
+
+While a field is in Neovim **NORMAL** mode, list views (results, bookmark
+chooser, marked list) accept plain motion keys; see
+[EDITING.md](EDITING.md#normal-mode-list-keys). Rebind them in `[keys.normal]`:
+
+```toml
+[keys.normal]
+left = "h"           # Same as Alt+h in the view (results: parent directory)
+down = "j"           # Same as Alt+j
+up = "k"             # Same as Alt+k
+right = "l"          # Same as Alt+l (results: enter highlighted directory)
+first = "gg"         # Highlight the first row
+last = ["G", "<space>e"] # A list gives alternatives
+```
+
+Each value is one key sequence or a list of sequences; `"none"`, `""`, or `[]`
+disables the action. A sequence is typed literally, one printable key per
+character (uppercase means Shift); write `<space>` for Space and `<lt>` for `<`.
+Ctrl/Alt chords, Escape, Enter, and other named keys are rejected: Alt and Ctrl
+chords remain picker shortcuts (remap those with `--map-key`).
+Sequences must be unambiguous: two actions cannot share a sequence, and one
+sequence cannot be a prefix of another, because a waiting prefix has no timeout.
+Unbound keys and unfinished prefixes still reach Neovim. `--check-config` reports
+unknown actions and invalid or conflicting sequences. Changes take effect on the
+next invocation.

@@ -521,3 +521,34 @@ printable-query/Escape behavior only when enabled. No personal config/plugins or
 persistent editor files are used. The process is private, time-bounded on RPC,
 and reaped on exit. See [EDITING.md](EDITING.md) for tested behavior and the
 boundary between field editing and a full Neovim window UI.
+
+
+## 20. Neovim default, palette keys, Normal-mode list keys, icons, integrated location line, completions (2026-11-01)
+
+### 20.3 Normal-mode list keys
+
+User request (2026-11-01): "Add keybindings that are specific to being in Normal
+mode while editing: movement for selecting an option with hjkl (remove the 'Alt'
+from the existing insert-mode mappings), pressing gg [and G] for navigating to
+the top/bottom of the search result. Try to make them configurable in the config
+file too." Clarified: `gg` highlights the first result and `G` the last.
+
+These keys apply only to list views: the main results, the marked list, the
+bookmark chooser, and (when wired) the palette chooser. While the view's field is
+in Neovim Normal mode, plain `h`/`j`/`k`/`l` do exactly what Alt+h/j/k/l do in
+that view; an action the view does not implement (for example `h`/`l` in the
+bookmark chooser) behaves as unbound. The marked list has no text field and
+always accepts them. The multiline exclusion editor and location prompt keep
+Vim's own `hjkl`/`gg`/`G`. Alt bindings keep working in every mode; Insert,
+Visual, pending, and command-line modes are unchanged.
+
+Unbound Normal-mode keys still go to Neovim. A key that begins a configured
+sequence waits (shown as PENDING); if the next key does not continue it, the
+pending keys and that key reach Neovim intact, so `gU`, `ge`, and similar
+commands keep working. Bindings are configurable in TOML `[keys.normal]`
+(`left`, `down`, `up`, `right`, `first`, `last`; a sequence or list; `"none"`,
+empty, or `[]` disables). Sequences are plain printable keys (`<space>`, `<lt>`
+allowed), must not duplicate or prefix each other, and are validated at startup
+and by `--check-config`. See [EDITING.md](EDITING.md) and
+[CONFIGURATION.md](CONFIGURATION.md). This supersedes section 19's statement
+that only Alt+j/Alt+k move the list highlight while editing.
