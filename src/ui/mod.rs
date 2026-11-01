@@ -87,10 +87,8 @@ pub(crate) enum Focus {
 }
 /// How a session ends.
 pub enum Finish {
-    /// Confirmed paths, or the launch directory of `q`.
+    /// Confirmed paths, or the directory of a quit key.
     Paths(Vec<PathBuf>),
-    /// `!`: change to this browsing directory, even with --output-paths.
-    ChangeDir(PathBuf),
     /// Ctrl+c.
     Cancelled,
     /// gX: the terminal is restored; the caller replaces fff with the program.
@@ -449,11 +447,11 @@ fn session(
                 if app.no_dir {
                     return Ok(Finish::Paths(Vec::new()));
                 }
-                return Ok(if current {
-                    Finish::ChangeDir(app.cwd.clone())
+                return Ok(Finish::Paths(vec![if current {
+                    app.cwd.clone()
                 } else {
-                    Finish::Paths(vec![invocation])
-                });
+                    invocation
+                }]));
             }
             NormalKey::Run(exit) => {
                 let current = match &focus {

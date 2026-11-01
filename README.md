@@ -160,11 +160,10 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | q / ! in Normal | Exit to the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
 
-`q` and `!` exit with status 0. `!` changes to the current directory in both
-modes and prints nothing with `--output-paths` (without the shell integration,
-only the default mode can print the directory for `cd "$(command fff)"`). `q`
-changes nothing; with `--output-paths` it prints the launch directory in the
-usual output format. `--no-dir` makes either exit successfully without output. Insert/basic editing keeps these characters as
+`q` and `!` exit with status 0. With `--output-paths` they print the launch or
+current directory in the usual output format; in the default mode `!` changes
+to the current directory and `q` changes nothing. `--no-dir` makes either exit
+successfully without output. Insert/basic editing keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the

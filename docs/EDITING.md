@@ -70,10 +70,9 @@ For example, type `ihello world`, press Escape, then `0dw`: the query becomes
 ## Application keys and Escape
 
 In Normal mode, `q` exits and returns the invocation directory; `!` exits and
-changes to the current browsing directory, also with `--output-paths` (where it
-prints no path). Both ignore marks; `q` uses the normal path output format
-(`--relative` and `--null` apply). With `--no-dir`, they exit successfully
-without output. They also work in the marked list. Insert/basic
+returns the current browsing directory. Both ignore marks and use the normal
+path output format (`--relative` and `--null` apply). With `--no-dir`, they exit
+successfully without output. They also work in the marked list. Insert/basic
 fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]`.
 
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,

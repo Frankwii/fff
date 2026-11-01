@@ -196,26 +196,16 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_normal_quit_current_changes_directory_and_insert_keeps_text(self):
+    def test_normal_quit_current_uses_relative_nul_and_insert_keeps_text(self):
         (self.root / "child").mkdir()
         (self.root / "child" / "file").touch()
-        cd_file = self.root / "cd"
-        s = self.start("--cd-file", str(cd_file), "--editor", "nvim", "--relative", "--null",
-                       "--depth", "1", implicit_root=True)
+        s = self.start("--editor", "nvim", "--relative", "--null", "--depth", "1", implicit_root=True)
         s.send(b"iq!", "❯ q!")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯ type to filter")
         s.send(b"l", ("cwd", self.root / "child"))
         s.send(b"!")
-        # Even with --output-paths, "!" changes directory instead of printing.
-        self.assertEqual(s.finish(), (0, b""))
-        self.assertEqual(cd_file.read_bytes(), os.fsencode(self.root / "child"))
-        s.close()
-        # Without the shell function there is nothing to print.
-        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
-        s.send(b"l", ("cwd", self.root / "child"))
-        s.send(b"!")
-        self.assertEqual(s.finish(), (0, b""))
+        self.assertEqual(s.finish(), (0, b"child\0"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):

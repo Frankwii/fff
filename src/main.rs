@@ -403,15 +403,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             change_to(paths.last())?;
             Ok(true)
         }
-        // `!` changes directory in both modes. Only the default mode prints
-        // it without the shell function: --output-paths stdout carries
-        // selected paths, and `!` selects none.
-        ui::Finish::ChangeDir(dir) => {
-            if !args.output_paths || args.cd_file.is_some() {
-                change_to(Some(&dir))?;
-            }
-            Ok(true)
-        }
         ui::Finish::Exec(plan) => {
             // The wrapper changes to the browsing directory once the program ends.
             if !args.output_paths {
