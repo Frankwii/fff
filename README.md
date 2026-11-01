@@ -17,7 +17,10 @@ directory and follows navigation; the initial directory is not pinned as a fixed
 search root. Defaults: depth 3,
 absolute paths, newline records, hidden entries off, explicit exclusions enforced.
 Use `--null` (`-0`) for exact record boundaries and `--relative` for paths relative
-to the invocation directory. `-h` summarizes options; `--help` adds defaults,
+to the invocation directory. `--no-dir` makes a static file choice: directories are
+neither listed nor returned, and navigation keys (Enter on a directory, Alt+h/l,
+Alt+g, Alt+b) are disabled, so you mark files below the starting directory (or
+roots), within `--depth`, and confirm. `-h` summarizes options; `--help` adds defaults,
 examples, a key summary and exit codes. Success exits 0, Ctrl+c exits 130 with no
 selected paths, startup, configuration (including an unknown `--palette`) and I/O errors exit 1,
 and command-line usage errors (unknown options, malformed `--map-key`, `--glob` or

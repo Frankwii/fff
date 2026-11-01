@@ -111,6 +111,14 @@ struct Args {
     /// session with Alt+e and toggle enforcement with Alt+H.
     #[arg(long = "exclude", value_name = "GLOB", help_heading = "Search")]
     exclusions: Vec<String>,
+    /// Static file choice: hide directories and disable navigation
+    ///
+    /// Only files below the current directory (or the pinned ROOTS) are listed,
+    /// down to --depth. Directory keys (Enter on a directory, Alt+h/Alt+l, the
+    /// Alt+g location prompt, Alt+b bookmarks) are disabled, and the current
+    /// directory is never returned. Mark files with Tab, then confirm.
+    #[arg(long, help_heading = "Search")]
+    no_dir: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
     #[arg(long, help_heading = "Search")]
     hidden: bool,
@@ -258,6 +266,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
+    app.no_dir = args.no_dir;
     if let Some(paths) = ui::run(
         app,
         keys,

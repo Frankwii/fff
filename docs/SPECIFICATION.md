@@ -728,6 +728,24 @@ retained query. This supersedes section 19/20.1's "navigation resets to Insert".
 The first field activation at startup and the subordinate fields still begin in
 Insert mode. The basic backend has no modes and is unchanged.
 
+### 21.5 Static file choice with `--no-dir`
+
+User request: a `--no-dir` flag that "makes directories don't show up on the
+search" and disables Alt+l "or other navigation-related keybindings": "a static
+search where I need to choose some files out of the ones in the specified
+directory and leave, but cannot navigate".
+
+- Directory candidates are omitted from results (discovery still traverses them,
+  so files down to `--depth` appear). Depth, visibility and exclusion changes
+  still work; they do not move the current directory.
+- The current directory never changes: Alt+h, Alt+l, Normal-mode `h`/`l`, Alt+g
+  and Alt+b leave the session as is and show "Navigation is disabled with
+  --no-dir". A directory candidate (e.g. from a cached kind change) is not entered.
+- No directory is ever returned: Enter in an empty directory and Ctrl+number with
+  no visible rows stay open instead of returning the current directory (this
+  replaces example 12's fallback only in this explicit mode). Files confirm with
+  marks exactly as usual.
+
 ### 21.6 Default configuration path
 
 User request: "Make the default config path be `$XDG_CONFIG_HOME/picker/config.toml`".

@@ -321,6 +321,10 @@ pub fn run(
         if matches!(focus, Focus::Results)
             && let Some(digit) = numbered_key(key)
         {
+            // Static (--no-dir) sessions never fall back to the current directory.
+            if app.no_dir && app.rendered.is_empty() {
+                continue;
+            }
             let target = app.numbered(digit);
             if app.ready_path(&target) {
                 return Ok(Some(vec![target]));
@@ -541,6 +545,7 @@ pub fn run(
                     }
                 }
                 (K::Char('e'), _, true) => focus = Focus::Exclusions(app.policy.rules.join("\n")),
+                (K::Char('g' | 'b' | 'h'), _, true) if !app.can_navigate() => {}
                 (K::Char('g'), _, true) => focus = Focus::Location(String::new()),
                 (K::Char('b'), _, true) => {
                     focus = Focus::Bookmarks {

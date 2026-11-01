@@ -367,6 +367,32 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x17")
         self.assertEqual(s.finish(), (0, os.fsencode(target) + b"\n"))
 
+    def test_no_dir_lists_only_files_and_disables_navigation(self):
+        folder = self.root / "folder"
+        folder.mkdir()
+        nested = folder / "nested.txt"
+        nested.touch()
+        top = self.root / "top.txt"
+        top.touch()
+        s = self.start("--no-dir", "--depth", "2", implicit_root=True)
+        s.send(b"", b"nested.txt")
+        self.assertNotIn("folder/ ", s.screen.text)
+        # Parent, enter, location and bookmarks all stay put with a notice.
+        for key in (b"\x1bh", b"\x1bl", b"\x1bg", b"\x1bb"):
+            s.send(key, "disabled with --no-dir")
+            self.assertTrue(any(l.lstrip().startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
+            self.assertNotIn("Go to directory", s.screen.text)
+            self.assertNotIn("Bookmarks ·", s.screen.text)
+        # A no-match query: Ctrl+number does not fall back to the directory.
+        s.send(b"zzzz", b"No matching results")
+        s.send(b"\x1b[49;5u")  # CSI-u: Ctrl+1
+        s.send(b"\x7f\x7f\x7f\x7f", b"top.txt")
+        s.send(b"\t", b"Marks (1)")
+        s.send(b"\r")
+        self.assertEqual(
+            s.finish(), (0, os.fsencode(top) + b"\n" + os.fsencode(nested) + b"\n")
+        )
+
     def test_configured_bookmarks_filter_missing_target_and_preserve_marks(self):
         marked = self.root / "marked"
         marked.touch()

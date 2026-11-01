@@ -411,3 +411,37 @@ fn alt_numbers_are_distinct_from_plain_and_control_digits() {
         );
     }
 }
+#[test]
+fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
+    let mut app = app();
+    app.no_dir = true;
+    for (name, dir, depth) in [
+        ("alpha", true, 1),
+        ("zebra.txt", false, 1),
+        ("alpha/aa.txt", false, 2),
+    ] {
+        app.insert(0, candidate(name, dir, depth));
+    }
+    app.refresh();
+    let names: Vec<_> = app.rows.iter().map(|c| c.path.clone()).collect();
+    assert_eq!(
+        names,
+        [
+            PathBuf::from("/fixture/zebra.txt"),
+            PathBuf::from("/fixture/alpha/aa.txt")
+        ]
+    );
+    // A directory candidate (e.g. a cached kind change) is not entered.
+    assert_eq!(
+        app.enter(Some(candidate("alpha", true, 1))),
+        picker::EnterOutcome::Stay
+    );
+    assert!(app.status.contains("--no-dir"));
+    assert!(!app.navigate_highlighted());
+    assert_eq!(app.cwd, Path::new("/fixture"));
+    // An empty directory never returns itself.
+    app.rows.clear();
+    app.scanning = false;
+    app.physical_empty = true;
+    assert_eq!(app.enter(None), picker::EnterOutcome::Stay);
+}

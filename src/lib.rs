@@ -131,6 +131,9 @@ pub struct App {
     pub palette_name: String,
     pub palettes: Vec<(String, config::Palette)>,
     pub normal_keys: normal_keys::NormalKeys,
+    /// `--no-dir`: a static file choice. Directories are never listed, entered,
+    /// or returned, and the current directory cannot change.
+    pub no_dir: bool,
 }
 
 impl App {
@@ -169,6 +172,7 @@ impl App {
                 .map(|n| (n.to_string(), config::Palette::named(n).unwrap()))
                 .collect(),
             normal_keys: normal_keys::NormalKeys::default(),
+            no_dir: false,
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
@@ -219,7 +223,7 @@ impl App {
         let mut ranked: Vec<_> = self
             .known
             .values()
-            .filter(|c| self.eligible(c))
+            .filter(|c| self.eligible(c) && !(self.no_dir && c.directory))
             .filter_map(|c| {
                 let name = c.path.file_name()?.to_string_lossy();
                 if self
@@ -280,6 +284,13 @@ impl App {
             .cloned()
             .unwrap_or_else(|| self.cwd.clone())
     }
+    /// Whether the current directory may change; false with `--no-dir`.
+    pub fn can_navigate(&mut self) -> bool {
+        if self.no_dir {
+            self.status = "Navigation is disabled with --no-dir".into();
+        }
+        !self.no_dir
+    }
     pub fn navigate_highlighted(&mut self) -> bool {
         let target = self
             .rows
@@ -288,7 +299,7 @@ impl App {
             .filter(|c| c.directory)
             .map(|c| c.path.clone());
         if let Some(path) = target {
-            if !self.ready_path(&path) {
+            if !self.ready_path(&path) || !self.can_navigate() {
                 return false;
             }
             if !path.is_dir() {
@@ -333,6 +344,9 @@ impl App {
         self.palettes = state.available;
     }
     pub fn open_bookmark(&mut self, index: usize) -> bool {
+        if !self.can_navigate() {
+            return false;
+        }
         let Some(bookmark) = self.bookmarks.get(index) else {
             return false;
         };
@@ -361,6 +375,10 @@ impl App {
             }
             self.highlight = Some(candidate.path.clone());
             if candidate.directory {
+                // A cached file that became a directory is not entered either.
+                if !self.can_navigate() {
+                    return EnterOutcome::Stay;
+                }
                 self.navigate(candidate.path, false);
                 EnterOutcome::Navigated
             } else {
@@ -368,7 +386,7 @@ impl App {
                     .map(EnterOutcome::Selected)
                     .unwrap_or(EnterOutcome::Stay)
             }
-        } else if !self.scanning && self.physical_empty {
+        } else if !self.scanning && self.physical_empty && !self.no_dir {
             self.confirm(Some(self.cwd.clone()))
                 .map(EnterOutcome::Selected)
                 .unwrap_or(EnterOutcome::Stay)

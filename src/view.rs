@@ -506,6 +506,11 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
                 "Discovering files…",
                 "You can keep typing while the scan runs.",
             )
+        } else if app.no_dir && app.query.is_empty() {
+            (
+                "No files here",
+                "Alt+→ searches deeper. Ctrl+c leaves without a selection.",
+            )
         } else if app.physical_empty {
             (
                 "Empty directory",
