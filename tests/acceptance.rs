@@ -65,6 +65,46 @@ fn live_order_highlight_late_depth_and_rendered_choice() {
     assert!(!app.known.contains_key(Path::new("/fixture/obsolete")));
 }
 #[test]
+fn bookmark_jump_keeps_the_highlight_on_the_first_row_until_moved() {
+    let mut app = app();
+    app.bookmarks = vec![fuzzy_file_finder::config::Bookmark {
+        name: "here".into(),
+        path: std::env::temp_dir(),
+        icon: None,
+    }];
+    assert!(app.open_bookmark(0));
+    let cwd = app.cwd.clone();
+    let at = |name: &str, dir, depth| Candidate {
+        path: cwd.join(name),
+        directory: dir,
+        depth,
+        root: 0,
+    };
+    // Better-ranked rows streaming in later take over the highlight.
+    for (name, dir, depth) in [
+        ("deep/z.txt", false, 2),
+        ("b.txt", false, 1),
+        ("a", true, 1),
+    ] {
+        app.insert(0, at(name, dir, depth));
+        app.refresh();
+        assert_eq!(app.highlight.as_ref(), Some(&app.rows[0].path));
+    }
+    assert_eq!(app.highlight, Some(cwd.join("a")));
+    // So does a new search there.
+    app.query = "b".into();
+    app.refresh();
+    assert_eq!(app.highlight, Some(cwd.join("b.txt")));
+    // Once the user moves, the highlight stays put again.
+    app.query.clear();
+    app.refresh();
+    app.move_by(1);
+    let moved = app.highlight.clone();
+    app.insert(0, at("0", true, 1));
+    app.refresh();
+    assert_eq!(app.highlight, moved);
+}
+#[test]
 fn overlap_and_root_order() {
     let mut app = App::new(
         vec![

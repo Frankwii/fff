@@ -208,7 +208,8 @@ an error. Bookmarks never select a file or finish the program.
 
 Opening a bookmark preserves marks, discovery depth, policies, and explicitly
 supplied fixed roots. It changes the single current directory and clears the
-filename query. Bookmarks are navigation destinations, not additional roots or
+filename query. The highlight then stays on the first row as the scan streams in
+and as you type a search there, until you move it yourself. Bookmarks are navigation destinations, not additional roots or
 preselected output paths.
 
 ### Editing bookmarks
