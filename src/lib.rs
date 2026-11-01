@@ -52,20 +52,48 @@ impl Policy {
         self.exclusions = compiled;
         Ok(())
     }
+    /// Byte-level `allows` for `path` below `root`, used on every refresh.
+    /// `None` (use `allows`) when exclusion rules apply or the bytes do not
+    /// show a plain `root/…` prefix, so Path's component rules decide instead.
+    pub fn allows_below(&self, root: &Path, path: &Path) -> Option<bool> {
+        if self.ignore && !self.exclusions.is_empty() {
+            return None;
+        }
+        let root = root.as_os_str().as_encoded_bytes();
+        let path = path.as_os_str().as_encoded_bytes();
+        let rest = path.strip_prefix(root)?;
+        let rest = if root.ends_with(b"/") {
+            rest
+        } else {
+            rest.strip_prefix(b"/")?
+        };
+        // Empty, "." and ".." segments are normalized by Path; leave them to it.
+        let mut hidden = false;
+        for part in rest.split(|&b| b == b'/') {
+            if matches!(part, b"" | b"." | b"..") {
+                return None;
+            }
+            hidden |= part[0] == b'.';
+        }
+        Some(self.hidden || !hidden)
+    }
     pub fn allows(&self, relative: &Path) -> bool {
+        // Ancestor prefixes are only needed to match exclusion rules.
+        let excluding = self.ignore && !self.exclusions.is_empty();
         let mut prefix = PathBuf::new();
         for part in relative.components() {
-            prefix.push(part);
-            if !self.hidden && part.as_os_str().to_string_lossy().starts_with('.') {
+            if !self.hidden && part.as_os_str().as_encoded_bytes().first() == Some(&b'.') {
                 return false;
             }
-            if self.ignore
-                && self
+            if excluding {
+                prefix.push(part);
+                if self
                     .exclusions
                     .iter()
                     .any(|g| g.is_match(&prefix) || g.is_match(Path::new(part.as_os_str())))
-            {
-                return false;
+                {
+                    return false;
+                }
             }
         }
         true
@@ -75,26 +103,100 @@ impl Policy {
 /// Case-insensitive basename subsequence score: reward adjacency and word starts,
 /// then prefer fewer gaps and earlier matches. Empty queries have equal score.
 pub fn score(name: &str, query: &str) -> Option<i64> {
-    if query.is_empty() {
-        return Some(0);
-    }
-    let name: Vec<char> = name.to_lowercase().chars().collect();
-    let mut position = 0;
-    let mut previous = None;
-    let mut score = 0;
-    for letter in query.to_lowercase().chars() {
-        let found = (position..name.len()).find(|&i| name[i] == letter)?;
-        score += 20 - found as i64;
-        if previous == Some(found.wrapping_sub(1)) {
-            score += 30;
+    Matcher::new(query).score(name)
+}
+
+/// A query lowercased once, for scoring many names.
+pub struct Matcher {
+    letters: Vec<char>,
+}
+impl Matcher {
+    pub fn new(query: &str) -> Self {
+        Self {
+            letters: query.to_lowercase().chars().collect(),
         }
-        if found == 0 || !name[found - 1].is_alphanumeric() {
-            score += 20;
-        }
-        previous = Some(found);
-        position = found + 1;
     }
-    Some(score)
+    pub fn score(&self, name: &str) -> Option<i64> {
+        if self.letters.is_empty() {
+            return Some(0);
+        }
+        if name.is_ascii() {
+            return self.score_ascii(name.as_bytes());
+        }
+        // Whole-string lowercasing is context-sensitive (e.g. final sigma).
+        let name: Vec<char> = name.to_lowercase().chars().collect();
+        self.score_chars(&name)
+    }
+    fn score_chars(&self, name: &[char]) -> Option<i64> {
+        let mut position = 0;
+        let mut previous = None;
+        let mut score = 0;
+        for &letter in &self.letters {
+            let found = (position..name.len()).find(|&i| name[i] == letter)?;
+            score += 20 - found as i64;
+            if previous == Some(found.wrapping_sub(1)) {
+                score += 30;
+            }
+            if found == 0 || !name[found - 1].is_alphanumeric() {
+                score += 20;
+            }
+            previous = Some(found);
+            position = found + 1;
+        }
+        Some(score)
+    }
+    /// Same rules as `score_chars`, without allocating, for ASCII names.
+    fn score_ascii(&self, name: &[u8]) -> Option<i64> {
+        let mut position = 0;
+        let mut previous = None;
+        let mut score = 0;
+        for &letter in &self.letters {
+            if !letter.is_ascii() {
+                return None;
+            }
+            let letter = letter as u8;
+            let found = (position..name.len()).find(|&i| name[i].to_ascii_lowercase() == letter)?;
+            score += 20 - found as i64;
+            if previous == Some(found.wrapping_sub(1)) {
+                score += 30;
+            }
+            if found == 0 || !name[found - 1].is_ascii_alphanumeric() {
+                score += 20;
+            }
+            previous = Some(found);
+            position = found + 1;
+        }
+        Some(score)
+    }
+}
+
+/// Everything except the query that decides which known paths become rows.
+#[derive(Clone, PartialEq)]
+struct RefreshBasis {
+    known: u64,
+    depth: usize,
+    cwd: PathBuf,
+    scope: Vec<PathBuf>,
+    hidden: bool,
+    ignore: bool,
+    rules: Vec<String>,
+    glob: Option<String>,
+    no_dir: bool,
+}
+impl RefreshBasis {
+    fn of(app: &App) -> Self {
+        Self {
+            known: app.known_version,
+            depth: app.depth,
+            cwd: app.cwd.clone(),
+            scope: app.scope.clone(),
+            hidden: app.policy.hidden,
+            ignore: app.policy.ignore,
+            rules: app.policy.rules.clone(),
+            glob: app.policy.glob.as_ref().map(|g| g.glob().glob().to_owned()),
+            no_dir: app.no_dir,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +214,10 @@ pub struct App {
     pub query: String,
     pub policy: Policy,
     pub known: HashMap<PathBuf, Candidate>,
+    /// Bumped whenever `known` changes; part of the refresh shortcut's basis.
+    pub(crate) known_version: u64,
+    /// What the current rows were computed from, and the lowercased query.
+    refreshed: Option<(RefreshBasis, String)>,
     pub rows: Vec<Candidate>,
     pub highlight: Option<PathBuf>,
     pub marks: Vec<PathBuf>,
@@ -156,6 +262,8 @@ impl App {
             policy,
             query: String::new(),
             known: HashMap::new(),
+            known_version: 0,
+            refreshed: None,
             rows: Vec::new(),
             highlight: None,
             marks: Vec::new(),
@@ -194,13 +302,19 @@ impl App {
         self.highlight = None;
     }
     pub fn eligible(&self, c: &Candidate) -> bool {
+        if c.depth > self.depth {
+            return false;
+        }
+        let Some(root) = self.scope.get(c.root) else {
+            return false;
+        };
+        if let Some(allowed) = self.policy.allows_below(root, &c.path) {
+            return allowed && c.path.as_os_str() != self.cwd.as_os_str();
+        }
         c.path != self.cwd
-            && c.depth <= self.depth
-            && self
-                .scope
-                .get(c.root)
-                .and_then(|r| c.path.strip_prefix(r).ok())
-                .is_some_and(|p| self.policy.allows(p))
+            && c.path
+                .strip_prefix(root)
+                .is_ok_and(|p| self.policy.allows(p))
     }
     pub fn insert(&mut self, generation: u64, mut candidate: Candidate) {
         if generation != self.generation || candidate.path == self.cwd {
@@ -223,35 +337,72 @@ impl App {
             candidate.depth = depth;
             candidate.root = root;
             self.known.insert(candidate.path.clone(), candidate);
+            self.known_version += 1;
         }
     }
     pub fn refresh(&mut self) {
-        let mut ranked: Vec<_> = self
-            .known
-            .values()
-            .filter(|c| self.eligible(c) && !(self.no_dir && c.directory))
-            .filter_map(|c| {
-                let name = c.path.file_name()?.to_string_lossy();
-                if self
-                    .policy
-                    .glob
-                    .as_ref()
-                    .is_some_and(|g| c.directory || !g.is_match(Path::new(name.as_ref())))
-                {
-                    return None;
+        let basis = RefreshBasis::of(self);
+        let folded = self.query.to_lowercase();
+        // Rows already match the previous query under the same basis. A query
+        // that only appends letters (after lowercasing, as `score` does) can only
+        // remove matches, so re-score those rows instead of every known path.
+        let narrowing = match &self.refreshed {
+            Some((previous, query)) if *previous == basis => {
+                if *query == folded {
+                    self.keep_highlight();
+                    return;
                 }
-                Some((c.clone(), score(&name, &self.query)?))
-            })
-            .collect();
-        ranked.sort_by(|(a, sa), (b, sb)| {
+                folded.starts_with(query.as_str())
+            }
+            _ => false,
+        };
+        let order = |(a, sa): &(&Candidate, i64), (b, sb): &(&Candidate, i64)| {
             a.depth
                 .cmp(&b.depth)
                 .then(b.directory.cmp(&a.directory))
                 .then(sb.cmp(sa))
                 .then(a.root.cmp(&b.root))
                 .then(a.path.as_os_str().cmp(b.path.as_os_str()))
-        });
-        self.rows = ranked.into_iter().map(|(c, _)| c).collect();
+        };
+        let matcher = Matcher::new(&self.query);
+        let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
+        // Pathnames break every tie, so an unstable sort yields the same order.
+        let rows =
+            if narrowing {
+                // Move the surviving rows rather than cloning them.
+                let mut ranked: Vec<_> = std::mem::take(&mut self.rows)
+                    .into_iter()
+                    .filter_map(|c| {
+                        let score = score_of(&c)?;
+                        Some((c, score))
+                    })
+                    .collect();
+                ranked.sort_unstable_by(|(a, sa), (b, sb)| order(&(a, *sa), &(b, *sb)));
+                ranked.into_iter().map(|(c, _)| c).collect()
+            } else {
+                // Sort references and clone only the result.
+                let mut ranked: Vec<_> =
+                    self.known
+                        .values()
+                        .filter(|c| self.eligible(c) && !(self.no_dir && c.directory))
+                        .filter_map(|c| {
+                            let name = c.path.file_name()?.to_string_lossy();
+                            if self.policy.glob.as_ref().is_some_and(|g| {
+                                c.directory || !g.is_match(Path::new(name.as_ref()))
+                            }) {
+                                return None;
+                            }
+                            Some((c, matcher.score(&name)?))
+                        })
+                        .collect();
+                ranked.sort_unstable_by(order);
+                ranked.into_iter().map(|(c, _)| c.clone()).collect()
+            };
+        self.rows = rows;
+        self.refreshed = Some((basis, folded));
+        self.keep_highlight();
+    }
+    fn keep_highlight(&mut self) {
         if !self
             .rows
             .iter()

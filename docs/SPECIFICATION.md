@@ -817,3 +817,29 @@ User request: "add more built-in themes you'd like". Added `dracula`,
 `solarized-dark`/`-light` (`solarized`), listed after Tokyo Night in the chooser.
 They use flat canvases and each family's signature accent, like gruvbox in 21.2.
 A contrast test guards all built-ins. Sources and role mappings are in PALETTES.md.
+
+### 22.4 Responsiveness without unbounded memory
+
+User request: make picker "*feel* snappier without consuming my whole RAM" with
+simple, low-risk optimizations, documented with their settings in the cache
+section, and explain every cache parameter. Implemented without new dependencies
+or external tools (fd/find/fzf were considered: traversal was not the bottleneck,
+and a subprocess would bypass multi-root attribution, cancellation, and policies):
+
+- Discovery sends batches (≤256 paths or 10 ms); the UI drains for ≤8 ms per frame.
+- During scans the result list is re-sorted at most every `[performance]
+  refresh_ms` (default 50, 0..1000; 0 = every batch), immediately for the first
+  batch and at completion. Ordering rules (section 4) hold at every re-sort.
+- `App::refresh` skips work when nothing changed and, when the lowercased query
+  only grows under an unchanged basis (known paths, depth, scopes, policies,
+  glob, `--no-dir`), re-scores the current rows instead of every known path.
+- ASCII names are scored without allocation; eligibility uses a byte-level root
+  and hidden check when no exclusion rules apply, falling back to Path components
+  for unusual segments. Differential tests compare both with the originals.
+- The event loop draws after input or visible changes and at least once a second,
+  polling every 30 ms only while discovery or a key sequence is pending (250 ms
+  otherwise). The scan's seen-set is released at completion.
+
+Measured on 102 000 entries: cold scan 18.6 s → ~1.3 s, typing 96 → ~20 ms, idle
+CPU 30 % → 1 %, RSS 118 → ~90 MB. CONFIGURATION.md documents every `[cache]` and
+`[performance]` parameter with memory estimates.

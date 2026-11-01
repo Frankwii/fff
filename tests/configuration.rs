@@ -79,6 +79,8 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
         "[cache]\nmax_candidates=100001",
         "[cache]\nttl_seconds=0",
         "[ui]\nmessage_seconds=3601",
+        "[performance]\nrefresh_ms=1001",
+        "[performance]\nrefresh=50",
         "[ui]\nmessage_seconds=-1",
         "[[bookmarks]]\nname=''\npath='/tmp'",
         "[[bookmarks]]\nname='A'\npath=''",
@@ -291,7 +293,9 @@ fn built_in_palettes_keep_text_readable() {
     // WCAG relative luminance contrast against the panel color.
     fn contrast(a: Color, b: Color) -> f64 {
         let luminance = |c: Color| {
-            let Color::Rgb(r, g, b) = c else { panic!("{c:?}") };
+            let Color::Rgb(r, g, b) = c else {
+                panic!("{c:?}")
+            };
             let channel = |v: u8| {
                 let v = v as f64 / 255.0;
                 if v <= 0.03928 {
@@ -320,4 +324,15 @@ fn built_in_palettes_keep_text_readable() {
         assert!(contrast(p.text, p.selection) >= 2.5, "{name} selection");
         assert_ne!(p.selection, p.panel, "{name} selection");
     }
+}
+#[test]
+fn performance_refresh_interval_defaults_to_fifty_and_accepts_zero() {
+    assert_eq!(parse("").unwrap().performance.refresh_ms, 50);
+    assert_eq!(
+        parse("[performance]\nrefresh_ms=0")
+            .unwrap()
+            .performance
+            .refresh_ms,
+        0
+    );
 }

@@ -37,11 +37,16 @@ name = "Project notes"
 # Relative to this config file's directory, not the invocation directory.
 path = "../../notes"
 
+# In-memory snapshots that make revisiting a directory instant; a background scan
+# always re-verifies them. See "Discovery cache and performance" in CONFIGURATION.md.
 [cache]
 enabled = true
-max_entries = 16       # LRU snapshots of completed discovery scopes; 1..128.
-max_candidates = 4096 # Maximum paths stored per snapshot; 1..100000.
-ttl_seconds = 60      # Snapshot stale age; retained for provisional replay until LRU eviction.
+max_entries = 16      # Views remembered (directory + roots + depth + policies); 1..128.
+max_candidates = 4096 # Paths kept per view; bigger directories replay partially; 1..100000.
+ttl_seconds = 60      # Age at which a snapshot counts as stale (still shown, re-verified).
+
+[performance]
+refresh_ms = 50 # Min ms between re-sorts while a scan streams in; 0 = every batch.
 
 # Unset (the default): clean embedded Neovim, quietly falling back to basic
 # without nvim. Setting "nvim" explicitly reports that fallback in the status

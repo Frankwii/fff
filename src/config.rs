@@ -143,6 +143,20 @@ impl CacheConfig {
         Ok(())
     }
 }
+/// `[performance]`: responsiveness trade-offs that do not affect results.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PerformanceConfig {
+    /// Minimum milliseconds between re-sorts of the result list while a scan
+    /// streams in; 0 re-sorts after every drained batch.
+    pub refresh_ms: u64,
+}
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self { refresh_ms: 50 }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Bookmark {
     pub name: String,
@@ -158,6 +172,7 @@ struct RawConfig {
     palettes: BTreeMap<String, BTreeMap<String, String>>,
     bookmarks: Vec<RawBookmark>,
     cache: CacheConfig,
+    performance: PerformanceConfig,
     keys: KeysConfig,
 }
 #[derive(Default, Deserialize)]
@@ -198,6 +213,7 @@ pub struct Settings {
     pub palettes: Vec<(String, Palette)>,
     pub bookmarks: Vec<Bookmark>,
     pub cache: CacheConfig,
+    pub performance: PerformanceConfig,
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
     pub icons: bool,
     pub normal_keys: crate::normal_keys::NormalKeys,
@@ -216,6 +232,9 @@ impl Settings {
     ) -> Result<Self, String> {
         let raw: RawConfig = toml::from_str(text).map_err(|e| e.to_string())?;
         raw.cache.validate()?;
+        if raw.performance.refresh_ms > 1000 {
+            return Err("performance.refresh_ms must be 0..1000".into());
+        }
         if raw.ui.message_seconds > 3600 {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());
         }
@@ -302,6 +321,7 @@ impl Settings {
             palettes: available,
             bookmarks,
             cache: raw.cache,
+            performance: raw.performance,
             icons: raw.ui.icons,
             normal_keys,
             message_timeout: (raw.ui.message_seconds > 0)

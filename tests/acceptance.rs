@@ -479,3 +479,143 @@ fn status_messages_expire_and_restart_when_reported_again() {
     timer.tick_at(&mut app, at(99_000));
     assert_eq!(app.status, "Sticky");
 }
+#[test]
+fn incremental_refresh_matches_a_full_refresh_for_every_query_edit() {
+    // Pseudo-random typing/backspacing over names with case, digits, separators,
+    // and a Greek final sigma (context-sensitive lowercasing).
+    let names = [
+        "Report.tex",
+        "report_2024.md",
+        "ReadMe",
+        "a-b-c",
+        "ΟΔΟΣ.txt",
+        "οδοσ",
+        "abcabc",
+        "Downloads",
+        "dwn",
+        "zebra",
+        "Zero_Day",
+        "data",
+        "DATA.csv",
+    ];
+    let build = || {
+        let mut app = App::browse("/fixture".into(), 3, Policy::default());
+        for (i, name) in names.iter().enumerate() {
+            for dir in ["", "sub/", "sub/deep/"] {
+                let depth = 1 + dir.matches('/').count();
+                app.insert(0, candidate(&format!("{dir}{name}"), i % 4 == 0, depth));
+            }
+        }
+        app
+    };
+    let alphabet: Vec<char> = "adeorstxz_.ΣΟσ2".chars().collect();
+    let mut seed = 0x9e37_79b9_u32;
+    let mut next = |n: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed as usize % n
+    };
+    let mut app = build();
+    app.refresh();
+    for _ in 0..2_000 {
+        if next(3) == 0 {
+            app.query.pop();
+        } else {
+            app.query.push(alphabet[next(alphabet.len())]);
+        }
+        if app.query.chars().count() > 6 {
+            app.query.clear();
+        }
+        app.refresh();
+        let mut fresh = build();
+        fresh.query = app.query.clone();
+        fresh.refresh();
+        let paths = |a: &App| a.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+        assert_eq!(paths(&app), paths(&fresh), "query {:?}", app.query);
+    }
+    // A basis change (depth) after narrowing rebuilds from every known path.
+    app.query = "re".into();
+    app.refresh();
+    app.depth = 1;
+    app.refresh();
+    assert!(app.rows.iter().all(|c| c.depth == 1));
+    app.depth = 3;
+    app.refresh();
+    assert!(app.rows.iter().any(|c| c.depth == 3));
+}
+#[test]
+fn fast_scoring_matches_the_reference_definition() {
+    // The original whole-string implementation, kept as the specification.
+    fn reference(name: &str, query: &str) -> Option<i64> {
+        if query.is_empty() {
+            return Some(0);
+        }
+        let name: Vec<char> = name.to_lowercase().chars().collect();
+        let (mut position, mut previous, mut score) = (0, None, 0);
+        for letter in query.to_lowercase().chars() {
+            let found = (position..name.len()).find(|&i| name[i] == letter)?;
+            score += 20 - found as i64;
+            if previous == Some(found.wrapping_sub(1)) {
+                score += 30;
+            }
+            if found == 0 || !name[found - 1].is_alphanumeric() {
+                score += 20;
+            }
+            previous = Some(found);
+            position = found + 1;
+        }
+        Some(score)
+    }
+    let alphabet: Vec<char> = "aAbBkK_-.1 zZéÉΣσ\u{212a}".chars().collect();
+    let mut seed = 0x1234_5678_u32;
+    let mut next = |n: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed as usize % n
+    };
+    let mut word = |max: usize| -> String {
+        let len = next(max + 1);
+        (0..len).map(|_| alphabet[next(alphabet.len())]).collect()
+    };
+    for _ in 0..20_000 {
+        let (name, query) = (word(12), word(4));
+        assert_eq!(
+            score(&name, &query),
+            reference(&name, &query),
+            "{name:?} {query:?}"
+        );
+    }
+}
+#[test]
+fn byte_level_policy_matches_path_components() {
+    let roots = ["/", "/r", "/r/sub", "/r.d"];
+    let tails = [
+        "a", "a/b", ".h", "a/.h", ".h/a", "a/b.c", "r/a", "..", "a/..b", "./a", "a//b", "a/",
+    ];
+    for hidden in [false, true] {
+        let mut policy = Policy {
+            hidden,
+            ..Policy::default()
+        };
+        for root in roots {
+            for tail in tails {
+                for joined in [format!("{root}/{tail}"), format!("{root}{tail}")] {
+                    let (root, path) = (Path::new(root), Path::new(&joined));
+                    let slow = path.strip_prefix(root).is_ok_and(|p| policy.allows(p));
+                    if let Some(fast) = policy.allows_below(root, path) {
+                        assert_eq!(fast, slow, "{root:?} {path:?} hidden={hidden}");
+                    }
+                }
+            }
+        }
+        // Active exclusion rules always take the component path.
+        policy.ignore = true;
+        policy.set_rules(vec!["b".into()]).unwrap();
+        assert_eq!(
+            policy.allows_below(Path::new("/r"), Path::new("/r/a/b")),
+            None
+        );
+    }
+}

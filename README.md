@@ -165,7 +165,10 @@ resolution rules, bookmark controls, and cache behavior. Completed discovery
 snapshots appear immediately on matching revisits and refresh in the background.
 Revisits replay a cached frame before processing fresh scan batches; interrupted
 visits can checkpoint their visible prefix. Cache size and stale age are
-configurable; F5 bypasses the current snapshot.
+configurable; F5 bypasses the current snapshot. Large trees stay responsive:
+discovery is batched, re-sorting during scans is throttled (`[performance]
+refresh_ms`), and typing only re-scores current matches. See
+[Discovery cache and performance](docs/CONFIGURATION.md#discovery-cache-and-performance).
 
 All Catppuccin flavors, Nord, Gruvbox, Tokyo Night, Dracula, Everforest, Kanagawa,
 One Dark, Rosé Pine and Solarized variants are

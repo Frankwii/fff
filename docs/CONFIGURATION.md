@@ -214,66 +214,112 @@ Related navigation keys:
 Alt+l replaces the old location-prompt binding; that prompt is now on Alt+g.
 These chords remain remappable with `--map-key`.
 
-## Discovery cache
+## Discovery cache and performance
 
 ```toml
 [cache]
-enabled = true
-max_entries = 16
-max_candidates = 4096
-ttl_seconds = 60
+enabled = true          # keep snapshots of visited directories in memory
+max_entries = 16        # how many directory snapshots to keep (1..128)
+max_candidates = 4096   # paths stored per snapshot (1..100000)
+ttl_seconds = 60        # age after which a snapshot counts as stale (1..86400)
+
+[performance]
+refresh_ms = 50         # minimum time between re-sorts during a scan (0..1000)
 ```
 
-The cache lives **in memory for one picker session**. Visible prefixes are also
-checkpointed before navigation, so an interrupted first visit can replay useful
-results. Such prefixes remain provisional and cannot replace a complete snapshot.
-When a scan completes
-successfully, picker saves a bounded snapshot of its first matching results,
-filling spare capacity with other known candidates. Revisiting that directory
-with the same discovery options installs the snapshot immediately, then always
-starts background discovery to refresh it. Large snapshots may contain only an
-initial subset; the refresh fills the rest.
+Everything here is optional. The defaults keep memory modest (the cache tops out
+around 8 MB) while making revisits instant; none of these settings changes which
+paths are found, their order, or what is returned.
 
-The cache key includes the current directory, ordered discovery scopes, depth,
-hidden visibility, exclusion enforcement and rules, and positive file glob.
-Filename query, highlight, viewport, and marks are not cached: the current query
-filters restored candidates, and marks remain independent session state.
+### What happens when you open a directory
 
-| Setting | Default | Allowed range |
+1. **Snapshot replay.** If the cache holds a snapshot for exactly this view, its
+   paths appear at once (the status pill says `◌ cached · refreshing`) and the
+   frame is drawn before any new scan results are processed.
+2. **Background scan.** A worker thread always walks the directory again, down to
+   the current depth, and sends what it finds in batches. Input stays live: you
+   can type, move, or leave while it runs, and leaving cancels it.
+3. **Live ordering.** While results stream in, the list is re-sorted at most every
+   `refresh_ms`, plus immediately for the first batch and when the scan ends, so
+   shallower results still move above deeper ones as they arrive.
+4. **Reconciliation.** When the scan completes, paths that no longer exist and
+   changed file/directory kinds are corrected, the status becomes `● complete`,
+   and a fresh snapshot is stored.
+
+What is cached is a list of discovered paths per **view**, where a view is the
+combination of current directory, pinned roots, depth, hidden-file visibility,
+exclusion enforcement and rules, and `--glob`. Changing any of these (e.g.
+Alt+→ for more depth) is a different view with its own snapshot. Your query,
+highlight, scroll position, and marks are never cached: the current query filters
+whatever the snapshot restores, and marks are separate session state.
+
+### `[cache]` settings
+
+| Setting | Default | Range | What it does |
+| --- | --- | --- | --- |
+| `enabled` | `true` | `true`/`false` | Turns snapshots on or off. Off means every visit starts from an empty list and waits for the scan; nothing else changes. |
+| `max_entries` | `16` | 1–128 | How many views are remembered. When full, the view used least recently is dropped. Raise it if you hop between many directories (or depths) and want all of them instant; each extra entry costs at most `max_candidates` paths. |
+| `max_candidates` | `4096` | 1–100000 | How many paths one snapshot keeps. Picker stores the best-ranked matches of the view first, then fills the remaining room with other found paths. Directories larger than this replay a partial list instantly and the scan fills in the rest, so the limit trades instant completeness of big directories against memory. |
+| `ttl_seconds` | `60` | 1–86400 | Age after which a snapshot is *stale*. Stale snapshots are still shown instantly (they are only dropped by `max_entries`), but they are always re-verified by the scan; this setting mostly tells you how old the instant view may be. Every successful scan resets the age. |
+
+**Memory.** A cached path costs roughly 100–150 bytes (the path text plus a little
+bookkeeping), so the worst case is about `max_entries × max_candidates × 125 B`:
+around 8 MB with the defaults, 50 MB at `max_entries = 32` and
+`max_candidates = 12000`. The cache only fills up to what you actually visit.
+
+Separately from the cache, picker holds an index of the **current** view while you
+browse it, sized by what that view contains (depth matters most: depth 3 over a
+home directory can be hundreds of thousands of paths). Lower the depth with
+Alt+← or `--depth` if a view is too large; the cache settings do not bound it.
+
+**Safety.** A cached path that has disappeared cannot be returned while the
+refresh runs, and an empty cached listing cannot confirm an empty directory until
+the scan verifies it. Failed or obsolete scans never become snapshots. A visit you
+leave early can store the matches you already saw, marked incomplete; it never
+replaces a complete snapshot.
+
+**F5** discards the current view's snapshot and rescans, keeping your query,
+marks, roots, depth, and policies. Nothing is written to disk: there is no
+persistent index, cache file, or filesystem watcher.
+
+### `[performance]` settings
+
+| Setting | Default | Range | What it does |
+| --- | --- | --- | --- |
+| `refresh_ms` | `50` | 0–1000 | Minimum milliseconds between re-sorting the result list while a scan is still streaming in. Each re-sort ranks every path found so far, so on large trees re-sorting after every batch dominated scan time. Lower values make the list settle more continuously during a scan; higher values finish big scans sooner. `0` re-sorts after every batch (the old behavior). Typing, navigation and the end of a scan always update immediately. |
+
+### Built-in optimizations
+
+These need no configuration and do not change results; tests compare each fast
+path with the original definition.
+
+- **Batched discovery.** The worker sends up to 256 paths per message (or whatever
+  it has after 10 ms), and the interface processes messages for at most 8 ms per
+  frame, so input is never stuck behind a burst of results.
+- **Throttled re-sorting** during scans, as described under `refresh_ms`.
+- **Incremental filtering.** Typing more letters can only remove matches, so
+  picker re-scores just the current matches instead of every known path. Deleting
+  letters (or any change of directory, depth, or policy) uses a full re-rank.
+- **Allocation-free scoring** for ASCII names, and a byte-level hidden/root check
+  when no exclusion rules are active. Non-ASCII names and active exclusion rules
+  use the original, fully general code.
+- **Idle frames.** The screen is redrawn after input or a visible change, and once
+  a second otherwise (so a deleted mark still shows as missing). An idle picker
+  waits 250 ms between checks instead of 30 ms.
+- **Memory.** The scan's bookkeeping set is freed when the scan completes.
+
+Measured on a synthetic tree of 102 000 entries (release build, depth 3):
+
+| | Before | After |
 | --- | --- | --- |
-| `enabled` | `true` | `true` / `false` |
-| `max_entries` | `16` | 1–128 completed-scope snapshots |
-| `max_candidates` | `4096` | 1–100000 paths per snapshot |
-| `ttl_seconds` | `60` | 1–86400 seconds from snapshot completion |
+| Cold scan until `● complete` | 18.6 s | 1.2–1.4 s |
+| Typing a letter (average / worst) | 96 / 146 ms | 17–25 / 34–42 ms |
+| Deleting a letter (average / worst) | 78 / 93 ms | 65 / 95 ms |
+| CPU while idle | 30 % | 1 % |
+| Memory after the scan (RSS) | 118 MB | 84–100 MB |
 
-Least-recently-used entries are evicted at the entry limit. `ttl_seconds` marks
-a snapshot stale; stale snapshots remain available for immediate provisional
-replay until LRU eviction. A successful refresh replaces their age and contents.
-Stale-generation and failed scans never become new snapshots. Cancelled visits
-can retain an explicitly checkpointed prefix, always marked incomplete.
-
-A replay gets a completed rendered frame before processing new scan batches;
-the UI does not wait for the worker to refresh it. Snapshot sharing avoids an
-extra full clone on lookup, and checkpoint work is bounded by the path limit.
-
-While a snapshot is visible, the status says **cached · refreshing (incomplete)**.
-The fresh scan reconciles additions, removals, file/directory changes, and sort
-order, retaining a surviving highlighted path. Removed cached targets cannot be
-confirmed during refresh. An empty cached listing cannot confirm an empty
-directory until fresh discovery verifies that it is physically empty. Missing
-marks still require unmarking before Enter/Ctrl+w confirmation.
-
-Press **F5** to discard the current snapshot and force a fresh scan, preserving
-your query, marks, roots, depth, and policies. Set `enabled = false` to disable
-snapshot storage and replay entirely. No persistent index, watcher, or cache file
-is created.
-
-Cache tests verify synchronous replay without sleeps, option-key isolation,
-query/mark independence, LRU eviction, deterministic expiry, snapshot bounds,
-partial/error/cancelled-scan rejection, stale events, overlap attribution,
-filesystem reconciliation, empty-directory safety, and forced refresh. Terminal
-checks also revisit a directory after changing its files.
-
+On ordinary directories (a few thousand entries) every interaction is well under
+a millisecond of picker work.
 
 ## Modal text editing
 

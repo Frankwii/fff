@@ -277,6 +277,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         settings.cache,
         watcher,
         args.editor.or(settings.editor.backend),
+        settings.performance,
     )? {
         write_paths(
             io::stdout().lock(),

@@ -86,18 +86,26 @@ pub fn run(
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
     backend: Option<crate::config::EditorBackend>,
+    performance: crate::config::PerformanceConfig,
 ) -> io::Result<Option<Vec<PathBuf>>> {
     let mut terminal = Terminal::enter()?;
     let mut discovery = Discovery::new(cache);
+    discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
     discovery.start(&mut app, true);
     let mut editor = start_editor(backend, "nvim", &mut app.status);
     let mut editor_directory = app.cwd.clone();
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     let mut status = StatusTimer::default();
+    // Frames are drawn after input or a visible change, and at least once a
+    // second so external changes (e.g. a deleted mark) still appear.
+    let mut dirty = true;
+    let mut drawn_at = std::time::Instant::now();
+    let mut page = 1;
     loop {
-        status.tick(&mut app);
+        dirty |= status.tick(&mut app);
         for update in palettes.updates() {
+            dirty = true;
             match update {
                 Ok(state) => palette_reloaded(&mut app, &mut focus, state),
                 Err(error) => {
@@ -105,7 +113,7 @@ pub fn run(
                 }
             }
         }
-        discovery.drain(&mut app);
+        dirty |= discovery.drain(&mut app);
         if editor_directory != app.cwd {
             editor_directory = app.cwd.clone();
             // A new location starts in Normal mode, ready for list keys.
@@ -148,24 +156,36 @@ pub fn run(
             execute!(terminal.0.backend_mut(), desired)?;
             cursor_shape = desired;
         }
-        let mut completed = None;
-        execute!(terminal.0.backend_mut(), BeginSynchronizedUpdate)?;
-        let drawn = terminal
-            .0
-            .draw(|frame| completed = Some(crate::view::render(frame, &mut app, &mut focus)))
-            .map(|_| ());
-        let ended = execute!(terminal.0.backend_mut(), EndSynchronizedUpdate);
-        drawn?;
-        ended?;
-        let completed = completed.expect("terminal draw callback completes");
-        // Only publish targets after Terminal::draw has flushed the frame.
-        if matches!(focus, Focus::Results) {
-            app.rendered = completed.targets;
+        if dirty || drawn_at.elapsed() >= Duration::from_secs(1) {
+            let mut completed = None;
+            execute!(terminal.0.backend_mut(), BeginSynchronizedUpdate)?;
+            let drawn = terminal
+                .0
+                .draw(|frame| completed = Some(crate::view::render(frame, &mut app, &mut focus)))
+                .map(|_| ());
+            let ended = execute!(terminal.0.backend_mut(), EndSynchronizedUpdate);
+            drawn?;
+            ended?;
+            let completed = completed.expect("terminal draw callback completes");
+            // Only publish targets after Terminal::draw has flushed the frame.
+            if matches!(focus, Focus::Results) {
+                app.rendered = completed.targets;
+            }
+            page = completed.page.max(1);
+            dirty = false;
+            drawn_at = std::time::Instant::now();
         }
-        let page = completed.page.max(1);
-        if !event::poll(Duration::from_millis(30))? {
+        // Input always wakes the loop at once; the timeout only paces background
+        // work: discovery and pending key sequences, else messages and reloads.
+        let wait = if discovery.busy(&app) || app.normal_keys.pending() {
+            30
+        } else {
+            250
+        };
+        if !event::poll(Duration::from_millis(wait))? {
             continue;
         }
+        dirty = true;
         let event = event::read()?;
         if let Event::Paste(text) = event {
             // A held-back Normal-mode prefix reaches Neovim before the paste.
@@ -681,11 +701,12 @@ impl StatusTimer {
     pub fn before_key(&mut self, app: &mut App) {
         self.previous = Some(std::mem::take(&mut app.status));
     }
-    /// Call once per loop iteration, before drawing.
-    pub fn tick(&mut self, app: &mut App) {
-        self.tick_at(app, std::time::Instant::now());
+    /// Call once per loop iteration, before drawing. Returns true when a
+    /// message expired, so the frame needs redrawing.
+    pub fn tick(&mut self, app: &mut App) -> bool {
+        self.tick_at(app, std::time::Instant::now())
     }
-    pub fn tick_at(&mut self, app: &mut App, now: std::time::Instant) {
+    pub fn tick_at(&mut self, app: &mut App, now: std::time::Instant) -> bool {
         if let Some(previous) = self.previous.take() {
             if app.status.is_empty() {
                 app.status = previous;
@@ -704,7 +725,9 @@ impl StatusTimer {
         {
             app.status.clear();
             self.shown.clear();
+            return true;
         }
+        false
     }
 }
 
