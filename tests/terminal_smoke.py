@@ -1268,13 +1268,13 @@ class TerminalTests(unittest.TestCase):
             z.writestr("unpacked", "payload")
         s = self.start(editor="nvim", implicit_root=True)
         s.send(b"e", "empty to extract beside the archive")
-        s.send(b":wq\r", "Extracted into")
+        s.send(b":wq\r", "Extracted input.zip beside it")
         self.assertEqual((self.root / "unpacked").read_text(), "payload")
         # Filter ensures extraction continues to target the archive alone.
         s.send(b"iinput.zip", "❯ input.zip")
         s.send(b"\x1b[27ue", "Extract archive")
         s.send(b"ioutput", "output")
-        s.send(b"\x1b[27u:wq\r", "Extracted into " + str(self.root / "output"))
+        s.send(b"\x1b[27u:wq\r", "Extracted input.zip into " + str(self.root / "output"))
         s.wait_absent("Extract archive")
         self.assertEqual((self.root / "output/unpacked").read_text(), "payload")
         self.assertTrue(archive.exists())
@@ -1297,7 +1297,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start(editor="nvim", implicit_root=True)
         for name in [directory.name, plain.name, corrupt.name]:
             s.send(b"i" + name.encode(), "❯ " + name)
-            s.send(b"\x1b[27ue", "Cannot extract this file:")
+            s.send(b"\x1b[27ue", "Cannot extract ")
             self.assertNotIn("Extract archive", s.screen.text)
             self.assertIn("Query · NORMAL", s.screen.text)
             s.send(b"\x1b[27u", "❯")
@@ -1339,8 +1339,33 @@ class TerminalTests(unittest.TestCase):
         s.wait_absent("Extract archive")
         self.assertFalse((self.root / "unpacked").exists())
         s.send(b"e", "Extract archive · NORMAL")
-        s.send(b"ZZ", "Extracted into")
+        s.send(b"ZZ", "Extracted input.zip beside it")
         self.assertEqual((self.root / "unpacked").read_text(), "payload")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_extract_asks_for_scope_only_when_ambiguous_and_refuses_non_archives(self):
+        import zipfile
+        for name in ["a.zip", "b.zip"]:
+            with zipfile.ZipFile(self.root / name, "w") as z:
+                z.writestr(name + ".txt", name)
+        (self.root / "notes.txt").write_text("not an archive")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"ia.zip", "❯ a.zip")
+        s.send(b"\x1b[27u\t", "Marks (1)")
+        s.send(b"\x1b[27uccb.zip", "❯ b.zip")
+        s.send(b"\x1b[27u\t", "Marks (2)")
+        s.send(b"\x1b[27uccnotes", "❯ notes")
+        # notes.txt is current but unmarked while archives are marked: ask.
+        s.send(b"\x1b[27ue", "c: Current ─── s: Selection ─── a: All")
+        s.send(b"a", "Nothing extracted; 1 of 3 cannot be extracted: notes.txt")
+        self.assertFalse((self.root / "a.zip.txt").exists())
+        s.send(b"e", "c: Current")
+        s.send(b"s", "Extract archives · NORMAL")
+        s.send(b"ZZ", "Extracted 2 entries beside each archive")
+        self.assertEqual((self.root / "a.zip.txt").read_text(), "a.zip")
+        self.assertEqual((self.root / "b.zip.txt").read_text(), "b.zip")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -1365,7 +1390,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"o", "Extract archive · INSERT")
         s.send(b"output\r", "output")
         s.send(b"\x1b[27uO", "Extract archive · INSERT")
-        s.send(b"\x1b[27u:wq\r", "Extracted into")
+        s.send(b"\x1b[27u:wq\r", "Extracted input.zip into")
         s.wait_absent("Extract archive")
         self.assertEqual((self.root / "output/data").read_text(), "payload")
         s.send(b"\x03")

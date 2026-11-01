@@ -41,6 +41,13 @@ pub(crate) enum Focus {
         selected: Vec<PathBuf>,
     },
     DeleteConfirm(crate::operations::DeletePlan),
+    /// Which paths an action applies to, asked only when ambiguous: the current
+    /// entry is unmarked while other entries are marked.
+    ScopeChoice {
+        current: PathBuf,
+        selected: Vec<PathBuf>,
+        action: ScopedAction,
+    },
     TransferConfirm(crate::operations::TransferPlan),
     NewChoice,
     Location(String),
@@ -525,24 +532,17 @@ pub fn run(
                         }
                     }
                 }
-                K::Char('e') => {
-                    if let Some(archive) = current {
-                        if let Err(error) = crate::operations::validate_archive(&archive) {
-                            app.status = format!("Cannot extract this file: {error}");
-                            continue;
+                K::Char('e') => match scope(&app.marks, current) {
+                    Scope::Ready(paths) => focus = start_extract(&mut app, &mut editor, paths),
+                    Scope::Ask(current, selected) => {
+                        focus = Focus::ScopeChoice {
+                            current,
+                            selected,
+                            action: ScopedAction::Extract,
                         }
-                        if let Some(e) = &mut editor {
-                            e.reset(Field::Extraction);
-                        }
-                        focus = Focus::Operation(crate::operations::Draft {
-                            kind: crate::operations::EditKind::Extract(archive),
-                            cwd: app.cwd.clone(),
-                            text: String::new(),
-                        });
-                    } else {
-                        app.status = "Select an extractable archive first".into();
                     }
-                }
+                    Scope::Nothing => app.status = "Select an extractable archive first".into(),
+                },
                 _ => {}
             }
             continue;
@@ -815,6 +815,25 @@ pub fn run(
                 K::Esc => focus = Focus::Results,
                 _ => {}
             },
+            Focus::ScopeChoice {
+                current,
+                selected,
+                action,
+            } => {
+                let paths = match key.code {
+                    K::Char('c') => vec![current.clone()],
+                    K::Char('s') => selected.clone(),
+                    K::Char('a') => selected.iter().chain([&*current]).cloned().collect(),
+                    K::Esc => {
+                        focus = Focus::Results;
+                        continue;
+                    }
+                    _ => continue,
+                };
+                focus = match action {
+                    ScopedAction::Extract => start_extract(&mut app, &mut editor, paths),
+                };
+            }
             Focus::DeleteChoice { current, selected } => match key.code {
                 K::Char('c') => focus = delete_confirmation(vec![current.clone()], &mut app.status),
                 K::Char('s') => focus = delete_confirmation(selected.clone(), &mut app.status),
@@ -1420,6 +1439,64 @@ fn cycle(index: usize, len: usize, forward: bool) -> usize {
         (_, false) => index.checked_sub(1).unwrap_or(len - 1).min(len - 1),
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScopedAction {
+    Extract,
+}
+enum Scope {
+    Ready(Vec<PathBuf>),
+    Ask(PathBuf, Vec<PathBuf>),
+    Nothing,
+}
+/// The paths an action applies to. Unambiguous without marks (the current
+/// entry) or when the current entry is marked (the marks); otherwise ask.
+fn scope(marks: &[PathBuf], current: Option<PathBuf>) -> Scope {
+    match current {
+        None if marks.is_empty() => Scope::Nothing,
+        None => Scope::Ready(marks.to_vec()),
+        Some(current) if marks.is_empty() => Scope::Ready(vec![current]),
+        Some(current) if marks.contains(&current) => Scope::Ready(marks.to_vec()),
+        Some(current) => Scope::Ask(current, marks.to_vec()),
+    }
+}
+/// Opens the destination prompt only when every chosen file is extractable;
+/// otherwise nothing happens and each refused file is named with its reason.
+fn start_extract(
+    app: &mut App,
+    editor: &mut Option<crate::editor::Nvim>,
+    archives: Vec<PathBuf>,
+) -> Focus {
+    let refused = archives
+        .iter()
+        .filter_map(|p| {
+            crate::operations::validate_archive(p).err().map(|e| {
+                let name = p.file_name().unwrap_or(p.as_os_str()).to_string_lossy();
+                format!("{name} ({e})")
+            })
+        })
+        .collect::<Vec<_>>();
+    if !refused.is_empty() {
+        app.status = if archives.len() == 1 {
+            format!("Cannot extract {}", refused[0])
+        } else {
+            format!(
+                "Nothing extracted; {} of {} cannot be extracted: {}",
+                refused.len(),
+                archives.len(),
+                refused.join("; ")
+            )
+        };
+        return Focus::Results;
+    }
+    if let Some(e) = editor {
+        e.reset(Field::Extraction);
+    }
+    Focus::Operation(crate::operations::Draft {
+        kind: crate::operations::EditKind::Extract(archives),
+        cwd: app.cwd.clone(),
+        text: String::new(),
+    })
+}
 fn delete_confirmation(sources: Vec<PathBuf>, status: &mut String) -> Focus {
     match crate::operations::DeletePlan::new(sources) {
         Ok(plan) => Focus::DeleteConfirm(plan),
@@ -1567,9 +1644,23 @@ fn operation_summary(request: &crate::operations::Request) -> Option<String> {
             if *directory { "directory" } else { "file" },
             entries(std::iter::once(path))
         ),
-        Request::Extract { destination, .. } => {
-            format!("Extracted into {}", destination.display())
-        }
+        Request::Extract {
+            archives,
+            destination: Some(destination),
+        } => format!(
+            "Extracted {} into {}",
+            entries(archives.iter()),
+            destination.display()
+        ),
+        Request::Extract { archives, .. } => format!(
+            "Extracted {} beside {}",
+            entries(archives.iter()),
+            if archives.len() == 1 {
+                "it"
+            } else {
+                "each archive"
+            }
+        ),
         Request::Rename { .. } => return None,
     })
 }

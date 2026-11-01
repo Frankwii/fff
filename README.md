@@ -104,7 +104,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | v / p / s in Normal | Move / copy / symlink all marked paths into the current directory, after confirmation |
 | x in Normal | Choose current/selected deletion, review sizes, then Enter confirms |
 | r in Normal | Batch rename the filtered results in a buffer |
-| e in Normal | Extract the highlighted archive |
+| e in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |
 | F1 | Key guide; Tab switches to Session details |
 | F5 | Force fresh discovery, bypassing cache replay |

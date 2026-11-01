@@ -192,6 +192,11 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
         Focus::NewChoice => new_choice(frame, main, app),
+        Focus::ScopeChoice {
+            current,
+            selected,
+            action,
+        } => scope_choice(frame, main, app, current, selected.len(), *action),
         Focus::DeleteChoice { current, selected } => {
             delete_choice(frame, main, app, current, selected.len())
         }
@@ -1615,6 +1620,37 @@ fn delete_choice(frame: &mut Frame, main: Rect, app: &App, current: &Path, selec
         &[("s", "Selection"), ("c", "Current"), ("Esc", "Cancel")],
     );
 }
+fn scope_choice(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    current: &Path,
+    selected: usize,
+    action: crate::ui::ScopedAction,
+) {
+    let (title, verb) = match action {
+        crate::ui::ScopedAction::Extract => ("Extract", "extract"),
+    };
+    choice(
+        frame,
+        main,
+        app,
+        title,
+        &format!(
+            "The current entry is not selected. Press *c* to {verb} only the current \
+             entry, {}; *s* to {verb} the selection ({}); or *a* to {verb} both ({}).",
+            quoted(current, app),
+            count(selected),
+            count(selected + 1),
+        ),
+        &[
+            ("c", "Current"),
+            ("s", "Selection"),
+            ("a", "All"),
+            ("Esc", "Cancel"),
+        ],
+    );
+}
 fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
     choice(
         frame,
@@ -1643,12 +1679,20 @@ fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::ope
              directory on its own row; rows inside it may use its old or new name."
                 .to_string(),
         ),
-        EditKind::Extract(archive) => (
+        EditKind::Extract(archives) if archives.len() == 1 => (
             "Extract archive",
             format!(
                 "Type the directory to extract {} into, relative to {here}. Leave it \
                  empty to extract beside the archive.",
-                quoted(archive, app)
+                quoted(&archives[0], app)
+            ),
+        ),
+        EditKind::Extract(archives) => (
+            "Extract archives",
+            format!(
+                "Type the directory to extract the {} archives into, relative to \
+                 {here}. Leave it empty to extract each beside its archive.",
+                archives.len()
             ),
         ),
         EditKind::New(true) => (

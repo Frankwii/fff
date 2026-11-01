@@ -365,9 +365,10 @@ pub enum Request {
         path: PathBuf,
         directory: bool,
     },
+    /// `destination: None` extracts each archive beside itself.
     Extract {
-        archive: PathBuf,
-        destination: PathBuf,
+        archives: Vec<PathBuf>,
+        destination: Option<PathBuf>,
     },
 }
 #[derive(Debug)]
@@ -419,9 +420,20 @@ impl Engine {
             Request::Delete { sources, .. } => (sources.clone(), vec![]),
             Request::Create { path, .. } => (vec![], vec![path.clone()]),
             Request::Extract {
-                archive,
+                archives,
                 destination,
-            } => (vec![archive.clone()], vec![destination.clone()]),
+            } => {
+                let mut targets: Vec<PathBuf> = destination.iter().cloned().collect();
+                if destination.is_none() {
+                    for archive in archives {
+                        let parent = archive.parent().ok_or("Archive has no parent")?;
+                        if !targets.iter().any(|t| t == parent) {
+                            targets.push(parent.to_owned());
+                        }
+                    }
+                }
+                (archives.clone(), targets)
+            }
         };
         if sources.is_empty() && !matches!(request, Request::Create { .. }) {
             return Err("No files selected".into());
@@ -462,7 +474,7 @@ impl Engine {
             .iter()
             .map(|p| Entry::at(p))
             .collect::<Result<Vec<_>>>()?;
-        let mut dst = targets
+        let dst = targets
             .iter()
             .map(|p| Entry::at(p))
             .collect::<Result<Vec<_>>>()?;
@@ -801,78 +813,100 @@ impl Engine {
                     }
                 }
                 Request::Extract { .. } => {
-                    let d = dst.remove(0);
-                    // An existing destination hosts the stage itself, so its
-                    // parent need not be writable; otherwise the parent does.
-                    let existing = exists(&d.parent, &d.name)?;
-                    let dest = if existing {
-                        Some(child_dir(&d.parent, &d.name)?)
-                    } else {
-                        None
-                    };
-                    let stage = match &dest {
-                        Some(dest) => Stage::new(dest, &d.path.join("x"))?,
-                        None => Stage::new(&d.parent, &d.path)?,
-                    };
-                    let input = File::from(
-                        sys::openat(
-                            &src[0].parent,
-                            &src[0].name,
-                            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                            Mode::empty(),
-                        )
-                        .map_err(err)?,
-                    );
-                    if !input.metadata().map_err(err)?.is_file() {
-                        return Err("Select a regular archive file".into());
-                    }
-                    crate::archive::extract(input, &stage.dir)?;
-                    if tree(&src[0])? != before[0] {
-                        return Err("Archive changed during extraction".into());
-                    }
-                    if exists(&d.parent, &d.name)? != existing {
-                        return Err("Extraction destination changed".into());
-                    }
-                    if let Some(dest) = dest {
-                        let names = fs::read_dir(fdpath(&stage.dir))
-                            .map_err(err)?
-                            .map(|e| e.map(|e| e.file_name()).map_err(err))
-                            .collect::<Result<Vec<_>>>()?;
-                        let staged = names
-                            .iter()
-                            .map(|n| identity(&stage.dir, n))
-                            .collect::<Vec<_>>();
-                        for name in &names {
-                            if exists(&dest, name)? {
-                                return Err(format!(
-                                    "Extraction destination already contains {:?}",
-                                    name
-                                ));
+                    // One stage per destination holds every archive bound for it,
+                    // so entries colliding across archives abort before anything
+                    // is published.
+                    let mut groups = vec![];
+                    for (k, d) in dst.iter().enumerate() {
+                        // An existing destination hosts its stage, so its parent
+                        // need not be writable; otherwise the parent does.
+                        let existing = exists(&d.parent, &d.name)?;
+                        let dest = if existing {
+                            Some(child_dir(&d.parent, &d.name)?)
+                        } else {
+                            None
+                        };
+                        let stage = match &dest {
+                            Some(dest) => Stage::new(dest, &d.path.join("x"))?,
+                            None => Stage::new(&d.parent, &d.path)?,
+                        };
+                        for (i, s) in src.iter().enumerate() {
+                            // Without a common destination, each archive goes
+                            // to the target that is its own (as written) parent.
+                            if dst.len() > 1 && sources[i].parent() != Some(&targets[k]) {
+                                continue;
+                            }
+                            let input = File::from(
+                                sys::openat(
+                                    &s.parent,
+                                    &s.name,
+                                    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                                    Mode::empty(),
+                                )
+                                .map_err(err)?,
+                            );
+                            if !input.metadata().map_err(err)?.is_file() {
+                                return Err(format!("{:?} is not a regular archive file", s.name));
+                            }
+                            crate::archive::extract(input, &stage.dir)
+                                .map_err(|e| format!("{:?}: {e}", s.name))?;
+                            if tree(s)? != before[i] {
+                                return Err(format!("{:?} changed during extraction", s.name));
                             }
                         }
-                        let mut done: Vec<usize> = vec![];
-                        for (k, name) in names.iter().enumerate() {
-                            if let Err(e) = rename(&stage.dir, name, &dest, name) {
-                                let mut rollback = true;
-                                for &k in done.iter().rev() {
-                                    let name = &names[k];
-                                    rollback &= identity(&dest, name) == staged[k]
-                                        && rename(&dest, name, &stage.dir, name).is_ok();
-                                }
-                                if !rollback {
-                                    return Err(format!("{e}; extraction rollback incomplete"));
-                                }
-                                return Err(e);
-                            }
-                            done.push(k);
+                        groups.push((k, existing, dest, stage));
+                    }
+                    // Plan every publication and check every collision first.
+                    let mut plan = vec![];
+                    for (k, existing, dest, stage) in &groups {
+                        let d = &dst[*k];
+                        if exists(&d.parent, &d.name)? != *existing {
+                            return Err("Extraction destination changed".into());
                         }
-                    } else {
-                        // The private stage becomes an ordinary new directory.
-                        stage
-                            .dir
-                            .set_permissions(fs::Permissions::from_mode(0o755))
-                            .map_err(err)?;
-                        rename(&stage.parent, &stage.name, &d.parent, &d.name)?;
+                        if let Some(dest) = dest {
+                            for item in fs::read_dir(fdpath(&stage.dir)).map_err(err)? {
+                                let name = item.map_err(err)?.file_name();
+                                if exists(dest, &name)? {
+                                    return Err(format!(
+                                        "{:?} already contains {:?}",
+                                        d.path, name
+                                    ));
+                                }
+                                let id = identity(&stage.dir, &name);
+                                plan.push((&stage.dir, name.clone(), dest, name, id));
+                            }
+                        } else {
+                            // The private stage becomes an ordinary new directory.
+                            stage
+                                .dir
+                                .set_permissions(fs::Permissions::from_mode(0o755))
+                                .map_err(err)?;
+                            let id = identity(&stage.parent, &stage.name);
+                            plan.push((
+                                &stage.parent,
+                                stage.name.clone(),
+                                &d.parent,
+                                d.name.clone(),
+                                id,
+                            ));
+                        }
+                    }
+                    let mut done: Vec<usize> = vec![];
+                    for (n, (from, name, to, as_name, _)) in plan.iter().enumerate() {
+                        if let Err(e) = rename(from, name, to, as_name) {
+                            let mut rollback = true;
+                            for &n in done.iter().rev() {
+                                let (from, name, to, as_name, id) = &plan[n];
+                                // Only take back what this extraction published.
+                                rollback &= identity(to, as_name) == *id
+                                    && rename(to, as_name, from, name).is_ok();
+                            }
+                            if !rollback {
+                                return Err(format!("{e}; extraction rollback incomplete"));
+                            }
+                            return Err(e);
+                        }
+                        done.push(n);
                     }
                 }
             }
@@ -1254,7 +1288,7 @@ pub fn rename_request(sources: Vec<PathBuf>, cwd: &Path, text: &str) -> Result<R
 #[derive(Clone, Debug)]
 pub enum EditKind {
     Rename(Vec<PathBuf>),
-    Extract(PathBuf),
+    Extract(Vec<PathBuf>),
     New(bool),
 }
 #[derive(Clone, Debug)]
@@ -1274,7 +1308,7 @@ impl Draft {
     pub fn request(&self) -> Result<Request> {
         match &self.kind {
             EditKind::Rename(paths) => rename_request(paths.clone(), &self.cwd, &self.text),
-            EditKind::Extract(archive) => {
+            EditKind::Extract(archives) => {
                 if self.text.contains(['\n', '\r']) {
                     return Err("Enter a single destination directory".into());
                 }
@@ -1283,14 +1317,14 @@ impl Draft {
                 }
                 let p = PathBuf::from(&self.text);
                 let destination = if self.text.is_empty() {
-                    archive.parent().ok_or("Archive has no parent")?.to_owned()
+                    None
                 } else if p.is_absolute() {
-                    p
+                    Some(p)
                 } else {
-                    self.cwd.join(p)
+                    Some(self.cwd.join(p))
                 };
                 Ok(Request::Extract {
-                    archive: archive.clone(),
+                    archives: archives.clone(),
                     destination,
                 })
             }

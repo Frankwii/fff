@@ -403,7 +403,7 @@ fn unsafe_new_names_are_refused_before_any_change() {
     let entries = fs::read_dir(&f.work).unwrap().count();
     assert_eq!(entries, 1);
     let draft = Draft {
-        kind: EditKind::Extract(a.clone()),
+        kind: EditKind::Extract(vec![a.clone()]),
         cwd: f.work.clone(),
         text: "~/out".into(),
     };
@@ -669,8 +669,8 @@ fn extracts_tar_to_new_or_existing_directory_and_backs_up_archive() {
     let out = f
         .engine()
         .execute(Request::Extract {
-            archive: archive.clone(),
-            destination: dest.clone(),
+            archives: vec![archive.clone()],
+            destination: Some(dest.clone()),
         })
         .unwrap();
     assert_eq!(fs::read(dest.join("nested/file")).unwrap(), b"contents");
@@ -678,8 +678,8 @@ fn extracts_tar_to_new_or_existing_directory_and_backs_up_archive() {
     assert!(out.changed && archive.exists());
     f.engine()
         .execute(Request::Extract {
-            archive,
-            destination: f.dest.clone(),
+            archives: vec![archive],
+            destination: Some(f.dest.clone()),
         })
         .unwrap();
     assert_eq!(fs::read(f.dest.join("nested/file")).unwrap(), b"contents");
@@ -706,8 +706,8 @@ fn archives_refuse_traversal_absolute_links_special_duplicate_and_colliding_entr
         assert!(
             f.engine()
                 .execute(Request::Extract {
-                    archive,
-                    destination: f.dest.clone()
+                    archives: vec![archive],
+                    destination: Some(f.dest.clone()),
                 })
                 .is_err()
         );
@@ -724,8 +724,8 @@ fn archives_refuse_traversal_absolute_links_special_duplicate_and_colliding_entr
     assert!(
         f.engine()
             .execute(Request::Extract {
-                archive,
-                destination: f.dest.clone()
+                archives: vec![archive],
+                destination: Some(f.dest.clone()),
             })
             .is_err()
     );
@@ -739,8 +739,8 @@ fn corrupt_archive_and_destination_symlink_leave_disk_untouched() {
     assert!(
         f.engine()
             .execute(Request::Extract {
-                archive: archive.clone(),
-                destination: f.dest.clone()
+                archives: vec![archive.clone()],
+                destination: Some(f.dest.clone()),
             })
             .is_err()
     );
@@ -749,8 +749,8 @@ fn corrupt_archive_and_destination_symlink_leave_disk_untouched() {
     assert!(
         f.engine()
             .execute(Request::Extract {
-                archive,
-                destination: target
+                archives: vec![archive],
+                destination: Some(target),
             })
             .is_err()
     );
@@ -856,8 +856,8 @@ fn zip_gzip_and_7zip_extract_without_external_commands_in_product() {
         let dest = f.dest.join(name);
         f.engine()
             .execute(Request::Extract {
-                archive: f.work.join(name),
-                destination: dest.clone(),
+                archives: vec![f.work.join(name)],
+                destination: Some(dest.clone()),
             })
             .unwrap();
         assert_eq!(fs::read(dest.join("nested/data")).unwrap(), b"payload");
@@ -882,8 +882,8 @@ fn zip_gzip_and_7zip_extract_without_external_commands_in_product() {
         let dest = f.dest.join("7z");
         f.engine()
             .execute(Request::Extract {
-                archive,
-                destination: dest.clone(),
+                archives: vec![archive],
+                destination: Some(dest.clone()),
             })
             .unwrap();
         assert_eq!(
@@ -934,8 +934,8 @@ fn extracts_stored_rar_without_using_unrar() {
     let archive = f.file("a.rar", &bytes);
     f.engine()
         .execute(Request::Extract {
-            archive,
-            destination: f.dest.clone(),
+            archives: vec![archive],
+            destination: Some(f.dest.clone()),
         })
         .unwrap();
     assert_eq!(fs::read(f.dest.join("data.txt")).unwrap(), data);
@@ -953,8 +953,8 @@ fn extraction_limits_reject_oversized_headers_and_too_many_entries() {
     assert!(
         f.engine()
             .execute(Request::Extract {
-                archive,
-                destination: f.dest.clone()
+                archives: vec![archive],
+                destination: Some(f.dest.clone()),
             })
             .unwrap_err()
             .contains("10,000")
@@ -1152,8 +1152,8 @@ fn archive_preflight_rejects_file_directory_conflicts_in_either_order() {
         assert!(
             f.engine()
                 .execute(Request::Extract {
-                    archive: path,
-                    destination: f.dest.clone()
+                    archives: vec![path],
+                    destination: Some(f.dest.clone()),
                 })
                 .is_err()
         );
@@ -1503,8 +1503,8 @@ fn extraction_into_an_existing_directory_needs_no_writable_parent() {
     fs::create_dir_all(locked.join("into")).unwrap();
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
     let result = f.engine().execute(Request::Extract {
-        archive,
-        destination: locked.join("into"),
+        archives: vec![archive],
+        destination: Some(locked.join("into")),
     });
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
     result.unwrap();
@@ -1620,8 +1620,8 @@ fn extracted_files_respect_the_umask_and_delete_plans_refuse_overlaps() {
     tar(&archive, &[("open", b'0', b"x", "")]);
     f.engine()
         .execute(Request::Extract {
-            archive,
-            destination: f.dest.join("out"),
+            archives: vec![archive],
+            destination: Some(f.dest.join("out")),
         })
         .unwrap();
     let reference = f.work.join("reference");
@@ -1636,4 +1636,73 @@ fn extracted_files_respect_the_umask_and_delete_plans_refuse_overlaps() {
     fs::create_dir(&dir).unwrap();
     fs::write(dir.join("x"), b"x").unwrap();
     assert!(DeletePlan::new(vec![dir.clone(), dir.join("x")]).is_err());
+}
+#[test]
+fn several_archives_extract_together_or_not_at_all() {
+    let f = Fixture::new();
+    let one = f.work.join("one.tar");
+    let two = f.work.join("two.tar");
+    tar(&one, &[("docs/a", b'0', b"a", ""), ("one", b'0', b"1", "")]);
+    tar(&two, &[("docs/b", b'0', b"b", ""), ("two", b'0', b"2", "")]);
+    // A shared destination receives both; common directories combine.
+    f.engine()
+        .execute(Request::Extract {
+            archives: vec![one.clone(), two.clone()],
+            destination: Some(f.dest.join("both")),
+        })
+        .unwrap();
+    for (path, data) in [("docs/a", "a"), ("docs/b", "b"), ("one", "1"), ("two", "2")] {
+        assert_eq!(
+            fs::read(f.dest.join("both").join(path)).unwrap(),
+            data.as_bytes()
+        );
+    }
+    // A file in two archives aborts everything; nothing is published.
+    let clash = f.work.join("clash.tar");
+    tar(&clash, &[("one", b'0', b"other", "")]);
+    let error = f
+        .engine()
+        .execute(Request::Extract {
+            archives: vec![one.clone(), clash],
+            destination: Some(f.dest.clone()),
+        })
+        .unwrap_err();
+    assert!(error.contains("clash.tar"), "{error}");
+    assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 1);
+    // Without a destination each archive extracts beside itself.
+    let elsewhere = f.root.join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    let three = elsewhere.join("three.tar");
+    tar(&three, &[("three", b'0', b"3", "")]);
+    f.engine()
+        .execute(Request::Extract {
+            archives: vec![two.clone(), three],
+            destination: None,
+        })
+        .unwrap();
+    assert_eq!(fs::read(f.work.join("two")).unwrap(), b"2");
+    assert_eq!(fs::read(elsewhere.join("three")).unwrap(), b"3");
+    assert!(!f.work.join("three").exists() && !elsewhere.join("two").exists());
+}
+#[test]
+fn a_late_extraction_collision_publishes_nothing() {
+    let f = Fixture::new();
+    let elsewhere = f.root.join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    let one = f.work.join("one.tar");
+    let two = elsewhere.join("two.tar");
+    tar(&one, &[("fine", b'0', b"1", "")]);
+    tar(&two, &[("taken", b'0', b"2", "")]);
+    fs::write(elsewhere.join("taken"), b"mine").unwrap();
+    let error = f
+        .engine()
+        .execute(Request::Extract {
+            archives: vec![one, two],
+            destination: None,
+        })
+        .unwrap_err();
+    assert!(error.contains("already contains"), "{error}");
+    assert!(!f.work.join("fine").exists());
+    assert_eq!(fs::read(elsewhere.join("taken")).unwrap(), b"mine");
+    assert!(stranded(&f.work).is_empty() && stranded(&elsewhere).is_empty());
 }

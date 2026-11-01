@@ -12,7 +12,7 @@ its prompt buffers use Ctrl+s to apply and Escape to discard.
 | `s` | Create absolute symlinks to all marked paths here, after confirmation |
 | `x` | Delete the highlighted path or the marked paths, with confirmation |
 | `r` | Open a batch rename buffer for every currently filtered result |
-| `e` | Extract the highlighted archive into a prompted directory |
+| `e` | Extract the current or marked archives into a prompted directory |
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
@@ -110,9 +110,19 @@ refused because fff does not expand them.
 Single-line extraction and creation buffers show the query box's `❯` prompt.
 Normal-mode Enter
 is ignored, and `o` / `O` enter Insert mode without adding a row. Insert-mode
-Enter is also ignored; command-line Enter still executes `:wq` / `:q!`. An empty extraction
-destination uses the archive's parent directory, even if the highlighted archive
-comes from a deeper search result. Other relative destinations start at the
+Enter is also ignored; command-line Enter still executes `:wq` / `:q!`.
+
+`e` extracts the current entry when nothing is marked, and the marks when the
+current entry is one of them. When the current entry is unmarked while others
+are marked, it asks: **current (`c`)**, **selection (`s`)** or **all (`a`)**, the
+selection plus the current entry. Every chosen file is validated before the
+destination prompt opens; if any is not an extractable archive, nothing happens
+and each refused file is named with the reason. Several archives extract
+together or not at all: they are staged completely, a file present in two
+archives (or already in the destination) aborts everything, and only then is
+anything published, with rollback on failure. Directories common to several
+archives combine. An empty extraction destination extracts each archive beside
+itself (in its parent directory), even if it comes from a deeper search result. Other relative destinations start at the
 browsing directory. The destination must either exist as a real directory or
 have an existing parent; extraction does not follow a destination symlink.
 A new destination directory gets mode 0755. Extraction into an existing
