@@ -1,4 +1,4 @@
-//! Experimental clean Neovim text engine over private stdio MessagePack RPC.
+//! Clean Neovim text engine over private stdio MessagePack RPC.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rmpv::Value;
 use std::{

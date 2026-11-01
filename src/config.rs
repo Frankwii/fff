@@ -156,6 +156,12 @@ struct RawConfig {
     palettes: BTreeMap<String, BTreeMap<String, String>>,
     bookmarks: Vec<RawBookmark>,
     cache: CacheConfig,
+    keys: KeysConfig,
+}
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct KeysConfig {
+    normal: crate::normal_keys::NormalKeysConfig,
 }
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -189,6 +195,7 @@ pub struct Settings {
     pub cache: CacheConfig,
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
     pub icons: bool,
+    pub normal_keys: crate::normal_keys::NormalKeys,
 }
 impl Settings {
     pub fn parse(
@@ -199,6 +206,7 @@ impl Settings {
     ) -> Result<Self, String> {
         let raw: RawConfig = toml::from_str(text).map_err(|e| e.to_string())?;
         raw.cache.validate()?;
+        let normal_keys = raw.keys.normal.build()?;
         let mut palettes = BTreeMap::new();
         for (name, values) in &raw.palettes {
             if Palette::named(name).is_some() {
@@ -271,6 +279,7 @@ impl Settings {
             bookmarks,
             cache: raw.cache,
             icons: raw.ui.icons,
+            normal_keys,
         })
     }
     pub fn load(

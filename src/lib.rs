@@ -6,6 +6,7 @@ pub mod discovery;
 pub mod editor;
 pub mod icons;
 pub mod keys;
+pub mod normal_keys;
 mod palettes;
 pub mod reload;
 pub mod ui;
@@ -129,6 +130,7 @@ pub struct App {
     /// Active palette name and the palettes offered by the Alt+p chooser.
     pub palette_name: String,
     pub palettes: Vec<(String, config::Palette)>,
+    pub normal_keys: normal_keys::NormalKeys,
 }
 
 impl App {
@@ -166,6 +168,7 @@ impl App {
                 .iter()
                 .map(|n| (n.to_string(), config::Palette::named(n).unwrap()))
                 .collect(),
+            normal_keys: normal_keys::NormalKeys::default(),
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {

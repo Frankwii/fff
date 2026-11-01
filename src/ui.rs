@@ -2,6 +2,7 @@ use crate::{
     App, EnterOutcome,
     discovery::Discovery,
     editor::{EditView, Field, Nvim},
+    normal_keys::{ListAction, Step},
 };
 use crossterm::{
     cursor::{Hide, SetCursorStyle, Show},
@@ -121,6 +122,12 @@ pub fn run(
         } else {
             app.edit_view = None;
         }
+        if app.normal_keys.pending()
+            && let Some(view) = &mut app.edit_view
+        {
+            // Show a partial list-key sequence like Neovim's own pending input.
+            view.blocking = true;
+        }
         let desired = app
             .edit_view
             .as_ref()
@@ -228,6 +235,10 @@ pub fn run(
         if key.modifiers.contains(M::CONTROL) && key.code == K::Char('c') {
             return Ok(None);
         }
+        let key = match normal_list_key(&mut app, &mut focus, &mut editor, key) {
+            Some(key) => key,
+            None => continue,
+        };
         let capture = app.edit_view.as_ref().is_some_and(|v| {
             (key.code == K::Esc && !v.normal())
                 || (v.command() && !key.modifiers.intersects(M::ALT | M::CONTROL))
@@ -705,6 +716,115 @@ fn palette_reloaded(app: &mut App, focus: &mut Focus, state: crate::reload::Pale
         preview_palette(app, query, *index, *original);
     } else {
         app.apply_palette(state);
+    }
+}
+/// Opt-in hook for Normal-mode list keys: the actions a list view supports.
+/// Unsupported actions behave as unbound, so their keys still reach Neovim.
+/// Each list view has an arm here, in `jump_to_end` and in `deliver`;
+/// Left/Down/Up/Right are replayed as the view's own Alt+h/j/k/l handling.
+fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
+    use ListAction::*;
+    match focus {
+        Focus::Results => Some(&ListAction::ALL),
+        Focus::Marks { .. } | Focus::Bookmarks { .. } | Focus::Palettes { .. } => {
+            Some(&[Down, Up, First, Last])
+        }
+        _ => None,
+    }
+}
+fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
+    let end = |len: usize| if last { len.saturating_sub(1) } else { 0 };
+    match focus {
+        Focus::Results => app.move_by(if last { isize::MAX } else { isize::MIN }),
+        Focus::Marks { rows, index } => *index = end(rows.len()),
+        Focus::Bookmarks { query, index } => *index = end(app.matching_bookmarks(query).len()),
+        Focus::Palettes {
+            query,
+            index,
+            original,
+        } => {
+            *index = end(app.matching_palettes(query).len());
+            preview_palette(app, query, *index, *original);
+        }
+        _ => {}
+    }
+}
+/// Apply Normal-mode list keys. Returns the key still to handle (possibly the
+/// equivalent Alt chord), or None when it was consumed. The marked list has no
+/// text field, so it always accepts them.
+fn normal_list_key(
+    app: &mut App,
+    focus: &mut Focus,
+    editor: &mut Option<Nvim>,
+    key: KeyEvent,
+) -> Option<KeyEvent> {
+    let Some(actions) = list_actions(focus) else {
+        return Some(key);
+    };
+    loop {
+        let normal = matches!(focus, Focus::Marks { .. })
+            || app.edit_view.as_ref().is_some_and(|v| v.normal());
+        if !normal && !app.normal_keys.pending() {
+            return Some(key);
+        }
+        match app.normal_keys.feed(key, |a| actions.contains(&a)) {
+            Step::Pass => return Some(key),
+            Step::Pending => return None,
+            Step::Action(action) => {
+                return match action.alt_key() {
+                    Some(alt) => Some(alt),
+                    None => {
+                        jump_to_end(app, focus, action == ListAction::Last);
+                        None
+                    }
+                };
+            }
+            // Earlier keys go to Neovim unchanged; then retry the current key.
+            Step::Flush(keys) => {
+                for pending in keys {
+                    deliver(app, focus, editor, pending);
+                }
+            }
+        }
+    }
+}
+/// Send a key to the focused list view's text field through Neovim only.
+fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: KeyEvent) {
+    if editor.is_none() {
+        return;
+    }
+    let (text, field) = match focus {
+        Focus::Results => (&mut app.query, Field::Query),
+        Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
+        Focus::Palettes { query, .. } => (query, Field::Palettes),
+        _ => return,
+    };
+    let before = text.clone();
+    edit(
+        text,
+        key,
+        false,
+        field,
+        editor,
+        &mut app.edit_view,
+        &mut app.status,
+    );
+    if *text != before {
+        match focus {
+            Focus::Bookmarks { index, .. } => *index = 0,
+            Focus::Palettes {
+                query,
+                index,
+                original,
+            } => {
+                *index = 0;
+                preview_palette(app, query, 0, *original);
+            }
+            _ => {
+                app.offset = 0;
+                app.refresh();
+            }
+        }
     }
 }
 fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {

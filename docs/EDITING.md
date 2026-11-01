@@ -80,9 +80,37 @@ newlines are converted to spaces in the compact fields and preserved in exclusio
 | Escape when already Normal | Clear the main query, or cancel/leave the subordinate field. |
 
 In Normal mode, digits are Vim counts; in Insert mode, plain digits remain query
-text. Use Alt+j/Alt+k to move the result/marked highlight while editing. Up/Down
+text. Alt+j/Alt+k move the result/marked highlight in every mode. Up/Down
 remain chooser controls in results/bookmarks; in exclusions they edit/move through
 the buffer. During Neovim command entry they go to Neovim instead.
+
+## Normal-mode list keys
+
+In **NORMAL** mode, list views accept plain Vim-style motions for the highlight:
+
+| Key | Results | Bookmark / palette chooser | Marked list |
+| --- | --- | --- | --- |
+| `j` / `k` | Same as Alt+j / Alt+k | Same as Alt+j / Alt+k | Same as Alt+j / Alt+k |
+| `h` | Same as Alt+h (parent directory) | Goes to Neovim | Nothing |
+| `l` | Same as Alt+l (enter highlighted directory) | Goes to Neovim | Nothing |
+| `gg` / `G` | First / last result | First / last entry | First / last mark |
+
+In the palette chooser every highlight move, including `gg` and `G`, previews
+the highlighted palette just like Alt+j/Alt+k.
+
+Insert, Visual, Replace, pending, and command-line modes are unaffected: there
+the letters edit or move through text as usual. The multiline exclusion editor
+and location prompt are not lists, so `hjkl`, `gg`, and `G` keep their Vim
+meaning there. The marked list has no text field, so it accepts these keys
+regardless of the editing backend. Alt bindings keep working in every mode.
+
+Keys that are not bound still go to Neovim. A key that starts a binding (`g`)
+waits, shown as **PENDING**; if the next key does not complete a binding, both
+keys reach Neovim unchanged, so `gU`, `ge`, `gu`, and `g~` still edit the field.
+Escape after a lone `g` cancels it inside Neovim without clearing the query.
+
+The bindings are configurable in `[keys.normal]`; see
+[CONFIGURATION.md](CONFIGURATION.md#normal-mode-list-keys).
 
 For example, type `hello world`, press Escape, then `0dw`: the query becomes
 `world`. `u` restores the query and Ctrl+r reapplies the deletion. Enter can then

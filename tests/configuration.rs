@@ -214,3 +214,17 @@ fn ui_icons_default_on_can_be_disabled_and_reject_non_booleans() {
         assert!(parse(text).is_err(), "accepted {text}");
     }
 }
+#[test]
+fn normal_mode_list_keys_are_validated() {
+    assert!(parse("[keys.normal]\nfirst=['gg','<space>g']\nlast='none'\nleft=''\n").is_ok());
+    for bad in [
+        "[keys.normal]\nfirst='g'\nlast='gg'\n",
+        "[keys.normal]\ndown='x'\nup='x'\n",
+        "[keys.normal]\nfirst='<c-d>'\n",
+        "[keys.normal]\ntop='gg'\n",
+        "[keys.insert]\ndown='j'\n",
+        "[keys.normal]\nfirst=1\n",
+    ] {
+        assert!(parse(bad).is_err(), "accepted {bad:?}");
+    }
+}

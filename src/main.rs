@@ -233,6 +233,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.apply_palette(picker::reload::PaletteState::from_settings(&settings));
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
+    app.normal_keys = settings.normal_keys;
     if let Some(paths) = ui::run(
         app,
         keys,

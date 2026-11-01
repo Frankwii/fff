@@ -1366,7 +1366,7 @@ mod tests {
         assert_eq!(bytes, b"/work/papers/file.tex\0");
     }
     #[test]
-    fn configured_palette_and_current_directory_banner_reach_the_frame() {
+    fn configured_palette_and_location_line_reach_the_frame() {
         let mut app = fixture();
         app.palette=crate::config::Settings::parse("[ui]\npalette='custom'\n[palettes.custom]\nextends='light'\ncurrent_directory='#123456'\ncurrent_directory_text='#fefdfa'\naccent='#334455'",Path::new("/cfg"),None,None).unwrap().palette;
         let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();

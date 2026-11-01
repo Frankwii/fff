@@ -40,7 +40,7 @@ command name `picker` and calls back the binary exactly as it was invoked to
 generate the script (a relative path such as `./target/release/picker` is made
 absolute).
 
-Results combine descendants of the one current directory and every fixed startup
+Results combine descendants of the one current directory and every pinned startup
 root explicitly passed on the command line. Navigation changes only the current
 directory. The current directory itself is not listed as a selectable result.
 Overlapping results appear
@@ -68,6 +68,7 @@ results are labeled. Query edits filter known results without restarting discove
 | Enter | Enter directory; return marks plus highlighted file; return current directory plus marks when physically empty and no candidate is highlighted |
 | Up / Alt+k | Move highlight up (results and marked list) |
 | Down / Alt+j | Move highlight down (results and marked list) |
+| h / j / k / l, gg / G | In Neovim Normal mode in list views (results, bookmark and palette choosers; always in the marked list): same as Alt+h/j/k/l; first/last row. Configurable via `[keys.normal]` |
 | Alt+h | Parent directory, retaining query and resetting highlight/scroll |
 | Alt+l | Enter the highlighted directory; never confirm files or empty directories |
 | Alt+g | Location prompt; Enter navigates, Escape cancels |
