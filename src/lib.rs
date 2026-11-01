@@ -1,5 +1,6 @@
 //! Picker state, independent of terminal input and filesystem timing.
 mod cache;
+pub mod completion;
 pub mod config;
 pub mod discovery;
 pub mod editor;

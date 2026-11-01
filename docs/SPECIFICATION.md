@@ -521,3 +521,34 @@ printable-query/Escape behavior only when enabled. No personal config/plugins or
 persistent editor files are used. The process is private, time-bounded on RPC,
 and reaped on exit. See [EDITING.md](EDITING.md) for tested behavior and the
 boundary between field editing and a full Neovim window UI.
+
+
+## 20. Neovim default, palette keys, Normal-mode list keys, icons, integrated location line, completions (2026-11-01)
+
+### 20.6 Shell completions and descriptive help
+
+User request (2026-11-01): "Add terminal completions and in general improve the
+'--help' messages to be more descriptive. Add, as an agentic rule, that every
+terminal argument should be completable." Follow-ups: a library may be used to
+make terminal output look nice, and the rule applies to "parameters that it makes
+sense to autocomplete; don't take it too literally".
+
+Completion is dynamic: the shell script calls back into the installed binary
+(`COMPLETE=<shell> picker -- <words>`), so candidates always match the running
+version. `picker --completions SHELL` prints the registration script (bash, zsh,
+fish, elvish, powershell) and is identical to `COMPLETE=SHELL picker`; neither
+starts the interface or reads the configuration. Completion covers every option,
+root directories, `--config` files, `--editor` backends, `--completions` shells,
+`--palette` names (built-ins plus `[palettes.NAME]` tables from the file the
+completed command line would load: `--config`, none with `--no-config`, else the
+default path; unreadable files contribute nothing), and `--map-key` chords one
+segment at a time (modifiers, key names, `none` as target). `--depth`, `--glob`
+and `--exclude` take free-form values and deliberately have no completion.
+
+`-h` gives a one-line-per-option summary with short examples; `--help` adds a
+description, grouped options (Search, Output, Interface, Configuration, Shell
+integration) with defaults and possible values, examples, a key summary pointing
+to the README table and F1, the configuration path, exit status (0 selected or
+valid configuration, 1 startup/configuration/I/O error, 2 usage error, 130
+Ctrl+c) and completion installation. Help uses clap styles (colored headings,
+literals and placeholders) and is plain under `NO_COLOR` or when not a terminal.
