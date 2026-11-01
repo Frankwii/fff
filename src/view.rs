@@ -197,9 +197,6 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             selected,
             action,
         } => scope_choice(frame, main, app, current, selected.len(), *action),
-        Focus::DeleteChoice { current, selected } => {
-            delete_choice(frame, main, app, current, selected.len())
-        }
         Focus::TransferConfirm(plan) => transfer_confirmation(frame, main, app, plan),
         Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
         Focus::Exclusions(text) => prompt(
@@ -1345,15 +1342,37 @@ fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet: Sheet) ->
         main.width,
         height,
     );
+    // Hints must fit inside the corners: tighten separators, then leave out
+    // Esc (the prose explains it), then labels, rather than clip a key.
     let rule = Style::default().fg(accent).add_modifier(Modifier::BOLD);
-    let mut hints = vec![];
-    for (i, (key, label)) in keys.iter().enumerate() {
-        if i > 0 {
-            hints.push(Span::styled("───", rule));
+    let room = (main.width as usize).saturating_sub(4);
+    let fitting = [
+        ("───", true, true),
+        ("─", true, true),
+        ("─", false, true),
+        ("─", false, false),
+    ]
+    .into_iter()
+    .map(|(separator, escape, labels)| {
+        let mut hints = vec![];
+        for (key, label) in keys.iter().filter(|(k, _)| escape || *k != "Esc") {
+            if !hints.is_empty() {
+                hints.push(Span::styled(separator, rule));
+            }
+            hints.push(bold(format!(" {key}"), accent));
+            hints.push(styled(
+                if labels {
+                    format!(": {label} ")
+                } else {
+                    " ".into()
+                },
+                theme.text,
+            ));
         }
-        hints.push(bold(format!(" {key}"), accent));
-        hints.push(styled(format!(": {label} "), theme.text));
-    }
+        hints
+    })
+    .find(|h| h.iter().map(|s| s.width()).sum::<usize>() <= room);
+    let hints = fitting.unwrap_or_default();
     let mut block = panel(theme, title, true, accent)
         .padding(Padding::horizontal(1))
         .title_bottom(Line::from(hints).centered());
@@ -1605,21 +1624,6 @@ fn choice(
     );
     frame.render_widget(Paragraph::new(body), inner);
 }
-fn delete_choice(frame: &mut Frame, main: Rect, app: &App, current: &Path, selected: usize) {
-    choice(
-        frame,
-        main,
-        app,
-        "Delete",
-        &format!(
-            "Press *s* to delete the selection ({}), or *c* to delete only the current \
-             entry, {}. Sizes are shown for confirmation before anything is deleted.",
-            count(selected),
-            quoted(current, app),
-        ),
-        &[("s", "Selection"), ("c", "Current"), ("Esc", "Cancel")],
-    );
-}
 fn scope_choice(
     frame: &mut Frame,
     main: Rect,
@@ -1630,6 +1634,7 @@ fn scope_choice(
 ) {
     let (title, verb) = match action {
         crate::ui::ScopedAction::Extract => ("Extract", "extract"),
+        crate::ui::ScopedAction::Delete => ("Delete", "delete"),
     };
     choice(
         frame,
@@ -2687,9 +2692,10 @@ mod tests {
         for (width, height) in [(120, 26), (50, 16)] {
             let mut app = fixture();
             let current = app.cwd.join("todo.txt");
-            let mut focus = Focus::DeleteChoice {
+            let mut focus = Focus::ScopeChoice {
                 current,
                 selected: app.marks.clone(),
+                action: crate::ui::ScopedAction::Delete,
             };
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal
@@ -2711,11 +2717,14 @@ mod tests {
                 "{screen}"
             );
             assert!(lines[bottom].starts_with(" ╰"), "{screen}");
-            assert!(
-                lines[bottom].contains(" s: Selection ─── c: Current ─── Esc: Cancel "),
-                "{screen}"
-            );
-            assert!(screen.contains("Press s to delete the selection (2 entries)"));
+            // Narrow sheets compact their hints instead of clipping a key.
+            let hints = if width > 60 {
+                " c: Current ─── s: Selection ─── a: All ─── Esc: Cancel "
+            } else {
+                " c: Current ─ s: Selection ─ a: All "
+            };
+            assert!(lines[bottom].contains(hints), "{screen}");
+            assert!(screen.contains("to delete both (3 entries)"), "{screen}");
         }
     }
     #[test]

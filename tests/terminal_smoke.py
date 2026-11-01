@@ -1226,7 +1226,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "beta").write_bytes(b"b" * 20000)
         s = self.start(editor="nvim", implicit_root=True)
         s.send(b"\t", "Marks (1)")  # alpha marked, beta highlighted
-        s.send(b"x", "Press s to delete the selection")
+        s.send(b"x", "c: Current ─── s: Selection ─── a: All")
         s.send(b"c", "permanently delete")
         self.assertIn("beta", s.screen.text)
         self.assertIn("19.5 KiB", s.screen.text)

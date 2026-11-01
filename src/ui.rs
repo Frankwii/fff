@@ -36,10 +36,6 @@ pub(crate) enum Focus {
     },
     Exclusions(String),
     Operation(crate::operations::Draft),
-    DeleteChoice {
-        current: PathBuf,
-        selected: Vec<PathBuf>,
-    },
     DeleteConfirm(crate::operations::DeletePlan),
     /// Which paths an action applies to, asked only when ambiguous: the current
     /// entry is unmarked while other entries are marked.
@@ -486,22 +482,17 @@ pub fn run(
                         }
                     }
                 }
-                K::Char('x') => {
-                    if let Some(current) = current {
-                        if app.marks.is_empty() {
-                            focus = delete_confirmation(vec![current], &mut app.status);
-                        } else {
-                            focus = Focus::DeleteChoice {
-                                current,
-                                selected: app.marks.clone(),
-                            };
+                K::Char('x') => match scope(&app.marks, current) {
+                    Scope::Ready(paths) => focus = delete_confirmation(paths, &mut app.status),
+                    Scope::Ask(current, selected) => {
+                        focus = Focus::ScopeChoice {
+                            current,
+                            selected,
+                            action: ScopedAction::Delete,
                         }
-                    } else if !app.marks.is_empty() {
-                        focus = delete_confirmation(app.marks.clone(), &mut app.status);
-                    } else {
-                        app.status = "No current file".into();
                     }
-                }
+                    Scope::Nothing => app.status = "No current file".into(),
+                },
                 K::Char('n') => focus = Focus::NewChoice,
                 K::Char('r') => {
                     let sources = app
@@ -832,14 +823,9 @@ pub fn run(
                 };
                 focus = match action {
                     ScopedAction::Extract => start_extract(&mut app, &mut editor, paths),
+                    ScopedAction::Delete => delete_confirmation(paths, &mut app.status),
                 };
             }
-            Focus::DeleteChoice { current, selected } => match key.code {
-                K::Char('c') => focus = delete_confirmation(vec![current.clone()], &mut app.status),
-                K::Char('s') => focus = delete_confirmation(selected.clone(), &mut app.status),
-                K::Esc => focus = Focus::Results,
-                _ => {}
-            },
             Focus::TransferConfirm(plan) => match key.code {
                 K::Enter => {
                     let request = plan.request();
@@ -1442,6 +1428,7 @@ fn cycle(index: usize, len: usize, forward: bool) -> usize {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopedAction {
     Extract,
+    Delete,
 }
 enum Scope {
     Ready(Vec<PathBuf>),

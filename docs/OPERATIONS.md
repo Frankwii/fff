@@ -62,7 +62,9 @@ Every file-operation dialog is a sheet spanning the outer edges of the result
 and mark panes and resting on their bottom border, as tall as its content (the
 rename buffer fills the pane area). The text explains what each key does, and
 the bottom border repeats the keys, for example
-`─ s: Selection ─── c: Current ─── Esc: Cancel ─`. Buffers list `ZZ` / `ZQ`
+`─ c: Current ─── s: Selection ─── a: All ─── Esc: Cancel ─`. On narrow
+terminals the hints compact (tighter separators, then without Esc, then keys
+only) instead of clipping a key. Buffers list `ZZ` / `ZQ`
 with Neovim and `Ctrl+s` / `Esc` with basic editing. Destructive confirmations
 (deletion, overwriting) use the `error` color; choices and buffers use
 `marked`.
@@ -133,9 +135,10 @@ entries are refused. New files get ordinary permissions under your umask. Rename
 
 ## Deletion confirmation
 
-When marks exist, `x` first asks whether to delete the **selection (`s`)** or
-only the **current** highlighted entry (**`c`**). With no marks it goes directly
-to confirmation for the highlighted path. The **Delete permanently** window
+`x` deletes the current entry when nothing is marked, and the marks when the
+current entry is one of them. When the current entry is unmarked while others
+are marked, it asks: **current (`c`)**, **selection (`s`)** or **all (`a`)**, the
+selection plus the current entry, as extraction does. The **Delete permanently** window
 lists the paths and their cumulative logical sizes. Directory sizes include
 hidden descendants; symlinks count their own link bytes, never target contents.
 Hard-linked entries count separately. Sizes use B, KiB, MiB, GiB and TiB.
