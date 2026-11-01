@@ -204,7 +204,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         args.config.clone(),
         args.no_config,
         args.palette.clone(),
-        settings.palette,
+        picker::reload::PaletteState::from_settings(&settings),
     );
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut roots = Vec::new();
@@ -230,7 +230,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     } else {
         App::new(roots, args.depth as usize, policy)
     };
-    app.palette = settings.palette;
+    app.apply_palette(picker::reload::PaletteState::from_settings(&settings));
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
     if let Some(paths) = ui::run(

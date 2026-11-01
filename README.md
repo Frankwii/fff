@@ -72,6 +72,8 @@ results are labeled. Query edits filter known results without restarting discove
 | Alt+l | Enter the highlighted directory; never confirm files or empty directories |
 | Alt+g | Location prompt; Enter navigates, Escape cancels |
 | Alt+b | Bookmark chooser; filter names, Enter to visit, Escape to return |
+| Alt+p | Palette chooser; filter names, moving previews live, Enter applies for this session, Escape reverts |
+| Alt+P | Re-read the config file's palette now, clearing an Alt+p session choice (uppercase P) |
 | Alt+Right / Alt+Left | Change depth (minimum 1) |
 | Tab | Toggle mark and advance; in marks, toggle without removing the row |
 | Alt+Space | Enter/leave marked list; arrows move within it |
@@ -158,8 +160,10 @@ visits can checkpoint their visible prefix. Cache size and stale age are
 configurable; F5 bypasses the current snapshot.
 
 All Catppuccin flavors, Nord, Gruvbox dark/light, and Tokyo Night variants are
-available as dashed palette names. Palette changes reload live from TOML. See
-the [palette catalog and sources](docs/PALETTES.md).
+available as dashed palette names. Palette changes reload live from TOML; Alt+p
+previews and applies any palette for the session without rewriting the config,
+and Alt+P re-reads the configured palette immediately. See the
+[palette catalog and sources](docs/PALETTES.md).
 
 Acceptance sources are in [the specification](docs/SPECIFICATION.md) and active
 [tui examples](docs/tui_functionality_examples/README.md). First-version decisions and

@@ -181,6 +181,10 @@ struct RawBookmark {
 pub struct Settings {
     pub editor: EditorConfig,
     pub palette: Palette,
+    /// Name of the active palette (the CLI pin when given, else `[ui] palette`).
+    pub palette_name: String,
+    /// Every selectable palette: built-ins in documented order, then custom ones.
+    pub palettes: Vec<(String, Palette)>,
     pub bookmarks: Vec<Bookmark>,
     pub cache: CacheConfig,
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
@@ -254,9 +258,16 @@ impl Settings {
                 path,
             });
         }
+        let available = Palette::names()
+            .iter()
+            .map(|name| (name.to_string(), Palette::named(name).unwrap()))
+            .chain(palettes.iter().map(|(name, p)| (name.to_string(), *p)))
+            .collect();
         Ok(Self {
             editor: raw.editor,
             palette,
+            palette_name: chosen.to_string(),
+            palettes: available,
             bookmarks,
             cache: raw.cache,
             icons: raw.ui.icons,

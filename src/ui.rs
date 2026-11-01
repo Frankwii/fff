@@ -36,6 +36,12 @@ pub(crate) enum Focus {
         query: String,
         index: usize,
     },
+    /// Alt+p chooser; `original` is restored on Escape after live previews.
+    Palettes {
+        query: String,
+        index: usize,
+        original: crate::config::Palette,
+    },
 }
 struct Terminal(TuiTerminal<CrosstermBackend<std::fs::File>>);
 impl Terminal {
@@ -75,7 +81,7 @@ pub fn run(
     mut app: App,
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
-    watcher: Option<crate::reload::PaletteWatcher>,
+    palettes: crate::reload::PaletteWatcher,
     backend: Option<crate::config::EditorBackend>,
 ) -> io::Result<Option<Vec<PathBuf>>> {
     let mut terminal = Terminal::enter()?;
@@ -86,17 +92,11 @@ pub fn run(
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     loop {
-        if let Some(watcher) = &watcher {
-            for update in watcher.updates() {
-                match update {
-                    Ok(palette) => {
-                        app.palette = palette;
-                        app.status = "Palette reloaded".into();
-                    }
-                    Err(error) => {
-                        app.status =
-                            format!("Palette reload failed; keeping current colors: {error}")
-                    }
+        for update in palettes.updates() {
+            match update {
+                Ok(state) => palette_reloaded(&mut app, &mut focus, state),
+                Err(error) => {
+                    app.status = format!("Palette reload failed; keeping current colors: {error}")
                 }
             }
         }
@@ -195,6 +195,22 @@ pub fn run(
                         );
                         *index = 0;
                     }
+                    Focus::Palettes {
+                        query,
+                        index,
+                        original,
+                    } => {
+                        paste(
+                            query,
+                            &text,
+                            field,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                        *index = 0;
+                        preview_palette(&mut app, query, *index, *original);
+                    }
                     _ => {}
                 }
             }
@@ -260,6 +276,26 @@ pub fn run(
                     );
                     *index = 0;
                 }
+                Focus::Palettes {
+                    query,
+                    index,
+                    original,
+                } => {
+                    let before = query.clone();
+                    edit(
+                        query,
+                        key,
+                        false,
+                        Field::Palettes,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                    if *query != before {
+                        *index = 0;
+                        preview_palette(&mut app, query, *index, *original);
+                    }
+                }
                 _ => {}
             }
             continue;
@@ -296,7 +332,58 @@ pub fn run(
         {
             discovery.checkpoint(&app);
         }
+        let palette = palette_key(key);
         match &mut focus {
+            Focus::Palettes {
+                query,
+                index,
+                original,
+            } => {
+                let matches = app.matching_palettes(query);
+                let last = matches.len().saturating_sub(1);
+                let moved = match key.code {
+                    _ if palette == Some(PaletteKey::Reload) => {
+                        focus = Focus::Results;
+                        reload_palette(&mut app, &palettes);
+                        continue;
+                    }
+                    _ if key.code == K::Esc || palette == Some(PaletteKey::Choose) => {
+                        app.palette = *original;
+                        focus = Focus::Results;
+                        continue;
+                    }
+                    K::Enter => {
+                        if let Some(&i) = matches.get(*index) {
+                            let (name, chosen) = app.palettes[i].clone();
+                            palettes.choose(&name);
+                            app.palette = chosen;
+                            app.status = format!("Palette {name} applied for this session");
+                            app.palette_name = name;
+                            focus = Focus::Results;
+                        }
+                        continue;
+                    }
+                    K::Down | K::Char('j') if key.code == K::Down || alt => (*index + 1).min(last),
+                    K::Up | K::Char('k') if key.code == K::Up || alt => index.saturating_sub(1),
+                    K::PageDown => (*index + page).min(last),
+                    K::PageUp => index.saturating_sub(page),
+                    _ => {
+                        let before = query.clone();
+                        edit(
+                            query,
+                            key,
+                            false,
+                            Field::Palettes,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                        if *query == before { *index } else { 0 }
+                    }
+                };
+                *index = moved;
+                preview_palette(&mut app, query, *index, *original);
+            }
             Focus::Bookmarks { query, index } => {
                 let matches = app.matching_bookmarks(query);
                 match key.code {
@@ -447,6 +534,21 @@ pub fn run(
                         discovery.start(&mut app, true);
                     }
                 }
+                (K::Char('p' | 'P'), _, true) if palette == Some(PaletteKey::Reload) => {
+                    reload_palette(&mut app, &palettes)
+                }
+                (K::Char('p'), _, true) => {
+                    let index = app
+                        .palettes
+                        .iter()
+                        .position(|(name, _)| *name == app.palette_name)
+                        .unwrap_or(0);
+                    focus = Focus::Palettes {
+                        query: String::new(),
+                        index,
+                        original: app.palette,
+                    };
+                }
                 (K::F(5), _, _) => discovery.force_refresh(&mut app),
                 (K::Char('h'), _, true) => {
                     if let Some(p) = app.cwd.parent().map(PathBuf::from) {
@@ -543,12 +645,75 @@ pub fn alt_numbered_key(key: KeyEvent) -> Option<u32> {
     }
     None
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaletteKey {
+    Choose,
+    Reload,
+}
+/// Alt+p opens the chooser; Alt+P (Alt+Shift+p in either terminal encoding)
+/// re-reads the configured palette.
+fn palette_key(key: KeyEvent) -> Option<PaletteKey> {
+    if !key.modifiers.contains(M::ALT) || key.modifiers.contains(M::CONTROL) {
+        return None;
+    }
+    match key.code {
+        K::Char('P') => Some(PaletteKey::Reload),
+        K::Char('p') if key.modifiers.contains(M::SHIFT) => Some(PaletteKey::Reload),
+        K::Char('p') => Some(PaletteKey::Choose),
+        _ => None,
+    }
+}
+/// Show the highlighted chooser entry, or the pre-chooser colors with no match.
+fn preview_palette(app: &mut App, query: &str, index: usize, original: crate::config::Palette) {
+    app.palette = app
+        .matching_palettes(query)
+        .get(index)
+        .map(|&i| app.palettes[i].1)
+        .unwrap_or(original);
+}
+/// Alt+P: drop the session choice and apply the configuration's palette now.
+fn reload_palette(app: &mut App, palettes: &crate::reload::PaletteWatcher) {
+    match palettes.reload_now() {
+        Ok(state) => {
+            app.status = format!("Palette {} reloaded from configuration", state.name);
+            app.apply_palette(state);
+        }
+        Err(error) => {
+            app.status = format!("Palette reload failed; keeping current colors: {error}")
+        }
+    }
+}
+/// Background reload; while the chooser is open it updates the revert target.
+fn palette_reloaded(app: &mut App, focus: &mut Focus, state: crate::reload::PaletteState) {
+    let current = match focus {
+        Focus::Palettes { original, .. } => *original,
+        _ => app.palette,
+    };
+    if state.palette != current {
+        app.status = "Palette reloaded".into();
+    }
+    if let Focus::Palettes {
+        query,
+        index,
+        original,
+    } = focus
+    {
+        *original = state.palette;
+        app.palette_name = state.name;
+        app.palettes = state.available;
+        *index = (*index).min(app.matching_palettes(query).len().saturating_sub(1));
+        preview_palette(app, query, *index, *original);
+    } else {
+        app.apply_palette(state);
+    }
+}
 fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
     match focus {
         Focus::Results => Some((Field::Query, app.query.clone())),
         Focus::Location(text) => Some((Field::Location, text.clone())),
         Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
         Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),
+        Focus::Palettes { query, .. } => Some((Field::Palettes, query.clone())),
         _ => None,
     }
 }

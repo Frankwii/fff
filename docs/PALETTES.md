@@ -28,6 +28,21 @@ name but still reloads custom colors for that name. `--no-config` disables file
 reload. This reload applies to colors only; bookmarks/cache settings need a new
 invocation. Query, cursor, marks, discovery, and numbered targets are preserved.
 
+## Switching palettes while running
+
+| Key | Action |
+| --- | --- |
+| Alt+p | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Type to fuzzy-filter names; moving the highlight previews it across the whole interface. Enter applies it for this session; Escape (or Alt+p again) restores the previous colors. |
+| Alt+P | Re-read the config file now and apply its palette, discarding any Alt+p session choice. With `--palette NAME`, re-read that name's definition instead. |
+
+The chooser never writes the config file. After Enter, background reload keeps
+following the *chosen* palette's definition (editing `[palettes.NAME]` still
+updates it) and ignores `[ui].palette` until Alt+P returns control to the file.
+If that re-read fails, the current colors stay and the error is shown; the
+session choice is still cleared, so fixing the file recovers automatically.
+Alt+P works with `--no-config` too (it restores the default or pinned palette).
+Both chords can be remapped, e.g. `--map-key ctrl+t=alt+p --map-key ctrl+r=alt+P`.
+
 ## Color sources
 
 The numeric colors were checked against these upstream sources on 2026-11-01:

@@ -560,6 +560,74 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x0e")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
+    def test_palette_chooser_previews_reverts_applies_and_reloads(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "basic")
+        s.send(b"\x1bp", "Palettes · Enter applies")
+        mark = len(s.ui)
+        s.send(b"nord", "Find: nord")
+        self.assertIn(b"48;2;46;52;64", s.ui[mark:])  # live nord preview
+        mark = len(s.ui)
+        s.send(b"\x1b[27u", "Query:")  # Escape reverts to midnight
+        self.assertNotIn("Palettes ·", s.screen.text)
+        self.assertIn(b"48;2;15;23;36", s.ui[mark:])
+        s.send(b"\x1bpforest", "Find: forest")
+        s.send(b"\r", "Palette forest applied for this session")
+        mark = len(s.ui)
+        s.send(b"\x1b[112;4u", "Palette midnight reloaded")  # CSI-u Alt+Shift+p
+        self.assertIn(b"48;2;15;23;36", s.ui[mark:])
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
+
+    def test_palette_session_choice_survives_watcher_until_config_reload(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-palette-keys-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\npalette='nord'\n")
+            s = self.start("--editor", "basic", "--config", str(config))
+            s.send(b"\x1bpmocha\r", "Palette catppuccin-mocha applied")
+            mark = len(s.ui)
+            config.write_text("[ui]\npalette='tokyonight-day'\n")
+            time.sleep(1.2)  # two watcher polls
+            s.send(b"x", "Query: x")
+            self.assertNotIn(b"48;2;225;226;231", s.ui[mark:])
+            self.assertIn(b"48;2;30;30;46", s.ui[mark:])
+            s.send(b"\x1bP", "Palette tokyonight-day reloaded")  # legacy Alt+P
+            self.assertIn(b"48;2;225;226;231", s.ui[mark:])
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    def test_palette_reload_honors_cli_pin_and_remapped_keys(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-palette-pin-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\npalette='nord'\n")
+            s = self.start(
+                "--editor", "basic", "--config", str(config), "--palette", "forest",
+                "--map-key", "ctrl+t=alt+p", "--map-key", "ctrl+r=alt+P",
+            )
+            s.send(b"\x14", "Palettes · Enter applies")
+            s.send(b"light\r", "Palette light applied")
+            s.send(b"\x12", "Palette forest reloaded")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_palette_filter_escape_returns_to_normal_before_reverting(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "nvim")
+        s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · INSERT")
+        s.send(b"junk nord", "Find: junk nord")
+        s.send(b"\x1b[27u", "NORMAL")
+        self.assertIn("Palettes ·", s.screen.text)
+        mark = len(s.ui)
+        s.send(b"0dw", "Find: nord")
+        self.assertIn(b"48;2;46;52;64", s.ui[mark:])
+        s.send(b"\x1b[27u", "Query:")
+        self.assertNotIn("Palettes ·", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
 
 if __name__ == "__main__":
     unittest.main()

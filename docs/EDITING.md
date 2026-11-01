@@ -30,7 +30,8 @@ All editable fields use the engine:
 - filename query;
 - location entry (Alt+g);
 - multiline exclusion editor (Alt+e);
-- bookmark-name filter (Alt+b).
+- bookmark-name filter (Alt+b);
+- palette-name filter (Alt+p).
 
 Fields start in **INSERT**, so ordinary typing still filters immediately. Their
 borders show the current mode. **Escape** enters **NORMAL**; `i`, `a`, `I`, `A`,

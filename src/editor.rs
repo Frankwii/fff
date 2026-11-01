@@ -15,6 +15,7 @@ pub enum Field {
     Location,
     Exclusions,
     Bookmarks,
+    Palettes,
 }
 #[derive(Clone, Debug)]
 pub struct EditView {
