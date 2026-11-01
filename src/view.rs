@@ -50,6 +50,14 @@ fn display_path(path: &Path, base: &Path) -> String {
         safe(relative.display().to_string())
     }
 }
+/// `--no-dir` result label: the bare name, or the shortest distinguishing
+/// trailing path when another listed file shares it. Presentation only.
+fn no_dir_label(app: &App, path: &Path) -> String {
+    match app.labels.get(path) {
+        Some(label) => safe(label.display().to_string()),
+        None => safe(path.file_name().unwrap_or_default().to_string_lossy()),
+    }
+}
 
 /// Keep the basename visible in a long path, measuring terminal columns.
 fn elide(text: &str, width: usize) -> String {
@@ -630,14 +638,18 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             } else {
                 String::new()
             };
-            let mut name = display_path(&c.path, &app.cwd);
+            let mut name = if app.no_dir {
+                no_dir_label(app, &c.path)
+            } else {
+                display_path(&c.path, &app.cwd)
+            };
             if c.directory && !name.ends_with('/') {
                 name.push('/');
             }
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
-            // Labels are relative to the current directory, so the scope a row
-            // came from is already visible; F1 shows its depth and root.
+            // Labels are relative to the current directory (or, with --no-dir,
+            // as short as a shared name allows); the footer and F1 show the rest.
             let meta = " ";
             let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
             let available = inner.width.saturating_sub(
@@ -2585,6 +2597,72 @@ mod tests {
         let mut bytes = Vec::new();
         crate::write_paths(&mut bytes, &[path], base, false, true).unwrap();
         assert_eq!(bytes, b"/work/papers/file.tex\0");
+    }
+    #[test]
+    fn no_dir_rows_show_names_with_only_the_parents_that_tell_them_apart() {
+        let mut app = App::new(vec!["/work".into()], 3, crate::Policy::default());
+        app.no_dir = true;
+        app.icons = false;
+        for (name, depth) in [
+            ("folder/folder2/main.pdf", 3),
+            ("folder/folder1/main.pdf", 3),
+            ("folder/main2.pdf", 2),
+        ] {
+            app.insert(
+                0,
+                Candidate {
+                    path: Path::new("/work").join(name),
+                    directory: false,
+                    depth,
+                    root: 0,
+                },
+            );
+        }
+        app.scanning = false;
+        app.refresh();
+        let labels: Vec<_> = app
+            .rows
+            .iter()
+            .map(|c| no_dir_label(&app, &c.path))
+            .collect();
+        assert_eq!(
+            labels,
+            ["main2.pdf", "folder1/main.pdf", "folder2/main.pdf"]
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        let mut focus = Focus::Results;
+        let mut targets = Vec::new();
+        terminal
+            .draw(|f| targets = render(f, &mut app, &mut focus).targets)
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains(" · folder1/main.pdf "), "{screen}");
+        assert!(screen.contains(" · main2.pdf "), "{screen}");
+        // Only the footer, which describes the highlighted main2.pdf, shows a
+        // full relative path; the twins' rows carry just their distinguishing parent.
+        assert!(!screen.contains("folder/folder1"), "{screen}");
+        assert_eq!(targets[1], Path::new("/work/folder/folder1/main.pdf"));
+    }
+    #[test]
+    fn disambiguation_extends_only_colliding_names() {
+        let paths = [
+            "/r/a/x/main.pdf",
+            "/r/b/x/main.pdf",
+            "/r/c/main.pdf",
+            "/r/main.pdf",
+            "/r/solo.pdf",
+            "/s/r/main.pdf",
+        ]
+        .map(PathBuf::from);
+        let labels = crate::disambiguate(paths.iter().map(PathBuf::as_path));
+        let label = |p: &str| labels.get(Path::new(p)).map(|l| l.display().to_string());
+        assert_eq!(label("/r/a/x/main.pdf").as_deref(), Some("a/x/main.pdf"));
+        assert_eq!(label("/r/b/x/main.pdf").as_deref(), Some("b/x/main.pdf"));
+        assert_eq!(label("/r/c/main.pdf").as_deref(), Some("c/main.pdf"));
+        // "r/main.pdf" ends both remaining paths, so each needs one more part.
+        assert_eq!(label("/r/main.pdf").as_deref(), Some("/r/main.pdf"));
+        assert_eq!(label("/s/r/main.pdf").as_deref(), Some("s/r/main.pdf"));
+        assert_eq!(label("/r/solo.pdf"), None);
     }
     #[test]
     fn configured_palette_and_location_line_reach_the_frame() {

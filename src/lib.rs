@@ -251,6 +251,9 @@ pub struct App {
     /// `--no-dir`: a static file choice. Directories are never listed, entered,
     /// or returned, and the current directory cannot change.
     pub no_dir: bool,
+    /// `--no-dir` row labels for files whose basename another listed file shares
+    /// (presentation only); other rows show their bare name.
+    pub labels: HashMap<PathBuf, PathBuf>,
     /// Home directory, shown as `~` in the location line (presentation only).
     pub home: Option<PathBuf>,
     /// Status messages clear after this long; `None` keeps them until replaced.
@@ -299,6 +302,7 @@ impl App {
                 .collect(),
             normal_keys: normal_keys::NormalKeys::default(),
             no_dir: false,
+            labels: HashMap::new(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
         }
@@ -355,9 +359,38 @@ impl App {
             self.known_version += 1;
         }
     }
+    /// Rows an empty query would list: eligible, and passing `--no-dir` and the glob.
+    fn listed(&self, c: &Candidate) -> bool {
+        self.eligible(c)
+            && !(self.no_dir && c.directory)
+            && !self.policy.glob.as_ref().is_some_and(|g| {
+                c.directory
+                    || c.path
+                        .file_name()
+                        .is_none_or(|name| !g.is_match(Path::new(name.to_string_lossy().as_ref())))
+            })
+    }
     pub fn refresh(&mut self) {
         let basis = RefreshBasis::of(self);
         let folded = self.query.to_lowercase();
+        // Labels depend on the whole listing, not the query, so they stay put
+        // while typing.
+        if self
+            .refreshed
+            .as_ref()
+            .is_none_or(|(previous, _)| *previous != basis)
+        {
+            self.labels = if self.no_dir {
+                disambiguate(
+                    self.known
+                        .values()
+                        .filter(|c| self.listed(c))
+                        .map(|c| c.path.as_path()),
+                )
+            } else {
+                HashMap::new()
+            };
+        }
         // Rows already match the previous query under the same basis. A query
         // that only appends letters (after lowercasing, as `score` does) can only
         // remove matches, so re-score those rows instead of every known path.
@@ -382,37 +415,28 @@ impl App {
         let matcher = Matcher::new(&self.query);
         let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
         // Pathnames break every tie, so an unstable sort yields the same order.
-        let rows =
-            if narrowing {
-                // Move the surviving rows rather than cloning them.
-                let mut ranked: Vec<_> = std::mem::take(&mut self.rows)
-                    .into_iter()
-                    .filter_map(|c| {
-                        let score = score_of(&c)?;
-                        Some((c, score))
-                    })
-                    .collect();
-                ranked.sort_unstable_by(|(a, sa), (b, sb)| order(&(a, *sa), &(b, *sb)));
-                ranked.into_iter().map(|(c, _)| c).collect()
-            } else {
-                // Sort references and clone only the result.
-                let mut ranked: Vec<_> =
-                    self.known
-                        .values()
-                        .filter(|c| self.eligible(c) && !(self.no_dir && c.directory))
-                        .filter_map(|c| {
-                            let name = c.path.file_name()?.to_string_lossy();
-                            if self.policy.glob.as_ref().is_some_and(|g| {
-                                c.directory || !g.is_match(Path::new(name.as_ref()))
-                            }) {
-                                return None;
-                            }
-                            Some((c, matcher.score(&name)?))
-                        })
-                        .collect();
-                ranked.sort_unstable_by(order);
-                ranked.into_iter().map(|(c, _)| c.clone()).collect()
-            };
+        let rows = if narrowing {
+            // Move the surviving rows rather than cloning them.
+            let mut ranked: Vec<_> = std::mem::take(&mut self.rows)
+                .into_iter()
+                .filter_map(|c| {
+                    let score = score_of(&c)?;
+                    Some((c, score))
+                })
+                .collect();
+            ranked.sort_unstable_by(|(a, sa), (b, sb)| order(&(a, *sa), &(b, *sb)));
+            ranked.into_iter().map(|(c, _)| c).collect()
+        } else {
+            // Sort references and clone only the result.
+            let mut ranked: Vec<_> = self
+                .known
+                .values()
+                .filter(|c| self.listed(c))
+                .filter_map(|c| Some((c, score_of(c)?)))
+                .collect();
+            ranked.sort_unstable_by(order);
+            ranked.into_iter().map(|(c, _)| c.clone()).collect()
+        };
         self.rows = rows;
         self.refreshed = Some((basis, folded));
         self.keep_highlight();
@@ -609,6 +633,50 @@ impl App {
         }
         (!paths.is_empty()).then_some(paths)
     }
+}
+
+/// For each path sharing its basename with another, the shortest trailing path
+/// that no other path with that basename ends in; unique basenames get no entry.
+/// A path whose whole length still collides keeps all of it.
+pub fn disambiguate<'a>(paths: impl Iterator<Item = &'a Path>) -> HashMap<PathBuf, PathBuf> {
+    let mut groups: HashMap<_, Vec<_>> = HashMap::new();
+    for path in paths {
+        if let Some(name) = path.file_name() {
+            groups.entry(name).or_default().push(path);
+        }
+    }
+    let mut labels = HashMap::new();
+    for group in groups.into_values().filter(|g| g.len() > 1) {
+        let parts: Vec<Vec<_>> = group
+            .iter()
+            .map(|p| p.components().rev().collect())
+            .collect();
+        // Once a suffix is unique, every longer one is too, so resolved paths
+        // drop out and only the still-colliding ones are counted at the next length.
+        let mut pending: Vec<usize> = (0..group.len()).collect();
+        let mut length = 2;
+        while !pending.is_empty() {
+            let mut counts: HashMap<&[_], usize> = HashMap::new();
+            for &i in &pending {
+                *counts
+                    .entry(&parts[i][..length.min(parts[i].len())])
+                    .or_default() += 1;
+            }
+            pending.retain(|&i| {
+                let suffix = &parts[i][..length.min(parts[i].len())];
+                if counts[suffix] > 1 && length < parts[i].len() {
+                    return true;
+                }
+                labels.insert(
+                    group[i].to_path_buf(),
+                    suffix.iter().rev().collect::<PathBuf>(),
+                );
+                false
+            });
+            length += 1;
+        }
+    }
+    labels
 }
 
 /// Relative output is always based on the invocation directory, including `..`.

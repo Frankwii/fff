@@ -57,11 +57,14 @@ directory; Alt+number follows Enter's empty-state rules.
 `--no-dir` provides static file selection: it hides directories, disables location
 changes, and never returns the current directory as an empty-results fallback.
 Discovery still traverses directories within the depth limit. `--glob '*.tex'`
-likewise lists matching files while traversing their parents.
+likewise lists matching files while traversing their parents. Result rows show
+bare file names; when listed files share a name, each gains the fewest trailing
+parent directories that tell it apart (`folder1/main.pdf`, `folder2/main.pdf`),
+independently of the query. The footer still shows the highlighted file's path.
 
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
-Display labels are relative to the browsing directory, with repeated leading
+Other display labels are relative to the browsing directory, with repeated leading
 parent steps shortened to `.../`; output paths never use that abbreviation.
 
 Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
