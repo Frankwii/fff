@@ -158,6 +158,15 @@ line under the input shows what the command resolves to (`✓ /usr/bin/nvim`) or
 that it does not exist. **Enter** reviews; **Esc** cancels. Nothing is recorded:
 there is no command history.
 
+Tab on a word starting with `-` completes the program's options, such as
+`dragon --and` → `dragon --and-exit`. They come from its man page when it has
+one (reading it runs only `man`), otherwise from `program --help`. That run is
+detached from the terminal (it cannot open `/dev/tty`), gets no input, and is
+stopped together with anything it started after one second, so a program that
+ignores `--help` cannot take over the screen or hang fff. Options are read once
+per prompt; only names at the start of a help line count, so options mentioned
+inside descriptions are not offered.
+
 There is no shell. The line is split into words like a shell would split it
 (spaces separate; `'…'` is literal; `"…"` allows `\"` and `\\`; a backslash
 escapes one character; a leading `~` is your home), but nothing else is
@@ -192,8 +201,7 @@ which, suggesting the closest command name when there is one.
 
 Programs always read and write the terminal (`/dev/tty`), never fff's stdout,
 so both work while fff's output is redirected. They start in the browsing
-directory with fff's environment. Option completion (such as `--and-exit`) is
-not available yet.
+directory with fff's environment.
 
 ## Deletion confirmation
 

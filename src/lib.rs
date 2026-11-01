@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod editor;
 pub mod icons;
 pub mod keys;
+pub mod location;
 pub mod normal_keys;
 pub mod operations;
 mod palettes;
@@ -284,6 +285,9 @@ pub struct App {
     pub wanted: Option<PathBuf>,
     /// Whether this session's directory is where the next one resumes.
     pub records_location: bool,
+    /// Ctrl+o / Ctrl+i: directories left this session, and those jumped back from.
+    pub back: Vec<PathBuf>,
+    pub forward: Vec<PathBuf>,
 }
 
 impl App {
@@ -334,6 +338,8 @@ impl App {
             positions: Vec::new(),
             wanted: None,
             records_location: false,
+            back: Vec::new(),
+            forward: Vec::new(),
         }
     }
     /// Records the current directory's highlight, as most recently used.
@@ -353,7 +359,40 @@ impl App {
             .find(|(d, _)| d == dir)
             .map(|(_, entry)| entry.clone())
     }
+    /// Changes directory, recording the old one for Ctrl+o.
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
+        if path != self.cwd {
+            self.back.push(self.cwd.clone());
+            self.forward.clear();
+        }
+        self.go(path, retain_query);
+    }
+    /// Ctrl+o (back) / Ctrl+i (forward) through this session's directories,
+    /// skipping any that no longer exist. Returns whether the directory changed.
+    pub fn jump(&mut self, back: bool) -> bool {
+        loop {
+            let target = if back {
+                self.back.pop()
+            } else {
+                self.forward.pop()
+            };
+            let Some(target) = target else {
+                return false;
+            };
+            if !target.is_dir() || target == self.cwd {
+                continue;
+            }
+            let from = self.cwd.clone();
+            if back {
+                self.forward.push(from);
+            } else {
+                self.back.push(from);
+            }
+            self.go(target, false);
+            return true;
+        }
+    }
+    fn go(&mut self, path: PathBuf, retain_query: bool) {
         self.remember();
         let from = std::mem::replace(&mut self.cwd, path);
         self.scope = self.roots.clone();

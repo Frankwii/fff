@@ -425,7 +425,20 @@ quit = "q"           # Exit to the launch directory (no directory change)
 quit_current = "!"   # Exit to the current browsing directory
 run = "gx"           # Run a program on the current/marked paths, come back
 run_exit = "gX"      # Run a program on the current/marked paths in place of fff
+move = "v"           # Move marked paths here (with a review)
+copy = "p"           # Copy marked paths here (with a review)
+link = "s"           # Symlink marked paths here (with a review)
+delete = "x"         # Delete current/marked paths (with a review)
+rename = "r"         # Batch rename the results in a buffer
+extract = "e"        # Extract current/marked archives
+edit = "E"           # Open current/marked paths in $EDITOR
+new = "n"            # Create a file or directory
 ```
+
+File operations (`move` … `new`) work in Normal-mode results and in the marked
+list. To give one of their letters to another action, disable or rebind the
+operation first; for example `mark = "x"` needs `delete = "none"` or another
+sequence such as `delete = "D"`, because two actions cannot share a sequence.
 
 `run` and `run_exit` work in results and the marked list; see
 [running programs](OPERATIONS.md#running-programs). Quit actions work in

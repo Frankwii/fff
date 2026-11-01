@@ -231,15 +231,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         }
         Focus::BookmarkDelete { target, .. } => bookmark_delete(frame, main, app, *target),
         Focus::Palettes { query, index, .. } => palettes(frame, area, app, query, *index),
-        Focus::Location(text) => prompt(
-            frame,
-            app,
-            area,
-            Field::Location,
-            "Go to directory",
-            text,
-            false,
-        ),
+        Focus::Location(location) => location_sheet(frame, main, app, location),
         _ => {}
     }
     result
@@ -973,7 +965,16 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Enter".into(), "open dir, or return file + marks", false),
                 ("Alt+l".into(), "enter the highlighted directory", true),
                 ("Alt+h".into(), "parent directory, keeping query", true),
-                ("Alt+g".into(), "go to a typed location", true),
+                (
+                    "Alt+g".into(),
+                    "go to a path, bookmark or zoxide folder",
+                    true,
+                ),
+                (
+                    "Ctrl+o  Ctrl+i".into(),
+                    "back / forward through visited folders",
+                    true,
+                ),
                 ("Alt+b".into(), "open a bookmark", true),
             ],
         ),
@@ -1004,12 +1005,12 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+e".into(), "edit exclusions", false),
                 ("Alt+f".into(), "edit file filters (globs)", false),
                 (
-                    "v / p / s".into(),
+                    [Move, Copy, Link].map(normal).join(" / "),
                     "move / copy / symlink selected (Normal)",
                     false,
                 ),
                 (
-                    "x / r / e / n".into(),
+                    [Delete, Rename, Extract, New].map(normal).join(" / "),
                     "delete / rename / extract / create (Normal)",
                     false,
                 ),
@@ -1046,7 +1047,7 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     true,
                 ),
                 (
-                    "E".into(),
+                    normal(Edit),
                     "open current / marked in $EDITOR, come back",
                     true,
                 ),
@@ -1731,6 +1732,107 @@ fn run_prompt(frame: &mut Frame, main: Rect, app: &App, prompt: &crate::run::Pro
         .is_some_and(|v| v.field == Field::Command && v.mode.starts_with('c'))
     {
         command_line(frame, app, Field::Command, last);
+    }
+}
+/// Alt+g: a typed path, or words picking a bookmark or a zoxide favorite.
+fn location_sheet(frame: &mut Frame, main: Rect, app: &App, location: &crate::location::Location) {
+    use crate::location::Source;
+    let theme = app.palette;
+    let width = main.width.saturating_sub(4) as usize;
+    let body = prose(
+        theme,
+        theme.marked,
+        "Type a path, or words from a folder's path to pick one of your bookmarks or \
+         zoxide's frequent folders. *↑* *↓* choose, *Tab* completes a path, *Enter* goes.",
+        width,
+    );
+    let matches = location.matches();
+    let shown = matches.len().min(8);
+    // Borders, prose, blank, input, suggestions, and a row for commands/errors.
+    let height = (body.len() + shown + 5) as u16;
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        height,
+        Sheet {
+            title: mode_title(app, Field::Location, "Go to directory"),
+            accent: theme.marked,
+            keys: &[
+                ("Enter", "Go"),
+                ("↑↓", "Choose"),
+                ("Tab", "Complete"),
+                ("Esc", "Cancel"),
+            ],
+            summary: (!location.places.is_empty()).then(|| count(matches.len())),
+        },
+    );
+    let top = (body.len() as u16 + 1).min(inner.height);
+    frame.render_widget(
+        Paragraph::new(body),
+        Rect::new(inner.x, inner.y, inner.width, top),
+    );
+    let row = inner.y + top;
+    if row >= inner.bottom() {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(bold("❯ ", theme.marked)),
+        Rect::new(inner.x, row, 2.min(inner.width), 1),
+    );
+    edit_rows(
+        frame,
+        app,
+        Field::Location,
+        &location.text,
+        Rect::new(inner.x + 2, row, inner.width.saturating_sub(2), 1),
+    );
+    // Keep the chosen suggestion visible.
+    let first = location
+        .selected
+        .map_or(0, |i| i.saturating_sub(shown.saturating_sub(1)));
+    let lines = matches
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(shown)
+        .map(|(i, (path, source))| {
+            let chosen = location.selected == Some(i);
+            let name = match source {
+                Source::Bookmark(name) => format!("★ {name}  "),
+                Source::Zoxide => "  ".into(),
+            };
+            let place = elide(
+                &tilde(path, app.home.as_deref()),
+                width.saturating_sub(name.width() + 2),
+            );
+            let bg = if chosen { theme.selection } else { theme.panel };
+            Line::from(vec![
+                styled(if chosen { "› " } else { "  " }, theme.accent),
+                bold(safe(name), theme.marked),
+                styled(place, if chosen { theme.text } else { theme.muted }),
+            ])
+            .style(Style::default().bg(bg))
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Paragraph::new(lines),
+        Rect::new(
+            inner.x,
+            row + 1,
+            inner.width,
+            inner.bottom().saturating_sub(row + 2),
+        ),
+    );
+    let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
+    if app
+        .edit_view
+        .as_ref()
+        .is_some_and(|v| v.field == Field::Location && v.mode.starts_with('c'))
+    {
+        command_line(frame, app, Field::Location, last);
+    } else if !app.status.is_empty() && app.status != app.status_success {
+        frame.render_widget(Paragraph::new(styled(safe(&app.status), theme.error)), last);
     }
 }
 /// The paths a program will receive, in argument order.

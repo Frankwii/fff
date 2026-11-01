@@ -51,7 +51,7 @@ pub(crate) enum Focus {
     Command(crate::run::Prompt),
     RunConfirm(crate::run::Plan),
     NewChoice,
-    Location(String),
+    Location(crate::location::Location),
     Bookmarks {
         query: String,
         index: usize,
@@ -449,9 +449,10 @@ fn session(
                         &mut app.edit_view,
                         &mut app.status,
                     ),
-                    Focus::Exclusions(value) | Focus::Filters(value) | Focus::Location(value) => {
+                    Focus::Location(location) => {
+                        location.selected = None;
                         paste(
-                            value,
+                            &mut location.text,
                             &text,
                             field,
                             &mut editor,
@@ -459,6 +460,14 @@ fn session(
                             &mut app.status,
                         )
                     }
+                    Focus::Exclusions(value) | Focus::Filters(value) => paste(
+                        value,
+                        &text,
+                        field,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    ),
                     Focus::Bookmarks { query, index } => {
                         paste(
                             query,
@@ -539,8 +548,14 @@ fn session(
             deliver(app, &mut focus, &mut editor, key);
             continue;
         }
+        let mut operation = false;
         let key = match normal_list_key(app, &mut focus, &mut editor, key) {
             NormalKey::Pass(key) => key,
+            // Configured sequences resolve to the operation's default letter.
+            NormalKey::Operation(letter) => {
+                operation = true;
+                KeyEvent::new(K::Char(letter), M::NONE)
+            }
             NormalKey::Consumed => continue,
             NormalKey::Quit(current) => {
                 if app.no_dir {
@@ -570,17 +585,7 @@ fn session(
                 continue;
             }
         };
-        let file_normal = matches!(focus, Focus::Marks { .. })
-            || (matches!(focus, Focus::Results)
-                && app.edit_view.as_ref().is_some_and(|v| v.normal()));
-        // Shift is how uppercase letters (E) arrive with the Kitty protocol.
-        if file_normal
-            && key.modifiers.difference(M::SHIFT).is_empty()
-            && matches!(
-                key.code,
-                K::Char('v' | 'p' | 'x' | 'r' | 'e' | 'E' | 'n' | 's')
-            )
-        {
+        if operation {
             let current = match &focus {
                 Focus::Marks { rows, index } => rows.get(*index).cloned(),
                 _ => app.highlight.clone(),
@@ -722,8 +727,8 @@ fn session(
                         &mut app.status,
                     )
                 }
-                Focus::Location(value) => edit(
-                    value,
+                Focus::Location(location) => edit(
+                    &mut location.text,
                     key,
                     false,
                     Field::Location,
@@ -1340,27 +1345,33 @@ fn session(
                 }
                 _ => {}
             },
-            Focus::Location(text) => {
+            Focus::Location(location) => {
                 if key.code == K::Enter {
-                    let path = PathBuf::from(&*text);
-                    let path = if path.is_absolute() {
-                        path
-                    } else {
-                        app.cwd.join(path)
-                    };
-                    match path.canonicalize() {
+                    match location
+                        .target(&app.cwd, app.home.as_deref())
+                        .and_then(|p| p.canonicalize().map_err(|e| e.to_string()))
+                    {
                         Ok(path) if path.is_dir() => {
                             app.navigate(path, false);
                             discovery.start(app, true);
                             focus = Focus::Results;
                         }
-                        _ => app.status = "Location must be an accessible directory".into(),
+                        Ok(_) => app.status = "Location must be an accessible directory".into(),
+                        Err(error) => app.status = error,
                     }
                 } else if key.code == K::Esc {
                     focus = Focus::Results;
+                } else if matches!(key.code, K::Up | K::Down) {
+                    location.choose(key.code == K::Down);
+                } else if key.code == K::Tab {
+                    location.complete(&app.cwd, app.home.as_deref());
+                    if let Some(e) = &mut editor {
+                        e.reset_preserving_mode(Field::Location);
+                    }
                 } else {
+                    let before = location.text.clone();
                     edit(
-                        text,
+                        &mut location.text,
                         key,
                         false,
                         Field::Location,
@@ -1368,6 +1379,9 @@ fn session(
                         &mut app.edit_view,
                         &mut app.status,
                     );
+                    if location.text != before {
+                        location.selected = None;
+                    }
                 }
             }
             Focus::Marks { rows, index } => {
@@ -1400,6 +1414,20 @@ fn session(
                         return Ok(Finish::Paths(p));
                     }
                 }
+                // Ctrl+i needs a terminal that tells it apart from Tab (Kitty
+                // keyboard protocol); elsewhere it arrives as Tab and marks.
+                (K::Char('o' | 'i'), true, false) if app.can_navigate() => {
+                    if app.jump(key.code == K::Char('o')) {
+                        discovery.start(app, true);
+                    } else {
+                        app.status = if key.code == K::Char('o') {
+                            "No earlier directory to go back to"
+                        } else {
+                            "No later directory to go forward to"
+                        }
+                        .into();
+                    }
+                }
                 (K::Char(' '), _, true) => {
                     focus = Focus::Marks {
                         rows: app.marks.clone(),
@@ -1409,7 +1437,21 @@ fn session(
                 (K::Char('e'), _, true) => focus = Focus::Exclusions(app.policy.rules.join("\n")),
                 (K::Char('f'), _, true) => focus = Focus::Filters(app.policy.filters.join("\n")),
                 (K::Char('g' | 'b' | 'h'), _, true) if !app.can_navigate() => {}
-                (K::Char('g'), _, true) => focus = Focus::Location(String::new()),
+                (K::Char('g'), _, true) => {
+                    let bookmarks = app
+                        .bookmarks
+                        .iter()
+                        .map(|b| (b.name.clone(), b.path.clone()))
+                        .collect::<Vec<_>>();
+                    let frequent = crate::location::zoxide(&app.cwd);
+                    // It exists for typing, like the run prompt.
+                    if let Some(e) = &mut editor {
+                        e.reset_insert(Field::Location);
+                    }
+                    focus = Focus::Location(crate::location::Location::new(
+                        &bookmarks, frequent, &app.cwd,
+                    ));
+                }
                 (K::Char('b'), _, true) => {
                     focus = Focus::Bookmarks {
                         query: String::new(),
@@ -2077,10 +2119,34 @@ fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             QuitCurrent,
             Run,
             RunExit,
+            Move,
+            Copy,
+            Link,
+            Delete,
+            Rename,
+            Extract,
+            Edit,
+            New,
         ]),
-        Focus::Marks { .. } => {
-            Some(&[Down, Up, First, Last, Mark, Quit, QuitCurrent, Run, RunExit])
-        }
+        Focus::Marks { .. } => Some(&[
+            Down,
+            Up,
+            First,
+            Last,
+            Mark,
+            Quit,
+            QuitCurrent,
+            Run,
+            RunExit,
+            Move,
+            Copy,
+            Link,
+            Delete,
+            Rename,
+            Extract,
+            Edit,
+            New,
+        ]),
         Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
             Some(&[Down, Up, First, Last, Quit, QuitCurrent])
         }
@@ -2110,6 +2176,8 @@ enum NormalKey {
     Quit(bool),
     /// gx (false) or gX (true).
     Run(bool),
+    /// A file operation, by its default letter.
+    Operation(char),
 }
 /// Dispatch configured Normal-mode actions in their supported list views.
 /// Marked lists accept their actions without an editing mode.
@@ -2141,6 +2209,9 @@ fn normal_list_key(
             Step::Action(ListAction::QuitCurrent) => return NormalKey::Quit(true),
             Step::Action(ListAction::Run) => return NormalKey::Run(false),
             Step::Action(ListAction::RunExit) => return NormalKey::Run(true),
+            Step::Action(action) if action.operation_key().is_some() => {
+                return NormalKey::Operation(action.operation_key().unwrap());
+            }
             Step::Action(action) => {
                 return match action.alt_key() {
                     Some(alt) => NormalKey::Pass(alt),
@@ -2208,7 +2279,7 @@ fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: Key
 fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
     match focus {
         Focus::Results => Some((Field::Query, app.query.clone())),
-        Focus::Location(text) => Some((Field::Location, text.clone())),
+        Focus::Location(location) => Some((Field::Location, location.text.clone())),
         Focus::Command(prompt) => Some((Field::Command, prompt.text.clone())),
         Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
         Focus::Filters(text) => Some((Field::Filters, text.clone())),

@@ -27,9 +27,18 @@ pub enum ListAction {
     Run,
     /// Run a program on the current or marked paths in place of fff.
     RunExit,
+    /// File operations; see `operation_key`.
+    Move,
+    Copy,
+    Link,
+    Delete,
+    Rename,
+    Extract,
+    Edit,
+    New,
 }
 impl ListAction {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 19] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -41,7 +50,30 @@ impl ListAction {
         Self::QuitCurrent,
         Self::Run,
         Self::RunExit,
+        Self::Move,
+        Self::Copy,
+        Self::Link,
+        Self::Delete,
+        Self::Rename,
+        Self::Extract,
+        Self::Edit,
+        Self::New,
     ];
+    /// The default letter of a file operation: the view handles operations by
+    /// it, whatever sequence the configuration binds.
+    pub fn operation_key(self) -> Option<char> {
+        Some(match self {
+            Self::Move => 'v',
+            Self::Copy => 'p',
+            Self::Link => 's',
+            Self::Delete => 'x',
+            Self::Rename => 'r',
+            Self::Extract => 'e',
+            Self::Edit => 'E',
+            Self::New => 'n',
+            _ => return None,
+        })
+    }
     /// The default chord whose view-specific behavior this action repeats, if any.
     pub fn alt_key(self) -> Option<KeyEvent> {
         let c = match self {
@@ -55,7 +87,15 @@ impl ListAction {
             | Self::Quit
             | Self::QuitCurrent
             | Self::Run
-            | Self::RunExit => return None,
+            | Self::RunExit
+            | Self::Move
+            | Self::Copy
+            | Self::Link
+            | Self::Delete
+            | Self::Rename
+            | Self::Extract
+            | Self::Edit
+            | Self::New => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -190,6 +230,15 @@ pub struct NormalKeysConfig {
     pub quit_current: Sequences,
     pub run: Sequences,
     pub run_exit: Sequences,
+    #[serde(rename = "move")]
+    pub move_: Sequences,
+    pub copy: Sequences,
+    pub link: Sequences,
+    pub delete: Sequences,
+    pub rename: Sequences,
+    pub extract: Sequences,
+    pub edit: Sequences,
+    pub new: Sequences,
 }
 impl Default for NormalKeysConfig {
     fn default() -> Self {
@@ -206,6 +255,14 @@ impl Default for NormalKeysConfig {
             quit_current: one("!"),
             run: one("gx"),
             run_exit: one("gX"),
+            move_: one("v"),
+            copy: one("p"),
+            link: one("s"),
+            delete: one("x"),
+            rename: one("r"),
+            extract: one("e"),
+            edit: one("E"),
+            new: one("n"),
         }
     }
 }
@@ -223,6 +280,14 @@ impl NormalKeysConfig {
             ListAction::QuitCurrent => ("quit_current", &self.quit_current),
             ListAction::Run => ("run", &self.run),
             ListAction::RunExit => ("run_exit", &self.run_exit),
+            ListAction::Move => ("move", &self.move_),
+            ListAction::Copy => ("copy", &self.copy),
+            ListAction::Link => ("link", &self.link),
+            ListAction::Delete => ("delete", &self.delete),
+            ListAction::Rename => ("rename", &self.rename),
+            ListAction::Extract => ("extract", &self.extract),
+            ListAction::Edit => ("edit", &self.edit),
+            ListAction::New => ("new", &self.new),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {

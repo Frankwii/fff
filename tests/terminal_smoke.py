@@ -377,7 +377,7 @@ class TerminalTests(unittest.TestCase):
             target.touch()
             s = self.start()
             s.send(b"\t", b"Marks (1)")
-            s.send(b"\x1bg", b"Location (Enter navigates")
+            s.send(b"\x1bg", b"Go to directory")
             s.send(os.fsencode(other) + b"\r", ("cwd", other))
             self.assertIn(other, s.screen.text)
             s.send(b"b", "❯ b")
@@ -883,8 +883,9 @@ class TerminalTests(unittest.TestCase):
             config = Path(folder) / "config.toml"
             config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
             s = self.start("--config", str(config), implicit_root=True, editor=None)
-            s.send(b"\x1bg", "NORMAL")
-            s.send(b"ijunk " + os.fsencode(target), b"junk")
+            # The go-to prompt starts in Insert mode, ready for typing.
+            s.send(b"\x1bg", "Go to directory · INSERT")
+            s.send(b"junk " + os.fsencode(target), b"junk")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"0dw\r", ("cwd", target))
             s.send(b"\x1bb", "Bookmarks")
@@ -1112,7 +1113,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="fff-action-keys-") as folder:
             config = Path(folder) / "config.toml"
-            config.write_text("[keys.normal]\nmark='x'\nquit='none'\napply='qq'\n")
+            config.write_text("[keys.normal]\nmark='x'\ndelete='none'\nquit='none'\napply='qq'\n")
             s = self.start("--editor", "nvim", "--config", str(config))
             s.send(b"x", "Marks (1)")
             s.send(b"\x1be", "Edit exclusions")
@@ -1512,6 +1513,54 @@ class TerminalTests(unittest.TestCase):
             s.finish()
             s.close()
         self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_go_to_suggests_zoxide_folders_and_ctrl_o_i_walk_history(self):
+        far = Path(self.tmp.name + "-far") / "projects" / "fff"
+        far.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, self.tmp.name + "-far", True)
+        (self.root / "sub").mkdir()
+        env = self.run_environment("zoxide", f'echo "{far}"\necho "{far.parent}"\n')
+        s = self.start("--no-config", "--editor", "nvim", implicit_root=True,
+                       environment=env, output_paths=False)
+        s.send(b"\x1bg", "Go to directory")
+        self.assertIn("Enter: Go", s.screen.text)
+        s.wait_ui(str(far.parent))
+        # zoxide-style words in order pick a frequent folder.
+        s.send(b"proj ff", "❯ proj ff")
+        s.send(b"\r", ("cwd", far))
+        s.send(b"\x1bg", "Go to directory")
+        s.send(b"\x1b[B\x1b[B\r", ("cwd", far.parent))
+        # Ctrl+o goes back through the visited folders; Ctrl+i forward again.
+        s.send(b"\x1b[111;5u", ("cwd", far))
+        s.send(b"\x1b[111;5u", ("cwd", self.root))
+        s.send(b"\x1b[111;5u", "No earlier directory")
+        s.send(b"\x1b[105;5u", ("cwd", far))
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_rebound_operations_and_flag_completion(self):
+        (self.root / "alpha").write_text("a")
+        log = self.root / "log"
+        env = self.run_environment(
+            "tool", f'case "$1" in --help) echo "  -x, --and-exit  stop";; *) printf "%s\\n" "$@" > "{log}";; esac\n')
+        config = Path(self.tmp.name + "-config.toml")
+        self.addCleanup(lambda: config.unlink(missing_ok=True))
+        config.write_text("[keys.normal]\ndelete = 'D'\nedit = 'none'\n")
+        s = self.start("--config", str(config), "--editor", "nvim", implicit_root=True, environment=env)
+        s.send(b"\t", "Marks (1)")
+        s.send(b"x")  # no longer delete: Neovim gets it
+        s.send(b"D", "Delete permanently")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"gx", "Run · INSERT")
+        s.send(b"tool --and", "❯ tool --and")
+        s.send(b"\t", "❯ tool --and-exit ")
+        s.send(b"\r", "Run here")
+        s.send(b"\r", "tool finished")
+        self.assertEqual(log.read_text().splitlines(), ["--and-exit", str(self.root / "alpha")])
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
 
     def run_environment(self, name, body):
         # A program on PATH, outside the browsed directory.

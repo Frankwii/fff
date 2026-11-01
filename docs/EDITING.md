@@ -16,11 +16,11 @@ palette reload applies only to colors.
 
 ## Fields and modes
 
-The query, location prompt, exclusions, file filters, bookmark name/path,
-bookmark and icon filters, and palette filter all
-initially start in **Normal mode**. New file/directory naming buffers and the
-query of a `--no-dir` session start in **Insert mode**, ready for typing; rename
-and extraction buffers start in Normal.
+The query, exclusions, file filters, bookmark name/path, bookmark and icon
+filters, and palette filter all initially start in **Normal mode**. New
+file/directory naming buffers, the go-to prompt (Alt+g), the gx/gX command
+prompt and the query of a `--no-dir` session start in **Insert mode**, ready for
+typing; rename and extraction buffers start in Normal.
 Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
 and Select modes. Pending motions/operators and command-line input are cancelled;

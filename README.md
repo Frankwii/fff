@@ -55,8 +55,8 @@ printing paths. Without the function, the default mode prints the chosen
 directory instead, so `cd "$(command fff)"` also works.
 
 The default editor is a clean embedded Neovim. Fields start in **Normal mode**,
-except new file/directory naming buffers and the query of a `--no-dir` session,
-which start in **Insert mode**.
+except prompts made for typing (new names, the go-to prompt, the gx/gX command)
+and the query of a `--no-dir` session, which start in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. Neovim is optional;
 `--editor basic` selects direct typing/Backspace, and missing Neovim causes a quiet
@@ -130,7 +130,8 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | gg / G | First / last row in Normal-mode lists |
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l | Enter highlighted directory only |
-| Alt+g | Location prompt |
+| Alt+g | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
+| Ctrl+o / Ctrl+i | Back / forward through the folders visited this session (Ctrl+i needs a terminal that tells it from Tab) |
 | Alt+b | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |
