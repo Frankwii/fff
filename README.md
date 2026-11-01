@@ -145,8 +145,8 @@ honored; shortcut text, selection arrows, and missing/progress labels remain vis
 Rows show Nerd Font filetype icons by default; set `[ui] icons = false` or pass
 `--no-icons` if your terminal font lacks the glyphs.
 
-Configuration is optional TOML at `~/.config/picker/config.toml` (or
-`$XDG_CONFIG_HOME/picker/config.toml`). It supports built-in/custom color palettes,
+Configuration is optional TOML at `$XDG_CONFIG_HOME/picker/config.toml`
+(`~/.config/picker/config.toml` when `XDG_CONFIG_HOME` is unset). It supports built-in/custom color palettes,
 ordered bookmarks, and a bounded session discovery cache. Try:
 
 ```sh

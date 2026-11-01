@@ -122,7 +122,13 @@ fn cli_config_precedence_validation_and_missing_files() {
         }
         cmd.output().unwrap()
     };
-    assert!(run(&["--check-config"], true).status.success());
+    // XDG_CONFIG_HOME wins over ~/.config, and --check-config names the file.
+    let checked = run(&["--check-config"], true);
+    assert!(checked.status.success());
+    assert!(
+        String::from_utf8_lossy(&checked.stderr)
+            .contains(&xdg.join("picker/config.toml").display().to_string())
+    );
     let invalid = run(&["--check-config"], false);
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("Unknown palette"));

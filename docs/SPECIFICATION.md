@@ -692,3 +692,18 @@ valid configuration, 1 startup/configuration/I/O error including an unknown
 `--palette`, 2 usage error: unknown options or malformed `--depth`, `--map-key`,
 `--glob` or `--exclude` values, 130 Ctrl+c) and completion installation. Help uses clap styles (colored headings,
 literals and placeholders) and is plain under `NO_COLOR` or when not a terminal.
+
+
+## 21. Bookmark icons, gruvbox, Normal-mode entry, key guide, `--no-dir`, config path (2026-11-01)
+
+A second set of user requests on 2026-11-01. Each subsection records one request
+and its implementation; they supersede earlier text where they conflict.
+
+### 21.6 Default configuration path
+
+User request: "Make the default config path be `$XDG_CONFIG_HOME/picker/config.toml`".
+That was already the lookup order (section 17); following the XDG base directory
+specification, `~/.config/picker/config.toml` remains the fallback only when
+`XDG_CONFIG_HOME` is unset, empty, or not absolute. Documentation and `--help` now
+lead with the XDG path, and `--check-config` names the file it validated (or says
+that no file was found and built-in settings apply).

@@ -1,4 +1,5 @@
-# Copy to ~/.config/picker/config.toml (or use --config PATH).
+# Copy to $XDG_CONFIG_HOME/picker/config.toml (~/.config/picker/config.toml when
+# XDG_CONFIG_HOME is unset), or pass --config PATH.
 # Check without opening the TUI: picker --config PATH --check-config
 
 [ui]

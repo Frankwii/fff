@@ -56,10 +56,10 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>gg</cyan> first row and <cyan>G</cyan> last row; other keys still go to Neovim.
 
 <bold><green>Configuration file:</green></bold>
-  Optional TOML at $XDG_CONFIG_HOME/picker/config.toml or
-  ~/.config/picker/config.toml: palettes, bookmarks, editor backend, cache,
+  Optional TOML at $XDG_CONFIG_HOME/picker/config.toml (~/.config/picker/
+  config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
   file icons ([ui] icons) and Normal-mode list keys ([keys.normal]).
-  Check it with <cyan>picker --check-config</cyan>.
+  <cyan>picker --check-config</cyan> validates it and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
   <cyan>0</cyan>    paths were selected (or the configuration is valid)
@@ -226,7 +226,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         args.palette.as_deref(),
     )?;
     if args.check_config {
-        eprintln!("picker: configuration valid");
+        match &settings.source {
+            Some(path) => eprintln!("picker: configuration valid: {}", path.display()),
+            None => eprintln!("picker: no configuration file; using built-in settings"),
+        }
         return Ok(true);
     }
     let watcher = picker::reload::PaletteWatcher::start(

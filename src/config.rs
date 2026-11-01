@@ -196,6 +196,8 @@ pub struct Settings {
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
     pub icons: bool,
     pub normal_keys: crate::normal_keys::NormalKeys,
+    /// The file that was read; `None` without a config file.
+    pub source: Option<PathBuf>,
 }
 impl Settings {
     pub fn parse(
@@ -280,6 +282,7 @@ impl Settings {
             cache: raw.cache,
             icons: raw.ui.icons,
             normal_keys,
+            source: None,
         })
     }
     pub fn load(
@@ -303,10 +306,10 @@ impl Settings {
             explicit.map(PathBuf::from).or(default)
         };
         if let Some(path) = path {
-            let text = match fs::read_to_string(&path) {
-                Ok(s) => s,
+            let (text, found) = match fs::read_to_string(&path) {
+                Ok(s) => (s, true),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound && explicit.is_none() => {
-                    String::new()
+                    (String::new(), false)
                 }
                 Err(e) => return Err(format!("{}: {e}", path.display())),
             };
@@ -317,13 +320,15 @@ impl Settings {
                     .map_err(|e| e.to_string())?
                     .join(path)
             };
-            Self::parse(
+            let mut settings = Self::parse(
                 &text,
                 absolute.parent().unwrap(),
                 home.as_deref(),
                 palette_override,
             )
-            .map_err(|e| format!("{}: {e}", absolute.display()))
+            .map_err(|e| format!("{}: {e}", absolute.display()))?;
+            settings.source = found.then_some(absolute);
+            Ok(settings)
         } else {
             Self::parse("", Path::new("."), home.as_deref(), palette_override)
         }

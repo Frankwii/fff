@@ -5,8 +5,9 @@ the default palette is `midnight`, bookmarks start empty, and caching is enabled
 
 ## Start here
 
-Save this as `~/.config/picker/config.toml` (or
-`$XDG_CONFIG_HOME/picker/config.toml` when `XDG_CONFIG_HOME` is set):
+Save this as `$XDG_CONFIG_HOME/picker/config.toml`. Following the XDG base
+directory spec, `~/.config/picker/config.toml` is used when `XDG_CONFIG_HOME` is
+unset, empty, or not absolute. `picker --check-config` prints the file it read:
 
 ```toml
 [ui]
