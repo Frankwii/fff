@@ -422,7 +422,7 @@ first = "gg"         # Highlight the first row
 last = "G"           # Highlight the last row
 mark = "<space>"     # Mark/unmark like Tab (results and marks only)
 quit = "q"           # Exit to the launch directory (no directory change)
-quit_current = "!"   # Exit to the current browsing directory
+quit_current = "!"   # Exit, changing to the current browsing directory
 run = "gx"           # Run a program on the current/marked paths, come back
 run_exit = "gX"      # Run a program on the current/marked paths in place of fff
 move = "v"           # Move marked paths here (with a review)
@@ -433,7 +433,18 @@ rename = "r"         # Batch rename the results in a buffer
 extract = "e"        # Extract current/marked archives
 edit = "E"           # Open current/marked paths in $EDITOR
 new = "n"            # Create a file or directory
+shallower = "<left>" # Search one level shallower, like Alt+Left (results)
+deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
+bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
+hidden = "."         # Show/hide hidden entries, like Alt+. (results)
+go_to = "/"          # Go-to prompt, like Alt+g (results)
+depth_digits = true  # 1-9 set the search depth (results)
 ```
+
+`shallower`, `deeper`, `bookmarks`, `hidden`, `go_to` and the depth digits work
+only in Normal-mode results; the Alt chords keep working in every mode. With
+`depth_digits = true` (the default), no sequence may start with 1–9; set it to
+`false` to give digits back to Neovim as counts or to use them in sequences.
 
 File operations (`move` … `new`) work in Normal-mode results and in the marked
 list. To give one of their letters to another action, disable or rebind the
@@ -451,9 +462,10 @@ Neovim writes and closes; the legacy `apply` setting is accepted but ignored.
 
 Each value is one key sequence or a list of sequences; `"none"`, `""`, or `[]`
 disables the action. A sequence is typed literally, one printable key per
-character (uppercase means Shift); write `<space>` for Space and `<lt>` for `<`.
-Ctrl/Alt chords, Escape, Enter, and other named keys are rejected: Alt and Ctrl
-chords remain fff shortcuts (remap those with `--map-key`).
+character (uppercase means Shift); write `<space>` for Space, `<lt>` for `<`,
+and `<left>`, `<right>`, `<up>`, `<down>` for the arrow keys. Ctrl/Alt chords,
+Escape, Enter, and other named keys are rejected: Alt and Ctrl chords remain fff
+shortcuts (remap those in [`[keys.map]`](#chord-remapping)).
 Sequences must be unambiguous: two actions cannot share a sequence, and one
 sequence cannot be a prefix of another, because a waiting prefix has no timeout.
 Unbound keys and unfinished prefixes still reach Neovim. `--check-config` reports
@@ -467,3 +479,31 @@ To use Space as a sequence prefix instead of marking, disable its default first:
 mark = "none"
 last = ["G", "<space>e"]
 ```
+
+## Chord remapping
+
+Every other binding (Alt and Ctrl chords, arrows, Enter, Escape, Tab, F1, F5,
+PageUp/PageDown) is remapped in `[keys.map]`, the configuration form of
+`--map-key`. Each entry maps a source chord to the default chord whose action
+it should perform, or to `"none"` to disable the source:
+
+```toml
+[keys.map]
+"ctrl+n" = "down"     # Emacs-style movement
+"ctrl+p" = "up"
+"ctrl+g" = "alt+g"    # go-to prompt on Ctrl+g ...
+"alt+g" = "none"      # ... and no longer on Alt+g
+"ctrl+t" = "alt+p"    # palette chooser
+```
+
+Chords are written as `ctrl+`, `alt+` and `shift+` prefixes followed by one
+character or a key name: `f1`, `f5`, `enter`, `esc`, `tab`, `backspace`, `up`,
+`down`, `left`, `right`, `pageup`, `pagedown` or `space`. Targets name the
+default chords in the [key reference](../README.md#keys) and the F1 guide.
+Each key is translated once, so chords can be swapped (`"alt+h" = "alt+l"` with
+`"alt+l" = "alt+h"`). Plain printable characters cannot be sources, because
+they are typed into fields; rebind Normal-mode letters in `[keys.normal]`.
+`--map-key` rules apply after `[keys.map]` and win for the same source.
+Translation applies everywhere, including choosers and prompts. Letters inside
+confirmation sheets (such as `c`/`s`/`a` in a scope choice) are fixed.
+`--check-config` reports invalid chords.

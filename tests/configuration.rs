@@ -301,7 +301,20 @@ fn normal_mode_list_keys_are_validated() {
         "[keys.normal]\ntop='gg'\n",
         "[keys.insert]\ndown='j'\n",
         "[keys.normal]\nfirst=1\n",
+        "[keys.normal]\nfirst='1'\n",
     ] {
+        assert!(parse(bad).is_err(), "accepted {bad:?}");
+    }
+    // Digits are free for sequences once they no longer set the depth.
+    assert!(parse("[keys.normal]\ndepth_digits=false\nfirst='1'\n").is_ok());
+}
+#[test]
+fn key_map_remaps_chords_like_map_key() {
+    let error = parse("[keys.map]\n'f2'='f1'\n").err().unwrap();
+    assert!(error.contains("keys.map"), "{error}");
+    let settings = parse("[keys.map]\n'ctrl+g'='alt+g'\n'alt+g'='none'\n").unwrap();
+    assert_eq!(settings.key_maps, ["alt+g=none", "ctrl+g=alt+g"]);
+    for bad in ["[keys.map]\nx='alt+g'\n", "[keys.map]\n'ctrl+g'='nope'\n"] {
         assert!(parse(bad).is_err(), "accepted {bad:?}");
     }
 }

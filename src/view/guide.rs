@@ -102,9 +102,6 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Esc".into(), "leave Insert, then clear query", false),
                 ("Alt+← Alt+→".into(), "search shallower / deeper", false),
                 ("Alt+.".into(), "show / hide hidden entries", false),
-                ("Alt+H".into(), "exclusions on / off", false),
-                ("Alt+e".into(), "edit exclusions", false),
-                ("Alt+f".into(), "edit file filters (globs)", false),
                 (
                     [Move, Copy, Link].map(normal).join(" / "),
                     "move / copy / symlink selected (Normal)",
@@ -115,12 +112,26 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "delete / rename / extract / create (Normal)",
                     false,
                 ),
+                ("F5".into(), "rescan, bypassing the cache", false),
+            ],
+        ),
+        (
+            "Exclusions and filters",
+            vec![
+                ("Alt+e".into(), "edit exclusions, one glob per line", false),
+                (String::new(), "matching entries and subtrees hidden", false),
+                (String::new(), "by name or scope-relative path", false),
+                ("Alt+H".into(), "enforce exclusions on / off", false),
                 (
-                    "ZZ / ZQ".into(),
-                    "apply / discard rename and exclusions",
+                    "Alt+f".into(),
+                    "edit file filters, one glob per line",
                     false,
                 ),
-                ("F5".into(), "rescan, bypassing the cache", false),
+                (String::new(), "only files whose name matches one", false),
+                (String::new(), "are listed; empty lists every file", false),
+                ("ZZ  Ctrl+s".into(), "apply (Ctrl+s without Neovim)", false),
+                ("ZQ  Esc".into(), "discard (Esc without Neovim)", false),
+                (String::new(), "ZZ/ZQ also apply/discard renames", false),
             ],
         ),
         (
@@ -135,6 +146,23 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     false,
                 ),
                 (normal(Mark), "mark / unmark, like Tab", false),
+                (
+                    normal(Shallower) + "  " + &normal(Deeper),
+                    "search shallower / deeper",
+                    false,
+                ),
+                (
+                    if app.normal_keys.depth_digits {
+                        "1…9".into()
+                    } else {
+                        "—".into()
+                    },
+                    "search to depth n (results)",
+                    false,
+                ),
+                (normal(Hidden), "show / hide hidden entries", false),
+                (normal(GoTo), "go to a path, bookmark or zoxide", true),
+                (normal(Bookmarks), "open a bookmark", true),
                 (normal(Quit), "exit, return launch directory", true),
                 (normal(QuitCurrent), "exit, return current directory", true),
                 (
@@ -219,9 +247,18 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
     let gap = 4;
     let half = width.saturating_sub(gap) / 2;
     if half >= key_width + 32 {
-        let (left, right) = sections.split_at(2);
-        let left: Vec<_> = left.iter().flat_map(|s| column(s, half)).collect();
-        let right: Vec<_> = right.iter().flat_map(|s| column(s, half)).collect();
+        // Split between sections where the taller column is shortest.
+        let columns: Vec<_> = sections.iter().map(|s| column(s, half)).collect();
+        let total: usize = columns.iter().map(Vec::len).sum();
+        let split = (1..columns.len())
+            .min_by_key(|&i| {
+                let left: usize = columns[..i].iter().map(Vec::len).sum();
+                left.max(total - left)
+            })
+            .unwrap_or(columns.len());
+        let (left, right) = columns.split_at(split);
+        let left: Vec<_> = left.concat();
+        let right: Vec<_> = right.concat();
         (0..left.len().max(right.len()))
             .map(|i| {
                 let mut spans = left.get(i).cloned().unwrap_or_default();

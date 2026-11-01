@@ -127,7 +127,7 @@ impl PalettePreview {
 /// Opt-in hook for Normal-mode list keys: the actions a list view supports.
 /// Unsupported actions behave as unbound, so their keys still reach Neovim.
 /// Each list view has an arm here, in `jump_to_end` and in `deliver`;
-/// Left/Down/Up/Right are replayed as the view's own Alt+h/j/k/l handling.
+/// actions with an `alt_key` are replayed as the view's own chord handling.
 pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
     use ListAction::*;
     match focus {
@@ -151,6 +151,11 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             Extract,
             Edit,
             New,
+            Shallower,
+            Deeper,
+            Bookmarks,
+            Hidden,
+            GoTo,
         ]),
         Focus::Marks { .. } => Some(&[
             Down,
@@ -202,6 +207,8 @@ pub(super) enum NormalKey {
     Run(bool),
     /// A file operation, by its default letter.
     Operation(char),
+    /// A plain digit in Normal-mode results: search to this depth.
+    Depth(usize),
 }
 /// Dispatch configured Normal-mode actions in their supported list views.
 /// Marked lists accept their actions without an editing mode.
@@ -219,6 +226,15 @@ pub(super) fn normal_list_key(
             || app.edit_view.as_ref().is_some_and(|v| v.normal());
         if !normal && !app.normal_keys.pending() {
             return NormalKey::Pass(key);
+        }
+        if matches!(focus, Focus::Results)
+            && normal
+            && app.normal_keys.depth_digits
+            && !app.normal_keys.pending()
+            && key.modifiers.is_empty()
+            && let K::Char(c @ '1'..='9') = key.code
+        {
+            return NormalKey::Depth(c as usize - '0' as usize);
         }
         let can_quit = app.normal_keys.pending()
             || matches!(focus, Focus::Marks { .. })

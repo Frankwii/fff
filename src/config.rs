@@ -199,6 +199,8 @@ struct RawConfig {
 #[serde(default, deny_unknown_fields)]
 struct KeysConfig {
     normal: crate::normal_keys::NormalKeysConfig,
+    /// Chord remapping like --map-key: source chord = default chord or "none".
+    map: BTreeMap<String, String>,
 }
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -239,6 +241,8 @@ pub struct Settings {
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
     pub icons: bool,
     pub normal_keys: crate::normal_keys::NormalKeys,
+    /// `[keys.map]` as `SOURCE=TARGET` rules, applied before `--map-key`.
+    pub key_maps: Vec<String>,
     /// How long status messages stay visible (`[ui] message_seconds`); `None`
     /// keeps them until replaced.
     pub message_timeout: Option<std::time::Duration>,
@@ -265,6 +269,13 @@ impl Settings {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());
         }
         let normal_keys = raw.keys.normal.build()?;
+        let key_maps: Vec<String> = raw
+            .keys
+            .map
+            .iter()
+            .map(|(from, to)| format!("{from}={to}"))
+            .collect();
+        crate::keys::KeyMap::parse(&key_maps).map_err(|e| format!("keys.map: {e}"))?;
         let mut palettes = BTreeMap::new();
         for (name, values) in &raw.palettes {
             if Palette::named(name).is_some() {
@@ -308,6 +319,7 @@ impl Settings {
             performance: raw.performance,
             icons: raw.ui.icons,
             normal_keys,
+            key_maps,
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
             resume: raw.ui.resume,

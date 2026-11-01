@@ -196,16 +196,47 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_normal_quit_current_uses_relative_nul_and_insert_keeps_text(self):
+    def test_normal_quit_current_changes_directory_and_insert_keeps_text(self):
         (self.root / "child").mkdir()
         (self.root / "child" / "file").touch()
-        s = self.start("--editor", "nvim", "--relative", "--null", "--depth", "1", implicit_root=True)
+        cd_file = self.root / "cd"
+        s = self.start("--cd-file", str(cd_file), "--editor", "nvim", "--relative", "--null",
+                       "--depth", "1", implicit_root=True)
         s.send(b"iq!", "❯ q!")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯ type to filter")
         s.send(b"l", ("cwd", self.root / "child"))
         s.send(b"!")
-        self.assertEqual(s.finish(), (0, b"child\0"))
+        # Even with --output-paths, "!" changes directory instead of printing.
+        self.assertEqual(s.finish(), (0, b""))
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(self.root / "child"))
+        s.close()
+        # Without the shell function there is nothing to print.
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s.send(b"l", ("cwd", self.root / "child"))
+        s.send(b"!")
+        self.assertEqual(s.finish(), (0, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):
+        (self.root / "dir").mkdir()
+        (self.root / "dir" / "deep.txt").touch()
+        (self.root / ".secret").touch()
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s.send(b"2", "deep.txt")
+        s.send(b"1")
+        s.wait_absent("deep.txt")
+        s.send(b"\x1b[C", "deep.txt")
+        s.send(b"\x1b[D")
+        s.wait_absent("deep.txt")
+        s.send(b".", ".secret")
+        s.send(b"/", "Go to directory · INSERT")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Go to directory")
+        s.send(b"b", "Bookmarks")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_quit_from_pinned_root_uses_invocation_not_root(self):
