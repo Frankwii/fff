@@ -104,8 +104,9 @@ pub fn run(
         discovery.drain(&mut app);
         if editor_directory != app.cwd {
             editor_directory = app.cwd.clone();
+            // A new location starts in Normal mode, ready for list keys.
             if let Some(e) = &mut editor {
-                e.reset(Field::Query);
+                e.reset_normal(Field::Query);
             }
         }
         if let Some((field, text)) = text_field(&app, &focus) {

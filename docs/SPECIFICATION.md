@@ -718,6 +718,16 @@ the gray comment color for muted text, `bg2`/`bg3` borders, and orange (bright
 `#fe8019`, faded `#af3a03`) as accent and current-directory color. Values remain
 upstream gruvbox colors; see PALETTES.md.
 
+### 21.3 Normal mode after entering a location
+
+User request: "Make normal be the default editing mode when entering a new
+location." With the Neovim backend, every change of current directory (directory
+Enter or Alt+digit, Alt+l/`l`, Alt+h/`h`, the location prompt, bookmarks) resets
+the query buffer into Normal mode, with the cursor on the last character of a
+retained query. This supersedes section 19/20.1's "navigation resets to Insert".
+The first field activation at startup and the subordinate fields still begin in
+Insert mode. The basic backend has no modes and is unchanged.
+
 ### 21.6 Default configuration path
 
 User request: "Make the default config path be `$XDG_CONFIG_HOME/picker/config.toml`".

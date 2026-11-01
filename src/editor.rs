@@ -2,7 +2,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rmpv::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     io::{BufReader, BufWriter, Write},
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver},
@@ -63,7 +63,8 @@ pub struct Nvim {
     input: BufWriter<ChildStdin>,
     responses: Receiver<Result<Value, String>>,
     serial: u64,
-    invalid: HashSet<Field>,
+    /// Fields whose buffer is replaced on next activation; the flag starts Insert.
+    invalid: HashMap<Field, bool>,
     active: Option<Field>,
     buffers: HashMap<Field, Buffer>,
 }
@@ -117,7 +118,7 @@ impl Nvim {
             input,
             responses,
             serial: 0,
-            invalid: HashSet::new(),
+            invalid: HashMap::new(),
             active: None,
             buffers: HashMap::new(),
         };
@@ -156,11 +157,18 @@ impl Nvim {
         self.request("nvim_input", vec!["<Esc>".into()])?;
         Ok(())
     }
+    /// Replace the field's buffer on next activation, starting in Insert mode.
     pub fn reset(&mut self, field: Field) {
-        self.invalid.insert(field);
+        self.invalid.insert(field, true);
+    }
+    /// Like `reset`, but start in Normal mode with the cursor on the last character.
+    pub fn reset_normal(&mut self, field: Field) {
+        self.invalid.insert(field, false);
     }
     pub fn activate(&mut self, field: Field, text: &str) -> Result<EditView, String> {
-        let reset = self.invalid.remove(&field);
+        let invalid = self.invalid.remove(&field);
+        let reset = invalid.is_some();
+        let insert = invalid.unwrap_or(true);
         if !reset
             && self.active == Some(field)
             && self.buffers.get(&field).is_some_and(|b| b.text == text)
@@ -195,7 +203,7 @@ impl Nvim {
             || self.active != Some(field) && self.buffers[&field].text.is_empty()
         {
             let lines = text.split('\n').map(Value::from).collect::<Vec<_>>();
-            self.lua("local b,lines=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); vim.cmd('startinsert!')",vec![id,arr(lines)])?;
+            self.lua("local b,lines,insert=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); if insert then vim.cmd('startinsert!') else vim.cmd('stopinsert') end",vec![id,arr(lines),insert.into()])?;
         } else {
             let view = &self.buffers[&field].view;
             let row = view.row + 1;

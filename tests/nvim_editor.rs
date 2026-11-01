@@ -87,6 +87,15 @@ fn isolated_buffers_visual_yank_paste_and_multiline_edits() {
     );
     e.reset(Field::Query);
     assert_eq!(e.activate(Field::Query, "").unwrap().label(), "INSERT");
+    // Navigation resets to Normal, with the cursor on the retained query's end.
+    e.reset_normal(Field::Query);
+    let view = e.activate(Field::Query, "kept").unwrap();
+    assert_eq!((view.label(), view.column), ("NORMAL", 3));
+    e.reset_normal(Field::Query);
+    assert_eq!(e.activate(Field::Query, "").unwrap().label(), "NORMAL");
+    assert_eq!(chars(&mut e, Field::Query, "inew"), "new");
+    e.reset(Field::Query);
+    e.activate(Field::Query, "").unwrap();
     assert_eq!(
         e.paste(Field::Query, "<literal> café").unwrap().0,
         "<literal> café"

@@ -560,8 +560,12 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--editor", "nvim", "--no-config", "--depth", "1", implicit_root=True)
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"l", ("cwd", directory))
-        s.send(b"\x1b[27u", "NORMAL")
+        # Entering a location starts in Normal mode, so h needs no Escape first.
+        self.assertIn("Filter · NORMAL", s.screen.text)
         s.send(b"h", ("cwd", self.root))
+        self.assertIn("Filter · NORMAL", s.screen.text)
+        # i returns to Insert; typing filters as usual.
+        s.send(b"ifol", "Query: fol")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

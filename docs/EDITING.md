@@ -57,8 +57,10 @@ Neovim owns motions, operators, counts, registers, undo, Unicode handling, and
 pending commands. A partially entered command such as `f` or `r` is shown as
 **PENDING** and waits for its next character without blocking picker. The fields
 have separate scratch buffers, cursor positions, and undo histories. Switching
-fields cancels a transient pending command/selection. Directory navigation resets
-the query field to Insert mode, including when the new query is empty.
+fields cancels a transient pending command/selection. Entering a new location
+(directory Enter, Alt+l/`l`, Alt+h/`h`, Alt+g, bookmarks) resets the query field to
+**NORMAL** mode, so `j`/`k`/`l`/`h`, `gg` and `G` keep browsing immediately; press
+`i` or `a` to type a filter. The picker itself still starts in Insert mode.
 
 Queries, locations, and bookmark filters use a compact single-line presentation;
 exclusions have a multiline viewport. Bracketed paste is supported; pasted
