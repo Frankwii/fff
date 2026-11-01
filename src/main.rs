@@ -23,6 +23,9 @@ struct Args {
     /// Override the configured color palette
     #[arg(long)]
     palette: Option<String>,
+    /// Hide Nerd Font filetype icons (overrides [ui] icons = true)
+    #[arg(long)]
+    no_icons: bool,
     /// Remap a chord to a default chord, e.g. ctrl+n=alt+j; TARGET=none disables it
     #[arg(long = "map-key")]
     key_maps: Vec<String>,
@@ -103,6 +106,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     app.palette = settings.palette;
     app.bookmarks = settings.bookmarks;
+    app.icons = settings.icons && !args.no_icons;
     if let Some(paths) = ui::run(
         app,
         keys,

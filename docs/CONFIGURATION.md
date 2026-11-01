@@ -44,6 +44,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 | `--config PATH` | Read exactly this file, replacing default-file lookup. Relative `PATH` is relative to the invocation directory. |
 | `--no-config` | Ignore the default file and use built-in settings. Cannot be combined with `--config`. |
 | `--palette NAME` | Override `[ui].palette`; custom palettes still come from the selected config file. |
+| `--no-icons` | Hide filetype icons for this invocation, overriding `[ui] icons`. |
 | `--check-config` | Validate the selected configuration and exit. |
 
 A missing default file uses defaults. An explicitly requested missing file,
@@ -111,6 +112,27 @@ color for that role. Unspecified roles are inherited.
 
 `NO_COLOR` is honored. Labels, selection arrows, bold focus borders, and textual
 progress/missing indicators remain useful without color.
+
+## Filetype icons
+
+Result and marked rows show a [Nerd Font](https://www.nerdfonts.com/) glyph for
+each entry: a folder for directories and a filetype glyph chosen from well-known
+names (`Cargo.toml`, `Makefile`, `.gitignore`, ...) or the extension (`.rs`,
+`.py`, `.md`, `.tex`, `.pdf`, images, audio, video, archives, ...). Unknown files
+get a generic file glyph. Icons are colored with palette roles (directories use
+`accent`, code `success`, media and archives `marked`, documents `text`, others
+`muted`), so custom palettes and `NO_COLOR` apply to them too.
+
+Your terminal font must include Nerd Font glyphs; otherwise you will see boxes or
+blanks. Turn icons off to restore the plain `▸` (directory) / `·` (file) markers:
+
+```toml
+[ui]
+icons = false
+```
+
+or pass `--no-icons` for one invocation. Icons never affect matching, numbering,
+or output paths, and the row layout has the same width either way.
 
 ## Bookmarks
 

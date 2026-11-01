@@ -111,6 +111,8 @@ wrap, and F1 shows complete session details. The minimum working size is 36 × 1
 a smaller terminal shows a resize hint with no invisible numbered targets. Frames
 use diff rendering and synchronized updates to reduce flicker. `NO_COLOR` is
 honored; shortcut text, selection arrows, and missing/progress labels remain visible.
+Rows show Nerd Font filetype icons by default; set `[ui] icons = false` or pass
+`--no-icons` if your terminal font lacks the glyphs.
 
 Configuration is optional TOML at `~/.config/picker/config.toml` (or
 `$XDG_CONFIG_HOME/picker/config.toml`). It supports built-in/custom color palettes,

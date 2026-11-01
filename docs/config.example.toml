@@ -4,6 +4,8 @@
 [ui]
 # See PALETTES.md: catppuccin-*, nord, gruvbox-*, tokyonight-*, plus originals.
 palette = "midnight"
+# Nerd Font filetype icons on result/marked rows; false (or --no-icons) shows ▸/·.
+icons = true
 
 [palettes.ember]
 # Custom palettes inherit a built-in; unspecified roles keep its values.

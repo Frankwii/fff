@@ -453,23 +453,16 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
             let meta = format!(" d{} r{} ", c.depth, c.root + 1);
-            let available = inner
-                .width
-                .saturating_sub((prefix.width() + 4 + meta.width()) as u16)
-                as usize;
+            let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
+            let available = inner.width.saturating_sub(
+                (prefix.width() + "● ".width() + kind.width() + meta.width()) as u16,
+            ) as usize;
             let name = elide(&name, available);
             let gap = available.saturating_sub(name.width());
             let mut spans = vec![
                 styled(prefix, if selected { theme.accent } else { theme.muted }),
                 styled(if marked { "● " } else { "  " }, theme.marked),
-                styled(
-                    if c.directory { "▸ " } else { "· " },
-                    if c.directory {
-                        theme.accent
-                    } else {
-                        theme.muted
-                    },
-                ),
+                styled(kind, icon_color(theme, group)),
             ];
             spans.extend(filename_spans(app.palette, &name, c, &app.query));
             spans.push(styled(" ".repeat(gap) + &meta, theme.muted));
@@ -482,6 +475,17 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
     Rendered {
         targets: visible.iter().map(|c| c.path.clone()).collect(),
         page,
+    }
+}
+/// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.
+fn icon_color(theme: Palette, group: crate::icons::Group) -> Color {
+    use crate::icons::Group;
+    match group {
+        Group::Directory => theme.accent,
+        Group::Code => theme.success,
+        Group::Media | Group::Archive => theme.marked,
+        Group::Document => theme.text,
+        Group::Config | Group::Other => theme.muted,
     }
 }
 fn filename_spans(
@@ -566,9 +570,15 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     let items = rows
         .iter()
         .map(|path| {
-            let missing = !path.exists();
+            let metadata = path.metadata().ok();
+            let missing = metadata.is_none();
+            let icon = if app.icons {
+                crate::icons::icon(path, metadata.is_some_and(|m| m.is_dir())).cell()
+            } else {
+                String::new()
+            };
             let title = format!(
-                "{} [{}] {}{}",
+                "{} [{}] {icon}{}{}",
                 if index.and_then(|i| rows.get(i)) == Some(path) {
                     "›"
                 } else {
@@ -1192,6 +1202,58 @@ mod tests {
         assert_eq!(buffer[(11, 4)].bg, app.palette.selection);
         let cursor = terminal.get_cursor_position().unwrap();
         assert_eq!((cursor.x, cursor.y), (11, 4));
+    }
+    #[test]
+    fn icons_keep_columns_elision_and_numbered_targets_aligned() {
+        let mut app = fixture();
+        for name in ["研究_notes.md", &format!("{}tail.rs", "long_".repeat(30))] {
+            app.insert(
+                0,
+                Candidate {
+                    path: app.cwd.join(name),
+                    directory: false,
+                    depth: 1,
+                    root: 0,
+                },
+            );
+        }
+        app.marks = vec!["/home/frank/notes/report.tex".into()];
+        app.refresh();
+        let mut frames = Vec::new();
+        for icons in [true, false] {
+            app.icons = icons;
+            let mut focus = Focus::Results;
+            let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+            let mut targets = Vec::new();
+            terminal
+                .draw(|f| targets = render(f, &mut app, &mut focus).targets)
+                .unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            // The metadata column ends at the same cell on every row.
+            let meta: Vec<_> = (0..buffer.area.height)
+                .filter_map(|y| {
+                    (1..buffer.area.width - 4).find(|&x| {
+                        ["d", "1", " ", "r", "1"]
+                            .iter()
+                            .enumerate()
+                            .all(|(i, s)| buffer[(x + i as u16, y)].symbol() == *s)
+                    })
+                })
+                .collect();
+            assert_eq!(meta.len(), app.rows.len());
+            assert!(meta.iter().all(|&x| x == meta[0]), "{meta:?}");
+            assert_eq!(targets.len(), app.rows.len());
+            frames.push((text(&buffer), meta[0], targets));
+        }
+        let (on, on_meta, on_targets) = &frames[0];
+        let (off, off_meta, off_targets) = &frames[1];
+        assert_eq!((on_meta, on_targets), (off_meta, off_targets));
+        assert!(on.contains("\u{f07b} research/")); // folder
+        assert!(on.contains("\u{e7a8} …")); // rust, elided keeping the basename
+        assert!(on.contains("tail.rs"));
+        assert!(on.contains("[x] \u{f15c} report.tex")); // marked row
+        assert!(off.contains("▸ research/") && off.contains("· todo.txt"));
+        assert!(!off.contains('\u{f07b}') && off.contains("[x] report.tex"));
     }
     fn export_preview(buffer: &Buffer) {
         let Ok(path) = std::env::var("PICKER_PREVIEW") else {

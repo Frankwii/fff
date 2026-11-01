@@ -521,3 +521,27 @@ printable-query/Escape behavior only when enabled. No personal config/plugins or
 persistent editor files are used. The process is private, time-bounded on RPC,
 and reaped on exit. See [EDITING.md](EDITING.md) for tested behavior and the
 boundary between field editing and a full Neovim window UI.
+
+
+## 20. Neovim default, palette keys, Normal-mode list keys, icons, integrated location line, completions (2026-11-01)
+
+### 20.4 Filetype icons
+
+User request (2026-11-01): "Add little icons for shown entries based on filetype.
+Maybe use nerd icons for this." Result rows and marked-pane rows show a Nerd Font
+glyph chosen from well-known basenames (for example `Cargo.toml`, `Makefile`,
+`.gitignore`) and then the lowercase extension; directories use a folder glyph
+(`.git` a git glyph) and unknown files a generic file glyph. Lookup uses only the
+name and the already-known directory flag, so rendering never stats result rows.
+A compact built-in table is used instead of a crate: it keeps offline builds
+dependency-free and limits glyphs to single-column BMP private-use code points.
+
+The icon replaces the two-column `▸`/`·` kind marker, so row alignment, elision
+that keeps the basename visible, metadata columns, and numbered targets are
+unchanged; width is measured rather than assumed. Icon colors reuse palette
+roles (directories `accent`, code `success`, media/archives `marked`, documents
+`text`, other/config `muted`), so custom palettes and `NO_COLOR` apply unchanged;
+the trailing `/` on directories still conveys kind without color or icon fonts.
+`[ui] icons = true|false` (default `true`, validated by `--check-config`) and the
+`--no-icons` flag (for terminals without a Nerd Font) restore the plain markers.
+Icons are presentation only: matching, sorting, numbering, and output ignore them.

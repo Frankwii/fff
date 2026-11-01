@@ -158,11 +158,13 @@ struct RawConfig {
 #[serde(default, deny_unknown_fields)]
 struct UiConfig {
     palette: String,
+    icons: bool,
 }
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             palette: "midnight".into(),
+            icons: true,
         }
     }
 }
@@ -178,6 +180,8 @@ pub struct Settings {
     pub palette: Palette,
     pub bookmarks: Vec<Bookmark>,
     pub cache: CacheConfig,
+    /// Nerd Font filetype icons (`[ui] icons`); presentation only.
+    pub icons: bool,
 }
 impl Settings {
     pub fn parse(
@@ -252,6 +256,7 @@ impl Settings {
             palette,
             bookmarks,
             cache: raw.cache,
+            icons: raw.ui.icons,
         })
     }
     pub fn load(
