@@ -713,9 +713,14 @@ pub fn run(
         if let Focus::Bookmarks { query, index } = &focus {
             let matches = app.matching_bookmarks(query);
             let target = matches.get(*index).copied();
-            let next = if alt && key.code == K::Char('n') {
+            // Plain letters act while the filter is in Normal mode, like the
+            // results' file operations; Alt keeps them reachable while typing.
+            let normal =
+                key.modifiers.is_empty() && app.edit_view.as_ref().is_some_and(|v| v.normal());
+            let command = |c| key.code == K::Char(c) && (alt || normal);
+            let next = if command('n') {
                 Some(BookmarkDraft::new(&app.cwd, None, query.clone(), *index))
-            } else if alt && key.code == K::Char('e') {
+            } else if command('e') {
                 target.map(|i| {
                     BookmarkDraft::new(
                         &app.cwd,
@@ -740,7 +745,7 @@ pub fn run(
                 }
                 continue;
             }
-            if alt && key.code == K::Char('d') {
+            if command('d') {
                 if let Some(target) = target {
                     focus = Focus::BookmarkDelete {
                         target,
@@ -750,7 +755,7 @@ pub fn run(
                 }
                 continue;
             }
-            if alt && matches!(key.code, K::Up | K::Down) {
+            if matches!(key.code, K::Up | K::Down) {
                 // Matches keep configuration order, so a filtered list moves
                 // the highlight past its visible neighbour.
                 let neighbor = if key.code == K::Up {
@@ -777,7 +782,7 @@ pub fn run(
                 }
                 continue;
             }
-            if alt && key.code == K::Char('r') {
+            if command('r') {
                 match app.bookmark_store.reload() {
                     Ok(bookmarks) => {
                         app.bookmarks = bookmarks;
@@ -967,12 +972,9 @@ pub fn run(
                 match key.code {
                     K::Esc => focus = Focus::Results,
                     K::Char('b') if alt => focus = Focus::Results,
-                    K::Down | K::Char('j') if key.code == K::Down || alt => {
-                        *index = cycle(*index, matches.len(), true)
-                    }
-                    K::Up | K::Char('k') if key.code == K::Up || alt => {
-                        *index = cycle(*index, matches.len(), false)
-                    }
+                    // Up/Down reorder above; Alt+j/k (or Normal j/k) move.
+                    K::Char('j') if alt => *index = cycle(*index, matches.len(), true),
+                    K::Char('k') if alt => *index = cycle(*index, matches.len(), false),
                     K::PageDown => *index = (*index + page).min(matches.len().saturating_sub(1)),
                     K::PageUp => *index = index.saturating_sub(page),
                     K::Enter => {
@@ -1014,9 +1016,7 @@ pub fn run(
                     draft.field = draft.field.next(
                         matches!(key.code, K::BackTab | K::Up) || key.modifiers.contains(M::SHIFT),
                     );
-                } else if (alt && key.code == K::Char('i'))
-                    || (draft.field == BookmarkField::Icon && key.code == K::Char(' '))
-                {
+                } else if draft.field == BookmarkField::Icon && key.code == K::Char(' ') {
                     let index = crate::icons::BOOKMARK_ICONS
                         .iter()
                         .position(|(_, glyph)| glyph.map(|g| g.to_string()) == draft.icon)
@@ -1054,7 +1054,6 @@ pub fn run(
                 let matches = crate::icons::matching_bookmark_icons(query);
                 match key.code {
                     K::Esc => focus = Focus::BookmarkEdit(draft.clone()),
-                    K::Char('i') if alt => focus = Focus::BookmarkEdit(draft.clone()),
                     K::Enter => {
                         if let Some(&i) = matches.get(*index) {
                             draft.icon = crate::icons::BOOKMARK_ICONS[i].1.map(|g| g.to_string());

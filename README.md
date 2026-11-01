@@ -87,7 +87,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l | Enter highlighted directory only |
 | Alt+g | Location prompt |
-| Alt+b | Bookmark chooser; Alt+n adds, Alt+e edits, Alt+d deletes, Alt+Up/Down reorders, Alt+r reloads |
+| Alt+b | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 |
@@ -156,8 +156,8 @@ fff --config docs/config.example.toml --check-config
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 
 In the bookmark editor, Enter saves and Escape cancels, Tab switches fields and
-Alt+i opens a searchable Nerd Font icon picker. In the chooser, Alt+Up/Alt+Down
-reorder bookmarks. Saves update the active TOML file; `--no-config`
+Space on the icon row opens a searchable Nerd Font icon picker. In the chooser,
+Up/Down reorder bookmarks. Saves update the active TOML file; `--no-config`
 keeps edits for this session only.
 
 Discovery is asynchronous and breadth first. Ready results wake the UI immediately;

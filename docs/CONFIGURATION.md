@@ -58,7 +58,7 @@ invalid TOML, unknown field, unknown palette, or invalid setting produces a clea
 startup error naming the file. Explicit bookmark saves/deletions update the active
 config; a missing default file is created on the first save. Startup alone never
 writes it. With `--no-config`, bookmark edits last only for the session.
-Palette edits reload live; external bookmark edits reload with Alt+r in the
+Palette edits reload live; external bookmark edits reload with r in the
 bookmark chooser. Cache/editor edits take effect on the next invocation.
 CLI discovery/output options are independent of this file.
 
@@ -196,8 +196,8 @@ Path rules:
   environment-variable expansion are not performed.
 
 In the chooser, press `i` to type and fuzzy-filter bookmark **names** (Neovim
-fields initially start in Normal mode). Up/Down or Alt+k/Alt+j
-moves the highlight; PageUp/PageDown moves farther. Alt+1 through Alt+9 open
+fields initially start in Normal mode). `j`/`k` in Normal mode or Alt+j/Alt+k
+move the highlight; PageUp/PageDown moves farther. Alt+1 through Alt+9 open
 the corresponding visible numbered bookmark, and Alt+0 opens the last visible
 bookmark. Out-of-range digits clamp to the last visible entry, including after
 filtering or scrolling. These shortcuts work in every editing mode.
@@ -214,10 +214,13 @@ preselected output paths.
 
 ### Editing bookmarks
 
-In the chooser, **Alt+n** adds the current directory, **Alt+e** edits the
-highlighted bookmark, and **Alt+d** asks for confirmation before deleting it.
-Deletion removes only the bookmark record. **Alt+r** reloads bookmarks from disk.
-**Alt+Up** / **Alt+Down** move the highlighted bookmark one place and save the
+In the chooser, **n** adds the current directory, **e** edits the
+highlighted bookmark, and **d** asks for confirmation before deleting it.
+Deletion removes only the bookmark record. **r** reloads bookmarks from disk.
+These letters act while the filter is in Normal mode, so Vim's own `n`, `e`,
+`d` and `r` are unavailable there; while typing a filter (Insert mode or basic
+editing) use **Alt+n**, **Alt+e**, **Alt+d** and **Alt+r**.
+**Up** / **Down** move the highlighted bookmark one place and save the
 new order immediately; while filtering, it moves past its visible neighbour.
 Comments directly above a `[[bookmarks]]` table move with it.
 
@@ -225,8 +228,8 @@ The form opens at the bottom like the file-operation dialogs and edits name,
 path and icon. **Enter** saves and **Escape** cancels, from any editing mode:
 in Neovim, Escape first leaves Insert/Visual mode, and Enter during command-line
 or pending input still goes to Neovim. Neovim's `ZZ` / `:wq` also save and
-`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields. **Alt+i** (or
-Space on the icon row) opens a searchable selection of 37 choices,
+`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields. **Space** on the
+icon row opens a searchable selection of 37 choices,
 including common Nerd Font glyphs and **Automatic** to clear a custom icon.
 Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
 icons remain intact unless changed. The form warns when the path is not an
@@ -238,7 +241,7 @@ configured relative path retains its original spelling.
 
 Saves preserve unrelated TOML settings, comments, existing file permissions and
 valid config symlinks. If another process has changed the bookmark list since
-it was loaded, saving refuses to overwrite it: cancel and use Alt+r to reload.
+it was loaded, saving refuses to overwrite it: cancel and use r to reload.
 Save errors leave the form open and preserve the current bookmarks. Saving an
 unchanged existing bookmark leaves the file alone. With configuration
 disabled, edits are session-only. No directory or target file is modified.

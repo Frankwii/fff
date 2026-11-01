@@ -33,8 +33,10 @@ executes commands such as `:s`. Query Enter keeps its navigation/confirmation
 action. Rename and exclusion buffers retain multiline `o`, `O` and Enter.
 
 In results Normal mode, `v`, `p`, `x`, `r`, `e`, `n` and `s` invoke file
-operations; Insert mode keeps them as text. Choosers and operation buffers retain
-their editing keys.
+operations; Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
+edit, delete and reload bookmarks in the bookmark chooser's Normal mode (Alt+n,
+Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers
+retain their editing keys.
 
 Borders show the mode. Normal/Visual uses a block cursor; Insert uses a bar.
 Horizontal scrolling follows the cursor, and exclusions have a multiline viewport.
@@ -100,7 +102,7 @@ are not buffer-lifecycle editors: Enter applies and Escape in Normal mode
 cancels, like the location prompt. Validation errors keep them open. Escape from Insert/Visual mode
 and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
 and `ZQ`/`:q!` also apply or cancel. In bookmark forms, Tab/Shift+Tab or
-Up/Down switch fields and Alt+i opens the icon chooser. Multiline basic editing
+Up/Down switch fields and Space on the icon row opens the icon chooser. Multiline basic editing
 uses Ctrl+s to apply and Escape to discard;
 `ZZ` is literal text. Rebind list marking with `[keys.normal] mark`; the legacy
 `apply` setting is accepted but ignored.
@@ -117,7 +119,7 @@ It never exits the session. With basic editing it clears/closes immediately.
 
 Digits are Vim counts in Normal mode and query text in Insert/basic mode.
 Alt+j/Alt+k move list highlights in every mode. Up/Down control results and
-choosers; in exclusions and during command-line editing they go to Neovim.
+choosers (in the bookmark chooser they reorder bookmarks); in exclusions and during command-line editing they go to Neovim.
 
 ## Normal-mode list keys
 
