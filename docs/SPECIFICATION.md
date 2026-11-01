@@ -521,3 +521,35 @@ printable-query/Escape behavior only when enabled. No personal config/plugins or
 persistent editor files are used. The process is private, time-bounded on RPC,
 and reaped on exit. See [EDITING.md](EDITING.md) for tested behavior and the
 boundary between field editing and a full Neovim window UI.
+
+
+## 20. Neovim default, palette keys, Normal-mode list keys, icons, integrated location line, completions (2026-11-01)
+
+### 20.2 Live palette switching (Alt+p chooser, Alt+P config reload)
+
+User request (2026-11-01): "Make color live-reloadable (not just via a terminal
+argument; I want a keymapping for this during execution)." Clarified to both:
+
+- **Alt+p** opens a palette chooser listing every built-in palette in catalog
+  order, then the config file's custom palettes. Its name filter is a text field
+  using the active editing engine, like the bookmark filter (fuzzy subsequence
+  match, list order kept). Moving the highlight or changing the filter previews
+  the highlighted palette across the whole interface; with no match the
+  pre-chooser colors show. Enter applies the highlighted palette for the rest of
+  the session. Escape (from Normal mode when Neovim editing is active) or Alt+p
+  again closes the chooser and restores the pre-chooser colors. The config file
+  is never written.
+- **Alt+P** (uppercase; Alt+Shift+p in either legacy or kitty-protocol encoding)
+  re-reads the configuration immediately and applies its palette, clearing any
+  session choice. With `--palette NAME` it re-reads that pinned name's definition.
+  It also works with `--no-config`, restoring the default/pinned built-in. A
+  failed re-read keeps the current colors and reports the error; the session
+  choice is still cleared, so background reload recovers once the file is fixed.
+  Alt+P inside the chooser closes it and reloads.
+- The background watcher (section 18) stays. After an Enter in the chooser it
+  follows the chosen name's definition instead of `[ui].palette` until Alt+P.
+  Reloads computed for a superseded choice are discarded. A reload while the
+  chooser is open updates the colors that Escape restores and keeps the preview.
+- Both chords are listed in the footer (where width allows), F1 details, and
+  README, and are remappable with `--map-key` (for example `ctrl+r=alt+P`).
+  Session state (query, marks, discovery, numbered targets) is preserved.

@@ -31,7 +31,7 @@ impl KeyMap {
         self.0
             .iter()
             .rev()
-            .find(|(from, _)| from.code == key.code && from.modifiers == key.modifiers)
+            .find(|(from, _)| same_chord(*from, key))
             .map(|(_, to)| {
                 to.map(|mut target| {
                     target.kind = key.kind;
@@ -40,6 +40,19 @@ impl KeyMap {
             })
             .unwrap_or(Some(key))
     }
+}
+/// Kitty-protocol terminals report Alt+Shift+p as `p` with SHIFT, legacy ones as
+/// `P`; both spellings name the same chord.
+fn same_chord(a: KeyEvent, b: KeyEvent) -> bool {
+    fn fold(key: KeyEvent) -> (KeyCode, KeyModifiers) {
+        match key.code {
+            KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                (KeyCode::Char(c.to_ascii_uppercase()), key.modifiers)
+            }
+            code => (code, key.modifiers),
+        }
+    }
+    fold(a) == fold(b)
 }
 fn parse_key(name: &str) -> Result<KeyEvent, String> {
     let mut rest = name;

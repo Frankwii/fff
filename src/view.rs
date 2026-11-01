@@ -170,6 +170,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             true,
         ),
         Focus::Bookmarks { query, index } => bookmarks(frame, area, app, query, *index),
+        Focus::Palettes { query, index, .. } => palettes(frame, area, app, query, *index),
         Focus::Location(text) => prompt(
             frame,
             app,
@@ -633,8 +634,12 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         bold("Ctrl+w ", theme.marked),
         styled("return marks", theme.muted),
     ]);
-    let help = if area.width >= 115 {
+    let help = if area.width >= 136 {
+        "Alt+h parent · Alt+l enter · Alt+b bookmarks · Alt+g location · Alt+←/→ depth · Alt+p/P palette · F5 refresh · F1 details · Ctrl+c quit"
+    } else if area.width >= 115 {
         "Alt+h parent · Alt+l enter · Alt+b bookmarks · Alt+g location · Alt+←/→ depth · F5 refresh · F1 details · Ctrl+c quit"
+    } else if area.width >= 94 {
+        "Alt+h parent · Alt+l enter · Alt+b bookmarks · Alt+p/P palette · F5 refresh · Ctrl+c quit"
     } else if area.width >= 75 {
         "Alt+h parent · Alt+l enter · Alt+b bookmarks · F5 refresh · Ctrl+c quit"
     } else {
@@ -745,6 +750,13 @@ fn details(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
             .iter()
             .map(|r| (format!("Exclude: {}", safe(r)), theme.muted)),
     );
+    sections.push((String::new(), theme.text));
+    sections.push(("PALETTE".into(), theme.accent));
+    sections.push((safe(&app.palette_name), theme.text));
+    sections.push((
+        "Alt+p choose (live preview, session only) · Alt+P reload from config".into(),
+        theme.muted,
+    ));
     sections.push((String::new(), theme.text));
     sections.push(("MARKED PATHS".into(), theme.marked));
     sections.extend(app.marks.iter().map(|p| {
@@ -940,6 +952,107 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
                     )),
                     Line::from(""),
                 ])
+            })
+            .collect();
+        let mut state = ListState::default().with_selected(Some(index));
+        frame.render_stateful_widget(
+            List::new(items)
+                .highlight_style(Style::default().bg(theme.selection))
+                .highlight_symbol("› "),
+            list,
+            &mut state,
+        );
+    }
+    if !app.status.is_empty() {
+        frame.render_widget(
+            Paragraph::new(styled(safe(&app.status), theme.error)),
+            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        );
+    }
+}
+/// Alt+p chooser. The whole frame already uses the highlighted (previewed) palette.
+fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
+    let theme = app.palette;
+    let width = area.width.saturating_sub(4).min(64);
+    let height = area.height.saturating_sub(4).min(22);
+    let dialog = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        theme,
+        mode_title(
+            app,
+            Field::Palettes,
+            "Palettes · Enter applies · Esc reverts",
+        ),
+        true,
+        theme.accent,
+    )
+    .padding(Padding::horizontal(1));
+    let inner = block.inner(dialog);
+    frame.render_widget(Clear, dialog);
+    frame.render_widget(block, dialog);
+    let (mut line, cursor) = editable_line(
+        app,
+        Field::Palettes,
+        query,
+        0,
+        inner.width.saturating_sub(6) as usize,
+    );
+    line.spans.insert(0, styled("Find: ", theme.accent));
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    if inner.width > 6 {
+        frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
+    }
+    let list = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(3),
+    );
+    let matches = app.matching_palettes(query);
+    if matches.is_empty() {
+        frame.render_widget(
+            Paragraph::new(styled("No matching palettes", theme.muted)),
+            list,
+        );
+    } else {
+        let builtin = Palette::names().len();
+        let items: Vec<_> = matches
+            .iter()
+            .map(|&i| {
+                let (name, p) = &app.palettes[i];
+                let mut spans = vec![bold(format!("{:<22}", safe(name)), theme.text)];
+                // A compact swatch: background, panel, text, accent, marked, success, error.
+                for color in [
+                    p.background,
+                    p.panel,
+                    p.text,
+                    p.accent,
+                    p.marked,
+                    p.success,
+                    p.error,
+                ] {
+                    spans.push(Span::styled("██", Style::default().fg(color)));
+                }
+                spans.push(styled(
+                    if i < builtin {
+                        "  built-in"
+                    } else {
+                        "  custom"
+                    },
+                    theme.muted,
+                ));
+                if *name == app.palette_name {
+                    spans.push(styled(" · current", theme.success));
+                }
+                ListItem::new(Line::from(spans))
             })
             .collect();
         let mut state = ListState::default().with_selected(Some(index));
@@ -1164,6 +1277,55 @@ mod tests {
                 .any(|c| c.fg == Color::Rgb(0x33, 0x44, 0x55))
         );
         assert!(buffer.content().iter().any(|c| c.bg == app.palette.panel));
+    }
+    #[test]
+    fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
+        let mut app = fixture();
+        let settings = crate::config::Settings::parse(
+            "[ui]\npalette='nord'\n[palettes.paper]\nextends='light'",
+            Path::new("/cfg"),
+            None,
+            None,
+        )
+        .unwrap();
+        app.apply_palette(crate::reload::PaletteState::from_settings(&settings));
+        let mut focus = Focus::Palettes {
+            query: "paper".into(),
+            index: 0,
+            original: app.palette,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal
+            .draw(|f| {
+                render(f, &mut app, &mut focus);
+            })
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("Palettes · Enter applies · Esc reverts"));
+        assert!(screen.contains("Find: paper"));
+        assert!(screen.contains("› paper"));
+        assert!(screen.contains("custom"));
+        assert!(!screen.contains("gruvbox-dark"));
+        assert_eq!(app.matching_palettes("paper").len(), 1);
+        if let Focus::Palettes { query, .. } = &mut focus {
+            query.clear();
+        }
+        terminal
+            .draw(|f| {
+                render(f, &mut app, &mut focus);
+            })
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("built-in · current"));
+        focus = Focus::Info { offset: 0 };
+        terminal
+            .draw(|f| {
+                render(f, &mut app, &mut focus);
+            })
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("PALETTE"));
+        assert!(screen.contains("Alt+P reload from config"));
     }
     #[test]
     fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {

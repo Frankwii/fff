@@ -122,6 +122,9 @@ pub struct App {
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
     pub bookmarks: Vec<config::Bookmark>,
+    /// Active palette name and the palettes offered by the Alt+p chooser.
+    pub palette_name: String,
+    pub palettes: Vec<(String, config::Palette)>,
 }
 
 impl App {
@@ -153,6 +156,11 @@ impl App {
             edit_view: None,
             palette: config::Palette::default(),
             bookmarks: Vec::new(),
+            palette_name: "midnight".into(),
+            palettes: config::Palette::names()
+                .iter()
+                .map(|n| (n.to_string(), config::Palette::named(n).unwrap()))
+                .collect(),
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
@@ -300,6 +308,21 @@ impl App {
             .filter(|(_, b)| score(&b.name, query).is_some())
             .map(|(i, _)| i)
             .collect()
+    }
+    /// Palette chooser rows in list order, fuzzy-filtered by name.
+    pub fn matching_palettes(&self, query: &str) -> Vec<usize> {
+        self.palettes
+            .iter()
+            .enumerate()
+            .filter(|(_, (name, _))| score(name, query).is_some())
+            .map(|(i, _)| i)
+            .collect()
+    }
+    /// Install a loaded palette state without touching session data.
+    pub fn apply_palette(&mut self, state: reload::PaletteState) {
+        self.palette = state.palette;
+        self.palette_name = state.name;
+        self.palettes = state.available;
     }
     pub fn open_bookmark(&mut self, index: usize) -> bool {
         let Some(bookmark) = self.bookmarks.get(index) else {

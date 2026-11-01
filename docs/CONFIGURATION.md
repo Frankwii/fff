@@ -67,6 +67,10 @@ Also available: all four `catppuccin-*` flavors, `nord`, `gruvbox-dark` /
 `gruvbox-light`, and all four `tokyonight-*` variants. See the
 [palette catalog and official color sources](PALETTES.md). Saving color changes
 live-reloads the running interface; invalid edits retain the last working colors.
+While picker runs, **Alt+p** opens a live-preview palette chooser (Enter applies
+for the session only; Escape reverts) and **Alt+P** re-reads this file's palette
+immediately. The config file is never rewritten; see
+[switching palettes while running](PALETTES.md#switching-palettes-while-running).
 
 Choose one in TOML or for a single invocation:
 
@@ -159,6 +163,8 @@ Related navigation keys:
 | Alt+g | Open the location-entry prompt. Enter navigates, Escape cancels. |
 | Alt+h | Parent directory, keeping the filename query. |
 | Alt+b | Open/close the bookmark chooser. |
+| Alt+p | Open/close the palette chooser (live preview; Enter applies for this session, Escape reverts). |
+| Alt+P | Re-read the configured palette now, clearing an Alt+p session choice. |
 
 Alt+l replaces the old location-prompt binding; that prompt is now on Alt+g.
 These chords remain remappable with `--map-key`.

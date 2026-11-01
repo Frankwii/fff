@@ -280,6 +280,32 @@ fn key_remapping_and_printable_text_safety() {
     );
     assert!(KeyMap::parse(&["2=ctrl+2".into()]).is_err());
 }
+#[test]
+fn palette_keys_can_be_remapped_in_either_shift_encoding() {
+    let map = KeyMap::parse(&["ctrl+t=alt+p".into(), "alt+P=ctrl+r".into()]).unwrap();
+    let chooser = map
+        .translate(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL))
+        .unwrap();
+    assert_eq!(
+        (chooser.code, chooser.modifiers),
+        (KeyCode::Char('p'), KeyModifiers::ALT)
+    );
+    // Legacy terminals send `P`; kitty-protocol terminals send `p` with SHIFT.
+    for code in ['P', 'p'] {
+        let key = KeyEvent::new(KeyCode::Char(code), KeyModifiers::ALT | KeyModifiers::SHIFT);
+        assert_eq!(map.translate(key).unwrap().code, KeyCode::Char('r'));
+    }
+    let reload = KeyMap::parse(&["ctrl+r=alt+P".into()])
+        .unwrap()
+        .translate(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL))
+        .unwrap();
+    assert_eq!(reload.code, KeyCode::Char('P'));
+    assert!(
+        reload
+            .modifiers
+            .contains(KeyModifiers::ALT | KeyModifiers::SHIFT)
+    );
+}
 
 #[test]
 fn navigation_combines_one_current_directory_and_fixed_roots() {

@@ -22,8 +22,15 @@ fn defaults_builtin_palettes_custom_inheritance_and_cli_override() {
     assert_eq!(s.palette.accent, Color::Rgb(0x12, 0x3a, 0xbc));
     assert_eq!(s.palette.background, Color::Reset);
     assert_eq!(s.palette.text, Palette::named("light").unwrap().text);
+    assert_eq!(s.palette_name, "paper");
+    // The chooser lists every built-in in documented order, then custom palettes.
+    let names: Vec<_> = s.palettes.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names[..Palette::names().len()], *Palette::names());
+    assert_eq!(names.last(), Some(&"paper"));
+    assert_eq!(s.palettes.last().unwrap().1, s.palette);
     let s = Settings::parse(text, Path::new("/cfg"), None, Some("forest")).unwrap();
     assert_eq!(s.palette, Palette::named("forest").unwrap());
+    assert_eq!(s.palette_name, "forest");
 }
 #[test]
 fn bookmarks_preserve_order_expand_home_and_resolve_relative_to_config() {
