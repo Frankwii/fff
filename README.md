@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.2.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.3.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -26,8 +26,9 @@ terminal; stdout contains only selected paths, so redirection and command
 substitution work. Use the built binary directly or put it on your PATH as `fff`.
 `-h` summarizes options; `--help` includes defaults, examples and exit codes.
 
-The default editor is a clean embedded Neovim. Fields start in **Normal mode**:
-use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
+The default editor is a clean embedded Neovim. Fields start in **Normal mode**,
+except new file/directory naming buffers, which start in **Insert mode**.
+Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. Neovim is optional;
 `--editor basic` selects direct typing/Backspace, and missing Neovim causes a quiet
 fallback unless explicitly requested. See [editing](docs/EDITING.md).
@@ -77,7 +78,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Key | Action |
 | --- | --- |
 | i / a, then type | Edit a Neovim field; basic editing accepts text directly |
-| Escape | Leave transient editing modes, then clear the query or close a prompt; keep the session |
+| Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Enter | Enter a directory or confirm files/marks |
 | Up / Alt+k | Previous row |
 | Down / Alt+j | Next row |
@@ -93,16 +94,27 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
-| ZZ | Apply exclusions or save a bookmark form in Normal/basic mode |
+| :wq / :q! | In Neovim exclusions/bookmark editors, save and close / discard and close |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
 | Alt+. | Toggle hidden entries |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions |
+| v / p / s in Normal | Move / copy / symlink all marked paths into the current directory |
+| x in Normal | Choose current/selected deletion, review sizes, then Enter confirms |
+| r in Normal | Batch rename the filtered results in a buffer |
+| e in Normal | Extract the highlighted archive |
+| n in Normal | Choose a new file or directory, then enter its name |
 | F1 | Key guide; Tab switches to Session details |
 | F5 | Force fresh discovery, bypassing cache replay |
+| q / ! in Normal | Exit and return the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
+
+`q` and `!` return one directory path with status 0, using the usual output
+format. `--no-dir` makes either exit successfully without output. Insert/basic
+editing keeps these characters as text. A shell wrapper can use the returned
+path to change directories; fff itself cannot change its parent shell's directory.
 
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
@@ -119,6 +131,12 @@ fff --map-key alt+j=none
 Mappings translate once to default chords; later mappings for a source win.
 Printable source characters are reserved for editing. Normal-mode sequences are
 configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURATION.md).
+
+File operations make a mandatory backup under `/tmp/fff/backup` before applying
+changes and refuse overwrites. Rename and destination/name buffers use `:wq` to
+apply or `:q!` to discard. See [file operations](docs/OPERATIONS.md) for the backup
+layout, deletion confirmation, archive limits and current boundaries. Building
+requires libarchive development files; the operation engine requires Linux 5.6+.
 
 ## Configuration and responsiveness
 
@@ -137,7 +155,9 @@ fff --config docs/config.example.toml --check-config
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 
 In the bookmark editor, Tab switches fields, Alt+i opens a searchable Nerd Font
-icon picker, and Ctrl+s saves. Saves update the active TOML file; `--no-config`
+icon picker. With Neovim, write then close (`:wq`) to save, or close without
+writing (`:q!`) to discard; basic editing uses Ctrl+s / Escape. Saves update the
+active TOML file; `--no-config`
 keeps edits for this session only.
 
 Discovery is asynchronous and breadth first. Ready results wake the UI immediately;

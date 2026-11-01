@@ -79,7 +79,7 @@ fn dynamic_completion_reads_custom_palettes_from_the_named_config() {
 
 #[test]
 fn renamed_binary_reports_fff_version_and_usage() {
-    assert_eq!(stdout(&fff(&["--version"], None)).trim(), "fff 0.2.0");
+    assert_eq!(stdout(&fff(&["--version"], None)).trim(), "fff 0.3.0");
     let help = stdout(&fff(&["--help"], None));
     assert!(help.contains("Usage: fff"), "{help}");
 }

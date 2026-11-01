@@ -184,6 +184,9 @@ fn every_text_field_initially_starts_normal() {
     };
     for field in [
         Field::Query,
+        Field::Operation,
+        Field::FileName,
+        Field::Extraction,
         Field::Location,
         Field::Exclusions,
         Field::Bookmarks,
@@ -234,4 +237,165 @@ fn navigation_keeps_insert_normal_replace_and_visual_modes() {
     chars(&mut e, Field::Location, "A");
     e.reset_preserving_mode(Field::Query);
     assert_eq!(e.activate(Field::Query, "").unwrap().label(), "INSERT");
+}
+
+#[test]
+fn closing_fields_preserves_final_text_and_keeps_engine_alive() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    for command in [":q!", ":wq", ":x", ":qa!", ":bd!", ":bw!", "ZQ", "ZZ"] {
+        e.reset(Field::Exclusions);
+        e.activate(Field::Exclusions, "build").unwrap();
+        chars(&mut e, Field::Exclusions, "o*.log");
+        e.input(Field::Exclusions, Key::new(K::Esc, M::NONE))
+            .unwrap();
+        let (text, closed) = if command.starts_with(':') {
+            chars(&mut e, Field::Exclusions, command);
+            e.input(Field::Exclusions, Key::new(K::Enter, M::NONE))
+                .unwrap()
+        } else {
+            chars(&mut e, Field::Exclusions, &command[..1]);
+            e.input(
+                Field::Exclusions,
+                Key::new(K::Char(command.chars().nth(1).unwrap()), M::NONE),
+            )
+            .unwrap()
+        };
+        assert!(closed.closed, "{command}: {closed:?}");
+        assert_eq!(text, "build\n*.log", "{command}");
+        // Closing the field leaves a usable Neovim backend.
+        let state = &e.activate(Field::Query, "kept").unwrap();
+        assert!(state.normal(), "{command}: {state:?}");
+        e.activate(Field::Exclusions, &text).unwrap();
+        assert_eq!(
+            chars(&mut e, Field::Exclusions, "A!"),
+            "build\n*.log!",
+            "{command}"
+        );
+        e.input(Field::Exclusions, Key::new(K::Esc, M::NONE))
+            .unwrap();
+    }
+}
+
+#[test]
+fn close_distinguishes_written_contents_from_unsaved_edits() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    for field in [Field::Exclusions, Field::BookmarkName, Field::BookmarkPath] {
+        e.activate(field, "original").unwrap();
+        chars(&mut e, field, "ccsaved");
+        e.input(field, Key::new(K::Esc, M::NONE)).unwrap();
+        chars(&mut e, field, ":w");
+        let (_, view) = e.input(field, Key::new(K::Enter, M::NONE)).unwrap();
+        assert!(view.written);
+        assert!(!view.closed);
+        chars(&mut e, field, "A-unsaved");
+        e.input(field, Key::new(K::Esc, M::NONE)).unwrap();
+        chars(&mut e, field, ":q!");
+        let (text, view) = e.input(field, Key::new(K::Enter, M::NONE)).unwrap();
+        assert!(view.closed && view.saved);
+        assert!(!view.written);
+        assert_eq!(text, "saved");
+        e.activate(field, "original").unwrap();
+        chars(&mut e, field, "ccdiscarded");
+        e.input(field, Key::new(K::Esc, M::NONE)).unwrap();
+        chars(&mut e, field, ":q!");
+        let (_, view) = e.input(field, Key::new(K::Enter, M::NONE)).unwrap();
+        assert!(view.closed && !view.saved);
+    }
+}
+
+#[test]
+fn native_quit_refuses_unwritten_changes() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    e.activate(Field::Exclusions, "build").unwrap();
+    chars(&mut e, Field::Exclusions, "A-changed");
+    e.input(Field::Exclusions, Key::new(K::Esc, M::NONE))
+        .unwrap();
+    chars(&mut e, Field::Exclusions, ":q");
+    let (text, view) = e
+        .input(Field::Exclusions, Key::new(K::Enter, M::NONE))
+        .unwrap();
+    assert!(!view.closed);
+    assert_eq!(text, "build-changed");
+    e.input(Field::Exclusions, Key::new(K::Enter, M::NONE))
+        .unwrap();
+    chars(&mut e, Field::Exclusions, ":q!");
+    let (_, view) = e
+        .input(Field::Exclusions, Key::new(K::Enter, M::NONE))
+        .unwrap();
+    assert!(view.closed && !view.saved);
+}
+
+#[test]
+fn naming_buffer_insert_reset_is_fresh_on_every_activation() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    for name in ["file", "directory"] {
+        e.reset_insert(Field::FileName);
+        assert_eq!(e.activate(Field::FileName, "").unwrap().label(), "INSERT");
+        assert_eq!(chars(&mut e, Field::FileName, name), name);
+        e.input(Field::FileName, Key::new(K::Esc, M::NONE)).unwrap();
+        assert!(e.activate(Field::FileName, name).unwrap().normal());
+    }
+    // Multiline rename buffers retain their Normal start.
+    e.reset_normal(Field::Operation);
+    assert!(e.activate(Field::Operation, "rename").unwrap().normal());
+}
+
+#[test]
+fn single_line_open_keys_enter_insert_without_adding_rows() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    for field in [Field::Query, Field::FileName, Field::Extraction] {
+        for key in ['o', 'O'] {
+            e.reset_normal(field);
+            e.activate(field, "path").unwrap();
+            let (text, view) = e.input(field, Key::new(K::Char(key), M::NONE)).unwrap();
+            assert_eq!(text, "path");
+            assert_eq!(view.label(), "INSERT");
+            assert_eq!(view.row, 0);
+            assert_eq!(
+                e.input(field, Key::new(K::Enter, M::NONE)).unwrap().0,
+                "path"
+            );
+            e.input(field, Key::new(K::Esc, M::NONE)).unwrap();
+            let (text, view) = e.input(field, Key::new(K::Enter, M::NONE)).unwrap();
+            assert_eq!(text, "path");
+            assert!(view.normal());
+            assert_eq!(view.row, 0);
+        }
+        assert!(!e.paste(field, "multi\nline").unwrap().0.contains('\n'));
+    }
+    // Genuine multiline editors retain native open-line and Enter behavior.
+    for field in [Field::Exclusions, Field::Operation] {
+        e.reset_normal(field);
+        e.activate(field, "first").unwrap();
+        assert_eq!(chars(&mut e, field, "osecond"), "first\nsecond");
+        assert_eq!(
+            e.input(field, Key::new(K::Enter, M::NONE)).unwrap().0,
+            "first\nsecond\n"
+        );
+        e.input(field, Key::new(K::Esc, M::NONE)).unwrap();
+    }
+}
+
+#[test]
+fn invalid_utf8_lines_stay_visible_instead_of_becoming_empty() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    e.reset_normal(Field::Operation);
+    e.activate(Field::Operation, "1 a").unwrap();
+    chars(&mut e, Field::Operation, ":call setline(1, \"1 a\\x80b\")");
+    let (text, _) = e
+        .input(Field::Operation, Key::new(K::Enter, M::NONE))
+        .unwrap();
+    assert_eq!(text, "1 a\u{fffd}b");
 }

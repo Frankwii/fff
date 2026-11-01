@@ -18,16 +18,30 @@ palette reload applies only to colors.
 
 The query, location prompt, exclusions, bookmark name/path, bookmark and icon
 filters, and palette filter all
-initially start in **Normal mode**. Press `i` or `a` to type. Directory navigation
+initially start in **Normal mode**. New file/directory naming buffers start in
+**Insert mode**, ready for typing; rename and extraction buffers start in Normal.
+Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
 and Select modes. Pending motions/operators and command-line input are cancelled;
 visual selections restart in the new query buffer. Returning to an existing
 nonempty field preserves its editing state and cursor. The basic backend has no modes.
 
+In query, new-name and extraction-destination buffers, Normal-mode `o` and `O`
+enter Insert mode at the cursor without adding a line. In name/destination
+buffers Enter does nothing in Normal or Insert mode; command-line Enter still
+executes commands such as `:wq`. Query Enter keeps its navigation/confirmation
+action. Rename and exclusion buffers retain multiline `o`, `O` and Enter.
+
+In results Normal mode, `v`, `p`, `x`, `r`, `e`, `n` and `s` invoke file
+operations; Insert mode keeps them as text. Choosers and operation buffers retain
+their editing keys.
+
 Borders show the mode. Normal/Visual uses a block cursor; Insert uses a bar.
 Horizontal scrolling follows the cursor, and exclusions have a multiline viewport.
-Bracketed paste preserves newlines in exclusions and converts them to spaces in
-single-line fields.
+Neovim command entry appears on a separate line below the buffer, keeping its
+contents visible while entering commands such as `:wq`.
+Bracketed paste preserves newlines in exclusions and rename lists, and converts
+them to spaces in single-line fields.
 
 Neovim provides motions, operators, counts, registers, undo and Unicode editing.
 Fields have separate scratch buffers, cursors and undo histories. Pending input
@@ -52,26 +66,47 @@ For example, type `ihello world`, press Escape, then `0dw`: the query becomes
 
 ## Application keys and Escape
 
+In Normal mode, `q` exits and returns the invocation directory; `!` exits and
+returns the current browsing directory. Both ignore marks and use the normal
+path output format (`--relative` and `--null` apply). With `--no-dir`, they exit
+successfully without output. They also work in the marked list. Insert/basic
+fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]`.
+
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,
 and Ctrl+w retain their fff actions in results/marks. Space in Normal mode
 marks/unmarks like Tab; in Insert mode it types a space. The marked list always
 accepts Space because it has no text field.
 
-In exclusions, **ZZ** (two uppercase keystrokes in Normal mode) applies the rules
-and closes the editor. Ctrl+w goes to Neovim instead of applying changes. Insert
-mode can type literal `ZZ`. Basic editing also accepts `ZZ`; an unmatched leading
-`Z` becomes text when the next key arrives. Escape cancels without applying.
-In bookmark forms, Ctrl+s saves from any mode; ZZ saves in Normal/basic mode.
-Tab switches fields and Alt+i opens the icon chooser.
-Rebind marking and applying with `[keys.normal] mark` and `apply`.
+Exclusions, bookmark forms, rename lists, extraction destinations and new names
+use Neovim's buffer lifecycle. Write the buffer
+and close it (`:wq`) to apply changes, or close without writing (`:q!`) to discard
+them. `:w` records a snapshot but keeps editing; closing later applies that last
+written snapshot and discards any edits made since. Unchanged exclusions or
+existing bookmarks leave the stored data alone. Validation errors keep the
+previous data, close the editor, and show a short error at the bottom. Exclusion
+errors include the line number; blank lines are ignored.
+
+File operation details and the temporary backup guard are described in
+[the operation guide](OPERATIONS.md).
+
+These editors have no fff `ZZ`, Escape or Ctrl+s bindings in Neovim: those keys
+go to Neovim, including its native `ZZ` (write and quit) and `ZQ` (quit without
+writing). Escape in Normal mode leaves the editor open. In bookmark forms,
+Tab/Shift+Tab switches fields and Alt+i opens the icon chooser. Writing a name
+or path buffer records the whole form at that point; closing a field applies
+the last written form and returns to the bookmark chooser. Exclusions return
+to the main screen. Basic editing uses Ctrl+s to apply and Escape to discard;
+`ZZ` is literal text. Rebind list marking with `[keys.normal] mark`; the legacy
+`apply` setting is accepted but ignored.
 
 Enter in results navigates or confirms; in locations/bookmarks it navigates; in
 palettes it applies the selected palette. Pending Neovim input and command-line
 entry receive Enter instead. In exclusions, Enter retains Neovim's behavior.
 
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
-Escape when already Normal clears the main query or closes the subordinate view.
-It never exits the session. With basic editing it clears/cancels immediately.
+Escape when already Normal clears the main query or closes subordinate choosers;
+exclusion and bookmark editing buffers keep Escape inside Neovim.
+It never exits the session. With basic editing it clears/closes immediately.
 
 Digits are Vim counts in Normal mode and query text in Insert/basic mode.
 Alt+j/Alt+k move list highlights in every mode. Up/Down control results and
@@ -110,8 +145,12 @@ uses private child stdin/stdout, separate from selected-path output. RPC has a
 bounded timeout and the child is reaped on exit.
 
 Text-local commands such as substitutions work. Commands needing Neovim windows,
-external programs or a full editor UI are outside this integration. Quitting or
-crashing the engine causes fallback without confirming paths.
+external programs or a full editor UI are outside this integration. Closing a
+field captures its written contents and starts a fresh clean engine;
+this resets Neovim undo histories and registers. Writing a scratch buffer records
+an in-memory snapshot; fff applies it only when the editor closes. A query close retains the
+query and returns to Normal editing. An unexpected engine crash causes fallback
+without confirming paths.
 
 The requested keyboard protocol reports Escape distinctly where supported. With
 ESC-prefix terminal reporting, rapidly typed Escape+digit can look like Alt+digit;

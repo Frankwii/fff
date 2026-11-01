@@ -1,0 +1,156 @@
+# File operations
+
+Version 0.3.0 adds operations from results and the marked list. These keys act
+only in Neovim Normal mode (the marked list always accepts them). Insert mode
+keeps them as text. The basic editor can invoke operations from the marked list;
+its prompt buffers use Ctrl+s to apply and Escape to discard.
+
+| Key | Action |
+| --- | --- |
+| `v` | Move all marked paths into the current directory |
+| `p` | Copy all marked paths into the current directory |
+| `s` | Create absolute symlinks to all marked paths in the current directory |
+| `x` | Delete the highlighted path or the marked paths, with confirmation |
+| `r` | Open a batch rename buffer for every currently filtered result |
+| `e` | Extract the highlighted archive into a prompted directory |
+| `n` | Choose file (`f`) or directory (`d`), then enter a new name |
+
+`v`, `p`, and `s` show **No files selected** when nothing is marked. They never
+fall back to the highlighted path. Target names retain their source basenames;
+existing files, directories and dangling symlinks are collisions, never overwrite
+targets. Repeated basenames in one selection also stop the operation. To operate
+on paths from another directory, mark them before navigating to the destination.
+Successful move, copy and symlink operations clear the entire marked list.
+Deletion unmarks only the deleted paths and their descendants, so deleting an
+unmarked current path keeps the selection. Failed or cancelled operations
+preserve the selection. Rename updates marked paths without clearing the list.
+
+Operations preserve original filesystem paths independently of abbreviated labels
+and icons. Copy, move, symlink and delete support names containing non-UTF-8 bytes.
+Overlapping selections (a directory and one of its descendants) are refused;
+select each tree once. Moving/deleting the browsing directory or its ancestors,
+operating within or above the backup directory, and copying a directory into
+itself are refused. Moves across filesystems are refused; copy first instead.
+Trees containing a mount point (or another filesystem/subvolume, detected by a
+different device number) are refused for every operation, so a mounted share is
+never backed up, copied or deleted through its parent. Sockets, devices and other
+special files are refused. Symlinks are copied or
+removed as links; recursive operations never follow them.
+
+## Buffer interactions
+
+Rename, extraction destinations, and new names follow the same lifecycle as
+exclusions and bookmark editing: **write and close (`:wq`) to apply**, or **close
+without writing (`:q!`) to discard**. `:w` records a snapshot but keeps editing;
+a later close applies that snapshot, discarding subsequent unwritten edits.
+Escape and native Neovim commands stay inside the buffer. The command line
+appears below its contents. The application has no additional `ZZ` binding;
+Neovim's own `ZZ` and `ZQ` retain their meanings.
+
+The rename buffer freezes the filtered result list in its displayed order,
+including rows below the current page. It contains scope-relative paths, without
+abbreviations, and exactly one original path per row. Each line starts with
+its zero-padded row number and a space (`01 notes/a.txt`); the number identifies
+the original path, so lines may be reordered or sorted, but numbers must stay.
+Keep the row count; edit only filenames. Parent paths and directory rows must
+stay unchanged. A missing, repeated or out-of-range row number, changed parent,
+changed directory name, empty row, duplicate destination, existing destination,
+unsafe new name, or changed row count aborts the entire plan before any rename.
+Swaps/cycles are refused because they target existing entries. Unchanged rows
+take no part, so an unchanged directory may contain renamed rows. An unchanged
+buffer does nothing. Names containing newlines or non-UTF-8 bytes
+cannot be represented safely here, so opening that rename buffer is refused.
+
+New names from rename, creation and a new extraction destination must be safe
+to see and type. Control characters (tab, carriage return, escape, NUL...),
+leading or trailing whitespace, a leading `-` or `~`, and invalid UTF-8 (which
+Neovim lines show as U+FFFD) abort the operation. Copy, move and symlink keep
+existing source names unchanged. Extraction destinations starting with `~` are
+refused because fff does not expand them.
+
+The extraction and creation buffers appear at the bottom. Normal-mode Enter
+is ignored, and `o` / `O` enter Insert mode without adding a row. Insert-mode
+Enter is also ignored; command-line Enter still executes `:wq` / `:q!`. An empty extraction
+destination uses the archive's parent directory, even if the highlighted archive
+comes from a deeper search result. Other relative destinations start at the
+browsing directory. The destination must either exist as a real directory or
+have an existing parent; extraction does not follow a destination symlink.
+A new destination directory gets mode 0755.
+New file/directory naming buffers start in Insert mode, ready for typing.
+Names must be a single nonempty basename in the current directory; existing
+entries are refused. Rename and extraction buffers start in Normal mode.
+
+## Deletion confirmation
+
+When marks exist, `x` first asks for **current (`c`)** or **selected (`s`)**.
+With no marks it goes directly to confirmation for the highlighted path.
+The confirmation says **The current files will be permanently deleted** and
+shows the paths and their cumulative logical sizes. Directory sizes include
+hidden descendants; symlinks count their own link bytes, never target contents.
+Hard-linked entries count separately. Sizes use B, KiB, MiB, GiB and TiB.
+
+Rows sort by decreasing size. If they exceed the available height, the final
+row reports the remaining file/folder count and their summed size. The footer
+shows the full selection total. **Enter** confirms and **Escape** cancels.
+Changed trees require a new confirmation; a failed size calculation prevents
+deletion. After confirmation, all roots are backed up and detached into private
+staging directories before recursive deletion starts.
+
+## Temporary backup guard
+
+Every operation passes through `BackupGuard` in `src/operations.rs`. This is a
+temporary development guard with no runtime bypass. Removing it later requires
+changing that central boundary, rather than editing individual operations.
+
+Before mutating any source or publishing any destination, fff copies every
+source tree into a new private batch below **`/tmp/fff/backup`**. This includes
+sources of copy, symlink and extraction operations. A backup error prevents the
+operation. New files/directories have no original contents to copy; their batch
+records the destination's absence before creation. Extraction never overwrites
+existing contents, so it backs up the archive rather than unrelated destination
+files. No automatic cleanup removes backup batches.
+
+Each batch contains numbered copies (`0000`, `0001`, ...), `manifest.txt`, and a
+`COMPLETE` marker written only after the copies and manifest are synced. The
+manifest maps numbered copies to exact original Unix path bytes in hexadecimal,
+with a readable escaped path alongside, and records destination paths. Incomplete
+batches have no `COMPLETE` marker and are not evidence of a successful backup.
+The UI reports the backup path. To recover, inspect the manifest and copy the
+numbered entry back to its original location after checking any current entry.
+
+The guard refuses a symlinked, publicly accessible or foreign-owned backup root.
+Parents are pinned by directory descriptors. Sources are rechecked for ordinary
+concurrent changes; destination publication uses no-replace renames. A later
+move/copy publication failure rolls earlier publications back where possible.
+A delete I/O failure after recursive removal starts can leave a partially removed
+batch; retained backups are the recovery source. Failed rollback reports the
+problem and leaves originals in their staging directories when necessary.
+
+Copies and backups preserve file contents, ordinary permission bits, symlinks
+and access/modification times. They are not filesystem snapshots: ownership,
+extended attributes, ACLs, hard-link relationships and sparse allocation are not
+preserved. Concurrent
+writers can still race an operation; stop writers when a stable copy matters.
+Backups live in `/tmp`, so system cleanup or reboot may remove them. Operations
+currently run synchronously, including backup and size calculation.
+
+## Archives and system requirements
+
+The Linux operation engine uses `openat2` (Linux 5.6+) and no-replace rename.
+Building/running requires **libarchive**, including its development linker files
+when building (for example `libarchive-dev` on Debian/Ubuntu). Browsing also links
+to this library. No shell or external extractor is invoked by fff.
+
+libarchive reads supported ZIP, RAR, 7z, tar and compressed-tar archives. Built-in
+gzip, bzip2, xz and zstd filters are enabled. Before opening the destination buffer, `e` performs a read-only validation of
+the highlighted file's contents, paths, payloads and extraction limits.
+Directories, unsupported, encrypted, corrupt or unsafe archives report an
+explanation and leave the main view open; no backup or staging is created.
+Detection uses contents, not filename extensions. Validation runs again during
+extraction in case the archive changes after the prompt opens. Extraction stages all entries before publication and
+refuses existing top-level destinations rather than merging or overwriting them.
+It refuses absolute paths, parent traversal, Windows-style paths, duplicate
+entries, links, and special files. Limits are 10,000 entries, 64 path components,
+2 GiB per file and 4 GiB total extracted bytes. Exceeding a limit discards staging.
+
+Executing commands on chosen files remains unimplemented.

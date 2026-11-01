@@ -166,6 +166,62 @@ class TerminalTests(unittest.TestCase):
         self.session = Session(self.root, *args, **kwargs)
         return self.session
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_normal_quit_returns_launch_directory_and_ignores_marks(self):
+        (self.root / "child").mkdir()
+        (self.root / "child" / "file").touch()
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s.send(b"\t", "Marks (1)")
+        s.send(b"l", ("cwd", self.root / "child"))
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_normal_quit_current_uses_relative_nul_and_insert_keeps_text(self):
+        (self.root / "child").mkdir()
+        (self.root / "child" / "file").touch()
+        s = self.start("--editor", "nvim", "--relative", "--null", "--depth", "1", implicit_root=True)
+        s.send(b"iq!", "❯ q!")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"l", ("cwd", self.root / "child"))
+        s.send(b"!")
+        self.assertEqual(s.finish(), (0, b"child\0"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_quit_from_pinned_root_uses_invocation_not_root(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "nvim")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, os.fsencode(Path.cwd().resolve()) + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_no_dir_quit_returns_no_directory(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "nvim", "--no-dir")
+        s.send(b"!")
+        self.assertEqual(s.finish(), (0, b""))
+
+    def test_bookmark_alt_digits_use_visible_filtered_rows_and_clamp(self):
+        names = [f"place{i:02}" for i in range(12)]
+        for name in names:
+            (self.root / name).mkdir()
+            (self.root / name / "file").touch()
+        config = self.root / "config.toml"
+        config.write_text("".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in names))
+        s = self.start("--config", str(config), implicit_root=True)
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1b2", ("cwd", self.root / names[1]))
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"place1", "place11")
+        s.send(b"\x1b9", ("cwd", self.root / names[11]))
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1b[6~", "place05")
+        s.send(b"\x1b[6~\x1b[6~", "place11")
+        s.send(b"\x1b0", ("cwd", self.root / names[11]))
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_numbered_choice_ignores_marks_and_returns_exact_nul(self):
         (self.root / "a").mkdir()
         (self.root / "b").mkdir()
@@ -205,7 +261,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bH", "exclusions off")
         s.send(b"\x1be", b"one glob per line")
         before_apply = len(s.ui)
-        s.send(b"\r*.texZZ", "❯")
+        s.send(b"\r*.tex\x13", "❯")
         self.assertNotIn(b"No matching results", s.ui[before_apply:])
         s.send(b"\x1bH", b"No matching results")
         s.send(b"\x03")
@@ -465,7 +521,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bi", "Bookmark icons")
         s.send(b"automatic", "Automatic")
         s.send(b"\r", "Edit bookmark")
-        s.send(b"ZZ")
+        s.send(b"\x13")
         s.wait_absent("Edit bookmark")
         s.wait_absent("Add bookmark")
         s.wait_ui("Bookmark saved")
@@ -546,11 +602,47 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ihome", "Home house")
         s.send(b"\x1b", "NORMAL")
         s.send(b"\r", "Add bookmark")
-        s.send(b"ZZ")
+        s.send(b"\x1b[27u:wq\r")
         s.wait_absent("Edit bookmark")
         s.wait_absent("Add bookmark")
         s.wait_ui("Bookmark saved")
         self.assertIn("Notes", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
+    def test_bookmark_neovim_writes_apply_only_on_close(self):
+        config = self.root / "config.toml"
+        config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
+        s = self.start("--config", str(config), editor="nvim", implicit_root=True)
+        s.send(b"\x1bb", "Before")
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"ccDiscarded", "Discarded")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "Edit bookmark")
+        s.send(b"\x13", "Edit bookmark")
+        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Before")
+        s.send(b":q!\r", "Bookmarks ·")
+        s.wait_absent("Edit bookmark")
+        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Before")
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"ccWritten", "Written")
+        s.send(b"\x1b[27u:w\r", "Edit bookmark")
+        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Before")
+        s.send(b"ccUnsaved", "Unsaved")
+        s.send(b"\x1b[27u:q!\r", "Bookmark saved")
+        s.wait_absent("Edit bookmark")
+        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["name"], "Written")
+        s.send(b"\x1be", "Edit bookmark")
+        before = config.read_text()
+        s.send(b"dd:wq\r", "Bookmark name must not be empty")
+        s.wait_absent("Edit bookmark")
+        self.assertEqual(config.read_text(), before)
+        # An unchanged, explicitly written existing bookmark is a no-op.
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b":wq\r", "Bookmarks ·")
+        s.wait_absent("Edit bookmark")
+        self.assertEqual(config.read_text(), before)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -602,7 +694,7 @@ class TerminalTests(unittest.TestCase):
         s = Session(self.root / "notes", str(self.root / "papers"), "--editor", "basic", "--depth", "1")
         self.session = s
         lines = s.screen.text.splitlines()
-        self.assertIn("Filter", lines[0])
+        self.assertIn("Query", lines[0])
         self.assertIn("● complete   depth 1", lines[2])
         self.assertNotIn("hidden", lines[2])
         self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} "), s.screen.text)
@@ -697,13 +789,49 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nvim_buffer_closes_keep_query_and_validate_exclusions(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "nvim", "--exclude", "build")
+        s.send(b"ifile", "file")
+        s.send(b"\x1b[27u:q!\r", "Query · NORMAL")
+        self.assertNotIn("Using basic editing", s.screen.text)
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1be", "Edit exclusions")
+        s.send(b"ggdGifile", "file")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "Edit exclusions")
+        self.assertIn("Edit exclusions", s.screen.text)
+        s.send(b":q!\r", "Query · NORMAL")
+        s.wait_absent("Edit exclusions")
+        s.send(b"\x1be", "Edit exclusions")
+        self.assertIn("build", s.screen.text)
+        s.send(b"ggdGifile", "file")
+        s.send(b"\x1b[27u:wq\r", "No matching results")
+        s.wait_absent("Edit exclusions")
+        s.send(b"\x1be", "Edit exclusions")
+        s.send(b"ggdGi[", "[")
+        s.send(b"\x1b[27u:wq\r", "Exclusion line 1:")
+        s.wait_absent("Edit exclusions")
+        self.assertIn("No matching results", s.screen.text)
+        s.send(b"\x1be", "Edit exclusions")
+        self.assertIn("file", s.screen.text)
+        s.send(b":q!\r", "No matching results")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_multiline_exclusions_and_pending_find(self):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
         s = self.start("--editor", "nvim", "--exclude", "build")
         s.send(b"\x1be", "NORMAL")
         s.send(b"o*.tex", "*.tex")
-        s.send(b"\x1b[27uZZ", "No matching results")
+        s.send(b"\x1b[27u:wq", ":wq")
+        lines = s.screen.text.splitlines()
+        command_row = next(i for i, line in enumerate(lines) if ":wq" in line)
+        for rule in ["build", "*.tex"]:
+            self.assertTrue(any(rule in line for line in lines[:command_row]))
+        s.send(b"\r", "No matching results")
         # Applying exclusions returns to the main query, initially Normal.
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0f", "PENDING")
@@ -747,7 +875,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"$ge", "NORMAL")  # plain e would stay on the last letter
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"x", "❯ gamma")
+        s.send(b"dl", "❯ gamma")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "gamma") + b"\n"))
 
@@ -760,9 +888,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"l", ("cwd", directory))
         # Normal-mode navigation stays Normal, so h needs no Escape first.
-        self.assertIn("Filter · NORMAL", s.screen.text)
+        self.assertIn("Query · NORMAL", s.screen.text)
         s.send(b"h", ("cwd", self.root))
-        self.assertIn("Filter · NORMAL", s.screen.text)
+        self.assertIn("Query · NORMAL", s.screen.text)
         # i returns to Insert; typing filters as usual.
         s.send(b"ifol", "❯ fol")
         s.send(b"\x03")
@@ -823,14 +951,14 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
         s.send(b"ifol", "❯ fol")
         s.send(b"\x1bl", ("cwd", directory))
-        self.assertIn("Filter · INSERT", s.screen.text)
+        self.assertIn("Query · INSERT", s.screen.text)
         s.send(b"file", "❯ file")
         s.send(b"\x1bh", ("cwd", self.root))
-        self.assertIn("Filter · INSERT", s.screen.text)
+        self.assertIn("Query · INSERT", s.screen.text)
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯")
         s.send(b"l", ("cwd", directory))
-        self.assertIn("Filter · NORMAL", s.screen.text)
+        self.assertIn("Query · NORMAL", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -851,7 +979,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_exclusions_zz_applies_only_in_normal_and_ctrl_w_keeps_editor(self):
+    def test_exclusions_native_zz_and_ctrl_w_keep_neovim_behavior(self):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
         s = self.start("--editor", "nvim", "--exclude", "build")
@@ -872,17 +1000,19 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_mark_and_exclusion_apply_sequences_can_be_configured(self):
+    def test_configured_apply_sequence_does_not_intercept_neovim(self):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="fff-action-keys-") as folder:
             config = Path(folder) / "config.toml"
-            config.write_text("[keys.normal]\nmark='x'\napply='qq'\n")
+            config.write_text("[keys.normal]\nmark='x'\nquit='none'\napply='qq'\n")
             s = self.start("--editor", "nvim", "--config", str(config))
             s.send(b"x", "Marks (1)")
             s.send(b"\x1be", "Edit exclusions")
             s.send(b"inot-present", "not-present")
             s.send(b"\x1b[27u", "NORMAL")
-            s.send(b"qq")
+            s.send(b"qq", "Edit exclusions")
+            self.assertIn("Edit exclusions", s.screen.text)
+            s.send(b":wq\r")
             s.wait_absent("Edit exclusions")
             s.send(b"\x17")
             self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
@@ -895,15 +1025,237 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_basic_exclusion_prefix_is_literal_unless_completed(self):
+    def test_basic_exclusions_use_explicit_save_and_discard(self):
         (self.root / "file").touch()
         s = self.start("--editor", "basic")
         s.send(b"\x1be", "Exclusions")
-        s.send(b"Zx", "Zx")
-        s.send(b"\x17", "Exclusions")
-        s.send(b"\x7f\x7ffileZZ", "No matching results")
+        s.send(b"ZZ", "ZZ")
+        self.assertIn("Edit exclusions", s.screen.text)
+        s.send(b"\x1b[27u", "Query")
+        s.wait_absent("Edit exclusions")
+        s.send(b"\x1be", "Exclusions")
+        s.send(b"file\x13", "No matching results")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_file_operations_normal_only_and_empty_selection(self):
+        (self.root / "file").write_text("original")
+        s = self.start(editor="nvim", implicit_root=True)
+        for key in [b"v", b"p", b"s"]:
+            s.send(key, "No files selected")
+            self.assertEqual((self.root / "file").read_text(), "original")
+        s.send(b"ivpxrens", "❯ vpxrens")
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["file"])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_file_operations_copy_move_and_symlink_clear_all_selected(self):
+        for key in ["p", "v", "s"]:
+            prefix = "file-" + key + "-"
+            names = [prefix + "a", prefix + "b"]
+            target = self.root / ("target-" + key)
+            target.mkdir()
+            for name in names:
+                (self.root / name).write_text("payload")
+            s = self.start(editor="nvim", implicit_root=True)
+            s.send(b"i" + prefix.encode(), "❯ " + prefix)
+            s.send(b"\x1b[27u\t\t", "Marks (2)")
+            s.send(b"\x1b[27ui" + target.name.encode(), "❯ " + target.name)
+            s.send(b"\x1b[27u\r", ("cwd", target))
+            s.send(key.encode(), "Operation complete")
+            for name in names:
+                self.assertEqual((target / name).read_text(), "payload")
+                self.assertEqual((self.root / name).exists(), key != "v")
+                self.assertEqual((target / name).is_symlink(), key == "s")
+            self.assertIn("Marks (0)", s.screen.text)
+            s.send(key.encode(), "No files selected")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+            s.close()
+            self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_failed_file_operations_preserve_all_selected(self):
+        source = self.root / "source"
+        source.write_text("keep")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"\t", "Marks (1)")
+        for key in [b"v", b"p", b"s"]:
+            # The destination is the source's current directory: collision.
+            s.send(key, "Destination already exists")
+            self.assertIn("Marks (1)", s.screen.text)
+            self.assertEqual(source.read_text(), "keep")
+        s.send(b"\x17")
+        self.assertEqual(s.finish(), (0, os.fsencode(source) + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_file_operations_new_file_directory_and_discard(self):
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"n", "Create a file")
+        s.send(b"f", "New file · INSERT")
+        s.send(b"discarded", "discarded")
+        s.send(b"\x1b[27u:q!\r", "Query · NORMAL")
+        self.assertFalse((self.root / "discarded").exists())
+        for choice, name in [(b"f", "new-file"), (b"d", "new-folder")]:
+            s.send(b"n", "Create a file")
+            s.send(choice, "New file · INSERT" if choice == b"f" else "New directory · INSERT")
+            s.send(name.encode(), name)
+            s.send(b"\x1b[27u:wq\r", "Operation complete")
+            s.wait_absent("New file" if choice == b"f" else "New directory")
+            self.assertTrue((self.root / name).exists())
+            self.assertEqual((self.root / name).is_dir(), choice == b"d")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_file_operations_rename_buffer_validation_and_mark_updates(self):
+        (self.root / "alpha").write_text("a")
+        (self.root / "beta").write_text("b")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"\t", "Marks (1)")
+        s.send(b"r", "Rename files")
+        self.assertIn("alpha", s.screen.text)
+        self.assertIn("beta", s.screen.text)
+        s.send(b"ggdd:wq\r", "Rename row count changed")
+        self.assertTrue((self.root / "alpha").exists())
+        self.assertTrue((self.root / "beta").exists())
+        s.send(b"r", "Rename files")
+        s.send(b"gg0wCrenamed", "renamed")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "Rename files")
+        s.send(b":wq\r", "Operation complete")
+        self.assertFalse((self.root / "alpha").exists())
+        self.assertEqual((self.root / "renamed").read_text(), "a")
+        s.send(b"\x17")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "renamed") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_file_operations_delete_current_or_selected_and_cancel(self):
+        (self.root / "alpha").write_text("aaa")
+        (self.root / "beta").write_bytes(b"b" * 20000)
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"\t", "Marks (1)")  # alpha marked, beta highlighted
+        s.send(b"x", "Delete current (c) or selected (s)")
+        s.send(b"c", "permanently deleted")
+        self.assertIn("beta", s.screen.text)
+        self.assertIn("19.5 KiB", s.screen.text)
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        self.assertTrue((self.root / "beta").exists())
+        self.assertIn("Marks (1)", s.screen.text)
+        s.send(b"xs", "permanently deleted")
+        self.assertIn("alpha", s.screen.text)
+        s.send(b"\r", "Operation complete")
+        self.assertFalse((self.root / "alpha").exists())
+        self.assertTrue((self.root / "beta").exists())
+        self.assertIn("Marks (0)", s.screen.text)
+        s.send(b"x", "permanently deleted")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_deleting_unselected_current_file_keeps_other_selected_files(self):
+        selected = self.root / "alpha"
+        current = self.root / "beta"
+        selected.write_text("selected")
+        current.write_text("current")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"\t", "Marks (1)")
+        s.send(b"xc", "permanently deleted")
+        s.send(b"\r", "Operation complete")
+        self.assertFalse(current.exists())
+        self.assertTrue(selected.exists())
+        self.assertIn("Marks (1)", s.screen.text)
+        s.send(b"\x17")
+        self.assertEqual(s.finish(), (0, os.fsencode(selected) + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_file_operations_extract_empty_and_explicit_destination(self):
+        import zipfile
+        archive = self.root / "input.zip"
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("unpacked", "payload")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"e", "empty extracts beside the archive")
+        s.send(b":wq\r", "Operation complete")
+        self.assertEqual((self.root / "unpacked").read_text(), "payload")
+        # Filter ensures extraction continues to target the archive alone.
+        s.send(b"iinput.zip", "❯ input.zip")
+        s.send(b"\x1b[27ue", "Extract archive")
+        s.send(b"ioutput", "output")
+        s.send(b"\x1b[27u:wq\r", "Operation complete")
+        s.wait_absent("Extract archive")
+        self.assertEqual((self.root / "output/unpacked").read_text(), "payload")
+        self.assertTrue(archive.exists())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_extract_rejects_non_archives_before_opening_a_buffer(self):
+        import zipfile
+        directory = self.root / "folder"
+        directory.mkdir()
+        plain = self.root / "not-an-archive.zip"
+        plain.write_text("plain text")
+        corrupt = self.root / "corrupt.zip"
+        with zipfile.ZipFile(corrupt, "w", compression=zipfile.ZIP_STORED) as z:
+            z.writestr("data", b"PAYLOAD")
+        raw = bytearray(corrupt.read_bytes())
+        raw[raw.index(b"PAYLOAD")] ^= 1
+        corrupt.write_bytes(raw)
+        s = self.start(editor="nvim", implicit_root=True)
+        for name in [directory.name, plain.name, corrupt.name]:
+            s.send(b"i" + name.encode(), "❯ " + name)
+            s.send(b"\x1b[27ue", "Cannot extract this file:")
+            self.assertNotIn("Extract archive", s.screen.text)
+            self.assertIn("Query · NORMAL", s.screen.text)
+            s.send(b"\x1b[27u", "❯")
+        s.send(b"imissing", "No matching results")
+        s.send(b"\x1b[27ue", "Select an extractable archive first")
+        self.assertNotIn("Extract archive", s.screen.text)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()),
+                         ["corrupt.zip", "folder", "not-an-archive.zip"])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_single_line_naming_and_extraction_keys(self):
+        import zipfile
+        archive = self.root / "input.zip"
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("data", "payload")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"nf", "New file · INSERT")
+        s.send(b"name\r", "name")  # Insert Enter must not add a row.
+        s.send(b"\x1b[27u\r", "New file · NORMAL")
+        s.send(b"O", "New file · INSERT")
+        s.send(b"\x1b[27uo", "New file · INSERT")
+        s.send(b"\x1b[27u:wq\r", "Operation complete")
+        s.wait_absent("New file")
+        self.assertTrue((self.root / "name").is_file())
+        s.send(b"iinput.zip", "❯ input.zip")
+        s.send(b"\x1b[27ue", "Extract archive · NORMAL")
+        s.send(b"\r", "Extract archive · NORMAL")
+        s.send(b"o", "Extract archive · INSERT")
+        s.send(b"output\r", "output")
+        s.send(b"\x1b[27uO", "Extract archive · INSERT")
+        s.send(b"\x1b[27u:wq\r", "Operation complete")
+        s.wait_absent("Extract archive")
+        self.assertEqual((self.root / "output/data").read_text(), "payload")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_query_o_and_O_enter_insert_without_a_newline(self):
+        (self.root / "file").touch()
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"o", "Query · INSERT")
+        s.send(b"file", "❯ file")
+        s.send(b"\x1b[27uO", "Query · INSERT")
+        s.send(b"\x1b[27u\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
     def test_missing_nvim_falls_back_to_basic_input(self):
         (self.root / "file").touch()

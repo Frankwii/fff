@@ -14,6 +14,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub(crate) struct Rendered {
     pub targets: Vec<PathBuf>,
+    pub bookmark_targets: Vec<usize>,
     pub page: usize,
 }
 
@@ -131,6 +132,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         frame.render_widget(Paragraph::new(text), area);
         return Rendered {
             targets: Vec::new(),
+            bookmark_targets: Vec::new(),
             page: 0,
         };
     }
@@ -144,7 +146,17 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(
+                if app
+                    .edit_view
+                    .as_ref()
+                    .is_some_and(|v| v.field == Field::Query && v.mode.starts_with('c'))
+                {
+                    4
+                } else {
+                    3
+                },
+            ),
             Constraint::Length(location.len() as u16),
             Constraint::Min(3),
             Constraint::Length(1),
@@ -173,11 +185,52 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             .split(main);
         (rows[0], rows[1])
     };
-    let result = results_pane(frame, results, app, matches!(focus, Focus::Results));
+    let mut result = results_pane(frame, results, app, matches!(focus, Focus::Results));
     marks_pane(frame, marks, app, focus);
     footer(frame, layout[3], app, focus);
     match focus {
         Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
+        Focus::Operation(draft) => {
+            let (title, multiline) = match draft.kind {
+                crate::operations::EditKind::Rename(_) => ("Rename files", true),
+                crate::operations::EditKind::Extract(_) => ("Extract archive", false),
+                crate::operations::EditKind::New(true) => ("New directory", false),
+                crate::operations::EditKind::New(false) => ("New file", false),
+            };
+            prompt(
+                frame,
+                app,
+                area,
+                draft.field(),
+                title,
+                &draft.text,
+                multiline,
+            );
+        }
+        Focus::NewChoice => operation_notice(
+            frame,
+            area,
+            app,
+            "Create",
+            "Create a file (f) or directory (d)? Esc cancels",
+            None,
+        ),
+        Focus::DeleteChoice { .. } => operation_notice(
+            frame,
+            area,
+            app,
+            "Delete",
+            "Delete current (c) or selected (s)? Esc cancels",
+            None,
+        ),
+        Focus::DeleteConfirm(rows) => operation_notice(
+            frame,
+            area,
+            app,
+            "Delete permanently",
+            "The current files will be permanently deleted. Enter confirms · Esc cancels",
+            Some(&rows.rows),
+        ),
         Focus::Exclusions(text) => prompt(
             frame,
             app,
@@ -187,7 +240,10 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             text,
             true,
         ),
-        Focus::Bookmarks { query, index } => bookmarks(frame, area, app, query, *index),
+        Focus::Bookmarks { query, index } => {
+            result.bookmark_targets = bookmarks(frame, area, app, query, *index);
+            result.page = result.bookmark_targets.len();
+        }
         Focus::BookmarkEdit(draft) => bookmark_form(frame, area, app, draft),
         Focus::BookmarkIcons { query, index, .. } => {
             bookmark_icons(frame, area, app, query, *index)
@@ -390,16 +446,20 @@ fn editable_line(
 ) -> (Line<'static>, u16) {
     let theme = app.palette;
     let view = app.edit_view.as_ref().filter(|v| v.field == field);
-    let (text, column) = if let Some(v) = view.filter(|v| v.mode.starts_with('c')) {
-        (v.command.as_str(), v.command_column)
-    } else {
-        (
-            text,
-            view.filter(|v| v.row == row)
-                .map(|v| v.column)
-                .unwrap_or(text.len()),
-        )
-    };
+    let column = view
+        .filter(|v| v.row == row)
+        .map(|v| v.column)
+        .unwrap_or(text.len());
+    text_line(theme, view, text, row, width, column)
+}
+fn text_line(
+    theme: Palette,
+    view: Option<&crate::editor::EditView>,
+    text: &str,
+    row: usize,
+    width: usize,
+    column: usize,
+) -> (Line<'static>, u16) {
     let mut column = column.min(text.len());
     while !text.is_char_boundary(column) {
         column -= 1;
@@ -459,11 +519,34 @@ fn editable_line(
         (cursor.saturating_sub(start) + usize::from(start > 0)).min(width.saturating_sub(1)) as u16,
     )
 }
+/// Render command entry below the field without hiding its buffer contents.
+fn command_line(frame: &mut Frame, app: &App, field: Field, area: Rect) {
+    let Some(view) = app
+        .edit_view
+        .as_ref()
+        .filter(|v| v.field == field && v.mode.starts_with('c'))
+    else {
+        return;
+    };
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let (line, cursor) = text_line(
+        app.palette,
+        None,
+        &view.command,
+        0,
+        area.width as usize,
+        view.command_column,
+    );
+    frame.render_widget(Paragraph::new(line), area);
+    frame.set_cursor_position((area.x + cursor, area.y));
+}
 fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let theme = app.palette;
     let block = panel(
         app.palette,
-        mode_title(app, Field::Query, "Filter"),
+        mode_title(app, Field::Query, "Query"),
         focused,
         theme.accent,
     )
@@ -474,18 +557,21 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let prefix = "❯ ";
     let available = inner.width.saturating_sub(prefix.width() as u16) as usize;
     let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
-    if app.query.is_empty()
-        && !app
-            .edit_view
-            .as_ref()
-            .is_some_and(|v| v.mode.starts_with('c'))
-    {
+    if app.query.is_empty() {
         line = Line::from(styled("type to filter names…", theme.muted));
     }
     line.spans.insert(0, bold(prefix, theme.accent));
     frame.render_widget(Paragraph::new(line), inner);
     if focused && inner.width > 0 {
         frame.set_cursor_position((inner.x + prefix.width() as u16 + cursor, inner.y));
+    }
+    if focused && inner.height > 1 {
+        command_line(
+            frame,
+            app,
+            Field::Query,
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
     }
 }
 
@@ -606,6 +692,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
     }
     Rendered {
         targets: visible.iter().map(|c| c.path.clone()).collect(),
+        bookmark_targets: Vec::new(),
         page,
     }
 }
@@ -899,7 +986,17 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+.".into(), "show / hide hidden entries", false),
                 ("Alt+H".into(), "exclusions on / off", false),
                 ("Alt+e".into(), "edit exclusions", false),
-                (normal(Apply), "apply / close exclusions", false),
+                (
+                    "v / p / s".into(),
+                    "move / copy / symlink selected (Normal)",
+                    false,
+                ),
+                (
+                    "x / r / e / n".into(),
+                    "delete / rename / extract / create (Normal)",
+                    false,
+                ),
+                (":wq / :q!".into(), "save / discard buffer edits", false),
                 ("F5".into(), "rescan, bypassing the cache", false),
             ],
         ),
@@ -915,6 +1012,8 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     false,
                 ),
                 (normal(Mark), "mark / unmark, like Tab", false),
+                (normal(Quit), "exit, return launch directory", true),
+                (normal(QuitCurrent), "exit, return current directory", true),
                 ("i  a".into(), "enter Insert mode", false),
             ],
         ),
@@ -929,6 +1028,7 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
         (
             "Bookmarks",
             vec![
+                ("Alt+1…9 Alt+0".into(), "open visible bookmark / last", true),
                 ("Alt+n".into(), "add current directory (in chooser)", true),
                 ("Alt+e".into(), "edit highlighted bookmark", true),
                 ("Alt+d".into(), "delete bookmark, with confirmation", true),
@@ -939,8 +1039,8 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     true,
                 ),
                 ("Alt+i".into(), "choose bookmark Nerd Font icon", true),
-                ("Ctrl+s".into(), "save bookmark", true),
-                (normal(Apply), "save bookmark in Normal mode", true),
+                ("Ctrl+s".into(), "save bookmark (basic editor)", true),
+                (":wq / :q!".into(), "save / discard bookmark", true),
             ],
         ),
     ];
@@ -1136,7 +1236,11 @@ fn prompt(
     .min(area.height);
     let dialog = Rect::new(
         area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
+        if matches!(field, Field::FileName | Field::Extraction) && !multiline {
+            area.bottom().saturating_sub(height)
+        } else {
+            area.y + (area.height - height) / 2
+        },
         width,
         height,
     );
@@ -1146,15 +1250,30 @@ fn prompt(
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
     let modal = app.edit_view.is_some();
-    let apply = app
-        .normal_keys
-        .describe(crate::normal_keys::ListAction::Apply);
-    let apply = if apply.is_empty() { "unbound" } else { &apply };
-    let hint = if multiline {
-        if modal {
-            format!("Exclusions: one glob per line; {apply} in Normal applies; Esc normal / cancel")
+    let hint: String = if matches!(
+        field,
+        Field::Operation | Field::FileName | Field::Extraction
+    ) {
+        let help = if multiline {
+            "One path per row; filenames only."
+        } else if title == "Extract archive" {
+            "Destination; empty extracts beside the archive."
         } else {
-            format!("Exclusions: one glob per line; {apply} applies, Esc cancels")
+            "Enter a name in the current directory."
+        };
+        format!(
+            "{help} {}",
+            if modal {
+                "Write to apply; close to discard."
+            } else {
+                "Ctrl+s applies; Esc discards."
+            }
+        )
+    } else if multiline {
+        if modal {
+            "Exclusions: one glob per line; write saves; close discards".into()
+        } else {
+            "Exclusions: one glob per line; Ctrl+s saves; Esc discards".into()
         }
     } else if modal {
         "Location · Enter navigates · Esc normal / cancel".into()
@@ -1165,17 +1284,16 @@ fn prompt(
         Paragraph::new(styled(hint, theme.muted)).wrap(Wrap { trim: false }),
         Rect::new(inner.x, inner.y, inner.width, 2.min(inner.height)),
     );
+    let view = app.edit_view.as_ref().filter(|v| v.field == field);
+    let commanding = view.is_some_and(|v| v.mode.starts_with('c'));
     let editor = Rect::new(
         inner.x,
         inner.y + 2,
         inner.width,
-        inner.height.saturating_sub(3),
+        inner.height.saturating_sub(3 + u16::from(commanding)),
     );
-    let view = app.edit_view.as_ref().filter(|v| v.field == field);
     let rows = text.split('\n').collect::<Vec<_>>();
-    let cursor_row = view
-        .map(|v| if v.mode.starts_with('c') { 0 } else { v.row })
-        .unwrap_or(rows.len() - 1);
+    let cursor_row = view.map(|v| v.row).unwrap_or(rows.len() - 1);
     let start = cursor_row.saturating_sub(editor.height.saturating_sub(1) as usize);
     let mut cursor_x = 0;
     let shown = rows
@@ -1201,6 +1319,14 @@ fn prompt(
                     .min(editor.height as usize - 1) as u16,
         ));
     }
+    if commanding {
+        command_line(
+            frame,
+            app,
+            field,
+            Rect::new(inner.x, editor.bottom(), inner.width, 1),
+        );
+    }
     if !status.is_empty() {
         frame.render_widget(
             Paragraph::new(styled(safe(status), theme.error)),
@@ -1209,7 +1335,72 @@ fn prompt(
     }
 }
 
-fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
+fn operation_notice(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    title: &str,
+    hint: &str,
+    rows: Option<&[(PathBuf, u64)]>,
+) {
+    let width = area.width.saturating_sub(4).min(100);
+    let height = if rows.is_some() {
+        area.height.saturating_sub(4).min(22)
+    } else {
+        7.min(area.height)
+    };
+    let dialog = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    let block = panel(app.palette, format!(" {title} "), true, app.palette.error)
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(dialog);
+    frame.render_widget(Clear, dialog);
+    frame.render_widget(block, dialog);
+    frame.render_widget(
+        Paragraph::new(styled(hint, app.palette.error)).wrap(Wrap { trim: false }),
+        Rect::new(inner.x, inner.y, inner.width, 3.min(inner.height)),
+    );
+    if let Some(rows) = rows {
+        let capacity = inner.height.saturating_sub(4) as usize;
+        let lines = crate::operations::deletion_rows(rows, capacity)
+            .into_iter()
+            .map(|(name, size)| {
+                Line::from(styled(
+                    format!("{}  {}", crate::operations::human_size(size), safe(name)),
+                    app.palette.text,
+                ))
+            })
+            .collect::<Vec<_>>();
+        frame.render_widget(
+            Paragraph::new(lines),
+            Rect::new(
+                inner.x,
+                inner.y + 3,
+                inner.width,
+                inner.height.saturating_sub(4),
+            ),
+        );
+        let total = rows
+            .iter()
+            .fold(0u64, |n, (_, size)| n.saturating_add(*size));
+        frame.render_widget(
+            Paragraph::new(styled(
+                format!(
+                    "{} paths · {} total",
+                    rows.len(),
+                    crate::operations::human_size(total)
+                ),
+                app.palette.marked,
+            )),
+            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        );
+    }
+}
+fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) -> Vec<usize> {
     let theme = app.palette;
     let width = area.width.saturating_sub(4).min(90);
     let height = area.height.saturating_sub(4).min(22);
@@ -1224,7 +1415,7 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
         mode_title(
             app,
             Field::Bookmarks,
-            "Bookmarks · Enter opens · Esc returns",
+            "Bookmarks · Enter / Alt+digit opens · Esc returns",
         ),
         true,
         theme.marked,
@@ -1248,6 +1439,12 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
     if inner.width > 6 {
         frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
     }
+    command_line(
+        frame,
+        app,
+        Field::Bookmarks,
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+    );
     let list = Rect::new(
         inner.x,
         inner.y + 2,
@@ -1255,6 +1452,10 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
         inner.height.saturating_sub(3),
     );
     let matches = app.matching_bookmarks(query);
+    // Each bookmark occupies three lines; only fully visible entries get labels.
+    let page = list.height as usize / 3;
+    let start = index.saturating_sub(page.saturating_sub(1));
+    let visible: Vec<_> = matches.iter().skip(start).take(page).copied().collect();
     if matches.is_empty() {
         let text = if app.bookmarks.is_empty() {
             "No bookmarks yet. Alt+n adds the current directory."
@@ -1269,13 +1470,25 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
         // Configured icons always show; others get the folder glyph when file
         // icons are enabled, or blank padding so names stay aligned.
         let icon_column = app.icons || app.bookmarks.iter().any(|b| b.icon.is_some());
-        let items: Vec<_> = matches
+        let items: Vec<_> = visible
             .iter()
-            .map(|&i| {
+            .enumerate()
+            .map(|(position, &i)| {
                 let b = &app.bookmarks[i];
                 let available = b.path.is_dir();
                 let color = if available { theme.marked } else { theme.error };
-                let mut title = Vec::new();
+                let label = if position + 1 == visible.len() {
+                    if position < 9 {
+                        format!("{}/0", position + 1)
+                    } else {
+                        "0".into()
+                    }
+                } else if position < 9 {
+                    (position + 1).to_string()
+                } else {
+                    String::new()
+                };
+                let mut title = vec![styled(format!("{label:>3} "), theme.muted)];
                 if icon_column {
                     let icon = match &b.icon {
                         Some(icon) => safe(icon),
@@ -1293,7 +1506,7 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
                     ),
                     color,
                 ));
-                let indent = if icon_column { "   " } else { "" };
+                let indent = if icon_column { "       " } else { "    " };
                 ListItem::new(vec![
                     Line::from(title),
                     Line::from(styled(
@@ -1308,7 +1521,7 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
                 ])
             })
             .collect();
-        let mut state = ListState::default().with_selected(Some(index));
+        let mut state = ListState::default().with_selected(Some(index.saturating_sub(start)));
         frame.render_stateful_widget(
             List::new(items)
                 .highlight_style(Style::default().bg(theme.selection))
@@ -1333,6 +1546,7 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
         )),
         Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
     );
+    visible
 }
 /// Shared modal frame for the bookmark form, icon chooser and deletion prompt.
 fn bookmark_dialog(frame: &mut Frame, area: Rect, app: &App, title: String, height: u16) -> Rect {
@@ -1413,6 +1627,16 @@ fn bookmark_form(frame: &mut Frame, area: Rect, app: &App, draft: &crate::bookma
             frame.set_cursor_position((inner.x + 6 + cursor, inner.y + row));
         }
     }
+    if let Some(view) = app.edit_view.as_ref().filter(|v| {
+        inner.height > 5 && matches!(v.field, Field::BookmarkName | Field::BookmarkPath)
+    }) {
+        command_line(
+            frame,
+            app,
+            view.field,
+            Rect::new(inner.x, inner.y + 5, inner.width, 1),
+        );
+    }
     let icon = draft.icon.as_deref().unwrap_or("Automatic (folder)");
     put(
         frame,
@@ -1459,17 +1683,25 @@ fn bookmark_form(frame: &mut Frame, area: Rect, app: &App, draft: &crate::bookma
         "Relative paths start at the current browsing directory.".into(),
         theme.muted,
     );
-    if !app.status.is_empty() && inner.height > 2 {
-        put(frame, inner.height - 2, safe(&app.status), theme.error);
+    if !app.status.is_empty() && inner.height > 3 {
+        put(frame, inner.height - 3, safe(&app.status), theme.error);
     }
-    let apply = app
-        .normal_keys
-        .describe(crate::normal_keys::ListAction::Apply);
-    put(
-        frame,
-        inner.height.saturating_sub(1),
-        format!("Ctrl+s / {apply} (Normal): save · Esc cancels"),
-        theme.marked,
+    let hint = if draft.field == EditField::Icon {
+        "Tab to name/path · Enter chooses an icon"
+    } else if app.edit_view.is_some() {
+        "Write buffer to apply; close without writing to discard"
+    } else {
+        "Ctrl+s saves · Esc discards"
+    };
+    let hint_height = inner.height.min(2);
+    frame.render_widget(
+        Paragraph::new(styled(hint, theme.marked)).wrap(Wrap { trim: false }),
+        Rect::new(
+            inner.x,
+            inner.bottom().saturating_sub(hint_height),
+            inner.width,
+            hint_height,
+        ),
     );
 }
 fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
@@ -1500,6 +1732,12 @@ fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &str, index: 
     if inner.width > 6 {
         frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
     }
+    command_line(
+        frame,
+        app,
+        Field::BookmarkIcons,
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+    );
     let list = Rect::new(
         inner.x,
         inner.y + 2,
@@ -1604,6 +1842,12 @@ fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize)
     if inner.width > 6 {
         frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
     }
+    command_line(
+        frame,
+        app,
+        Field::Palettes,
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+    );
     let list = Rect::new(
         inner.x,
         inner.y + 2,
@@ -1765,7 +2009,7 @@ mod tests {
             terminal
                 .draw(|f| targets = render(f, &mut app, &mut focus).targets)
                 .unwrap();
-            // Filter (3), location line (1), footer (1), and pane borders (2).
+            // Query (3), location line (1), footer (1), and pane borders (2).
             assert!(targets.len() <= height.saturating_sub(7) as usize);
         }
     }
@@ -1869,7 +2113,7 @@ mod tests {
         let screen = text(buffer);
         // The location line follows the three-row filter panel; no top banner.
         assert!(!screen.contains("CURRENT DIRECTORY"));
-        assert!(screen.lines().next().unwrap().contains("Filter"));
+        assert!(screen.lines().next().unwrap().contains("Query"));
         assert!(
             screen
                 .lines()
@@ -1954,6 +2198,95 @@ mod tests {
         assert!(screen.contains("reload palette from config"));
     }
     #[test]
+    fn deletion_confirmation_groups_the_smallest_rows_with_summed_sizes() {
+        let app = fixture();
+        let rows = (2..=7)
+            .map(|n| (PathBuf::from(format!("/file-{n}")), n))
+            .collect::<Vec<_>>();
+        let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+        terminal
+            .draw(|frame| {
+                operation_notice(
+                    frame,
+                    frame.area(),
+                    &app,
+                    "Delete permanently",
+                    "The current files will be permanently deleted. Enter confirms · Esc cancels",
+                    Some(&rows),
+                )
+            })
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("3 more files/folders"), "{screen}");
+        assert!(screen.contains("9 B  3 more"), "{screen}");
+        assert!(screen.find("file-7").unwrap() < screen.find("file-6").unwrap());
+        assert!(!screen.contains("file-4"));
+        assert!(screen.contains("6 paths · 27 B total"));
+    }
+
+    #[test]
+    fn command_entry_keeps_buffer_visible_above_its_cursor() {
+        for (width, height) in [(120, 26), (36, 12)] {
+            for field in [Field::Query, Field::Exclusions] {
+                let mut app = fixture();
+                app.query = "visible-query".into();
+                app.edit_view = Some(crate::editor::EditView {
+                    field,
+                    mode: "c".into(),
+                    blocking: false,
+                    row: if field == Field::Exclusions { 12 } else { 0 },
+                    column: 0,
+                    anchor: None,
+                    command: ":wq".into(),
+                    command_column: 3,
+                    closed: false,
+                    written: false,
+                    saved: false,
+                });
+                let mut focus = if field == Field::Exclusions {
+                    Focus::Exclusions(
+                        (0..15)
+                            .map(|i| format!("exclude-{i}"))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    )
+                } else {
+                    Focus::Results
+                };
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|f| {
+                        render(f, &mut app, &mut focus);
+                    })
+                    .unwrap();
+                let screen = text(terminal.backend().buffer());
+                let lines: Vec<_> = screen.lines().collect();
+                let content = if field == Field::Exclusions {
+                    "exclude-12"
+                } else {
+                    "visible-query"
+                };
+                let buffer_row = lines
+                    .iter()
+                    .position(|line| line.contains(content))
+                    .expect("buffer stays visible");
+                let command_row = lines
+                    .iter()
+                    .position(|line| line.contains(":wq"))
+                    .expect("command is visible");
+                assert!(command_row > buffer_row, "{screen}");
+                assert_eq!(screen.matches(":wq").count(), 1);
+                let cursor = terminal.get_cursor_position().unwrap();
+                assert_eq!(cursor.y as usize, command_row);
+                assert_eq!(
+                    terminal.backend().buffer()[(cursor.x - 1, cursor.y)].symbol(),
+                    "q"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {
         let mut app = fixture();
         app.query = "abcdef".into();
@@ -1966,6 +2299,9 @@ mod tests {
             anchor: Some((0, 0)),
             command: String::new(),
             command_column: 0,
+            closed: false,
+            written: false,
+            saved: false,
         });
         let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
         let mut focus = Focus::Results;
@@ -1975,7 +2311,7 @@ mod tests {
             })
             .unwrap();
         let buffer = terminal.backend().buffer();
-        assert!(text(buffer).contains("Filter · VISUAL"));
+        assert!(text(buffer).contains("Query · VISUAL"));
         assert_eq!(buffer[(5, 1)].bg, app.palette.selection);
         assert_eq!(buffer[(6, 1)].bg, app.palette.selection);
         let cursor = terminal.get_cursor_position().unwrap();
@@ -2014,6 +2350,43 @@ mod tests {
         assert!(screen.contains("   Temp"), "{screen}");
         assert!(!screen.contains('\u{f07b}'), "{screen}");
     }
+    #[test]
+    fn bookmark_numbers_follow_visible_scrolled_and_filtered_rows() {
+        let mut app = fixture();
+        app.bookmarks = (0..12)
+            .map(|i| crate::config::Bookmark {
+                name: format!("place{i:02}"),
+                path: "/tmp".into(),
+                icon: None,
+            })
+            .collect();
+        let mut focus = Focus::Bookmarks {
+            query: String::new(),
+            index: 11,
+        };
+        let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
+        let mut targets = Vec::new();
+        terminal
+            .draw(|f| targets = render(f, &mut app, &mut focus).bookmark_targets)
+            .unwrap();
+        assert_eq!(targets, vec![7, 8, 9, 10, 11]);
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("5/0"), "{screen}");
+        assert!(screen.contains("place11"), "{screen}");
+        assert!(!screen.contains("place06"), "{screen}");
+        focus = Focus::Bookmarks {
+            query: "place1".into(),
+            index: 0,
+        };
+        terminal
+            .draw(|f| targets = render(f, &mut app, &mut focus).bookmark_targets)
+            .unwrap();
+        assert_eq!(targets, vec![1, 10, 11]);
+        let mut tiny = Terminal::new(TestBackend::new(35, 11)).unwrap();
+        tiny.draw(|f| targets = render(f, &mut app, &mut focus).bookmark_targets)
+            .unwrap();
+        assert!(targets.is_empty());
+    }
     fn draw(app: &mut App, width: u16, height: u16) -> (String, Vec<PathBuf>) {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         let mut focus = Focus::Results;
@@ -2028,7 +2401,7 @@ mod tests {
         let mut app = fixture();
         let (screen, _) = draw(&mut app, 120, 26);
         let lines: Vec<_> = screen.lines().collect();
-        assert!(lines[0].contains("Filter"));
+        assert!(lines[0].contains("Query"));
         assert!(lines[1].contains("❯ type to filter"));
         // Progress and depth always; only non-default settings get a pill.
         assert!(

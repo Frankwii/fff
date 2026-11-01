@@ -141,6 +141,24 @@ fn cli_config_precedence_validation_and_missing_files() {
         }
         cmd.output().unwrap()
     };
+    // Neither the old executable name nor the crate name changes the config directory.
+    for name in ["picker", "fuzzy-file-finder"] {
+        fs::create_dir_all(xdg.join(name)).unwrap();
+        fs::write(xdg.join(name).join("config.toml"), "invalid config").unwrap();
+        use std::os::unix::process::CommandExt;
+        let renamed = Command::new(env!("CARGO_BIN_EXE_fff"))
+            .arg0(name)
+            .arg("--check-config")
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &xdg)
+            .output()
+            .unwrap();
+        assert!(renamed.status.success());
+        assert!(
+            String::from_utf8_lossy(&renamed.stderr)
+                .contains(&xdg.join("fff/config.toml").display().to_string())
+        );
+    }
     // XDG_CONFIG_HOME wins over ~/.config, and --check-config names the file.
     let checked = run(&["--check-config"], true);
     assert!(checked.status.success());

@@ -12,6 +12,9 @@ use std::{
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Field {
     Query,
+    Operation,
+    FileName,
+    Extraction,
     Location,
     Exclusions,
     Bookmarks,
@@ -19,6 +22,11 @@ pub enum Field {
     BookmarkPath,
     BookmarkIcons,
     Palettes,
+}
+impl Field {
+    fn single_line(self) -> bool {
+        matches!(self, Self::Query | Self::FileName | Self::Extraction)
+    }
 }
 #[derive(Clone, Debug)]
 pub struct EditView {
@@ -30,6 +38,12 @@ pub struct EditView {
     pub anchor: Option<(usize, usize)>,
     pub command: String,
     pub command_column: usize,
+    /// The field closed; returned text is its last written snapshot, if any.
+    pub closed: bool,
+    /// A write occurred during this input.
+    pub written: bool,
+    /// The closing field has written contents to apply.
+    pub saved: bool,
 }
 impl EditView {
     pub fn label(&self) -> &str {
@@ -61,10 +75,12 @@ impl EditView {
 struct Buffer {
     id: Value,
     text: String,
+    saved: Option<String>,
     view: EditView,
 }
 pub struct Nvim {
     child: Child,
+    program: String,
     input: BufWriter<ChildStdin>,
     responses: Receiver<Result<Value, String>>,
     serial: u64,
@@ -75,6 +91,14 @@ pub struct Nvim {
 }
 fn arr(values: impl IntoIterator<Item = Value>) -> Value {
     Value::Array(values.into_iter().collect())
+}
+// Invalid UTF-8 stays visible as U+FFFD instead of erasing the whole line;
+// operations refuse such names rather than acting on a different text.
+fn line(value: &Value) -> String {
+    match value {
+        Value::String(s) => String::from_utf8_lossy(s.as_bytes()).into_owned(),
+        _ => String::new(),
+    }
 }
 fn map_get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     value
@@ -120,6 +144,7 @@ impl Nvim {
         });
         let mut nvim = Self {
             child,
+            program: program.to_owned(),
             input,
             responses,
             serial: 0,
@@ -127,26 +152,98 @@ impl Nvim {
             active: None,
             buffers: HashMap::new(),
         };
+        // Attach a private UI so command errors are delivered as messages
+        // instead of blocking a headless engine's RPC loop at a hit-enter prompt.
+        nvim.request(
+            "nvim_ui_attach",
+            vec![
+                80.into(),
+                24.into(),
+                Value::Map(vec![
+                    ("rgb".into(), true.into()),
+                    ("ext_linegrid".into(), true.into()),
+                    ("ext_messages".into(), true.into()),
+                ]),
+            ],
+        )?;
+        // Capture contents before a quit/unload can disconnect RPC or destroy
+        // the buffer. Intentional closes are handled separately from crashes.
+        let info = nvim.request("nvim_get_api_info", vec![])?;
+        let channel = info.as_array().ok_or("Invalid Neovim API info")?[0].clone();
+        nvim.lua(
+            r#"
+            local channel=...
+            _G.fff_channel=channel
+            local function close(b)
+                if vim.b[b].fff_field then
+                    vim.rpcnotify(channel, 'fff_closed', b,
+                        vim.api.nvim_buf_get_lines(b, 0, -1, false))
+                end
+            end
+            -- Hidden fields are owned by fff; their text must not prevent the
+            -- active field from quitting. Its own modified flag stays native.
+            vim.api.nvim_create_autocmd('QuitPre', {callback=function()
+                local current=vim.api.nvim_get_current_buf()
+                for _,b in ipairs(vim.api.nvim_list_bufs()) do
+                    if b ~= current and vim.b[b].fff_field then
+                        vim.bo[b].modified=false
+                    end
+                end
+            end})
+            vim.api.nvim_create_autocmd('VimLeavePre', {callback=function()
+                close(vim.api.nvim_get_current_buf())
+            end})
+            vim.api.nvim_create_autocmd('BufUnload', {callback=function(ev) close(ev.buf) end})
+        "#,
+            vec![channel],
+        )?;
         nvim.lua("vim.o.shadafile='NONE'; vim.o.swapfile=false; vim.o.backup=false; vim.o.writebackup=false; vim.o.undofile=false; vim.o.modeline=false; vim.o.clipboard=''; vim.o.hidden=true; vim.o.history=0; vim.o.timeoutlen=300; for _,server in ipairs(vim.fn.serverlist()) do vim.fn.serverstop(server) end",vec![])?;
         Ok(nvim)
     }
     fn request(&mut self, method: &str, args: Vec<Value>) -> Result<Value, String> {
         self.serial += 1;
         let id = self.serial;
-        rmpv::encode::write_value(
+        // A quit can close stdin before the next snapshot request is sent.
+        // Still drain stdout: its final notification distinguishes a normal
+        // field exit from an engine crash, even after a broken write.
+        let write_error = rmpv::encode::write_value(
             &mut self.input,
             &arr([0.into(), id.into(), method.into(), arr(args)]),
         )
-        .map_err(|e| e.to_string())?;
-        self.input.flush().map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+        .and_then(|()| self.input.flush().map_err(|e| e.to_string()))
+        .err();
         loop {
-            let value = self
-                .responses
-                .recv_timeout(Duration::from_secs(1))
-                .map_err(|_| "Neovim RPC timed out".to_string())??;
+            let value = match self.responses.recv_timeout(Duration::from_secs(1)) {
+                Ok(Ok(value)) => value,
+                Ok(Err(error)) => return Err(write_error.unwrap_or(error)),
+                Err(_) => {
+                    return Err(write_error.unwrap_or_else(|| format!("Neovim {method} timed out")));
+                }
+            };
             let Some(parts) = value.as_array() else {
                 continue;
             };
+            if parts.len() == 3
+                && parts[0].as_u64() == Some(2)
+                && matches!(parts[1].as_str(), Some("fff_closed" | "fff_written"))
+                && let Some(args) = parts[2].as_array()
+                && args.len() == 2
+                && let Some(buffer) = self
+                    .buffers
+                    .values_mut()
+                    .find(|b| b.id == args[0] && Some(b.view.field) == self.active)
+                && let Some(lines) = args[1].as_array()
+            {
+                buffer.text = lines.iter().map(line).collect::<Vec<_>>().join("\n");
+                if parts[1].as_str() == Some("fff_written") {
+                    buffer.saved = Some(buffer.text.clone());
+                    buffer.view.written = true;
+                    continue;
+                }
+                buffer.view.closed = true;
+                return Err("Neovim field closed".into());
+            }
             if parts.len() == 4 && parts[0].as_u64() == Some(1) && parts[1].as_u64() == Some(id) {
                 if parts[2] != Value::Nil {
                     return Err(format!("Neovim: {}", parts[2]));
@@ -170,6 +267,10 @@ impl Nvim {
     pub fn reset_normal(&mut self, field: Field) {
         self.reset(field);
     }
+    /// Replace the field's buffer on next activation, ready for typing.
+    pub fn reset_insert(&mut self, field: Field) {
+        self.invalid.insert(field, "i".into());
+    }
     /// Replace text while keeping the active field's stable editing mode.
     /// Operators, command-line input and pending motions are cancelled.
     pub fn reset_preserving_mode(&mut self, field: Field) {
@@ -191,12 +292,35 @@ impl Nvim {
         }
         self.cancel_pending()?;
         if !self.buffers.contains_key(&field) {
-            let id=self.lua("local b=vim.api.nvim_create_buf(false,true); vim.bo[b].buftype='nofile'; vim.bo[b].bufhidden='hide'; vim.bo[b].swapfile=false; return b",vec![])?;
+            let id = self.lua(
+                r#"
+                local single_line=...
+                local b=vim.api.nvim_create_buf(false,true)
+                vim.b[b].fff_field=true
+                vim.bo[b].buftype='acwrite'
+                vim.bo[b].bufhidden='hide'
+                vim.bo[b].swapfile=false
+                vim.api.nvim_buf_set_name(b, 'fff://'..b)
+                if single_line then
+                    for _,key in ipairs({'o','O'}) do
+                        vim.keymap.set('n',key,'i',{buffer=b,noremap=true})
+                    end
+                    vim.keymap.set({'n','i'},'<CR>','<Nop>',{buffer=b,noremap=true})
+                end
+                vim.api.nvim_create_autocmd('BufWriteCmd', {buffer=b, callback=function()
+                    vim.rpcnotify(fff_channel, 'fff_written', b, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+                    vim.bo[b].modified=false
+                end})
+                return b
+            "#,
+                vec![field.single_line().into()],
+            )?;
             self.buffers.insert(
                 field,
                 Buffer {
                     id,
                     text: String::new(),
+                    saved: None,
                     view: EditView {
                         field,
                         mode: "n".into(),
@@ -206,6 +330,9 @@ impl Nvim {
                         anchor: None,
                         command: String::new(),
                         command_column: 0,
+                        closed: false,
+                        written: false,
+                        saved: false,
                     },
                 },
             );
@@ -216,8 +343,9 @@ impl Nvim {
             || self.buffers[&field].text != text
             || self.active != Some(field) && self.buffers[&field].text.is_empty()
         {
+            self.buffers.get_mut(&field).unwrap().saved = None;
             let lines = text.split('\n').map(Value::from).collect::<Vec<_>>();
-            self.lua("local b,lines=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); vim.cmd('stopinsert')",vec![id,arr(lines)])?;
+            self.lua("local b,lines=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.bo[b].modified=false; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); vim.cmd('stopinsert')",vec![id,arr(lines)])?;
         } else {
             let view = &self.buffers[&field].view;
             let row = view.row + 1;
@@ -250,7 +378,13 @@ impl Nvim {
         let blocking = map_get(&mode, "blocking")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        if blocking {
+        // Hit-enter/error prompts also block ordinary Lua RPC even when the
+        // fast mode API reports blocking=false. Let Neovim receive the next key.
+        if blocking
+            || map_get(&mode, "mode")
+                .and_then(Value::as_str)
+                .is_some_and(|m| m.starts_with('r'))
+        {
             let buffer = self.buffers.get_mut(&field).unwrap();
             buffer.view.blocking = true;
             buffer.view.mode = map_get(&mode, "mode")
@@ -265,7 +399,7 @@ impl Nvim {
             .as_array()
             .ok_or("Invalid Neovim lines")?
             .iter()
-            .map(|v| v.as_str().unwrap_or(""))
+            .map(line)
             .collect::<Vec<_>>();
         let cursor = values[1].as_array().ok_or("Invalid Neovim cursor")?;
         let mode = values[2].as_str().unwrap_or("n").to_string();
@@ -287,21 +421,44 @@ impl Nvim {
             anchor,
             command: values[4].as_str().unwrap_or("").into(),
             command_column: values[5].as_u64().unwrap_or(1) as usize,
+            closed: false,
+            written: self.buffers[&field].view.written,
+            saved: false,
         };
         let text = lines.join("\n");
         let buffer = self.buffers.get_mut(&field).unwrap();
         buffer.text = text.clone();
         buffer.view = view.clone();
+        buffer.view.written = false;
         Ok((text, view))
     }
     pub fn input(&mut self, field: Field, key: KeyEvent) -> Result<(String, EditView), String> {
         let Some(keys) = key_notation(key) else {
             return self.snapshot(field);
         };
-        self.request("nvim_input", vec![keys.into()])?;
-        self.snapshot(field)
+        let result = self
+            .request("nvim_input", vec![keys.into()])
+            .and_then(|_| self.snapshot(field));
+        if self.buffers[&field].view.closed {
+            let buffer = &self.buffers[&field];
+            let text = buffer.saved.clone().unwrap_or_else(|| buffer.text.clone());
+            let mut view = buffer.view.clone();
+            view.saved = buffer.saved.is_some();
+            view.mode = "n".into();
+            view.blocking = false;
+            // A field quit may also have quit the shared engine. Start a clean
+            // engine before the next activation; never write to its closed pipe.
+            *self = Self::start_program(&self.program)?;
+            return Ok((text, view));
+        }
+        result
     }
     pub fn paste(&mut self, field: Field, text: &str) -> Result<(String, EditView), String> {
+        let text = if field.single_line() {
+            text.replace(['\r', '\n'], " ")
+        } else {
+            text.to_owned()
+        };
         self.request("nvim_paste", vec![text.into(), false.into(), (-1).into()])?;
         self.snapshot(field)
     }

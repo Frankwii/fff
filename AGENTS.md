@@ -7,6 +7,7 @@ unless the user requests a change; tests provide regression coverage.
 
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): code map, invariants and verification.
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): TOML settings and discovery/cache behavior.
+- [docs/OPERATIONS.md](docs/OPERATIONS.md): file operations, mandatory backups and archive safety.
 - [docs/EDITING.md](docs/EDITING.md): Neovim integration and input routing.
 - [docs/PALETTES.md](docs/PALETTES.md): palette catalog and sources.
 - [docs/ROADMAP.md](docs/ROADMAP.md): possible future work, not current requirements.

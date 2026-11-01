@@ -417,5 +417,6 @@ pub fn default_path(xdg: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> 
         .filter(|p| p.is_absolute())
         .map(Path::to_path_buf)
         .or_else(|| home.map(|p| p.join(".config")))?;
+    // Keep the application directory stable across crate and executable renames.
     Some(base.join("fff/config.toml"))
 }

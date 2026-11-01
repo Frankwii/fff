@@ -16,6 +16,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui.rs` | Terminal lifecycle, input reader, wakeups, editing focus and key dispatch. |
 | `src/view.rs` | Ratatui frames, display paths, help and rendered numbered targets. |
+| `src/operations.rs` | Mandatory backup guard, validation, staged file operations and deletion review. |
+| `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
 | `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
@@ -46,6 +48,10 @@ listed separately in the [roadmap](ROADMAP.md).
 - Original paths remain separate from display abbreviations and icons. Keep
   palette attribution and [third-party notices](THIRD_PARTY_NOTICES.md).
 
+- File operations must pass through `Engine` / `BackupGuard`; no UI branch may
+  mutate a user path directly. Validate the full batch, complete backups, then
+  publish with no-replace semantics. See [file operations](OPERATIONS.md).
+
 ## Verification
 
 For behavior changes:
@@ -56,6 +62,12 @@ cargo clippy --offline --all-targets -- -D warnings
 cargo build --offline
 python3 tests/terminal_smoke.py
 ```
+
+`src/operations_tests.rs` covers backup failures, collisions, injected races and
+rollback, source changes, permissions, byte paths, links, malicious archives and
+archive limits. PTY tests cover Normal-only operation keys, prompts, save/discard
+and mark reconciliation. Some safety tests create temporary Unix sockets and
+need an environment that permits them.
 
 The Rust tests cover state transitions, discovery, caching, configuration,
 completion, frames and exact output bytes. `tests/acceptance.rs` injects decoded

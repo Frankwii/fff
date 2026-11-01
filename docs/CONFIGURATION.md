@@ -48,6 +48,11 @@ while unavailable bookmark directories are handled when you try to visit them.
 | `--no-icons` | Hide filetype icons for this invocation, overriding `[ui] icons`. |
 | `--check-config` | Validate the selected configuration and exit. |
 
+The config directory is always `fff`, independently of the crate name
+`fuzzy-file-finder` or the executable name. After renaming or rebuilding a local
+installation, make sure your PATH entry or symlink points to `target/release/fff`
+rather than an older `target/release/picker` binary.
+
 A missing default file uses defaults. An explicitly requested missing file,
 invalid TOML, unknown field, unknown palette, or invalid setting produces a clear
 startup error naming the file. Explicit bookmark saves/deletions update the active
@@ -183,7 +188,11 @@ Path rules:
 
 In the chooser, press `i` to type and fuzzy-filter bookmark **names** (Neovim
 fields initially start in Normal mode). Up/Down or Alt+k/Alt+j
-moves the highlight; PageUp/PageDown moves farther. Enter opens a directory;
+moves the highlight; PageUp/PageDown moves farther. Alt+1 through Alt+9 open
+the corresponding visible numbered bookmark, and Alt+0 opens the last visible
+bookmark. Out-of-range digits clamp to the last visible entry, including after
+filtering or scrolling. These shortcuts work in every editing mode.
+Enter opens a directory;
 Escape or Alt+b returns to results. An unavailable directory or a bookmark that
 points to a file is shown as unavailable; trying it leaves the chooser open with
 an error. Bookmarks never select a file or finish the program.
@@ -199,12 +208,16 @@ In the chooser, **Alt+n** adds the current directory, **Alt+e** edits the
 highlighted bookmark, and **Alt+d** asks for confirmation before deleting it.
 Deletion removes only the bookmark record. **Alt+r** reloads bookmarks from disk.
 
-The form edits name, path and icon. Tab/Shift+Tab switches fields; Enter advances
-or opens the icon chooser. **Alt+i** opens a searchable selection of 37 choices,
+The form edits name, path and icon. Tab/Shift+Tab switches fields; Enter on
+the icon field opens the icon chooser. Basic editing also uses Enter to advance.
+**Alt+i** opens a searchable selection of 37 choices,
 including common Nerd Font glyphs and **Automatic** to clear a custom icon.
 Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
-icons remain intact unless changed. **Ctrl+s** saves from any mode; **ZZ** saves
-in Normal mode or basic editing. Escape in Normal/basic mode cancels.
+icons remain intact unless changed. In Neovim, write and close (`:wq`) to save
+or close without writing (`:q!`) to discard. Writing records the whole form;
+closing applies its last written snapshot. Escape stays inside Neovim, and native
+`ZZ` / `ZQ` retain their Neovim behavior. Basic editing uses Ctrl+s to save and
+Escape to discard.
 
 Paths entered in the form resolve relative to the current browsing directory;
 `~` uses HOME. New or changed paths are stored as absolute paths. An unchanged
@@ -213,7 +226,8 @@ configured relative path retains its original spelling.
 Saves preserve unrelated TOML settings, comments, existing file permissions and
 valid config symlinks. If another process has changed the bookmark list since
 it was loaded, saving refuses to overwrite it: cancel and use Alt+r to reload.
-Errors leave the form and current bookmarks available to retry. With configuration
+Neovim save errors close the form and preserve the current bookmarks; reopen
+to retry. Basic save errors leave the form open. With configuration
 disabled, edits are session-only. No directory or target file is modified.
 
 For navigation and palette bindings, see the [key reference](../README.md#keys).
@@ -368,11 +382,16 @@ right = "l"          # Same as Alt+l (results: enter highlighted directory)
 first = "gg"         # Highlight the first row
 last = "G"           # Highlight the last row
 mark = "<space>"     # Mark/unmark like Tab (results and marks only)
-apply = "ZZ"         # Apply exclusions / save bookmark form (Normal or basic editing)
+quit = "q"           # Exit and return the launch directory
+quit_current = "!"   # Exit and return the current browsing directory
 ```
 
-Marking is active only in results and the marked list. Applying is active only
-in the exclusion editor and bookmark form; other fields keep their own editing behavior.
+Quit actions work in Normal-mode fields and in the marked list, ignoring marks;
+`--no-dir` exits without returning a directory. Basic text fields keep literal
+`q` and `!`. Disable `quit` before reusing `q` as a prefix for another action.
+
+Marking is active only in results and the marked list. Buffer editors use
+Neovim writes and closes; the legacy `apply` setting is accepted but ignored.
 
 Each value is one key sequence or a list of sequences; `"none"`, `""`, or `[]`
 disables the action. A sequence is typed literally, one printable key per

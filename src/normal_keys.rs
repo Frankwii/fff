@@ -1,4 +1,4 @@
-//! Configurable Normal-mode sequences for list actions and saving editors. Keys that do not
+//! Configurable Normal-mode sequences for list actions. Keys that do not
 //! complete a binding are handed back unchanged so Neovim still receives them.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::Deserialize;
@@ -19,11 +19,13 @@ pub enum ListAction {
     Last,
     /// Toggle the highlighted mark, like Tab.
     Mark,
-    /// Apply exclusions or save the bookmark form.
-    Apply,
+    /// Return the invocation directory and exit.
+    Quit,
+    /// Return the current browsing directory and exit.
+    QuitCurrent,
 }
 impl ListAction {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -31,7 +33,8 @@ impl ListAction {
         Self::First,
         Self::Last,
         Self::Mark,
-        Self::Apply,
+        Self::Quit,
+        Self::QuitCurrent,
     ];
     /// The default chord whose view-specific behavior this action repeats, if any.
     pub fn alt_key(self) -> Option<KeyEvent> {
@@ -41,7 +44,7 @@ impl ListAction {
             Self::Up => 'k',
             Self::Right => 'l',
             Self::Mark => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-            Self::First | Self::Last | Self::Apply => return None,
+            Self::First | Self::Last | Self::Quit | Self::QuitCurrent => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -170,7 +173,10 @@ pub struct NormalKeysConfig {
     pub first: Sequences,
     pub last: Sequences,
     pub mark: Sequences,
+    /// Accepted for configuration compatibility; buffer editors use Neovim writes.
     pub apply: Sequences,
+    pub quit: Sequences,
+    pub quit_current: Sequences,
 }
 impl Default for NormalKeysConfig {
     fn default() -> Self {
@@ -182,7 +188,9 @@ impl Default for NormalKeysConfig {
             first: one("gg"),
             last: one("G"),
             mark: one("<space>"),
-            apply: one("ZZ"),
+            apply: one("none"),
+            quit: one("q"),
+            quit_current: one("!"),
         }
     }
 }
@@ -196,7 +204,8 @@ impl NormalKeysConfig {
             ListAction::First => ("first", &self.first),
             ListAction::Last => ("last", &self.last),
             ListAction::Mark => ("mark", &self.mark),
-            ListAction::Apply => ("apply", &self.apply),
+            ListAction::Quit => ("quit", &self.quit),
+            ListAction::QuitCurrent => ("quit_current", &self.quit_current),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
@@ -287,10 +296,11 @@ mod tests {
         let shifted = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
         assert_eq!(k.feed(shifted, all), Step::Action(ListAction::Last));
         assert_eq!(k.feed(key('G'), all), Step::Action(ListAction::Last));
+        assert_eq!(k.feed(key('q'), all), Step::Action(ListAction::Quit));
+        assert_eq!(k.feed(key('!'), all), Step::Action(ListAction::QuitCurrent));
         assert_eq!(k.feed(key('w'), all), Step::Pass);
         assert_eq!(k.feed(key(' '), all), Step::Action(ListAction::Mark));
-        assert_eq!(k.feed(key('Z'), all), Step::Pending);
-        assert_eq!(k.feed(key('Z'), all), Step::Action(ListAction::Apply));
+        assert_eq!(k.feed(key('Z'), all), Step::Pass);
     }
     #[test]
     fn kitty_shifted_lowercase_matches_uppercase_binding() {

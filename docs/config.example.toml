@@ -55,7 +55,7 @@ refresh_ms = 50 # Min ms between re-sorts while a scan streams in; 0 = every bat
 [editor]
 # backend = "basic"
 
-# Normal-mode list actions and exclusion apply sequence.
+# Normal-mode list actions. Buffer editors use Neovim writes and closes.
 # A string or list of sequences; "none" disables. See CONFIGURATION.md.
 [keys.normal]
 left = "h"    # Same as Alt+h in the view.
@@ -65,4 +65,5 @@ right = "l"   # Same as Alt+l.
 first = "gg"  # First row; a lone g waits, other continuations reach Neovim.
 last = "G"    # Last row.
 mark = "<space>" # Toggle marks in Normal mode, like Tab.
-apply = "ZZ"     # Apply exclusions / save bookmark form in Normal mode (also basic editing).
+quit = "q"       # Exit and return the launch directory.
+quit_current = "!" # Exit and return the current browsing directory.

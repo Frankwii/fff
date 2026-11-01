@@ -1,4 +1,5 @@
 //! Fuzzy file finder state, independent of terminal input and filesystem timing.
+mod archive;
 pub mod bookmarks;
 mod cache;
 pub mod completion;
@@ -8,6 +9,7 @@ pub mod editor;
 pub mod icons;
 pub mod keys;
 pub mod normal_keys;
+pub mod operations;
 mod palettes;
 mod prefetch;
 pub mod reload;
