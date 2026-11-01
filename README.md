@@ -39,7 +39,7 @@ results are labeled. Query edits filter known results without restarting discove
 | Key | Action |
 | --- | --- |
 | Type / Backspace | Edit the filename query |
-| Escape | Clear query; leave marks/details; cancel a prompt |
+| Escape | Clear query; leave marks/details; cancel a prompt (with Neovim editing, first leaves Insert/Visual mode) |
 | Enter | Enter directory; return marks plus highlighted file; return current directory plus marks when physically empty and no candidate is highlighted |
 | Up / Alt+k | Move highlight up (results and marked list) |
 | Down / Alt+j | Move highlight down (results and marked list) |
@@ -98,9 +98,10 @@ ancestor prefixes; a matching directory prunes its subtree. Rules use globset
 syntax (`*`, `?`, classes, `**`), with literal separators. No `.gitignore` or other
 automatic ignore-file integration is enabled. Editor changes are session-local.
 Symlink directories can be selected/navigated, but traversal does not follow them.
-The default `basic` text backend supports append/Backspace editing. Opt into real
-Neovim editing in all text fields with `--editor nvim` or `[editor] backend =
-"nvim"` in TOML; see [the experimental editing guide](docs/EDITING.md). No content search or file opener is included.
+All text fields use a clean embedded Neovim engine by default (real modal
+editing); see [the editing guide](docs/EDITING.md). `--editor basic` or
+`[editor] backend = "basic"` selects plain append/Backspace editing, which is
+also used quietly when `nvim` is not installed. No content search or file opener is included.
 
 The Ratatui interface supports configurable palettes, a distinctive current-directory
 banner, rounded pane borders, colored focus

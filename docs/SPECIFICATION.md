@@ -521,3 +521,22 @@ printable-query/Escape behavior only when enabled. No personal config/plugins or
 persistent editor files are used. The process is private, time-bounded on RPC,
 and reaped on exit. See [EDITING.md](EDITING.md) for tested behavior and the
 boundary between field editing and a full Neovim window UI.
+
+## 20. Neovim default, palette keys, Normal-mode list keys, icons, integrated location line, completions (2026-11-01)
+
+### 20.1 Neovim editing is the default
+
+The user requested: "Make neovim editing the default." This supersedes section
+19's opt-in rule. With no `--editor` flag and no `[editor] backend` in TOML, all
+text fields use the clean embedded Neovim engine. `--editor basic` or
+`[editor] backend = "basic"` keeps append/Backspace editing and the original
+Escape behavior; the CLI flag overrides TOML.
+
+Fallback must be graceful and quiet: when the backend was not chosen explicitly
+and `nvim` is missing from PATH or fails to start, picker starts normally in
+basic editing with no status message, stderr output, or startup failure. An
+explicit `nvim` choice (CLI or TOML) still reports `Using basic editing: …` in the
+status line, because the user asked for an engine that is unavailable. A Neovim
+engine that fails after startup still falls back to basic editing with that status
+message, preserving the last synchronized text. The section 19 engine boundaries,
+isolation, and tested behavior are otherwise unchanged.

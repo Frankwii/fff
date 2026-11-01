@@ -76,21 +76,12 @@ pub fn run(
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     watcher: Option<crate::reload::PaletteWatcher>,
-    backend: crate::config::EditorBackend,
+    backend: Option<crate::config::EditorBackend>,
 ) -> io::Result<Option<Vec<PathBuf>>> {
     let mut terminal = Terminal::enter()?;
     let mut discovery = Discovery::new(cache);
     discovery.start(&mut app, true);
-    let mut editor = match backend {
-        crate::config::EditorBackend::Basic => None,
-        crate::config::EditorBackend::Nvim => match Nvim::start() {
-            Ok(editor) => Some(editor),
-            Err(error) => {
-                app.status = format!("Using basic editing: {error}");
-                None
-            }
-        },
-    };
+    let mut editor = start_editor(backend, "nvim", &mut app.status);
     let mut editor_directory = app.cwd.clone();
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
@@ -559,6 +550,28 @@ fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
         Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
         Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),
         _ => None,
+    }
+}
+/// Starts the text engine. `None` means the default (Neovim) was not explicitly
+/// requested: then an unavailable or broken Neovim silently degrades to basic
+/// editing. An explicit `nvim` request reports the fallback in the status line.
+pub fn start_editor(
+    backend: Option<crate::config::EditorBackend>,
+    program: &str,
+    status: &mut String,
+) -> Option<Nvim> {
+    use crate::config::EditorBackend;
+    match backend.unwrap_or_default() {
+        EditorBackend::Basic => None,
+        EditorBackend::Nvim => match Nvim::start_program(program) {
+            Ok(editor) => Some(editor),
+            Err(error) => {
+                if backend.is_some() {
+                    *status = format!("Using basic editing: {error}");
+                }
+                None
+            }
+        },
     }
 }
 fn edit(

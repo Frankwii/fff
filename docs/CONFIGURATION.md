@@ -224,13 +224,15 @@ filesystem reconciliation, empty-directory safety, and forced refresh. Terminal
 checks also revisit a directory after changing its files.
 
 
-## Experimental modal text editing
+## Modal text editing
 
 ```toml
 [editor]
-backend = "nvim" # Default: "basic"; CLI override: --editor nvim
+backend = "basic" # Default: "nvim"; CLI override: --editor basic|nvim
 ```
 
-This uses a clean headless Neovim instance for every editable field. See the
+By default a clean headless Neovim instance edits every field. When `backend`
+is left unset and `nvim` is missing or fails to start, picker silently uses
+basic append/Backspace editing; an explicit `"nvim"` reports the fallback. See the
 [editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics,
 reserved picker shortcuts, dependency/fallback behavior, and tested boundaries.

@@ -183,16 +183,18 @@ fn official_palette_variants_and_aliases() {
 }
 
 #[test]
-fn experimental_editor_config_is_opt_in_and_validated() {
+fn editor_config_defaults_to_unspecified_nvim_and_is_validated() {
     use picker::config::EditorBackend;
-    assert!(matches!(
-        parse("").unwrap().editor.backend,
-        EditorBackend::Basic
-    ));
-    assert!(matches!(
+    assert_eq!(parse("").unwrap().editor.backend, None);
+    assert_eq!(EditorBackend::default(), EditorBackend::Nvim);
+    assert_eq!(
         parse("[editor]\nbackend='nvim'").unwrap().editor.backend,
-        EditorBackend::Nvim
-    ));
+        Some(EditorBackend::Nvim)
+    );
+    assert_eq!(
+        parse("[editor]\nbackend='basic'").unwrap().editor.backend,
+        Some(EditorBackend::Basic)
+    );
     assert!(parse("[editor]\nbackend='unknown'").is_err());
     assert!(parse("[editor]\nbacked='nvim'").is_err());
 }

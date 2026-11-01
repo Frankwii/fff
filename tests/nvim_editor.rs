@@ -126,6 +126,32 @@ fn unavailable_backend_returns_an_error_instead_of_hanging() {
 }
 
 #[test]
+fn default_backend_falls_back_quietly_but_explicit_nvim_reports() {
+    use picker::{config::EditorBackend, ui::start_editor};
+    for program in ["/definitely/not/a/neovim", "true"] {
+        let mut status = String::new();
+        assert!(start_editor(None, program, &mut status).is_none());
+        assert_eq!(status, "", "default fallback must be quiet for {program}");
+        assert!(start_editor(Some(EditorBackend::Nvim), program, &mut status).is_none());
+        assert!(status.starts_with("Using basic editing"), "{status}");
+    }
+    let mut status = String::new();
+    assert!(start_editor(Some(EditorBackend::Basic), "nvim", &mut status).is_none());
+    assert_eq!(status, "");
+}
+#[test]
+fn default_backend_starts_neovim_when_installed() {
+    if engine().is_none() {
+        return;
+    }
+    let mut status = String::new();
+    let mut e = picker::ui::start_editor(None, "nvim", &mut status).unwrap();
+    assert_eq!(status, "");
+    assert_eq!(e.activate(Field::Query, "").unwrap().label(), "INSERT");
+    assert_eq!(chars(&mut e, Field::Query, "abc"), "abc");
+}
+
+#[test]
 fn field_switches_restore_insert_cursor_at_end_and_in_middle() {
     let Some(mut e) = engine() else {
         return;
