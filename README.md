@@ -94,7 +94,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
-| ZZ / ZQ | In Neovim buffers (exclusions, operations), save and close / discard and close; `:wq` / `:q!` also work |
+| ZZ / ZQ | In multiline Neovim buffers (exclusions, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
@@ -134,8 +134,8 @@ configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURAT
 
 File operations are confirmed before they change anything, refuse to overwrite
 unless a move or copy confirmation says so, and roll back on failure; there is
-no undo. Rename and destination/name buffers use `ZZ` to apply or `ZQ` to
-discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
+no undo. Name and destination buffers use Enter to apply and Escape to
+cancel; the multiline rename buffer uses `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
 archive limits and current boundaries. Building
 requires libarchive development files; the operation engine requires Linux 5.8+.
 

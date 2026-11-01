@@ -429,8 +429,14 @@ pub fn run(
         if key.modifiers.contains(M::CONTROL) && key.code == K::Char('c') {
             return Ok(None);
         }
-        let buffer_input =
-            editor.is_some() && matches!(focus, Focus::Exclusions(_) | Focus::Operation(_));
+        // Multiline buffers keep Neovim's write/close lifecycle; single-line
+        // names and destinations take Enter/Escape like the bookmark form.
+        let buffer_input = editor.is_some()
+            && match &focus {
+                Focus::Exclusions(_) => true,
+                Focus::Operation(draft) => draft.multiline(),
+                _ => false,
+            };
         if buffer_input {
             deliver(&mut app, &mut focus, &mut editor, key);
             continue;
@@ -574,6 +580,18 @@ pub fn run(
                     &mut app.edit_view,
                     &mut app.status,
                 ),
+                Focus::Operation(draft) => {
+                    let (field, multiline) = (draft.field(), draft.multiline());
+                    edit(
+                        &mut draft.text,
+                        key,
+                        multiline,
+                        field,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    )
+                }
                 Focus::Location(value) => edit(
                     value,
                     key,
@@ -854,10 +872,20 @@ pub fn run(
                 _ => {}
             },
             Focus::Operation(draft) => {
-                // Basic fallback has explicit save/discard. Neovim input was
-                // routed above and only its written close commits a request.
+                // Neovim rename lists were routed above and only their written
+                // close commits. Single-line buffers reach here outside
+                // Neovim's Insert/Visual Escape and command-line Enter.
                 if key.code == K::Esc {
                     focus = Focus::Results;
+                } else if key.code == K::Enter && !draft.multiline() {
+                    // Validation errors keep the buffer open for correction.
+                    match draft.request() {
+                        Ok(r) => {
+                            focus = Focus::Results;
+                            perform_operation(&mut app, &mut discovery, r);
+                        }
+                        Err(e) => app.status = e,
+                    }
                 } else if ctrl && key.code == K::Char('s') {
                     let request = draft.request();
                     focus = Focus::Results;
@@ -866,11 +894,11 @@ pub fn run(
                         Err(e) => app.status = e,
                     }
                 } else {
-                    let field = draft.field();
+                    let (field, multiline) = (draft.field(), draft.multiline());
                     edit(
                         &mut draft.text,
                         key,
-                        matches!(draft.kind, crate::operations::EditKind::Rename(_)),
+                        multiline,
                         field,
                         &mut editor,
                         &mut app.edit_view,

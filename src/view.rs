@@ -993,7 +993,7 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 (
                     "ZZ / ZQ".into(),
-                    "save / discard buffer edits (or :wq / :q!)",
+                    "apply / discard rename and exclusions",
                     false,
                 ),
                 ("F5".into(), "rescan, bypassing the cache", false),
@@ -1660,10 +1660,11 @@ fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::ope
             format!("Type a name for the new file in {here}."),
         ),
     };
-    let keys: &[(&str, &str)] = if app.edit_view.is_some() {
-        &[("ZZ", "Apply"), ("ZQ", "Discard")]
-    } else {
-        &[("Ctrl+s", "Apply"), ("Esc", "Discard")]
+    let keys: &[(&str, &str)] = match &draft.kind {
+        EditKind::Rename(_) if app.edit_view.is_some() => &[("ZZ", "Apply"), ("ZQ", "Discard")],
+        EditKind::Rename(_) => &[("Ctrl+s", "Apply"), ("Esc", "Discard")],
+        EditKind::Extract(_) => &[("Enter", "Extract"), ("Esc", "Cancel")],
+        EditKind::New(_) => &[("Enter", "Create"), ("Esc", "Cancel")],
     };
     let body = prose(
         theme,
@@ -1671,7 +1672,7 @@ fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::ope
         &text,
         main.width.saturating_sub(4) as usize,
     );
-    let multiline = matches!(draft.kind, EditKind::Rename(_));
+    let multiline = draft.multiline();
     // Borders, prose, a blank line, the input, and a row for commands or errors.
     let height = if multiline {
         main.height

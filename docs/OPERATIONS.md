@@ -62,8 +62,9 @@ Every file-operation dialog is a sheet spanning the outer edges of the result
 and mark panes and resting on their bottom border, as tall as its content (the
 rename buffer fills the pane area). The text explains what each key does, and
 the bottom border repeats the keys, for example
-`─ s: Selection ─── c: Current ─── Esc: Cancel ─`. Buffers list `ZZ` / `ZQ`
-with Neovim and `Ctrl+s` / `Esc` with basic editing. Destructive confirmations
+`─ s: Selection ─── c: Current ─── Esc: Cancel ─`. The rename buffer
+lists `ZZ` / `ZQ` with Neovim and `Ctrl+s` / `Esc` with basic editing; name and
+destination buffers list `Enter` / `Esc`. Destructive confirmations
 (deletion, overwriting) use the `error` color; choices and buffers use
 `marked`.
 
@@ -74,7 +75,13 @@ the `error` color, as errors do.
 
 ## Buffer interactions
 
-Rename, extraction destinations, and new names follow the same lifecycle as
+New names and extraction destinations are single-line: **Enter applies** from
+Normal or Insert mode and **Escape cancels** from Normal mode (Escape in Insert
+mode returns to Normal first). Enter during command-line entry stays in Neovim,
+and validation errors such as an empty or nested name keep the buffer open.
+`ZZ` / `ZQ` also apply or cancel.
+
+The rename list follows the same lifecycle as
 exclusions: **`ZZ` writes and closes to apply**, or
 **`ZQ` closes without writing to discard** (`:wq` / `:q!` work too). `:w` records a snapshot but keeps editing;
 a later close applies that snapshot, discarding subsequent unwritten edits.

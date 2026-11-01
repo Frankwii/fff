@@ -28,8 +28,8 @@ nonempty field preserves its editing state and cursor. The basic backend has no 
 
 In query, new-name and extraction-destination buffers, Normal-mode `o` and `O`
 enter Insert mode at the cursor without adding a line. In name/destination
-buffers Enter does nothing in Normal or Insert mode; command-line Enter still
-executes commands such as `:wq`. Query Enter keeps its navigation/confirmation
+buffers Enter applies from Normal or Insert mode; command-line Enter still
+executes commands such as `:s`. Query Enter keeps its navigation/confirmation
 action. Rename and exclusion buffers retain multiline `o`, `O` and Enter.
 
 In results Normal mode, `v`, `p`, `x`, `r`, `e`, `n` and `s` invoke file
@@ -77,7 +77,7 @@ and Ctrl+w retain their fff actions in results/marks. Space in Normal mode
 marks/unmarks like Tab; in Insert mode it types a space. The marked list always
 accepts Space because it has no text field.
 
-Exclusions, rename lists, extraction destinations and new names
+Multiline buffers (exclusions and rename lists)
 use Neovim's buffer lifecycle. Press `ZZ` to write and close (apply), or `ZQ`
 to close without writing (discard); `:wq` and `:q!` do the same. In these
 buffers `ZZ` always writes, so it applies even when nothing was edited (native
@@ -95,11 +95,13 @@ bindings in Neovim: those keys go to Neovim, including its native `ZQ` (quit
 without writing). Escape in Normal mode leaves the editor open. Exclusions return
 to the main screen.
 
-Bookmark forms are not buffer-lifecycle editors: Enter saves and Escape in
-Normal mode cancels, like the location prompt. Escape from Insert/Visual mode
+Single-line editors (new names, extraction destinations and bookmark forms)
+are not buffer-lifecycle editors: Enter applies and Escape in Normal mode
+cancels, like the location prompt. Validation errors keep them open. Escape from Insert/Visual mode
 and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
-and `ZQ`/`:q!` also save or cancel. Tab/Shift+Tab or Up/Down switch fields and
-Alt+i opens the icon chooser. Save errors keep the form open. Basic editing uses Ctrl+s to apply and Escape to discard;
+and `ZQ`/`:q!` also apply or cancel. In bookmark forms, Tab/Shift+Tab or
+Up/Down switch fields and Alt+i opens the icon chooser. Multiline basic editing
+uses Ctrl+s to apply and Escape to discard;
 `ZZ` is literal text. Rebind list marking with `[keys.normal] mark`; the legacy
 `apply` setting is accepted but ignored.
 
