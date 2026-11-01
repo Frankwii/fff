@@ -1298,6 +1298,10 @@ pub struct Draft {
     pub text: String,
 }
 impl Draft {
+    /// Rename lists span rows; names and destinations are single-line.
+    pub fn multiline(&self) -> bool {
+        matches!(self.kind, EditKind::Rename(_))
+    }
     pub fn field(&self) -> crate::editor::Field {
         match self.kind {
             EditKind::Rename(_) => crate::editor::Field::Operation,

@@ -64,8 +64,9 @@ rename buffer fills the pane area). The text explains what each key does, and
 the bottom border repeats the keys, for example
 `─ c: Current ─── s: Selection ─── a: All ─── Esc: Cancel ─`. On narrow
 terminals the hints compact (tighter separators, then without Esc, then keys
-only) instead of clipping a key. Buffers list `ZZ` / `ZQ`
-with Neovim and `Ctrl+s` / `Esc` with basic editing. Destructive confirmations
+only) instead of clipping a key. The rename buffer lists `ZZ` / `ZQ` with Neovim
+and `Ctrl+s` / `Esc` with basic editing; name and destination buffers list
+`Enter` / `Esc`. Destructive confirmations
 (deletion, overwriting) use the `error` color; choices and buffers use
 `marked`.
 
@@ -76,7 +77,13 @@ the `error` color, as errors do.
 
 ## Buffer interactions
 
-Rename, extraction destinations, and new names follow the same lifecycle as
+New names and extraction destinations are single-line: **Enter applies** from
+Normal or Insert mode and **Escape cancels** from Normal mode (Escape in Insert
+mode returns to Normal first). Enter during command-line entry stays in Neovim,
+and validation errors such as an empty or nested name keep the buffer open.
+`ZZ` / `ZQ` also apply or cancel.
+
+The rename list follows the same lifecycle as
 exclusions: **`ZZ` writes and closes to apply**, or
 **`ZQ` closes without writing to discard** (`:wq` / `:q!` work too). `:w` records a snapshot but keeps editing;
 a later close applies that snapshot, discarding subsequent unwritten edits.

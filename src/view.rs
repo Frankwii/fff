@@ -995,7 +995,7 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 (
                     "ZZ / ZQ".into(),
-                    "save / discard buffer edits (or :wq / :q!)",
+                    "apply / discard rename and exclusions",
                     false,
                 ),
                 ("F5".into(), "rescan, bypassing the cache", false),
@@ -1030,17 +1030,18 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
             "Bookmarks",
             vec![
                 ("Alt+1…9 Alt+0".into(), "open visible bookmark / last", true),
-                ("Alt+n".into(), "add current directory (in chooser)", true),
-                ("Alt+e".into(), "edit highlighted bookmark", true),
-                ("Alt+d".into(), "delete bookmark, with confirmation", true),
-                ("Alt+r".into(), "reload bookmarks from config", true),
-                ("Alt+↑ / Alt+↓".into(), "move highlighted bookmark", true),
+                (
+                    "n / e / d / r".into(),
+                    "new / edit / delete / reload (Normal, else Alt+)",
+                    true,
+                ),
+                ("↑ / ↓".into(), "move highlighted bookmark", true),
                 (
                     "Tab / Shift+Tab".into(),
                     "switch bookmark form fields",
                     true,
                 ),
-                ("Alt+i".into(), "choose bookmark Nerd Font icon", true),
+                ("Space".into(), "choose icon on the icon row", true),
                 ("Enter / Esc".into(), "save / cancel bookmark form", true),
             ],
         ),
@@ -1709,10 +1710,11 @@ fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::ope
             format!("Type a name for the new file in {here}."),
         ),
     };
-    let keys: &[(&str, &str)] = if app.edit_view.is_some() {
-        &[("ZZ", "Apply"), ("ZQ", "Discard")]
-    } else {
-        &[("Ctrl+s", "Apply"), ("Esc", "Discard")]
+    let keys: &[(&str, &str)] = match &draft.kind {
+        EditKind::Rename(_) if app.edit_view.is_some() => &[("ZZ", "Apply"), ("ZQ", "Discard")],
+        EditKind::Rename(_) => &[("Ctrl+s", "Apply"), ("Esc", "Discard")],
+        EditKind::Extract(_) => &[("Enter", "Extract"), ("Esc", "Cancel")],
+        EditKind::New(_) => &[("Enter", "Create"), ("Esc", "Cancel")],
     };
     let body = prose(
         theme,
@@ -1720,7 +1722,7 @@ fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::ope
         &text,
         main.width.saturating_sub(4) as usize,
     );
-    let multiline = matches!(draft.kind, EditKind::Rename(_));
+    let multiline = draft.multiline();
     // Borders, prose, a blank line, the input, and a row for commands or errors.
     let height = if multiline {
         main.height
@@ -1822,15 +1824,21 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
         inner.height.saturating_sub(3),
     );
     let matches = app.matching_bookmarks(query);
+    // Plain letters work while the filter is in Normal mode; otherwise Alt.
+    let alt = if app.edit_view.as_ref().is_some_and(|v| v.normal()) {
+        ""
+    } else {
+        "Alt+"
+    };
     // Each bookmark occupies three lines; only fully visible entries get labels.
     let page = list.height as usize / 3;
     let start = index.saturating_sub(page.saturating_sub(1));
     let visible: Vec<_> = matches.iter().skip(start).take(page).copied().collect();
     if matches.is_empty() {
         let text = if app.bookmarks.is_empty() {
-            "No bookmarks yet. Alt+n adds the current directory."
+            format!("No bookmarks yet. {alt}n adds the current directory.")
         } else {
-            "No matching bookmarks"
+            "No matching bookmarks".into()
         };
         frame.render_widget(
             Paragraph::new(styled(text, theme.muted)).wrap(Wrap { trim: false }),
@@ -1901,9 +1909,9 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
         );
     }
     let hint = if app.status.is_empty() {
-        "Alt+n add · Alt+e edit · Alt+d delete · Alt+↑↓ reorder · Alt+r reload"
+        format!("{alt}n new · {alt}e edit · {alt}d delete · {alt}r reload · ↑↓ reorder")
     } else {
-        &app.status
+        app.status.clone()
     };
     frame.render_widget(
         Paragraph::new(styled(
@@ -1968,12 +1976,7 @@ fn bookmark_form(frame: &mut Frame, main: Rect, app: &App, draft: &crate::bookma
         Sheet {
             title,
             accent: theme.marked,
-            keys: &[
-                ("Enter", "Save"),
-                ("Esc", "Cancel"),
-                ("Tab", "Next field"),
-                ("Alt+i", "Icon"),
-            ],
+            keys: &[("Enter", "Save"), ("Esc", "Cancel"), ("Tab", "Next field")],
             summary: Some(summary),
         },
     );
@@ -2045,14 +2048,9 @@ fn bookmark_form(frame: &mut Frame, main: Rect, app: &App, draft: &crate::bookma
             spans.push(bold(format!("{glyph}  "), theme.accent));
         }
         spans.push(styled(name, theme.text));
-        spans.push(styled(
-            if active {
-                " · Space or Alt+i chooses"
-            } else {
-                " · Alt+i chooses"
-            },
-            theme.muted,
-        ));
+        if active {
+            spans.push(styled(" · Space chooses", theme.muted));
+        }
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
     let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);

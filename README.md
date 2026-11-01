@@ -87,14 +87,14 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l | Enter highlighted directory only |
 | Alt+g | Location prompt |
-| Alt+b | Bookmark chooser; Alt+n adds, Alt+e edits, Alt+d deletes, Alt+Up/Down reorders, Alt+r reloads |
+| Alt+b | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 |
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
-| ZZ / ZQ | In Neovim buffers (exclusions, operations), save and close / discard and close; `:wq` / `:q!` also work |
+| ZZ / ZQ | In multiline Neovim buffers (exclusions, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
@@ -134,8 +134,8 @@ configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURAT
 
 File operations are confirmed before they change anything, refuse to overwrite
 unless a move or copy confirmation says so, and roll back on failure; there is
-no undo. Rename and destination/name buffers use `ZZ` to apply or `ZQ` to
-discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
+no undo. Name and destination buffers use Enter to apply and Escape to
+cancel; the multiline rename buffer uses `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
 archive limits and current boundaries. Building
 requires libarchive development files; the operation engine requires Linux 5.8+.
 
@@ -156,8 +156,8 @@ fff --config docs/config.example.toml --check-config
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 
 In the bookmark editor, Enter saves and Escape cancels, Tab switches fields and
-Alt+i opens a searchable Nerd Font icon picker. In the chooser, Alt+Up/Alt+Down
-reorder bookmarks. Saves update the active TOML file; `--no-config`
+Space on the icon row opens a searchable Nerd Font icon picker. In the chooser,
+Up/Down reorder bookmarks. Saves update the active TOML file; `--no-config`
 keeps edits for this session only.
 
 Discovery is asynchronous and breadth first. Ready results wake the UI immediately;
