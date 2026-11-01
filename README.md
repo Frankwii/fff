@@ -17,7 +17,7 @@ Or build and run directly:
 ```sh
 cargo build --release
 ./target/release/fff
-./target/release/fff ~/notes ~/papers --depth 2 --glob '*.tex'
+./target/release/fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'
 ./target/release/fff --output-paths --no-dir --relative --null > paths.bin
 ```
 
@@ -55,7 +55,8 @@ printing paths. Without the function, the default mode prints the chosen
 directory instead, so `cd "$(command fff)"` also works.
 
 The default editor is a clean embedded Neovim. Fields start in **Normal mode**,
-except new file/directory naming buffers, which start in **Insert mode**.
+except new file/directory naming buffers and the query of a `--no-dir` session,
+which start in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. Neovim is optional;
 `--editor basic` selects direct typing/Backspace, and missing Neovim causes a quiet
@@ -87,8 +88,8 @@ directory; Alt+number follows Enter's empty-state rules.
 
 `--no-dir` provides static file selection: it hides directories, disables location
 changes, and never returns the current directory as an empty-results fallback.
-Discovery still traverses directories within the depth limit. `--glob '*.tex'`
-likewise lists matching files while traversing their parents. Result rows show
+Discovery still traverses directories within the depth limit, and the query
+starts in Insert mode, ready to type. Result rows show
 bare file names; when listed files share a name, each gains the fewest trailing
 parent directories that tell it apart (`folder1/main.pdf`, `folder2/main.pdf`),
 independently of the query. The footer still shows the highlighted file's path.
@@ -98,9 +99,17 @@ invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited reco
 Other display labels are relative to the browsing directory, with repeated leading
 parent steps shortened to `.../`; output paths never use that abbreviation.
 
+`--glob` is a file filter: only files whose basename matches it are listed, and
+directories are hidden but still traversed. Repeat it to allow several patterns
+(`--glob '*.pdf' --glob '*.epub'`); a file matching any of them is listed. Alt+f
+edits the filters during the session, one glob per line. Changing them re-lists
+the files already found without rescanning.
+
 Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
 a matching directory prunes its subtree. Rules match basenames or scope-relative
 paths, with literal separators. No automatic `.gitignore` integration is enabled.
+The status line shows `filters on` and `exclusions on` only while filters or
+enforced exclusion rules exist; F1's session details list their globs.
 Symlink directories can be selected or entered; recursive discovery does not
 follow them.
 
@@ -128,13 +137,14 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
-| ZZ / ZQ | In multiline Neovim buffers (exclusions, rename), save and close / discard and close; `:wq` / `:q!` also work |
+| ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
 | Alt+. | Toggle hidden entries |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions |
+| Alt+f | Edit session-local file filters (`--glob`), one glob per line |
 | v / p / s in Normal | Move / copy / symlink all marked paths into the current directory, after confirmation |
 | x in Normal | Choose current/selected deletion, review sizes, then Enter confirms |
 | r in Normal | Batch rename the filtered results in a buffer |

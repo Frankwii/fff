@@ -35,6 +35,8 @@ pub(crate) enum Focus {
         keys: bool,
     },
     Exclusions(String),
+    /// Alt+f: the file filters (`--glob`), one per line.
+    Filters(String),
     Operation(crate::operations::Draft),
     DeleteConfirm(crate::operations::DeletePlan),
     /// Which paths an action applies to, asked only when ambiguous: the current
@@ -230,6 +232,12 @@ pub fn run(
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
     discovery.start(&mut app, true);
     let mut editor = start_editor(backend, "nvim", &mut app.status);
+    // A --no-dir session is a file choice: start ready to type the query.
+    if app.no_dir
+        && let Some(e) = &mut editor
+    {
+        e.reset_insert(Field::Query);
+    }
     let mut editor_directory = app.cwd.clone();
     warn_stranded(&mut app);
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
@@ -279,9 +287,9 @@ pub fn run(
                         Err(error) => app.status = error,
                     }
                 }
-            } else if matches!(focus, Focus::Exclusions(_)) {
+            } else if matches!(focus, Focus::Exclusions(_) | Focus::Filters(_)) {
                 if view.saved {
-                    apply_exclusions(&mut app, &mut focus, &mut discovery);
+                    apply_globs(&mut app, &mut focus, &mut discovery);
                 } else {
                     focus = Focus::Results;
                 }
@@ -386,7 +394,8 @@ pub fn run(
             }
             let field = text_field(&app, &focus).map(|(field, _)| field);
             if let Some(field) = field {
-                let text = if matches!(field, Field::Exclusions | Field::Operation) {
+                let text = if matches!(field, Field::Exclusions | Field::Filters | Field::Operation)
+                {
                     text
                 } else {
                     text.replace(['\r', '\n'], " ")
@@ -412,14 +421,16 @@ pub fn run(
                         &mut app.edit_view,
                         &mut app.status,
                     ),
-                    Focus::Exclusions(value) | Focus::Location(value) => paste(
-                        value,
-                        &text,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    ),
+                    Focus::Exclusions(value) | Focus::Filters(value) | Focus::Location(value) => {
+                        paste(
+                            value,
+                            &text,
+                            field,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        )
+                    }
                     Focus::Bookmarks { query, index } => {
                         paste(
                             query,
@@ -492,7 +503,7 @@ pub fn run(
         // names and destinations take Enter/Escape like the bookmark form.
         let buffer_input = editor.is_some()
             && match &focus {
-                Focus::Exclusions(_) => true,
+                Focus::Exclusions(_) | Focus::Filters(_) => true,
                 Focus::Operation(draft) => draft.multiline(),
                 _ => false,
             };
@@ -640,6 +651,15 @@ pub fn run(
                     key,
                     true,
                     Field::Exclusions,
+                    &mut editor,
+                    &mut app.edit_view,
+                    &mut app.status,
+                ),
+                Focus::Filters(value) => edit(
+                    value,
+                    key,
+                    true,
+                    Field::Filters,
                     &mut editor,
                     &mut app.edit_view,
                     &mut app.status,
@@ -865,14 +885,17 @@ pub fn run(
             }
         }
         if editor.is_none()
-            && matches!(focus, Focus::BookmarkEdit(_) | Focus::Exclusions(_))
+            && matches!(
+                focus,
+                Focus::BookmarkEdit(_) | Focus::Exclusions(_) | Focus::Filters(_)
+            )
             && ctrl
             && key.code == K::Char('s')
         {
             if matches!(focus, Focus::BookmarkEdit(_)) {
                 save_bookmark(&mut app, &mut focus);
             } else {
-                apply_exclusions(&mut app, &mut focus, &mut discovery);
+                apply_globs(&mut app, &mut focus, &mut discovery);
             }
             continue;
         }
@@ -887,6 +910,11 @@ pub fn run(
             discovery.checkpoint(&app);
         }
         let palette = palette_key(key);
+        let glob_field = if matches!(focus, Focus::Filters(_)) {
+            Field::Filters
+        } else {
+            Field::Exclusions
+        };
         match &mut focus {
             Focus::NewChoice => match key.code {
                 K::Char('f' | 'd') => {
@@ -1203,7 +1231,7 @@ pub fn run(
                 K::PageUp => *offset = offset.saturating_sub(page),
                 _ => {}
             },
-            Focus::Exclusions(text) => {
+            Focus::Exclusions(text) | Focus::Filters(text) => {
                 if key.code == K::Esc {
                     focus = Focus::Results;
                 } else {
@@ -1211,7 +1239,7 @@ pub fn run(
                         text,
                         key,
                         true,
-                        Field::Exclusions,
+                        glob_field,
                         &mut editor,
                         &mut app.edit_view,
                         &mut app.status,
@@ -1351,6 +1379,7 @@ pub fn run(
                     }
                 }
                 (K::Char('e'), _, true) => focus = Focus::Exclusions(app.policy.rules.join("\n")),
+                (K::Char('f'), _, true) => focus = Focus::Filters(app.policy.filters.join("\n")),
                 (K::Char('g' | 'b' | 'h'), _, true) if !app.can_navigate() => {}
                 (K::Char('g'), _, true) => focus = Focus::Location(String::new()),
                 (K::Char('b'), _, true) => {
@@ -1870,13 +1899,21 @@ fn save_bookmark(app: &mut App, focus: &mut Focus) {
         Err(error) => app.status = error,
     }
 }
-fn apply_exclusions(app: &mut App, focus: &mut Focus, discovery: &mut Discovery) {
-    let Focus::Exclusions(text) = focus else {
-        return;
+/// Apply the exclusion (Alt+e) or file filter (Alt+f) editor: one glob per line.
+fn apply_globs(app: &mut App, focus: &mut Focus, discovery: &mut Discovery) {
+    let (text, filters) = match focus {
+        Focus::Exclusions(text) => (text, false),
+        Focus::Filters(text) => (text, true),
+        _ => return,
+    };
+    let current = if filters {
+        &app.policy.filters
+    } else {
+        &app.policy.rules
     };
     // Compare final contents rather than Neovim's modified flag: :w clears
     // that flag, and editing then undoing should leave the policy untouched.
-    let unchanged = *text == app.policy.rules.join("\n");
+    let unchanged = *text == current.join("\n");
     let lines: Vec<_> = text
         .lines()
         .enumerate()
@@ -1886,16 +1923,24 @@ fn apply_exclusions(app: &mut App, focus: &mut Focus, discovery: &mut Discovery)
     let invalid = lines
         .iter()
         .find_map(|(line, rule)| crate::glob(rule).err().map(|error| (*line + 1, error)));
+    let unchanged = unchanged || rules == *current;
     *focus = Focus::Results;
-    if unchanged || rules == app.policy.rules {
+    if unchanged {
         return;
     }
     if let Some((line, error)) = invalid {
-        app.status = format!("Exclusion line {line}: {}", error.kind());
+        let kind = if filters { "Filter" } else { "Exclusion" };
+        app.status = format!("{kind} line {line}: {}", error.kind());
         return;
     }
-    // set_rules is atomic; compile all rules before replacing the active list.
-    if app.policy.set_rules(rules).is_ok() && app.policy.ignore {
+    // Both setters are atomic: every glob compiles before the list is replaced.
+    if filters {
+        // Filters only choose among discovered files, so no rescan is needed.
+        if app.policy.set_filters(rules).is_ok() {
+            app.offset = 0;
+            app.refresh();
+        }
+    } else if app.policy.set_rules(rules).is_ok() && app.policy.ignore {
         discovery.start(app, false);
     }
 }
@@ -1960,7 +2005,7 @@ fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
         Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
             Some(&[Down, Up, First, Last, Quit, QuitCurrent])
         }
-        Focus::Exclusions(_) | Focus::BookmarkEdit(_) => None,
+        Focus::Exclusions(_) | Focus::Filters(_) | Focus::BookmarkEdit(_) => None,
         Focus::Location(_) => Some(&[Quit, QuitCurrent]),
         _ => None,
     }
@@ -2042,6 +2087,7 @@ fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: Key
         Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
         Focus::Palettes { query, .. } => (query, Field::Palettes),
         Focus::Exclusions(text) => (text, Field::Exclusions),
+        Focus::Filters(text) => (text, Field::Filters),
         Focus::Operation(draft) => {
             let field = draft.field();
             (&mut draft.text, field)
@@ -2058,7 +2104,7 @@ fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: Key
     edit(
         text,
         key,
-        matches!(field, Field::Exclusions | Field::Operation),
+        matches!(field, Field::Exclusions | Field::Filters | Field::Operation),
         field,
         editor,
         &mut app.edit_view,
@@ -2069,7 +2115,10 @@ fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: Key
             Focus::Bookmarks { index, .. } => *index = 0,
             Focus::Palettes { index, .. } => *index = 0,
             Focus::BookmarkIcons { index, .. } => *index = 0,
-            Focus::BookmarkEdit(_) | Focus::Exclusions(_) | Focus::Operation(_) => {}
+            Focus::BookmarkEdit(_)
+            | Focus::Exclusions(_)
+            | Focus::Filters(_)
+            | Focus::Operation(_) => {}
             _ => {
                 app.offset = 0;
                 app.refresh();
@@ -2083,6 +2132,7 @@ fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
         Focus::Location(text) => Some((Field::Location, text.clone())),
         Focus::Command(prompt) => Some((Field::Command, prompt.text.clone())),
         Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
+        Focus::Filters(text) => Some((Field::Filters, text.clone())),
         Focus::Operation(draft) => Some((draft.field(), draft.text.clone())),
         Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),
         Focus::BookmarkIcons { query, .. } => Some((Field::BookmarkIcons, query.clone())),
@@ -2193,7 +2243,7 @@ mod tests {
         ] {
             app.status.clear();
             let mut focus = Focus::Exclusions(text.into());
-            apply_exclusions(&mut app, &mut focus, &mut discovery);
+            apply_globs(&mut app, &mut focus, &mut discovery);
             assert!(matches!(focus, Focus::Results));
             assert_eq!(app.policy.rules, expected);
             assert_eq!(
@@ -2203,6 +2253,34 @@ mod tests {
                 app.status
             );
         }
+    }
+
+    #[test]
+    fn filter_exit_applies_globs_without_touching_exclusions() {
+        let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+        app.policy.set_rules(vec!["build".into()]).unwrap();
+        let mut discovery = Discovery::new(Default::default());
+        let generation = app.generation;
+        for (text, expected, error) in [
+            ("*.pdf\n\n*.epub", vec!["*.pdf", "*.epub"], false),
+            ("*.pdf\n[", vec!["*.pdf", "*.epub"], true),
+            ("", vec![], false),
+        ] {
+            app.status.clear();
+            let mut focus = Focus::Filters(text.into());
+            apply_globs(&mut app, &mut focus, &mut discovery);
+            assert!(matches!(focus, Focus::Results));
+            assert_eq!(app.policy.filters, expected);
+            assert_eq!(
+                app.status.starts_with("Filter line 2:"),
+                error,
+                "{}",
+                app.status
+            );
+        }
+        assert_eq!(app.policy.rules, ["build"]);
+        // Filters choose among discovered files; they never restart discovery.
+        assert_eq!(app.generation, generation);
     }
 
     #[test]

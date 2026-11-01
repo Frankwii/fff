@@ -294,8 +294,10 @@ A scan never changes the last rendered numbered targets; only a completed frame
 publishes new ones. Query edits filter known paths without starting a scan.
 
 A cached **view** is the combination of current directory, ordered scopes, depth,
-hidden visibility, exclusions and file glob. Query, highlight, scroll position
-and marks are not restored. Nonexhaustive or interrupted snapshots cannot prove a
+hidden visibility and exclusions. Query, file filters (`--glob`), highlight,
+scroll position and marks are not part of it: filters only choose among
+discovered files, so changing them reuses the snapshot. Query, highlight, scroll
+position and marks are not restored. Nonexhaustive or interrupted snapshots cannot prove a
 view complete. Missing marked paths block confirmation; cached targets are checked
 for existence and file/directory kind when activated. F5 bypasses all replay and
 rescans immediately, preserving query, marks and settings.
@@ -377,7 +379,7 @@ backend = "basic" # Default: "nvim"; CLI override: --editor basic|nvim
 ```
 
 By default a clean headless Neovim instance edits every field, initially in
-Normal mode; press `i` or `a` to type. When `backend`
+Normal mode (a `--no-dir` query starts in Insert); press `i` or `a` to type. When `backend`
 is left unset and `nvim` is missing or fails to start, fff silently uses
 basic append/Backspace editing; an explicit `"nvim"` reports the fallback. See the
 [editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics,

@@ -218,6 +218,9 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             text,
             true,
         ),
+        Focus::Filters(text) => {
+            prompt(frame, app, area, Field::Filters, "Edit filters", text, true)
+        }
         Focus::Bookmarks { query, index } => {
             result.bookmark_targets = bookmarks(frame, area, app, query, *index);
             result.page = result.bookmark_targets.len();
@@ -375,8 +378,10 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
         (["● complete"; 2], theme.success)
     };
     let mut optional = Vec::new();
-    if let Some(glob) = &app.policy.glob {
-        optional.push(pill(safe(glob.glob().glob()), theme.accent, bg));
+    // Filters and exclusions only get a pill while they hide something; their
+    // globs are listed in the editors (Alt+f, Alt+e) and in F1's details.
+    if !app.policy.filters.is_empty() {
+        optional.push(pill("filters on", theme.accent, bg));
     }
     if app.no_dir {
         optional.push(pill("files only", theme.accent, bg));
@@ -384,8 +389,8 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     if app.policy.hidden {
         optional.push(pill("hidden shown", theme.accent, bg));
     }
-    if !app.policy.ignore {
-        optional.push(pill("exclusions off", theme.marked, bg));
+    if app.policy.ignore && !app.policy.rules.is_empty() {
+        optional.push(pill("exclusions on", theme.accent, bg));
     }
     let depth = pill(format!("depth {}", app.depth), theme.text, bg);
     let mut keep = optional.len();
@@ -997,6 +1002,7 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+.".into(), "show / hide hidden entries", false),
                 ("Alt+H".into(), "exclusions on / off", false),
                 ("Alt+e".into(), "edit exclusions", false),
+                ("Alt+f".into(), "edit file filters (globs)", false),
                 (
                     "v / p / s".into(),
                     "move / copy / symlink selected (Normal)",
@@ -1192,19 +1198,15 @@ fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         ),
         theme.text,
     ));
-    sections.push((
-        format!(
-            "File glob: {}",
-            safe(
-                app.policy
-                    .glob
-                    .as_ref()
-                    .map(|g| g.glob().glob())
-                    .unwrap_or("none")
-            )
-        ),
-        theme.text,
-    ));
+    if app.policy.filters.is_empty() {
+        sections.push(("Filters: none".into(), theme.text));
+    }
+    sections.extend(
+        app.policy
+            .filters
+            .iter()
+            .map(|f| (format!("Filter: {}", safe(f)), theme.muted)),
+    );
     sections.extend(
         app.policy
             .rules
@@ -1273,10 +1275,15 @@ fn prompt(
     frame.render_widget(block, dialog);
     let modal = app.edit_view.is_some();
     let hint: String = if multiline {
-        if modal {
-            "Exclusions: one glob per line; write saves; close discards".into()
+        let what = if field == Field::Filters {
+            "Filters: one glob per line; files must match one"
         } else {
-            "Exclusions: one glob per line; Ctrl+s saves; Esc discards".into()
+            "Exclusions: one glob per line"
+        };
+        if modal {
+            format!("{what}; write saves; close discards")
+        } else {
+            format!("{what}; Ctrl+s saves; Esc discards")
         }
     } else if modal {
         "Location · Enter navigates · Esc normal / cancel".into()
@@ -2956,6 +2963,8 @@ mod tests {
             offset: 0,
             keys: true,
         };
+        // Tall enough for the whole key guide, whose palette keys come last.
+        let mut terminal = Terminal::new(TestBackend::new(120, 50)).unwrap();
         terminal
             .draw(|f| {
                 render(f, &mut app, &mut focus);
@@ -3210,7 +3219,7 @@ mod tests {
         assert!(lines[1].contains("❯ type to filter"));
         // Progress and depth always; only non-default settings get a pill.
         assert!(
-            lines[2].contains("● complete   depth 3   exclusions off"),
+            lines[2].trim_end().ends_with("● complete   depth 3  ╯"),
             "{screen}"
         );
         assert!(!lines[2].contains("hidden"));
@@ -3218,12 +3227,19 @@ mod tests {
         assert!(lines[4].contains("Files ·"));
         assert!(!screen.contains("pinned"));
         app.scanning = true;
-        app.policy.glob = Some(crate::glob("*.tex").unwrap());
+        app.policy.set_filters(vec!["*.tex".into()]).unwrap();
+        app.policy.set_rules(vec!["build".into()]).unwrap();
+        app.policy.ignore = true;
         let (screen, _) = draw(&mut app, 120, 26);
+        // Filters and exclusions are named, not spelled out, and only while active.
         assert!(
-            screen.contains("◌ scanning · incomplete   depth 3   *.tex   exclusions off"),
+            screen.contains("◌ scanning · incomplete   depth 3   filters on   exclusions on"),
             "{screen}"
         );
+        assert!(!screen.contains("*.tex"), "{screen}");
+        app.policy.ignore = false;
+        let (screen, _) = draw(&mut app, 120, 26);
+        assert!(!screen.contains("exclusions"), "{screen}");
         // The minimum frame keeps depth and an explicit incomplete label.
         let (screen, targets) = draw(&mut app, 36, 12);
         let status = screen.lines().nth(2).unwrap();

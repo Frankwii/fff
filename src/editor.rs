@@ -18,6 +18,7 @@ pub enum Field {
     Location,
     Command,
     Exclusions,
+    Filters,
     Bookmarks,
     BookmarkName,
     BookmarkPath,
