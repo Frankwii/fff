@@ -1,6 +1,8 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
-use picker::{App, Policy, completion, config::Settings, glob, keys::KeyMap, ui, write_paths};
+use fuzzy_file_finder::{
+    App, Policy, completion, config::Settings, glob, keys::KeyMap, ui, write_paths,
+};
 use std::{io, path::PathBuf, process::ExitCode};
 
 const STYLES: styling::Styles = styling::Styles::styled()
@@ -15,10 +17,10 @@ const STYLES: styling::Styles = styling::Styles::styled()
 const LONG_ABOUT: &str = "\
 Interactive fuzzy file picker for the terminal.
 
-Type to fuzzy-filter file and directory basenames below the current directory,
+Press i to type and fuzzy-filter file and directory basenames (Neovim default),
 navigate with Enter, Alt+h and Alt+l, mark several paths with Tab, and confirm.
 The interface draws on /dev/tty; stdout receives only the selected paths, so
-picker works inside pipes and command substitution.
+fff works inside pipes and command substitution.
 
 With no ROOTS, browsing starts in the invocation directory and follows
 navigation. Each ROOT is pinned: its descendants stay in the results wherever
@@ -26,40 +28,40 @@ you navigate.";
 
 const AFTER_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
-  <cyan>picker</cyan>                          browse from the current directory
-  <cyan>vim \"$(picker -g '*.rs')\"</cyan>       open one picked Rust file
-  <cyan>picker -0 | xargs -0 ls -ld</cyan>     pass marked paths safely to another tool
+  <cyan>fff</cyan>                          browse from the current directory
+  <cyan>vim \"$(fff -g '*.rs')\"</cyan>       open one picked Rust file
+  <cyan>fff -0 | xargs -0 ls -ld</cyan>     pass marked paths safely to another tool
 
 Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 );
 
 const AFTER_LONG_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
-  <cyan>picker</cyan>
+  <cyan>fff</cyan>
       Browse from the current directory, three levels deep.
-  <cyan>picker ~/notes ~/papers --depth 2 --glob '*.tex'</cyan>
+  <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex'</cyan>
       Search two pinned roots for TeX files.
-  <cyan>vim \"$(picker --relative)\"</cyan>
+  <cyan>vim \"$(fff --relative)\"</cyan>
       Open the picked file using a path relative to here.
-  <cyan>picker --exclude build --exclude '*.log' -0 | xargs -0 ls -ld</cyan>
+  <cyan>fff --exclude build --exclude '*.log' -0 | xargs -0 ls -ld</cyan>
       Act on every marked path with NUL-separated records.
-  <cyan>picker --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
+  <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
 
-<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in picker for the full guide; Tab there shows session details)
-  <cyan>type</cyan>  filter          <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
+<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide; Tab there shows session details)
+  <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
   <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
   <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> return marks
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
-  <cyan>gg</cyan> first row and <cyan>G</cyan> last row; other keys still go to Neovim.
+  <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> applies exclusions.
 
 <bold><green>Configuration file:</green></bold>
-  Optional TOML at $XDG_CONFIG_HOME/picker/config.toml (~/.config/picker/
+  Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
   config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
   file icons ([ui] icons) and Normal-mode list keys ([keys.normal]).
-  <cyan>picker --check-config</cyan> validates it and prints which file was read.
+  <cyan>fff --check-config</cyan> validates it and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
   <cyan>0</cyan>    paths were selected (or the configuration is valid)
@@ -69,15 +71,17 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>130</cyan>  cancelled with Ctrl+c; nothing is written to stdout
 
 <bold><green>Shell completions:</green></bold>
-  bash  <cyan>source <<(picker --completions bash)</cyan>   in ~/.bashrc
-  zsh   <cyan>source <<(picker --completions zsh)</cyan>    in ~/.zshrc
-  fish  <cyan>picker --completions fish | source</cyan>    in ~/.config/fish/config.fish
+  bash  <cyan>source <<(fff --completions bash)</cyan>   in ~/.bashrc
+  zsh   <cyan>source <<(fff --completions zsh)</cyan>    in ~/.zshrc
+  fish  <cyan>fff --completions fish | source</cyan>    in ~/.config/fish/config.fish
   Completions cover options, root and config paths, editors, palettes
   (including custom ones from the configuration) and --map-key chords."
 );
 
 #[derive(Parser)]
 #[command(
+    name = "fff",
+    bin_name = "fff",
     version,
     about = "Interactive fuzzy file picker: browse in the terminal, print selected paths to stdout",
     long_about = LONG_ABOUT,
@@ -89,8 +93,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 struct Args {
     /// Pinned search roots; without any, browse from the current directory
     ///
-    /// Every ROOT stays in the results while you navigate; the current directory
-    /// is searched in addition and is never pinned. Duplicates are ignored.
+    /// Each ROOT's descendants stay in scope while you navigate. The current
+    /// directory is searched in addition; duplicate roots are ignored.
     #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
     roots: Vec<PathBuf>,
     /// Maximum discovery depth below each scope (immediate children = 1)
@@ -99,7 +103,7 @@ struct Args {
     #[arg(short, long, default_value_t = 3, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: u32,
-    /// Only list files whose basename matches GLOB (directories stay visible)
+    /// Only list files whose basename matches GLOB (still traverse directories)
     ///
     /// Uses globset syntax (*, ?, [abc], **); quote it so the shell does not
     /// expand it.
@@ -134,11 +138,12 @@ struct Args {
     /// Text-field editor backend; overrides [editor] backend in the configuration
     ///
     /// nvim (the default) embeds a clean Neovim (no user config or plugins) in
-    /// every text field; basic supports typing and Backspace. Without an explicit
+    /// every text field, initially in Normal mode (press i to type); basic
+    /// supports typing and Backspace. Without an explicit
     /// choice, a missing or broken nvim falls back to basic quietly. See
     /// docs/EDITING.md.
     #[arg(long, value_enum, help_heading = "Interface")]
-    editor: Option<picker::config::EditorBackend>,
+    editor: Option<fuzzy_file_finder::config::EditorBackend>,
     /// Color palette for this session; overrides [ui] palette
     ///
     /// Built-in names include midnight, light, forest, nord, gruvbox-dark,
@@ -174,15 +179,15 @@ struct Args {
     check_config: bool,
     /// Print the shell completion script for SHELL and exit
     ///
-    /// Load it from your shell's startup file, e.g. `source <(picker --completions
-    /// bash)`, so it is regenerated after upgrades. `COMPLETE=SHELL picker` prints
+    /// Load it from your shell's startup file, e.g. `source <(fff --completions
+    /// bash)`, so it is regenerated after upgrades. `COMPLETE=SHELL fff` prints
     /// the same script.
     #[arg(long, value_name = "SHELL", help_heading = "Shell integration",
         value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
     completions: Option<String>,
 }
 fn main() -> ExitCode {
-    // Answers `COMPLETE=<shell> picker ...` requests before anything is printed.
+    // Answers `COMPLETE=<shell> fff ...` requests before anything is printed.
     CompleteEnv::with_factory(Args::command)
         .var(completion::ENV_VAR)
         .complete();
@@ -190,7 +195,7 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(130),
         Err(e) => {
-            eprintln!("picker: {e}");
+            eprintln!("fff: {e}");
             ExitCode::from(1)
         }
     }
@@ -198,9 +203,7 @@ fn main() -> ExitCode {
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let args = Args::parse();
     if let Some(shell) = &args.completions {
-        let program = std::env::args_os()
-            .next()
-            .unwrap_or_else(|| "picker".into());
+        let program = std::env::args_os().next().unwrap_or_else(|| "fff".into());
         completion::write_registration(shell, &program, &mut io::stdout().lock())?;
         return Ok(true);
     }
@@ -235,16 +238,16 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     )?;
     if args.check_config {
         match &settings.source {
-            Some(path) => eprintln!("picker: configuration valid: {}", path.display()),
-            None => eprintln!("picker: no configuration file; using built-in settings"),
+            Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
+            None => eprintln!("fff: no configuration file; using built-in settings"),
         }
         return Ok(true);
     }
-    let watcher = picker::reload::PaletteWatcher::start(
+    let watcher = fuzzy_file_finder::reload::PaletteWatcher::start(
         args.config.clone(),
         args.no_config,
         args.palette.clone(),
-        picker::reload::PaletteState::from_settings(&settings),
+        fuzzy_file_finder::reload::PaletteState::from_settings(&settings),
     );
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut roots = Vec::new();
@@ -262,7 +265,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     } else {
         App::new(roots, args.depth as usize, policy)
     };
-    app.apply_palette(picker::reload::PaletteState::from_settings(&settings));
+    app.apply_palette(fuzzy_file_finder::reload::PaletteState::from_settings(
+        &settings,
+    ));
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
@@ -271,6 +276,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
+    app.bookmark_store = fuzzy_file_finder::bookmarks::Store::new(
+        settings.bookmark_path,
+        app.bookmarks.clone(),
+        app.home.clone(),
+    );
     if let Some(paths) = ui::run(
         app,
         keys,
@@ -332,25 +342,25 @@ mod tests {
 
     #[test]
     fn completion_offers_options_values_paths_and_palettes() {
-        assert_eq!(candidates(&["picker", "--pal"], None), ["--palette"]);
+        assert_eq!(candidates(&["fff", "--pal"], None), ["--palette"]);
         assert_eq!(
-            candidates(&["picker", "--editor", ""], None),
+            candidates(&["fff", "--editor", ""], None),
             ["basic", "nvim"]
         );
-        let shells = candidates(&["picker", "--completions", ""], None);
+        let shells = candidates(&["fff", "--completions", ""], None);
         for shell in ["bash", "zsh", "fish"] {
             assert!(shells.contains(&shell.to_string()), "{shell}");
         }
         // Custom palettes from the tester's own config may follow the built-ins.
-        let palettes = candidates(&["picker", "--palette", "catppuccin-m"], None);
+        let palettes = candidates(&["fff", "--palette", "catppuccin-m"], None);
         assert_eq!(palettes[..2], ["catppuccin-macchiato", "catppuccin-mocha"]);
         assert_eq!(
-            candidates(&["picker", "--map-key", "ctrl+n=pag"], None),
+            candidates(&["fff", "--map-key", "ctrl+n=pag"], None),
             ["ctrl+n=pageup", "ctrl+n=pagedown"]
         );
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        assert_eq!(candidates(&["picker", "do"], Some(root)), ["docs/"]);
-        let configs = candidates(&["picker", "--config", "docs/con"], Some(root));
+        assert_eq!(candidates(&["fff", "do"], Some(root)), ["docs/"]);
+        let configs = candidates(&["fff", "--config", "docs/con"], Some(root));
         assert!(
             configs.contains(&"docs/config.example.toml".to_string()),
             "{configs:?}"
@@ -358,13 +368,13 @@ mod tests {
     }
 
     #[test]
-    fn registration_scripts_call_back_into_picker() {
+    fn registration_scripts_call_back_into_fff() {
         for shell in ["bash", "zsh", "fish"] {
             let mut script = Vec::new();
-            completion::write_registration(shell, "/usr/bin/picker".as_ref(), &mut script).unwrap();
+            completion::write_registration(shell, "/usr/bin/fff".as_ref(), &mut script).unwrap();
             let script = String::from_utf8(script).unwrap();
             assert!(
-                script.contains("COMPLETE") && script.contains("/usr/bin/picker"),
+                script.contains("COMPLETE") && script.contains("/usr/bin/fff"),
                 "{shell}"
             );
             assert!(
@@ -372,8 +382,6 @@ mod tests {
                     || script.contains(&format!("COMPLETE={shell}"))
             );
         }
-        assert!(
-            completion::write_registration("tcsh", "picker".as_ref(), &mut Vec::new()).is_err()
-        );
+        assert!(completion::write_registration("tcsh", "fff".as_ref(), &mut Vec::new()).is_err());
     }
 }

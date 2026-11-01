@@ -117,7 +117,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     // No invisible result rows may acquire numbered targets in a tiny terminal.
     if area.width < 36 || area.height < 12 {
         let text = Text::from(vec![
-            Line::from(bold(" picker", theme.accent)),
+            Line::from(bold(" fff", theme.accent)),
             Line::from(styled(" Resize terminal to at least 36 × 12", theme.muted)),
             Line::from(styled(
                 if app.scanning {
@@ -188,6 +188,11 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             true,
         ),
         Focus::Bookmarks { query, index } => bookmarks(frame, area, app, query, *index),
+        Focus::BookmarkEdit(draft) => bookmark_form(frame, area, app, draft),
+        Focus::BookmarkIcons { query, index, .. } => {
+            bookmark_icons(frame, area, app, query, *index)
+        }
+        Focus::BookmarkDelete { target, .. } => bookmark_delete(frame, area, app, *target),
         Focus::Palettes { query, index, .. } => palettes(frame, area, app, query, *index),
         Focus::Location(text) => prompt(
             frame,
@@ -328,7 +333,7 @@ fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
 fn status_line(app: &App, width: usize) -> Line<'static> {
     let theme = app.palette;
     let bg = theme.selection;
-    let (scan, color) = if app.cache_pending {
+    let (scan, color) = if app.cache_pending && app.scanning {
         (["◌ cached · refreshing", "◌ incomplete"], theme.marked)
     } else if app.scanning {
         (["◌ scanning · incomplete", "◌ incomplete"], theme.marked)
@@ -893,7 +898,8 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+← Alt+→".into(), "search shallower / deeper", false),
                 ("Alt+.".into(), "show / hide hidden entries", false),
                 ("Alt+H".into(), "exclusions on / off", false),
-                ("Alt+e".into(), "edit exclusions (Ctrl+w applies)", false),
+                ("Alt+e".into(), "edit exclusions", false),
+                (normal(Apply), "apply / close exclusions", false),
                 ("F5".into(), "rescan, bypassing the cache", false),
             ],
         ),
@@ -908,15 +914,33 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "first / last row",
                     false,
                 ),
-                ("i  a".into(), "back to Insert mode", false),
+                (normal(Mark), "mark / unmark, like Tab", false),
+                ("i  a".into(), "enter Insert mode", false),
             ],
         ),
         (
             "Look",
             vec![
-                ("Alt+p".into(), "choose a palette (live preview)", false),
+                ("Alt+p".into(), "choose palette (100 ms preview)", false),
                 ("Alt+P".into(), "reload palette from config", false),
                 ("F1".into(), "this guide · Tab: session", false),
+            ],
+        ),
+        (
+            "Bookmarks",
+            vec![
+                ("Alt+n".into(), "add current directory (in chooser)", true),
+                ("Alt+e".into(), "edit highlighted bookmark", true),
+                ("Alt+d".into(), "delete bookmark, with confirmation", true),
+                ("Alt+r".into(), "reload bookmarks from config", true),
+                (
+                    "Tab / Shift+Tab".into(),
+                    "switch bookmark form fields",
+                    true,
+                ),
+                ("Alt+i".into(), "choose bookmark Nerd Font icon", true),
+                ("Ctrl+s".into(), "save bookmark", true),
+                (normal(Apply), "save bookmark in Normal mode", true),
             ],
         ),
     ];
@@ -1122,16 +1146,20 @@ fn prompt(
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
     let modal = app.edit_view.is_some();
+    let apply = app
+        .normal_keys
+        .describe(crate::normal_keys::ListAction::Apply);
+    let apply = if apply.is_empty() { "unbound" } else { &apply };
     let hint = if multiline {
         if modal {
-            "Exclusions: one glob per line; Ctrl+w applies; Esc normal / cancel"
+            format!("Exclusions: one glob per line; {apply} in Normal applies; Esc normal / cancel")
         } else {
-            "Exclusions: one glob per line; Ctrl+w applies, Esc cancels"
+            format!("Exclusions: one glob per line; {apply} applies, Esc cancels")
         }
     } else if modal {
-        "Location · Enter navigates · Esc normal / cancel"
+        "Location · Enter navigates · Esc normal / cancel".into()
     } else {
-        "Location (Enter navigates, Esc cancels)"
+        "Location (Enter navigates, Esc cancels)".into()
     };
     frame.render_widget(
         Paragraph::new(styled(hint, theme.muted)).wrap(Wrap { trim: false }),
@@ -1229,7 +1257,7 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
     let matches = app.matching_bookmarks(query);
     if matches.is_empty() {
         let text = if app.bookmarks.is_empty() {
-            "No bookmarks configured. Add [[bookmarks]] to config.toml."
+            "No bookmarks yet. Alt+n adds the current directory."
         } else {
             "No matching bookmarks"
         };
@@ -1289,12 +1317,252 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
             &mut state,
         );
     }
-    if !app.status.is_empty() {
+    let hint = if app.status.is_empty() {
+        "Alt+n add · Alt+e edit · Alt+d delete · Alt+r reload"
+    } else {
+        &app.status
+    };
+    frame.render_widget(
+        Paragraph::new(styled(
+            safe(hint),
+            if app.status.is_empty() {
+                theme.muted
+            } else {
+                theme.error
+            },
+        )),
+        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+    );
+}
+/// Shared modal frame for the bookmark form, icon chooser and deletion prompt.
+fn bookmark_dialog(frame: &mut Frame, area: Rect, app: &App, title: String, height: u16) -> Rect {
+    let width = area.width.saturating_sub(2).min(90);
+    let height = area.height.saturating_sub(2).min(height);
+    let dialog = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    let block = panel(app.palette, title, true, app.palette.marked).padding(Padding::horizontal(1));
+    let inner = block.inner(dialog);
+    frame.render_widget(Clear, dialog);
+    frame.render_widget(block, dialog);
+    inner
+}
+fn bookmark_form(frame: &mut Frame, area: Rect, app: &App, draft: &crate::bookmarks::Draft) {
+    use crate::bookmarks::EditField;
+    let title = if draft.editing.is_some() {
+        "Edit bookmark"
+    } else {
+        "Add bookmark"
+    };
+    let title = draft
+        .field
+        .editor()
+        .map_or_else(|| title.to_owned(), |f| mode_title(app, f, title));
+    let inner = bookmark_dialog(frame, area, app, title, 14);
+    let theme = app.palette;
+    let put = |frame: &mut Frame, y: u16, text: String, color| {
+        if y < inner.height {
+            frame.render_widget(
+                Paragraph::new(styled(text, color)),
+                Rect::new(inner.x, inner.y + y, inner.width, 1),
+            );
+        }
+    };
+    put(
+        frame,
+        0,
+        "Tab fields · Enter next / choose icon · Alt+i icons".into(),
+        theme.muted,
+    );
+    for (row, label, value, active, field) in [
+        (
+            2,
+            "Name: ",
+            draft.name.as_str(),
+            draft.field == EditField::Name,
+            Field::BookmarkName,
+        ),
+        (
+            3,
+            "Path: ",
+            draft.path.as_str(),
+            draft.field == EditField::Path,
+            Field::BookmarkPath,
+        ),
+    ] {
+        if row >= inner.height {
+            continue;
+        }
+        let (mut line, cursor) =
+            editable_line(app, field, value, 0, inner.width.saturating_sub(6) as usize);
+        line.spans.insert(
+            0,
+            bold(label, if active { theme.accent } else { theme.muted }),
+        );
+        if active {
+            line = line.style(Style::default().bg(theme.selection));
+        }
         frame.render_widget(
-            Paragraph::new(styled(safe(&app.status), theme.error)),
-            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+            Paragraph::new(line),
+            Rect::new(inner.x, inner.y + row, inner.width, 1),
+        );
+        if active && inner.width > 6 {
+            frame.set_cursor_position((inner.x + 6 + cursor, inner.y + row));
+        }
+    }
+    let icon = draft.icon.as_deref().unwrap_or("Automatic (folder)");
+    put(
+        frame,
+        4,
+        format!(
+            "{}Icon: {}  Enter chooses",
+            if draft.field == EditField::Icon {
+                "› "
+            } else {
+                "  "
+            },
+            safe(icon)
+        ),
+        if draft.field == EditField::Icon {
+            theme.accent
+        } else {
+            theme.text
+        },
+    );
+    if let Some(path) = &app.bookmark_store.path {
+        put(
+            frame,
+            6,
+            format!(
+                "Save to: {}",
+                elide(
+                    &safe(path.display().to_string()),
+                    inner.width.saturating_sub(9) as usize
+                )
+            ),
+            theme.muted,
+        );
+    } else {
+        put(
+            frame,
+            6,
+            "Session only · configuration is disabled or unavailable".into(),
+            theme.muted,
         );
     }
+    put(
+        frame,
+        7,
+        "Relative paths start at the current browsing directory.".into(),
+        theme.muted,
+    );
+    if !app.status.is_empty() && inner.height > 2 {
+        put(frame, inner.height - 2, safe(&app.status), theme.error);
+    }
+    let apply = app
+        .normal_keys
+        .describe(crate::normal_keys::ListAction::Apply);
+    put(
+        frame,
+        inner.height.saturating_sub(1),
+        format!("Ctrl+s / {apply} (Normal): save · Esc cancels"),
+        theme.marked,
+    );
+}
+fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
+    let inner = bookmark_dialog(
+        frame,
+        area,
+        app,
+        mode_title(
+            app,
+            Field::BookmarkIcons,
+            "Bookmark icons · Enter chooses · Esc returns",
+        ),
+        22,
+    );
+    let theme = app.palette;
+    let (mut line, cursor) = editable_line(
+        app,
+        Field::BookmarkIcons,
+        query,
+        0,
+        inner.width.saturating_sub(6) as usize,
+    );
+    line.spans.insert(0, styled("Find: ", theme.marked));
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    if inner.width > 6 {
+        frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
+    }
+    let list = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(3),
+    );
+    let matches = crate::icons::matching_bookmark_icons(query);
+    if matches.is_empty() {
+        frame.render_widget(
+            Paragraph::new(styled("No matching icons", theme.muted)),
+            list,
+        );
+    } else {
+        let items: Vec<_> = matches
+            .iter()
+            .map(|&i| {
+                let (name, glyph) = crate::icons::BOOKMARK_ICONS[i];
+                ListItem::new(Line::from(vec![
+                    bold(format!("{}  ", glyph.unwrap_or('·')), theme.accent),
+                    styled(name, theme.text),
+                ]))
+            })
+            .collect();
+        let mut state = ListState::default().with_selected(Some(index));
+        frame.render_stateful_widget(
+            List::new(items)
+                .highlight_symbol("› ")
+                .highlight_style(Style::default().bg(theme.selection)),
+            list,
+            &mut state,
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(styled(
+            "Nerd Font glyphs · Automatic clears the custom icon",
+            theme.muted,
+        )),
+        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+    );
+}
+fn bookmark_delete(frame: &mut Frame, area: Rect, app: &App, index: usize) {
+    let inner = bookmark_dialog(frame, area, app, "Delete bookmark?".into(), 10);
+    let theme = app.palette;
+    let Some(bookmark) = app.bookmarks.get(index) else {
+        return;
+    };
+    let lines = vec![
+        Line::from(bold(safe(&bookmark.name), theme.marked)),
+        Line::from(styled(
+            elide(
+                &safe(bookmark.path.display().to_string()),
+                inner.width as usize,
+            ),
+            theme.muted,
+        )),
+        Line::from(""),
+        Line::from(styled(
+            "Enter deletes this bookmark · Esc cancels",
+            theme.text,
+        )),
+        Line::from(styled(safe(&app.status), theme.error)),
+    ];
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 /// Alt+p chooser. The whole frame already uses the highlighted (previewed) palette.
 fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
@@ -1923,6 +2191,7 @@ mod tests {
         let mut app = fixture();
         app.normal_keys = crate::normal_keys::NormalKeysConfig {
             down: crate::normal_keys::Sequences::Many(vec!["j".into(), "<space>j".into()]),
+            mark: crate::normal_keys::Sequences::One("none".into()),
             ..Default::default()
         }
         .build()

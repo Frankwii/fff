@@ -1,5 +1,6 @@
 use crate::{
     App, EnterOutcome,
+    bookmarks::{Change as BookmarkChange, Draft as BookmarkDraft, EditField as BookmarkField},
     discovery::Discovery,
     editor::{EditView, Field, Nvim},
     normal_keys::{ListAction, Step},
@@ -36,6 +37,17 @@ pub(crate) enum Focus {
     Exclusions(String),
     Location(String),
     Bookmarks {
+        query: String,
+        index: usize,
+    },
+    BookmarkEdit(BookmarkDraft),
+    BookmarkIcons {
+        draft: BookmarkDraft,
+        query: String,
+        index: usize,
+    },
+    BookmarkDelete {
+        target: usize,
         query: String,
         index: usize,
     },
@@ -80,6 +92,60 @@ impl Drop for Terminal {
     }
 }
 
+/// Crossterm has one reader. Input and discovery notify the same sleeping UI;
+/// the bounded input queue preserves order and applies backpressure on pastes.
+struct Input {
+    events: std::sync::mpsc::Receiver<io::Result<Event>>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl Input {
+    fn start(wake: std::sync::mpsc::SyncSender<()>) -> Self {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+        let (tx, events) = mpsc::sync_channel(64);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let stopped = cancel.clone();
+        let thread = std::thread::spawn(move || {
+            while !stopped.load(Ordering::Relaxed) {
+                let event = match event::poll(Duration::from_millis(20)) {
+                    Ok(false) => continue,
+                    Ok(true) => event::read(),
+                    Err(error) => Err(error),
+                };
+                let failed = event.is_err();
+                if tx.send(event).is_err() {
+                    break;
+                }
+                let _ = wake.try_send(());
+                if failed {
+                    break;
+                }
+            }
+        });
+        Self {
+            events,
+            cancel,
+            thread: Some(thread),
+        }
+    }
+}
+impl Drop for Input {
+    fn drop(&mut self) {
+        self.cancel
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        // Disconnect before joining, in case the bounded queue is full.
+        let (_, empty) = std::sync::mpsc::channel();
+        drop(std::mem::replace(&mut self.events, empty));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 pub fn run(
     mut app: App,
     keys: crate::keys::KeyMap,
@@ -89,7 +155,10 @@ pub fn run(
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Option<Vec<PathBuf>>> {
     let mut terminal = Terminal::enter()?;
+    let (wake, waking) = std::sync::mpsc::sync_channel(1);
+    let input = Input::start(wake.clone());
     let mut discovery = Discovery::new(cache);
+    discovery.set_waker(wake);
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
     discovery.start(&mut app, true);
     let mut editor = start_editor(backend, "nvim", &mut app.status);
@@ -97,6 +166,7 @@ pub fn run(
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     let mut status = StatusTimer::default();
+    let mut preview = PalettePreview::default();
     // Frames are drawn after input or a visible change, and at least once a
     // second so external changes (e.g. a deleted mark) still appear.
     let mut dirty = true;
@@ -114,11 +184,16 @@ pub fn run(
             }
         }
         dirty |= discovery.drain(&mut app);
+        discovery.idle(
+            &app,
+            matches!(focus, Focus::Results),
+            std::time::Instant::now(),
+        );
         if editor_directory != app.cwd {
             editor_directory = app.cwd.clone();
-            // A new location starts in Normal mode, ready for list keys.
+            // Carry the initiating field's editing mode into the new location.
             if let Some(e) = &mut editor {
-                e.reset_normal(Field::Query);
+                e.reset_preserving_mode(Field::Query);
             }
         }
         if let Some((field, text)) = text_field(&app, &focus) {
@@ -141,6 +216,7 @@ pub fn run(
             // Show a partial list-key sequence like Neovim's own pending input.
             view.blocking = true;
         }
+        dirty |= preview.tick(&mut app, &focus, std::time::Instant::now());
         let desired = app
             .edit_view
             .as_ref()
@@ -175,18 +251,29 @@ pub fn run(
             dirty = false;
             drawn_at = std::time::Instant::now();
         }
-        // Input always wakes the loop at once; the timeout only paces background
-        // work: discovery and pending key sequences, else messages and reloads.
+        // Both input and discovery wake this wait immediately. The timeout only
+        // services due re-sorts, status expiry, palette reload and idle prefetch.
         let wait = if discovery.busy(&app) || app.normal_keys.pending() {
             30
         } else {
             250
         };
-        if !event::poll(Duration::from_millis(wait))? {
-            continue;
-        }
+        let wait = preview
+            .remaining(std::time::Instant::now())
+            .map_or(Duration::from_millis(wait), |delay| {
+                delay.min(Duration::from_millis(wait))
+            });
+        let event = match input.events.try_recv() {
+            Ok(event) => event?,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                let _ = waking.recv_timeout(wait);
+                continue;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return Err(io::Error::other("terminal input reader stopped"));
+            }
+        };
         dirty = true;
-        let event = event::read()?;
         if let Event::Paste(text) = event {
             // A held-back Normal-mode prefix reaches Neovim before the paste.
             for pending in app.normal_keys.take_pending() {
@@ -231,11 +318,35 @@ pub fn run(
                         );
                         *index = 0;
                     }
-                    Focus::Palettes {
-                        query,
-                        index,
-                        original,
-                    } => {
+                    Focus::BookmarkEdit(draft) => {
+                        if let Some(field) = draft.field.editor() {
+                            let value = if draft.field == BookmarkField::Name {
+                                &mut draft.name
+                            } else {
+                                &mut draft.path
+                            };
+                            paste(
+                                value,
+                                &text,
+                                field,
+                                &mut editor,
+                                &mut app.edit_view,
+                                &mut app.status,
+                            );
+                        }
+                    }
+                    Focus::BookmarkIcons { query, index, .. } => {
+                        paste(
+                            query,
+                            &text,
+                            Field::BookmarkIcons,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                        *index = 0;
+                    }
+                    Focus::Palettes { query, index, .. } => {
                         paste(
                             query,
                             &text,
@@ -245,7 +356,6 @@ pub fn run(
                             &mut app.status,
                         );
                         *index = 0;
-                        preview_palette(&mut app, query, *index, *original);
                     }
                     _ => {}
                 }
@@ -266,8 +376,16 @@ pub fn run(
             return Ok(None);
         }
         let key = match normal_list_key(&mut app, &mut focus, &mut editor, key) {
-            Some(key) => key,
-            None => continue,
+            NormalKey::Pass(key) => key,
+            NormalKey::Consumed => continue,
+            NormalKey::ApplyEditor => {
+                if matches!(focus, Focus::BookmarkEdit(_)) {
+                    save_bookmark(&mut app, &mut focus);
+                } else {
+                    apply_exclusions(&mut app, &mut focus, &mut discovery);
+                }
+                continue;
+            }
         };
         let capture = app.edit_view.as_ref().is_some_and(|v| {
             (key.code == K::Esc && !v.normal())
@@ -317,11 +435,40 @@ pub fn run(
                     );
                     *index = 0;
                 }
-                Focus::Palettes {
-                    query,
-                    index,
-                    original,
-                } => {
+                Focus::BookmarkEdit(draft) => {
+                    if let Some(field) = draft.field.editor() {
+                        let text = if draft.field == BookmarkField::Name {
+                            &mut draft.name
+                        } else {
+                            &mut draft.path
+                        };
+                        edit(
+                            text,
+                            key,
+                            false,
+                            field,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                    }
+                }
+                Focus::BookmarkIcons { query, index, .. } => {
+                    let before = query.clone();
+                    edit(
+                        query,
+                        key,
+                        false,
+                        Field::BookmarkIcons,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                    if *query != before {
+                        *index = 0;
+                    }
+                }
+                Focus::Palettes { query, index, .. } => {
                     let before = query.clone();
                     edit(
                         query,
@@ -334,7 +481,6 @@ pub fn run(
                     );
                     if *query != before {
                         *index = 0;
-                        preview_palette(&mut app, query, *index, *original);
                     }
                 }
                 _ => {}
@@ -365,6 +511,68 @@ pub fn run(
                 EnterOutcome::Navigated => discovery.start(&mut app, true),
                 EnterOutcome::Stay => {}
             }
+            continue;
+        }
+        if let Focus::Bookmarks { query, index } = &focus {
+            let matches = app.matching_bookmarks(query);
+            let target = matches.get(*index).copied();
+            let next = if alt && key.code == K::Char('n') {
+                Some(BookmarkDraft::new(&app.cwd, None, query.clone(), *index))
+            } else if alt && key.code == K::Char('e') {
+                target.map(|i| {
+                    BookmarkDraft::new(
+                        &app.cwd,
+                        Some((i, &app.bookmarks[i])),
+                        query.clone(),
+                        *index,
+                    )
+                })
+            } else {
+                None
+            };
+            if let Some(next) = next {
+                match next {
+                    Ok(draft) => {
+                        if let Some(e) = &mut editor {
+                            e.reset(Field::BookmarkName);
+                            e.reset(Field::BookmarkPath);
+                        }
+                        focus = Focus::BookmarkEdit(draft);
+                    }
+                    Err(error) => app.status = error,
+                }
+                continue;
+            }
+            if alt && key.code == K::Char('d') {
+                if let Some(target) = target {
+                    focus = Focus::BookmarkDelete {
+                        target,
+                        query: query.clone(),
+                        index: *index,
+                    };
+                }
+                continue;
+            }
+            if alt && key.code == K::Char('r') {
+                match app.bookmark_store.reload() {
+                    Ok(bookmarks) => {
+                        app.bookmarks = bookmarks;
+                        if let Some(e) = &mut editor {
+                            e.reset(Field::Bookmarks);
+                        }
+                        focus = Focus::Bookmarks {
+                            query: String::new(),
+                            index: 0,
+                        };
+                        app.status = "Bookmarks reloaded".into();
+                    }
+                    Err(error) => app.status = error,
+                }
+                continue;
+            }
+        }
+        if matches!(focus, Focus::BookmarkEdit(_)) && ctrl && key.code == K::Char('s') {
+            save_bookmark(&mut app, &mut focus);
             continue;
         }
         let navigation =
@@ -430,7 +638,6 @@ pub fn run(
                     }
                 };
                 *index = moved;
-                preview_palette(&mut app, query, *index, *original);
             }
             Focus::Bookmarks { query, index } => {
                 let matches = app.matching_bookmarks(query);
@@ -470,6 +677,119 @@ pub fn run(
                     }
                 }
             }
+            Focus::BookmarkEdit(draft) => {
+                if key.code == K::Esc {
+                    focus = Focus::Bookmarks {
+                        query: draft.query.clone(),
+                        index: draft.index,
+                    };
+                } else if key.code == K::Tab || key.code == K::BackTab {
+                    draft.field = draft
+                        .field
+                        .next(key.code == K::BackTab || key.modifiers.contains(M::SHIFT));
+                } else if (alt && key.code == K::Char('i'))
+                    || (draft.field == BookmarkField::Icon
+                        && matches!(key.code, K::Enter | K::Char(' ')))
+                {
+                    let index = crate::icons::BOOKMARK_ICONS
+                        .iter()
+                        .position(|(_, glyph)| glyph.map(|g| g.to_string()) == draft.icon)
+                        .unwrap_or(0);
+                    if let Some(e) = &mut editor {
+                        e.reset(Field::BookmarkIcons);
+                    }
+                    focus = Focus::BookmarkIcons {
+                        draft: draft.clone(),
+                        query: String::new(),
+                        index,
+                    };
+                } else if key.code == K::Enter {
+                    draft.field = draft.field.next(false);
+                } else if let Some(field) = draft.field.editor() {
+                    let text = if draft.field == BookmarkField::Name {
+                        &mut draft.name
+                    } else {
+                        &mut draft.path
+                    };
+                    edit(
+                        text,
+                        key,
+                        false,
+                        field,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                }
+            }
+            Focus::BookmarkIcons {
+                draft,
+                query,
+                index,
+            } => {
+                let matches = crate::icons::matching_bookmark_icons(query);
+                match key.code {
+                    K::Esc => focus = Focus::BookmarkEdit(draft.clone()),
+                    K::Char('i') if alt => focus = Focus::BookmarkEdit(draft.clone()),
+                    K::Enter => {
+                        if let Some(&i) = matches.get(*index) {
+                            draft.icon = crate::icons::BOOKMARK_ICONS[i].1.map(|g| g.to_string());
+                            draft.field = BookmarkField::Icon;
+                            focus = Focus::BookmarkEdit(draft.clone());
+                        }
+                    }
+                    K::Down | K::Char('j') if key.code == K::Down || alt => {
+                        *index = (*index + 1).min(matches.len().saturating_sub(1))
+                    }
+                    K::Up | K::Char('k') if key.code == K::Up || alt => {
+                        *index = index.saturating_sub(1)
+                    }
+                    K::PageDown => *index = (*index + page).min(matches.len().saturating_sub(1)),
+                    K::PageUp => *index = index.saturating_sub(page),
+                    _ => {
+                        let before = query.clone();
+                        edit(
+                            query,
+                            key,
+                            false,
+                            Field::BookmarkIcons,
+                            &mut editor,
+                            &mut app.edit_view,
+                            &mut app.status,
+                        );
+                        if *query != before {
+                            *index = 0;
+                        }
+                    }
+                }
+            }
+            Focus::BookmarkDelete {
+                target,
+                query,
+                index,
+            } => {
+                if key.code == K::Esc {
+                    focus = Focus::Bookmarks {
+                        query: query.clone(),
+                        index: *index,
+                    };
+                } else if key.code == K::Enter {
+                    match app
+                        .bookmark_store
+                        .commit(&app.bookmarks, &BookmarkChange::Remove(*target))
+                    {
+                        Ok(bookmarks) => {
+                            app.bookmarks = bookmarks;
+                            app.status = bookmark_saved(&app, "Bookmark deleted");
+                            focus = Focus::Bookmarks {
+                                query: String::new(),
+                                index: (*target).min(app.bookmarks.len().saturating_sub(1)),
+                            };
+                        }
+                        Err(error) => app.status = error,
+                    }
+                }
+            }
             Focus::Info { offset, keys } => match key.code {
                 K::Esc | K::F(1) | K::Char('q') => focus = Focus::Results,
                 K::Tab | K::BackTab | K::Left | K::Right => {
@@ -483,22 +803,7 @@ pub fn run(
                 _ => {}
             },
             Focus::Exclusions(text) => {
-                if ctrl && key.code == K::Char('w') {
-                    let rules = text
-                        .lines()
-                        .filter(|s| !s.is_empty())
-                        .map(str::to_owned)
-                        .collect();
-                    match app.policy.set_rules(rules) {
-                        Ok(()) => {
-                            focus = Focus::Results;
-                            if app.policy.ignore {
-                                discovery.start(&mut app, false);
-                            }
-                        }
-                        Err(e) => app.status = e.to_string(),
-                    }
-                } else if key.code == K::Esc {
+                if key.code == K::Esc {
                     focus = Focus::Results;
                 } else {
                     edit(
@@ -600,6 +905,7 @@ pub fn run(
                         .palettes
                         .iter()
                         .position(|(name, _)| *name == app.palette_name)
+                        .or_else(|| app.palettes.iter().position(|(_, p)| *p == app.palette))
                         .unwrap_or(0);
                     focus = Focus::Palettes {
                         query: String::new(),
@@ -765,13 +1071,104 @@ fn palette_key(key: KeyEvent) -> Option<PaletteKey> {
         _ => None,
     }
 }
-/// Show the highlighted chooser entry, or the pre-chooser colors with no match.
-fn preview_palette(app: &mut App, query: &str, index: usize, original: crate::config::Palette) {
-    app.palette = app
-        .matching_palettes(query)
-        .get(index)
-        .map(|&i| app.palettes[i].1)
-        .unwrap_or(original);
+/// Debounce chooser previews; only a stable highlight changes the canvas.
+#[derive(Default)]
+struct PalettePreview {
+    target: Option<(Option<String>, crate::config::Palette)>,
+    since: Option<std::time::Instant>,
+    applied: bool,
+}
+impl PalettePreview {
+    fn tick(&mut self, app: &mut App, focus: &Focus, now: std::time::Instant) -> bool {
+        let Focus::Palettes {
+            query,
+            index,
+            original,
+        } = focus
+        else {
+            *self = Self::default();
+            return false;
+        };
+        let target = app
+            .matching_palettes(query)
+            .get(*index)
+            .map(|&i| (Some(app.palettes[i].0.clone()), app.palettes[i].1))
+            .unwrap_or((None, *original));
+        if self.target.as_ref() != Some(&target) {
+            self.target = Some(target);
+            self.since = Some(now);
+            self.applied = false;
+        }
+        if self.remaining(now).is_some_and(|d| d.is_zero()) {
+            self.applied = true;
+            let palette = self.target.as_ref().unwrap().1;
+            let changed = app.palette != palette;
+            app.palette = palette;
+            return changed;
+        }
+        false
+    }
+    fn remaining(&self, now: std::time::Instant) -> Option<Duration> {
+        if self.applied {
+            return None;
+        }
+        self.since.map(|since| {
+            Duration::from_millis(100).saturating_sub(now.saturating_duration_since(since))
+        })
+    }
+}
+fn bookmark_saved(app: &App, action: &str) -> String {
+    match &app.bookmark_store.path {
+        Some(path) => format!("{action} in {}", path.display()),
+        None => format!("{action} for this session"),
+    }
+}
+fn save_bookmark(app: &mut App, focus: &mut Focus) {
+    let Focus::BookmarkEdit(draft) = focus else {
+        return;
+    };
+    let result = draft
+        .bookmark(&app.cwd, app.home.as_deref())
+        .and_then(|bookmark| {
+            app.bookmark_store.commit(
+                &app.bookmarks,
+                &BookmarkChange::Put {
+                    index: draft.editing,
+                    bookmark,
+                },
+            )
+        });
+    match result {
+        Ok(bookmarks) => {
+            let index = draft.editing.unwrap_or(app.bookmarks.len());
+            app.bookmarks = bookmarks;
+            app.status = bookmark_saved(app, "Bookmark saved");
+            *focus = Focus::Bookmarks {
+                query: String::new(),
+                index,
+            };
+        }
+        Err(error) => app.status = error,
+    }
+}
+fn apply_exclusions(app: &mut App, focus: &mut Focus, discovery: &mut Discovery) {
+    let Focus::Exclusions(text) = focus else {
+        return;
+    };
+    let rules = text
+        .lines()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    match app.policy.set_rules(rules) {
+        Ok(()) => {
+            *focus = Focus::Results;
+            if app.policy.ignore {
+                discovery.start(app, false);
+            }
+        }
+        Err(error) => app.status = error.to_string(),
+    }
 }
 /// Alt+P: drop the session choice and apply the configuration's palette now.
 fn reload_palette(app: &mut App, palettes: &crate::reload::PaletteWatcher) {
@@ -804,7 +1201,6 @@ fn palette_reloaded(app: &mut App, focus: &mut Focus, state: crate::reload::Pale
         app.palette_name = state.name;
         app.palettes = state.available;
         *index = (*index).min(app.matching_palettes(query).len().saturating_sub(1));
-        preview_palette(app, query, *index, *original);
     } else {
         app.apply_palette(state);
     }
@@ -816,10 +1212,12 @@ fn palette_reloaded(app: &mut App, focus: &mut Focus, state: crate::reload::Pale
 fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
     use ListAction::*;
     match focus {
-        Focus::Results => Some(&ListAction::ALL),
-        Focus::Marks { .. } | Focus::Bookmarks { .. } | Focus::Palettes { .. } => {
+        Focus::Results => Some(&[Left, Down, Up, Right, First, Last, Mark]),
+        Focus::Marks { .. } => Some(&[Down, Up, First, Last, Mark]),
+        Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
             Some(&[Down, Up, First, Last])
         }
+        Focus::Exclusions(_) | Focus::BookmarkEdit(_) => Some(&[Apply]),
         _ => None,
     }
 }
@@ -829,44 +1227,49 @@ fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
         Focus::Results => app.move_by(if last { isize::MAX } else { isize::MIN }),
         Focus::Marks { rows, index } => *index = end(rows.len()),
         Focus::Bookmarks { query, index } => *index = end(app.matching_bookmarks(query).len()),
-        Focus::Palettes {
-            query,
-            index,
-            original,
-        } => {
+        Focus::BookmarkIcons { query, index, .. } => {
+            *index = end(crate::icons::matching_bookmark_icons(query).len())
+        }
+        Focus::Palettes { query, index, .. } => {
             *index = end(app.matching_palettes(query).len());
-            preview_palette(app, query, *index, *original);
         }
         _ => {}
     }
 }
-/// Apply Normal-mode list keys. Returns the key still to handle (possibly the
-/// equivalent Alt chord), or None when it was consumed. The marked list has no
-/// text field, so it always accepts them.
+enum NormalKey {
+    Pass(KeyEvent),
+    Consumed,
+    ApplyEditor,
+}
+/// Dispatch configured Normal-mode actions in their supported views. Marked
+/// lists and the basic exclusion editor accept their actions without a mode.
 fn normal_list_key(
     app: &mut App,
     focus: &mut Focus,
     editor: &mut Option<Nvim>,
     key: KeyEvent,
-) -> Option<KeyEvent> {
+) -> NormalKey {
     let Some(actions) = list_actions(focus) else {
-        return Some(key);
+        return NormalKey::Pass(key);
     };
     loop {
         let normal = matches!(focus, Focus::Marks { .. })
+            || (matches!(focus, Focus::Exclusions(_) | Focus::BookmarkEdit(_)) && editor.is_none())
+            || matches!(focus, Focus::BookmarkEdit(d) if d.field == BookmarkField::Icon)
             || app.edit_view.as_ref().is_some_and(|v| v.normal());
         if !normal && !app.normal_keys.pending() {
-            return Some(key);
+            return NormalKey::Pass(key);
         }
         match app.normal_keys.feed(key, |a| actions.contains(&a)) {
-            Step::Pass => return Some(key),
-            Step::Pending => return None,
+            Step::Pass => return NormalKey::Pass(key),
+            Step::Pending => return NormalKey::Consumed,
+            Step::Action(ListAction::Apply) => return NormalKey::ApplyEditor,
             Step::Action(action) => {
                 return match action.alt_key() {
-                    Some(alt) => Some(alt),
+                    Some(alt) => NormalKey::Pass(alt),
                     None => {
                         jump_to_end(app, focus, action == ListAction::Last);
-                        None
+                        NormalKey::Consumed
                     }
                 };
             }
@@ -879,22 +1282,26 @@ fn normal_list_key(
         }
     }
 }
-/// Send a key to the focused list view's text field through Neovim only.
+/// Replay an unmatched sequence prefix into its original text field.
 fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: KeyEvent) {
-    if editor.is_none() {
-        return;
-    }
     let (text, field) = match focus {
         Focus::Results => (&mut app.query, Field::Query),
         Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
         Focus::Palettes { query, .. } => (query, Field::Palettes),
+        Focus::Exclusions(text) => (text, Field::Exclusions),
+        Focus::BookmarkIcons { query, .. } => (query, Field::BookmarkIcons),
+        Focus::BookmarkEdit(draft) => match draft.field {
+            BookmarkField::Name => (&mut draft.name, Field::BookmarkName),
+            BookmarkField::Path => (&mut draft.path, Field::BookmarkPath),
+            BookmarkField::Icon => return,
+        },
         _ => return,
     };
     let before = text.clone();
     edit(
         text,
         key,
-        false,
+        field == Field::Exclusions,
         field,
         editor,
         &mut app.edit_view,
@@ -903,14 +1310,9 @@ fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Option<Nvim>, key: Key
     if *text != before {
         match focus {
             Focus::Bookmarks { index, .. } => *index = 0,
-            Focus::Palettes {
-                query,
-                index,
-                original,
-            } => {
-                *index = 0;
-                preview_palette(app, query, 0, *original);
-            }
+            Focus::Palettes { index, .. } => *index = 0,
+            Focus::BookmarkIcons { index, .. } => *index = 0,
+            Focus::BookmarkEdit(_) | Focus::Exclusions(_) => {}
             _ => {
                 app.offset = 0;
                 app.refresh();
@@ -924,6 +1326,12 @@ fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
         Focus::Location(text) => Some((Field::Location, text.clone())),
         Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
         Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),
+        Focus::BookmarkIcons { query, .. } => Some((Field::BookmarkIcons, query.clone())),
+        Focus::BookmarkEdit(draft) => match draft.field {
+            BookmarkField::Name => Some((Field::BookmarkName, draft.name.clone())),
+            BookmarkField::Path => Some((Field::BookmarkPath, draft.path.clone())),
+            BookmarkField::Icon => None,
+        },
         Focus::Palettes { query, .. } => Some((Field::Palettes, query.clone())),
         _ => None,
     }
@@ -1004,5 +1412,62 @@ fn paste(
         }
     } else {
         text.push_str(value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Palette;
+    use std::time::Instant;
+
+    #[test]
+    fn palette_preview_waits_a_full_dwell_and_restarts_on_highlight_changes() {
+        let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+        let original = app.palette;
+        let mut focus = Focus::Palettes {
+            query: "nord".into(),
+            index: 0,
+            original,
+        };
+        let mut preview = PalettePreview::default();
+        let now = Instant::now();
+        assert!(!preview.tick(&mut app, &focus, now));
+        assert!(!preview.tick(&mut app, &focus, now + Duration::from_millis(99)));
+        assert_eq!(app.palette, original);
+        assert!(preview.tick(&mut app, &focus, now + Duration::from_millis(100)));
+        let nord = Palette::named("nord").unwrap();
+        assert_eq!(app.palette, nord);
+        if let Focus::Palettes { query, .. } = &mut focus {
+            *query = "dracula".into();
+        }
+        assert!(!preview.tick(&mut app, &focus, now + Duration::from_millis(101)));
+        if let Focus::Palettes { query, .. } = &mut focus {
+            *query = "light".into();
+        }
+        assert!(!preview.tick(&mut app, &focus, now + Duration::from_millis(150)));
+        assert!(!preview.tick(&mut app, &focus, now + Duration::from_millis(249)));
+        assert_eq!(app.palette, nord);
+        assert!(preview.tick(&mut app, &focus, now + Duration::from_millis(250)));
+        assert_eq!(app.palette, Palette::named("light").unwrap());
+        assert_eq!(preview.remaining(now + Duration::from_secs(1)), None);
+    }
+
+    #[test]
+    fn leaving_palette_chooser_discards_pending_preview() {
+        let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+        let original = app.palette;
+        let focus = Focus::Palettes {
+            query: "nord".into(),
+            index: 0,
+            original,
+        };
+        let now = Instant::now();
+        let mut preview = PalettePreview::default();
+        preview.tick(&mut app, &focus, now);
+        assert!(!preview.tick(&mut app, &Focus::Results, now + Duration::from_millis(20)));
+        assert!(!preview.tick(&mut app, &Focus::Results, now + Duration::from_secs(1)));
+        assert_eq!(app.palette, original);
+        assert_eq!(preview.remaining(now), None);
     }
 }

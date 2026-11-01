@@ -1,0 +1,80 @@
+# Development
+
+The implementation defines current behavior. The [README](../README.md) and user
+guides describe it; tests preserve regression coverage. Possible extensions are
+listed separately in the [roadmap](ROADMAP.md).
+
+## Code map
+
+| Module | Responsibility |
+| --- | --- |
+| `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
+| `src/lib.rs` | Session state, navigation, policies, matching, ordering, marks and path output. |
+| `src/discovery.rs` | Cancellable breadth-first traversal, batches, freshness and scan reconciliation. |
+| `src/cache.rs` | Bounded LRU snapshots and verification ages. |
+| `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
+| `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
+| `src/ui.rs` | Terminal lifecycle, input reader, wakeups, editing focus and key dispatch. |
+| `src/view.rs` | Ratatui frames, display paths, help and rendered numbered targets. |
+| `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
+| `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
+| `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
+| `src/completion.rs`, `src/icons.rs` | Dynamic shell completion and filetype glyphs. |
+
+## Behavior to preserve
+
+- UI output uses `/dev/tty`; stdout contains selected-path bytes only. Relative
+  output is based on the invocation directory, never the current browsing location.
+- Exactly one current directory is searched alongside ordered pinned startup
+  roots. Overlap attribution uses minimum positive depth, then scope order.
+- Sort by depth, directories before files, fuzzy score, root order, then original
+  absolute pathname bytes. Query edits do not restart discovery.
+- Marks are unique, ordered and independent of navigation, policies and filters.
+  Ctrl+number returns one target; Alt+number follows Enter and includes marks for
+  file confirmation. Both address the last fully rendered visible labels.
+- Escape preserves the session. In Neovim it first exits transient editing modes;
+  Ctrl+c cancels with no selected-path output.
+- Generation checks and cancellation prevent obsolete work from changing the view.
+  Reuse recomputes attribution. Partial or truncated snapshots cannot establish
+  completeness, and cached empty directories require verification before Enter.
+- Verification age survives revisits and checkpoints. F5 bypasses replay. Prefetch
+  stays bounded and cannot evict visited snapshots or spawn successors behind a
+  stuck speculative worker. See [cache settings](CONFIGURATION.md#discovery-cache-and-performance).
+- Bookmark writes occur only on explicit save/delete. Preserve unrelated config,
+  symlinks and permissions; refuse conflicting bookmark edits. `--no-config`
+  stays session-only. `tests/bookmarks.rs` covers persistence and failures.
+- Original paths remain separate from display abbreviations and icons. Keep
+  palette attribution and [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Verification
+
+For behavior changes:
+
+```sh
+cargo test --offline
+cargo clippy --offline --all-targets -- -D warnings
+cargo build --offline
+python3 tests/terminal_smoke.py
+```
+
+The Rust tests cover state transitions, discovery, caching, configuration,
+completion, frames and exact output bytes. `tests/acceptance.rs` injects decoded
+input and discovery events; `tests/discovery_cache.rs` covers filesystem fixtures
+and snapshot reconciliation. Neovim tests use the installed engine and skip when
+it is unavailable.
+
+The Linux PTY suite runs `target/debug/fff`; `tests/terminal_screen.py` models
+its committed frames. It checks real Crossterm decoding, modes, navigation,
+policies, marks, paging, cancellation and separate stdout. It does not establish
+a physical keyboard/terminal compatibility matrix.
+
+For navigation performance:
+
+```sh
+cargo build --offline --release
+python3 tests/navigation_benchmark.py --binary target/release/fff
+```
+
+This measures first in-app visits at depth 1 with warm OS metadata, basic editing
+and no icons. Report the workload and build mode alongside latency or memory
+measurements. Slow storage and large trees still require progressive updates.

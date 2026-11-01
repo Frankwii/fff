@@ -159,6 +159,57 @@ pub fn marker_width() -> usize {
     "▸ ".width()
 }
 
+/// Searchable bookmark glyphs from the same Nerd Font families as file icons.
+/// The first option removes a custom icon and restores the automatic folder.
+pub const BOOKMARK_ICONS: &[(&str, Option<char>)] = &[
+    ("Automatic (none / clear)", None),
+    ("Folder directory", Some(FOLDER)),
+    ("Home house", Some('\u{f015}')),
+    ("Downloads", Some('\u{f019}')),
+    ("Documents text", Some('\u{f15c}')),
+    ("Book reading notes", Some('\u{f02d}')),
+    ("Code source development", Some('\u{f121}')),
+    ("Terminal shell", Some('\u{e795}')),
+    ("Git repository", Some(GIT)),
+    ("GitHub", Some('\u{f09b}')),
+    ("Rust", Some('\u{e7a8}')),
+    ("Python", Some('\u{e73c}')),
+    ("JavaScript", Some('\u{e74e}')),
+    ("TypeScript", Some('\u{e628}')),
+    ("Go", Some('\u{e627}')),
+    ("Lua", Some('\u{e620}')),
+    ("Neovim Vim", Some('\u{e7c5}')),
+    ("Docker containers", Some('\u{e7b0}')),
+    ("Music audio", Some('\u{f001}')),
+    ("Pictures images photos", Some('\u{f03e}')),
+    ("Video film movies", Some('\u{f008}')),
+    ("Archive zip package", Some('\u{f1c6}')),
+    ("Settings configuration", Some('\u{f013}')),
+    ("Star favorites", Some('\u{f005}')),
+    ("Heart", Some('\u{f004}')),
+    ("Work briefcase", Some('\u{f0b1}')),
+    ("Globe web internet", Some('\u{f0ac}')),
+    ("Cloud", Some('\u{f0c2}')),
+    ("Database", Some('\u{f1c0}')),
+    ("Calendar events", Some('\u{f073}')),
+    ("Games", Some('\u{f11b}')),
+    ("Science research", Some('\u{f0c3}')),
+    ("Graduation education", Some('\u{f19d}')),
+    ("Lock private", Some('\u{f023}')),
+    ("Trash", Some('\u{f1f8}')),
+    ("PDF", Some('\u{f1c1}')),
+    ("Markdown", Some('\u{e609}')),
+];
+
+pub fn matching_bookmark_icons(query: &str) -> Vec<usize> {
+    let matcher = crate::Matcher::new(query);
+    BOOKMARK_ICONS
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (name, _))| matcher.score(name).map(|_| i))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +230,26 @@ mod tests {
             for enabled in [true, false] {
                 let (cell, _) = marker(Path::new(path), directory, enabled);
                 assert_eq!(cell.width(), marker_width());
+            }
+        }
+    }
+
+    #[test]
+    fn bookmark_catalog_is_searchable_and_has_valid_glyph_widths() {
+        assert_eq!(BOOKMARK_ICONS[0].1, None);
+        assert_eq!(matching_bookmark_icons("").len(), BOOKMARK_ICONS.len());
+        assert!(
+            matching_bookmark_icons("home")
+                .iter()
+                .any(|&i| BOOKMARK_ICONS[i].1 == Some('\u{f015}'))
+        );
+        assert!(matching_bookmark_icons("zzzzzzzz").is_empty());
+        for (_, glyph) in BOOKMARK_ICONS {
+            if let Some(glyph) = glyph {
+                assert!(matches!(
+                    unicode_width::UnicodeWidthChar::width(*glyph),
+                    Some(1 | 2)
+                ));
             }
         }
     }

@@ -1,10 +1,9 @@
-# Copy to $XDG_CONFIG_HOME/picker/config.toml (~/.config/picker/config.toml when
+# Copy to $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/config.toml when
 # XDG_CONFIG_HOME is unset), or pass --config PATH.
-# Check without opening the TUI: picker --config PATH --check-config
+# Check without opening the TUI: fff --config PATH --check-config
 
 [ui]
-# See PALETTES.md: catppuccin-*, nord, gruvbox-*, tokyonight-*, dracula,
-# everforest-*, kanagawa-*, onedark, rose-pine*, solarized-*, plus originals.
+# See PALETTES.md for built-in names and color sources.
 # At runtime, Alt+p previews/applies a palette for the session (this file is
 # never rewritten) and Alt+P re-reads the palette chosen here.
 palette = "midnight"
@@ -37,13 +36,15 @@ name = "Project notes"
 # Relative to this config file's directory, not the invocation directory.
 path = "../../notes"
 
-# In-memory snapshots that make revisiting a directory instant; a background scan
-# always re-verifies them. See "Discovery cache and performance" in CONFIGURATION.md.
+# In-memory snapshots; recent exhaustive views skip redundant scans.
+# See "Discovery cache and performance" in CONFIGURATION.md.
 [cache]
 enabled = true
 max_entries = 16      # Views remembered (directory + roots + depth + policies); 1..128.
 max_candidates = 4096 # Paths kept per view; bigger directories replay partially; 1..100000.
-ttl_seconds = 60      # Age at which a snapshot counts as stale (still shown, re-verified).
+ttl_seconds = 60      # Stale age and recursive-view refresh interval; 1..86400.
+fresh_seconds = 3     # Skip recent complete-view rescans; depth-1 refresh interval; 0..60.
+prefetch = true       # Pre-read a highlighted child after 500 ms, depth 1 only.
 
 [performance]
 refresh_ms = 50 # Min ms between re-sorts while a scan streams in; 0 = every batch.
@@ -54,7 +55,7 @@ refresh_ms = 50 # Min ms between re-sorts while a scan streams in; 0 = every bat
 [editor]
 # backend = "basic"
 
-# Plain keys for list views (results, bookmarks, palettes, marks) in Neovim Normal mode.
+# Normal-mode list actions and exclusion apply sequence.
 # A string or list of sequences; "none" disables. See CONFIGURATION.md.
 [keys.normal]
 left = "h"    # Same as Alt+h in the view.
@@ -63,3 +64,5 @@ up = "k"      # Same as Alt+k.
 right = "l"   # Same as Alt+l.
 first = "gg"  # First row; a lone g waits, other continuations reach Neovim.
 last = "G"    # Last row.
+mark = "<space>" # Toggle marks in Normal mode, like Tab.
+apply = "ZZ"     # Apply exclusions / save bookmark form in Normal mode (also basic editing).

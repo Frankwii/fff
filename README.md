@@ -1,195 +1,197 @@
-# picker
+# fuzzy file finder
 
-An interactive Rust terminal file picker with fuzzy filename filtering, live depth
-changes, fixed search roots, and persistent marked paths.
+A Rust terminal file picker with fuzzy filename filtering, directory navigation,
+live search depth, pinned roots and persistent marked paths. Version **0.2.0**.
+The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
+
+## Build and run
+
+Install from a local checkout:
+
+```sh
+cargo install --path . --bin fff
+```
+
+Or build and run directly:
 
 ```sh
 cargo build --release
-./target/release/picker
-./target/release/picker ~/notes ~/papers --depth 2 --glob '*.tex'
-./target/release/picker --exclude build --exclude '*.log' --relative --null > paths.bin
+./target/release/fff
+./target/release/fff ~/notes ~/papers --depth 2 --glob '*.tex'
+./target/release/fff --no-dir --relative --null > paths.bin
 ```
 
-Run in a terminal on Linux/Unix with `/dev/tty`. The interface uses the controlling
+Run in a Linux/Unix terminal with `/dev/tty`. The interface uses the controlling
 terminal; stdout contains only selected paths, so redirection and command
-substitution work. With no root arguments, browsing starts in the invocation
-directory and follows navigation; the initial directory is not pinned as a fixed
-search root. Defaults: depth 3,
-absolute paths, newline records, hidden entries off, explicit exclusions enforced.
-Use `--null` (`-0`) for exact record boundaries and `--relative` for paths relative
-to the invocation directory. `--no-dir` makes a static file choice: directories are
-neither listed nor returned, and navigation keys (Enter on a directory, Alt+h/l,
-Alt+g, Alt+b) are disabled, so you mark files below the starting directory (or
-roots), within `--depth`, and confirm. `-h` summarizes options; `--help` adds defaults,
-examples, a key summary and exit codes. Success exits 0, Ctrl+c exits 130 with no
-selected paths, startup, configuration (including an unknown `--palette`) and I/O errors exit 1,
-and command-line usage errors (unknown options, malformed `--map-key`, `--glob` or
-`--exclude` values) exit 2.
+substitution work. Use the built binary directly or put it on your PATH as `fff`.
+`-h` summarizes options; `--help` includes defaults, examples and exit codes.
 
-### Shell completions
+The default editor is a clean embedded Neovim. Fields start in **Normal mode**:
+use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
+preserves your current editing mode. Neovim is optional;
+`--editor basic` selects direct typing/Backspace, and missing Neovim causes a quiet
+fallback unless explicitly requested. See [editing](docs/EDITING.md).
 
-Completions call back into the installed `picker`, so they always match its
-version. Add one line to your shell's startup file:
+## Browsing and returning paths
 
-```sh
-source <(picker --completions bash)        # ~/.bashrc
-source <(picker --completions zsh)         # ~/.zshrc (after compinit)
-picker --completions fish | source         # ~/.config/fish/config.fish
-```
+Without root arguments, browsing starts in the invocation directory and follows
+navigation. Explicit roots stay pinned: results combine their descendants with
+those of the current directory. Overlapping paths appear once at their minimum
+depth. Default depth is **3**; immediate children are depth 1. Shallower matches
+always come first, followed within each depth by directories and fuzzy ranking.
+Matching is a case-insensitive ordered subsequence of the basename.
 
-`elvish` and `powershell` are also accepted; `COMPLETE=SHELL picker` prints the
-same script. Completion covers options, root directories, `--config` files,
-`--editor`, palette names (built-ins plus custom palettes from the configuration
-that command line would load) and `--map-key` chords. The script completes the
-command name `picker` and calls back the binary exactly as it was invoked to
-generate the script (a relative path such as `./target/release/picker` is made
-absolute).
+Enter opens directories. On a file, it returns marked paths in insertion order
+plus that file once. Tab toggles a mark; marks survive navigation and filtering.
+Ctrl+w returns marks only. Enter in a verified physically empty directory returns
+marks plus that directory; a no-match query in a nonempty directory stays open.
+Missing marks block confirmation until unmarked.
 
-Results combine descendants of the one current directory and every pinned startup
-root explicitly passed on the command line. Navigation changes only the current
-directory. The current directory itself is not listed as a selectable result.
-Overlapping results appear
-once, at their minimum depth. Ties use startup root order, with the additional
-current-directory scope ordered after startup roots. Depth comes first, followed
-by directories, fuzzy score, root order, and original absolute pathname bytes.
-Result labels, marked paths, and the selected-path footer are relative to the
-current browsing directory. A single `../` is kept; two or more leading parent
-steps collapse to `.../` (for example, `../../papers/report.tex` becomes
-`.../papers/report.tex`). This affects display only. The `@` line identifies the
-current directory (with `~` for your home), dimming the parent path. Result labels
-dim their parent part too, so names stand out; the label already shows which
-scope a row came from. F1's Session tab keeps exact absolute paths, every scope,
-and the highlighted row's depth and root.
-Explicit root arguments appear as compact `pinned  notes  papers` names on (or,
-when narrow, directly under) the `@` line. Discovery progress and depth are pills
-on the filter's bottom border, followed only by settings that differ from the
-defaults (glob, `files only`, `hidden shown`, `exclusions off`); narrow terminals
-drop trailing pills. Discovery runs in a cancellable background worker and incomplete
-results are labeled. Query edits filter known results without restarting discovery.
+Ctrl+number immediately returns one visible target, ignoring marks. Alt+number
+activates the same target like Enter. Labels refer to the last fully rendered
+page: 1–9 select that position, out-of-range digits clamp to the last row, and 0
+selects the last row. With no visible results, Ctrl+number returns the current
+directory; Alt+number follows Enter's empty-state rules.
+
+`--no-dir` provides static file selection: it hides directories, disables location
+changes, and never returns the current directory as an empty-results fallback.
+Discovery still traverses directories within the depth limit. `--glob '*.tex'`
+likewise lists matching files while traversing their parents.
+
+Output defaults to absolute, newline-terminated paths. `--relative` uses the
+invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
+Display labels are relative to the browsing directory, with repeated leading
+parent steps shortened to `.../`; output paths never use that abbreviation.
+
+Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
+a matching directory prunes its subtree. Rules match basenames or scope-relative
+paths, with literal separators. No automatic `.gitignore` integration is enabled.
+Symlink directories can be selected or entered; recursive discovery does not
+follow them.
+
+## Keys
+
+F1 opens the complete guide, including configured Normal-mode bindings. Its
+Session tab shows exact paths, scopes, depth, policies, palette and marks.
 
 | Key | Action |
 | --- | --- |
-| Type / Backspace | Edit the filename query |
-| Escape | Clear query; leave marks/details; cancel a prompt (with Neovim editing, first leaves Insert/Visual mode) |
-| Enter | Enter directory; return marks plus highlighted file; return current directory plus marks when physically empty and no candidate is highlighted |
-| Up / Alt+k | Move highlight up (results and marked list) |
-| Down / Alt+j | Move highlight down (results and marked list) |
-| h / j / k / l, gg / G | In Neovim Normal mode in list views (results, bookmark and palette choosers; always in the marked list): same as Alt+h/j/k/l; first/last row. Configurable via `[keys.normal]` |
-| Alt+h | Parent directory, retaining query and resetting highlight/scroll |
-| Alt+l | Enter the highlighted directory; never confirm files or empty directories |
-| Alt+g | Location prompt; Enter navigates, Escape cancels |
-| Alt+b | Bookmark chooser; filter names, Enter to visit, Escape to return |
-| Alt+p | Palette chooser; filter names, moving previews live, Enter applies for this session, Escape reverts |
-| Alt+P | Re-read the config file's palette now, clearing an Alt+p session choice (uppercase P) |
-| Alt+Right / Alt+Left | Change depth (minimum 1) |
-| Tab | Toggle mark and advance; in marks, toggle without removing the row |
-| Alt+Space | Enter/leave marked list; arrows move within it |
-| Ctrl+w | Return marks only; with none, stay open |
-| Ctrl+1 … Ctrl+9 | Immediately return that visible row, clamping to last row |
-| Ctrl+0 | Immediately return last visible row |
-| Alt+1 … Alt+9 / Alt+0 | Activate that visible row like Enter: enter directories; confirm files with marks |
-| PageUp / PageDown | Change visible page and numbered targets |
+| i / a, then type | Edit a Neovim field; basic editing accepts text directly |
+| Escape | Leave transient editing modes, then clear the query or close a prompt; keep the session |
+| Enter | Enter a directory or confirm files/marks |
+| Up / Alt+k | Previous row |
+| Down / Alt+j | Next row |
+| h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
+| gg / G | First / last row in Normal-mode lists |
+| Alt+h | Parent directory; retain query and reset highlight/scroll |
+| Alt+l | Enter highlighted directory only |
+| Alt+g | Location prompt |
+| Alt+b | Bookmark chooser; Alt+n adds, Alt+e edits, Alt+d deletes, Alt+r reloads |
+| Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
+| Alt+P | Reload the configured palette, clearing a session choice |
+| Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 |
+| Tab / Space in Normal | Toggle mark; advance in results |
+| Alt+Space | Focus / leave the marked list |
+| Ctrl+w | Return marks from results or the marked list |
+| ZZ | Apply exclusions or save a bookmark form in Normal/basic mode |
+| Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
+| Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
+| PageUp / PageDown | Page through results |
 | Alt+. | Toggle hidden entries |
-| Alt+H | Toggle exclusion enforcement (uppercase H) |
-| Alt+e | Built-in exclusion editor; Enter adds a line, Backspace deletes, Ctrl+w applies |
-| F1 | Key guide (every binding, including configured Normal-mode keys); Tab switches to session details: full paths, scopes, policies, rules and marks. Arrows, j/k and page keys scroll; Esc, q or F1 closes |
-| F5 | Bypass the current cached snapshot and refresh discovery |
-| Ctrl+c | Cancel without selected paths |
+| Alt+H | Toggle exclusion enforcement |
+| Alt+e | Edit session-local exclusions |
+| F1 | Key guide; Tab switches to Session details |
+| F5 | Force fresh discovery, bypassing cache replay |
+| Ctrl+c | Cancel without selected-path output |
 
-Ctrl+number choices ignore marks, return directories immediately, and fall back to
-the current directory with no visible rows. They use the last fully rendered
-labels. Plain digits always edit the query. Missing marks are labeled and block
-Enter/Ctrl+w confirmation until unmarked; numbered choices still ignore marks.
-Enter with a no-match query in a nonempty directory leaves the picker open.
-Alt+number uses the same visible labels and clamping, but follows Enter behavior:
-directories open, files confirm marks plus that file, and missing marks block
-confirmation. With no visible rows, Alt+number follows Enter's empty-directory
-rules; it does not force a return for a no-match query. Plain Alt+digits work via
-standard ESC+digit reporting as well as CSI-u.
-
-Physical Ctrl+digit requires a terminal that reports distinct chords. Picker
-requests the Kitty keyboard protocol via Crossterm. CSI-u decoding is tested;
-legacy ambiguous bytes (such as Ctrl+2 encoded as NUL) are never guessed. A real
-terminal/hardware compatibility matrix has not yet been verified. You can remap
-these actions to other distinct chords:
+Normal-mode list keys apply to results, marks, bookmarks and palettes; the
+location and exclusion fields keep Neovim motions. Plain digits are query text in
+Insert/basic mode and Vim counts in Normal mode. Chords are case-sensitive.
+Ctrl+digits require distinct terminal reporting; fff requests the Kitty
+keyboard protocol and never guesses ambiguous input. Alt+digits also support
+ESC+digit reporting. Remap chords with `--map-key`:
 
 ```sh
-picker --map-key ctrl+n=alt+j --map-key alt+j=none
-picker --map-key ctrl+o=alt+2
+fff --map-key ctrl+n=down --map-key ctrl+p=up
+fff --map-key alt+j=none
 ```
 
-`--map-key SOURCE=TARGET` translates a chord to a documented default chord in every
-view; `TARGET=none` disables it. Modifiers are `ctrl+`, `alt+`, `shift+`; key names
-include `enter`, `esc`, `tab`, `space`, `backspace`, arrows, `pageup`, `pagedown`,
-`f1`, and `f5`. Letter case matters. Printable source characters are reserved for text.
-Mappings are applied once; later mappings for the same source take precedence.
+Mappings translate once to default chords; later mappings for a source win.
+Printable source characters are reserved for editing. Normal-mode sequences are
+configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURATION.md).
 
-Matching uses a case-insensitive ordered subsequence of the **basename**, scored
-by adjacency, word starts, and early positions. Empty queries have equal score.
-`--glob` matches only file basenames and never prevents parent traversal.
-Exclusions match a basename or a path relative to a discovery scope, including
-ancestor prefixes; a matching directory prunes its subtree. Rules use globset
-syntax (`*`, `?`, classes, `**`), with literal separators. No `.gitignore` or other
-automatic ignore-file integration is enabled. Editor changes are session-local.
-Symlink directories can be selected/navigated, but traversal does not follow them.
-All text fields use a clean embedded Neovim engine by default (real modal
-editing); see [the editing guide](docs/EDITING.md). `--editor basic` or
-`[editor] backend = "basic"` selects plain append/Backspace editing, which is
-also used quietly when `nvim` is not installed. No content search or file opener is included.
+## Configuration and responsiveness
 
-The Ratatui interface supports configurable palettes, an integrated `@ <current
-directory>` line between the filter and the results, rounded pane borders, colored focus
-and selection, and highlighted fuzzy matches. At 80 columns or wider, marked
-paths appear in a pane to the right of the working list. Narrower terminals stack
-the panes; Alt+Space expands the marked pane for inspection. Long marked labels
-wrap. The bottom line shows only the highlighted path (or a status message) and
-an `F1 keys` pointer; the bindings live in the F1 guide. The minimum working size is 36 × 12;
-a smaller terminal shows a resize hint with no invisible numbered targets. Frames
-use diff rendering and synchronized updates to reduce flicker. `NO_COLOR` is
-honored; shortcut text, selection arrows, and missing/progress labels remain visible.
-Rows show Nerd Font filetype icons by default; set `[ui] icons = false` or pass
-`--no-icons` if your terminal font lacks the glyphs.
-
-Configuration is optional TOML at `$XDG_CONFIG_HOME/picker/config.toml`
-(`~/.config/picker/config.toml` when `XDG_CONFIG_HOME` is unset). It supports built-in/custom color palettes,
-ordered bookmarks, and a bounded session discovery cache. Try:
+Optional TOML lives at `$XDG_CONFIG_HOME/fff/config.toml`, falling back to
+`~/.config/fff/config.toml` when XDG is unset, empty or not absolute.
+`--config FILE` selects a file; `--no-config` uses built-ins. Validate with:
 
 ```sh
-cargo run -- --config docs/config.example.toml --check-config
-cargo run -- --config docs/config.example.toml --palette forest
+fff --config docs/config.example.toml --check-config
 ```
 
-See [the configuration guide](docs/CONFIGURATION.md) and the
-[commented config example](docs/config.example.toml) for every setting, path
-resolution rules, bookmark controls, and cache behavior. Completed discovery
-snapshots appear immediately on matching revisits and refresh in the background.
-Revisits replay a cached frame before processing fresh scan batches; interrupted
-visits can checkpoint their visible prefix. Cache size and stale age are
-configurable; F5 bypasses the current snapshot. Large trees stay responsive:
-discovery is batched, re-sorting during scans is throttled (`[performance]
-refresh_ms`), and typing only re-scores current matches. See
-[Discovery cache and performance](docs/CONFIGURATION.md#discovery-cache-and-performance).
+- [Configuration guide](docs/CONFIGURATION.md): every setting, bookmarks, icons,
+  key mappings, cache limits and prefetch budgets.
+- [Commented example](docs/config.example.toml): a complete starting configuration.
+- [Palette catalog](docs/PALETTES.md): built-ins, live switching and color sources.
+- [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 
-All Catppuccin flavors, Nord, Gruvbox, Tokyo Night, Dracula, Everforest, Kanagawa,
-One Dark, Rosé Pine and Solarized variants are
-available as dashed palette names. Palette changes reload live from TOML; Alt+p
-previews and applies any palette for the session without rewriting the config,
-and Alt+P re-reads the configured palette immediately. See the
-[palette catalog and sources](docs/PALETTES.md).
+In the bookmark editor, Tab switches fields, Alt+i opens a searchable Nerd Font
+icon picker, and Ctrl+s saves. Saves update the active TOML file; `--no-config`
+keeps edits for this session only.
 
-Acceptance sources are in [the specification](docs/SPECIFICATION.md) and active
-[tui examples](docs/tui_functionality_examples/README.md). First-version decisions and
-remaining questions are recorded in the specification. Curated examples remain
-unchanged.
+Discovery is asynchronous and breadth first. Ready results wake the UI immediately;
+small uncached directories get up to 4 ms to complete before their first frame.
+Recent complete snapshots skip redundant scans for 3 seconds by default. Depth-1
+views refresh about every 3 seconds and can prefetch a child after a 500 ms
+highlight dwell; recursive views reuse known descendants and refresh every
+60 seconds by default. F5 forces freshness. All caches are session-local RAM.
+
+The interface shows the current directory on the `@` line and pinned roots by
+name. Marks sit to the right on wide terminals and stack on narrow ones.
+Nerd Font icons are on by default; `--no-icons` restores plain markers. `NO_COLOR`
+is honored. Minimum working size is 36 × 12.
+
+## Shell completions
+
+With `fff` on PATH, add one line to your shell configuration:
 
 ```sh
-cargo test --offline
-cargo clippy --offline --all-targets -- -D warnings
-cargo build --offline
-python3 tests/terminal_smoke.py
+source <(fff --completions bash)        # ~/.bashrc
+source <(fff --completions zsh)         # ~/.zshrc, after compinit
+fff --completions fish | source         # ~/.config/fish/config.fish
 ```
 
-The Rust tests inject discovery events and use temporary filesystem fixtures. The
-Linux PTY suite tests Crossterm input decoding, marks, paging, empty states,
-policy editing, key remapping, cancellation, and exact separate stdout bytes.
-It does not replace physical keyboard checks in your terminal emulator.
+Elvish and PowerShell are supported too. Completion calls the running binary and
+covers options, root/config paths, editors, built-in/custom palettes and key
+chords. `COMPLETE=SHELL fff` prints the same registration script.
+
+## Exit status
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Paths selected, configuration valid, or help/completion printed |
+| 1 | Startup, configuration or I/O error, including an unknown palette |
+| 2 | Invalid CLI usage or malformed argument value |
+| 130 | Cancelled with Ctrl+c; no selected paths |
+
+See [development](docs/DEVELOPMENT.md) for the code map and verification commands.
+Possible extensions are listed in the [roadmap](docs/ROADMAP.md).
+
+## Install from crates.io
+
+The crate package is `fuzzy-file-finder`; it installs the `fff` command:
+
+```sh
+cargo install fuzzy-file-finder
+fff
+```
+
+Source code and issues: [Frankwii/fff](https://github.com/Frankwii/fff).
+Version 1.0 is planned after the remaining [roadmap](docs/ROADMAP.md) is implemented.
+
+## License
+
+Fuzzy file finder is licensed under the [GNU General Public License, version 3](LICENSE)
+(`GPL-3.0-only`). Third-party palette notices are listed in
+[THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).

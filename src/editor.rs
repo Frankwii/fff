@@ -15,6 +15,9 @@ pub enum Field {
     Location,
     Exclusions,
     Bookmarks,
+    BookmarkName,
+    BookmarkPath,
+    BookmarkIcons,
     Palettes,
 }
 #[derive(Clone, Debug)]
@@ -38,6 +41,8 @@ impl EditView {
             "REPLACE"
         } else if self.mode.starts_with('c') {
             "COMMAND"
+        } else if matches!(self.mode.as_str(), "s" | "S" | "\u{13}") {
+            "SELECT"
         } else if self.anchor.is_some() {
             "VISUAL"
         } else if self.mode.starts_with("no") {
@@ -63,8 +68,8 @@ pub struct Nvim {
     input: BufWriter<ChildStdin>,
     responses: Receiver<Result<Value, String>>,
     serial: u64,
-    /// Fields whose buffer is replaced on next activation; the flag starts Insert.
-    invalid: HashMap<Field, bool>,
+    /// Fields to replace on next activation, with the mode to restore.
+    invalid: HashMap<Field, String>,
     active: Option<Field>,
     buffers: HashMap<Field, Buffer>,
 }
@@ -157,18 +162,27 @@ impl Nvim {
         self.request("nvim_input", vec!["<Esc>".into()])?;
         Ok(())
     }
-    /// Replace the field's buffer on next activation, starting in Insert mode.
+    /// Replace the field's buffer on next activation, starting in Normal mode.
     pub fn reset(&mut self, field: Field) {
-        self.invalid.insert(field, true);
+        self.invalid.insert(field, "n".into());
     }
-    /// Like `reset`, but start in Normal mode with the cursor on the last character.
+    /// Reset in Normal mode with the cursor on the last character.
     pub fn reset_normal(&mut self, field: Field) {
-        self.invalid.insert(field, false);
+        self.reset(field);
+    }
+    /// Replace text while keeping the active field's stable editing mode.
+    /// Operators, command-line input and pending motions are cancelled.
+    pub fn reset_preserving_mode(&mut self, field: Field) {
+        let mode = self
+            .active
+            .and_then(|active| self.buffers.get(&active))
+            .map(|b| b.view.mode.as_str())
+            .unwrap_or("n");
+        self.invalid.insert(field, mode.to_owned());
     }
     pub fn activate(&mut self, field: Field, text: &str) -> Result<EditView, String> {
-        let invalid = self.invalid.remove(&field);
-        let reset = invalid.is_some();
-        let insert = invalid.unwrap_or(true);
+        let requested_mode = self.invalid.remove(&field);
+        let reset = requested_mode.is_some();
         if !reset
             && self.active == Some(field)
             && self.buffers.get(&field).is_some_and(|b| b.text == text)
@@ -185,7 +199,7 @@ impl Nvim {
                     text: String::new(),
                     view: EditView {
                         field,
-                        mode: "i".into(),
+                        mode: "n".into(),
                         blocking: false,
                         row: 0,
                         column: 0,
@@ -203,13 +217,30 @@ impl Nvim {
             || self.active != Some(field) && self.buffers[&field].text.is_empty()
         {
             let lines = text.split('\n').map(Value::from).collect::<Vec<_>>();
-            self.lua("local b,lines,insert=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); if insert then vim.cmd('startinsert!') else vim.cmd('stopinsert') end",vec![id,arr(lines),insert.into()])?;
+            self.lua("local b,lines=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); vim.cmd('stopinsert')",vec![id,arr(lines)])?;
         } else {
             let view = &self.buffers[&field].view;
             let row = view.row + 1;
             let col = view.column;
             let insert = view.mode.starts_with('i');
             self.lua("local row,col,insert=...; local line=vim.api.nvim_buf_get_lines(0,row-1,row,false)[1] or ''; vim.api.nvim_win_set_cursor(0,{row,col}); if insert then vim.cmd(col>=#line and 'startinsert!' or 'startinsert') end",vec![row.into(),col.into(),insert.into()])?;
+        }
+        if let Some(mode) = requested_mode {
+            let input = match mode.as_str() {
+                m if m.starts_with('i') => Some("a"),
+                "R" | "Rc" | "Rx" => Some("R"),
+                "Rv" | "Rvc" | "Rvx" => Some("gR"),
+                "v" => Some("v"),
+                "V" => Some("V"),
+                "\u{16}" => Some("<C-v>"),
+                "s" => Some("gh"),
+                "S" => Some("gH"),
+                "\u{13}" => Some("g<C-h>"),
+                _ => None,
+            };
+            if let Some(input) = input {
+                self.request("nvim_input", vec![input.into()])?;
+            }
         }
         self.active = Some(field);
         self.snapshot(field).map(|(_, view)| view)
@@ -238,7 +269,7 @@ impl Nvim {
             .collect::<Vec<_>>();
         let cursor = values[1].as_array().ok_or("Invalid Neovim cursor")?;
         let mode = values[2].as_str().unwrap_or("n").to_string();
-        let anchor = if matches!(mode.as_str(), "v" | "V" | "\u{16}") {
+        let anchor = if matches!(mode.as_str(), "v" | "V" | "\u{16}" | "s" | "S" | "\u{13}") {
             let p = values[3].as_array().ok_or("Invalid visual position")?;
             Some((
                 p[1].as_u64().unwrap_or(1) as usize - 1,
@@ -277,7 +308,7 @@ impl Nvim {
 }
 impl Drop for Nvim {
     fn drop(&mut self) {
-        // Close normally when possible; never let a pending command hold the picker open.
+        // Close normally when possible; never let a pending command hold the fff open.
         let _ = rmpv::encode::write_value(
             &mut self.input,
             &arr([2.into(), "nvim_input".into(), arr(["<Esc>".into()])]),

@@ -1,13 +1,13 @@
 # Configuration, palettes, bookmarks, and caching
 
-Picker reads an optional TOML file at startup. You can run it without a config;
+Fuzzy file finder reads an optional TOML file at startup. You can run it without a config;
 the default palette is `midnight`, bookmarks start empty, and caching is enabled.
 
 ## Start here
 
-Save this as `$XDG_CONFIG_HOME/picker/config.toml`. Following the XDG base
-directory spec, `~/.config/picker/config.toml` is used when `XDG_CONFIG_HOME` is
-unset, empty, or not absolute. `picker --check-config` prints the file it read:
+Save this as `$XDG_CONFIG_HOME/fff/config.toml`. Following the XDG base
+directory spec, `~/.config/fff/config.toml` is used when `XDG_CONFIG_HOME` is
+unset, empty, or not absolute. `fff --check-config` prints the file it read:
 
 ```toml
 [ui]
@@ -22,8 +22,8 @@ name = "Notes"
 path = "~/notes"
 ```
 
-Then run `picker` and press **Alt+b** to open bookmarks. Type part of a bookmark's
-name and press **Enter** to navigate. **Escape** returns to the file list.
+Run `fff` and press **Alt+b** to open bookmarks. Press **i** to filter names,
+then **Enter** to navigate. From Normal mode, **Escape** returns to results.
 
 The [commented example](config.example.toml) also shows a custom palette and all
 cache settings. From the repository, you can try it without installing a config:
@@ -41,7 +41,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 
 | Option | Effect |
 | --- | --- |
-| Default | Read `$XDG_CONFIG_HOME/picker/config.toml`, or `~/.config/picker/config.toml` when XDG is unset/empty/not absolute. |
+| Default | Read `$XDG_CONFIG_HOME/fff/config.toml`, or `~/.config/fff/config.toml` when XDG is unset/empty/not absolute. |
 | `--config PATH` | Read exactly this file, replacing default-file lookup. Relative `PATH` is relative to the invocation directory. |
 | `--no-config` | Ignore the default file and use built-in settings. Cannot be combined with `--config`. |
 | `--palette NAME` | Override `[ui].palette`; custom palettes still come from the selected config file. Shell completion offers built-in and custom names. |
@@ -50,34 +50,26 @@ while unavailable bookmark directories are handled when you try to visit them.
 
 A missing default file uses defaults. An explicitly requested missing file,
 invalid TOML, unknown field, unknown palette, or invalid setting produces a clear
-startup error naming the file. Picker does not create or rewrite your config.
-Palette edits reload live; bookmark/cache/editor edits take effect on the next invocation.
-Existing CLI discovery/output options
-continue to work independently of this file.
+startup error naming the file. Explicit bookmark saves/deletions update the active
+config; a missing default file is created on the first save. Startup alone never
+writes it. With `--no-config`, bookmark edits last only for the session.
+Palette edits reload live; external bookmark edits reload with Alt+r in the
+bookmark chooser. Cache/editor edits take effect on the next invocation.
+CLI discovery/output options are independent of this file.
 
 ## Color palettes
 
-The original built-in choices are:
+Browse built-ins and custom palettes with **Alt+p**; a highlight held for at least
+100 ms previews colors. Moving again restarts the wait. Enter applies immediately
+for the session, and Escape from Normal mode reverts. **Alt+P** re-reads the configured palette. The config file is never rewritten.
 
-| Name | Appearance |
-| --- | --- |
-| `midnight` | Deep blue background with cyan directories and gold marks. |
-| `light` | Light panels, dark text, and teal focus accents. |
-| `forest` | Dark green panels with soft green accents and gold marks. |
-
-Also available: all four `catppuccin-*` flavors, `nord`, `gruvbox-dark` /
-`gruvbox-light`, and all four `tokyonight-*` variants. See the
-[palette catalog and official color sources](PALETTES.md). Saving color changes
-live-reloads the running interface; invalid edits retain the last working colors.
-While picker runs, **Alt+p** opens a live-preview palette chooser (Enter applies
-for the session only; Escape reverts) and **Alt+P** re-reads this file's palette
-immediately. The config file is never rewritten; see
-[switching palettes while running](PALETTES.md#switching-palettes-while-running).
+See the [palette catalog](PALETTES.md) for all names, live-reload behavior and
+upstream sources.
 
 Choose one in TOML or for a single invocation:
 
 ```sh
-picker --palette light
+fff --palette light
 ```
 
 Define a named custom palette by inheriting a built-in and overriding only the
@@ -185,11 +177,12 @@ Path rules:
 - `~` and `~/...` expand using `HOME`.
 - Absolute paths are used as written.
 - Other relative paths resolve from the **config file's directory**, so a bookmark
-  has the same destination regardless of where you launch picker.
+  has the same destination regardless of where you launch fff.
 - Paths are literal TOML strings: spaces work directly; shell substitutions and
   environment-variable expansion are not performed.
 
-In the chooser, typing fuzzy-filters bookmark **names**. Up/Down or Alt+k/Alt+j
+In the chooser, press `i` to type and fuzzy-filter bookmark **names** (Neovim
+fields initially start in Normal mode). Up/Down or Alt+k/Alt+j
 moves the highlight; PageUp/PageDown moves farther. Enter opens a directory;
 Escape or Alt+b returns to results. An unavailable directory or a bookmark that
 points to a file is shown as unavailable; trying it leaves the chooser open with
@@ -200,126 +193,151 @@ supplied fixed roots. It changes the single current directory and clears the
 filename query. Bookmarks are navigation destinations, not additional roots or
 preselected output paths.
 
-Related navigation keys:
+### Editing bookmarks
 
-| Key | Action |
-| --- | --- |
-| Alt+l | Enter the highlighted directory, like Enter on a directory. On a file, an empty directory, or no results, do nothing; it never confirms output. |
-| Alt+g | Open the location-entry prompt. Enter navigates, Escape cancels. |
-| Alt+h | Parent directory, keeping the filename query. |
-| Alt+b | Open/close the bookmark chooser. |
-| Alt+p | Open/close the palette chooser (live preview; Enter applies for this session, Escape reverts). |
-| Alt+P | Re-read the configured palette now, clearing an Alt+p session choice. |
+In the chooser, **Alt+n** adds the current directory, **Alt+e** edits the
+highlighted bookmark, and **Alt+d** asks for confirmation before deleting it.
+Deletion removes only the bookmark record. **Alt+r** reloads bookmarks from disk.
 
-Alt+l replaces the old location-prompt binding; that prompt is now on Alt+g.
-These chords remain remappable with `--map-key`.
+The form edits name, path and icon. Tab/Shift+Tab switches fields; Enter advances
+or opens the icon chooser. **Alt+i** opens a searchable selection of 37 choices,
+including common Nerd Font glyphs and **Automatic** to clear a custom icon.
+Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
+icons remain intact unless changed. **Ctrl+s** saves from any mode; **ZZ** saves
+in Normal mode or basic editing. Escape in Normal/basic mode cancels.
+
+Paths entered in the form resolve relative to the current browsing directory;
+`~` uses HOME. New or changed paths are stored as absolute paths. An unchanged
+configured relative path retains its original spelling.
+
+Saves preserve unrelated TOML settings, comments, existing file permissions and
+valid config symlinks. If another process has changed the bookmark list since
+it was loaded, saving refuses to overwrite it: cancel and use Alt+r to reload.
+Errors leave the form and current bookmarks available to retry. With configuration
+disabled, edits are session-only. No directory or target file is modified.
+
+For navigation and palette bindings, see the [key reference](../README.md#keys).
 
 ## Discovery cache and performance
 
 ```toml
 [cache]
-enabled = true          # keep snapshots of visited directories in memory
-max_entries = 16        # how many directory snapshots to keep (1..128)
-max_candidates = 4096   # paths stored per snapshot (1..100000)
-ttl_seconds = 60        # age after which a snapshot counts as stale (1..86400)
+enabled = true          # reuse visited views and already-discovered descendants
+max_entries = 16        # visited snapshots retained (1..128)
+max_candidates = 4096   # paths retained per visited snapshot (1..100000)
+ttl_seconds = 60        # stale age and recursive-view refresh interval (1..86400)
+fresh_seconds = 3       # recent complete views skip rescans; 0 disables this (0..60)
+prefetch = true         # pre-read a stable highlighted child at depth 1
 
 [performance]
-refresh_ms = 50         # minimum time between re-sorts during a scan (0..1000)
+refresh_ms = 50         # minimum time between re-sorts during scans (0..1000)
 ```
 
-Everything here is optional. The defaults keep memory modest (the cache tops out
-around 8 MB) while making revisits instant; none of these settings changes which
-paths are found, their order, or what is returned.
+### Opening a directory
 
-### What happens when you open a directory
+1. **Recent complete snapshot.** An exhaustive nonempty listing verified within
+   `fresh_seconds` appears immediately without another scan. The age is measured
+   from verification; revisiting, changing the query, and checkpointing do not
+   renew it. Empty directories are still verified before Enter can confirm them.
+2. **Older or partial snapshot.** It appears immediately and receives its own
+   frame before background discovery reconciles it. Snapshots truncated by the
+   path limit never qualify for skipping a scan. If there is no snapshot, eligible
+   already-known paths can seed the new view; depths and roots are recomputed.
+   Such reused prefixes always remain provisional. Seeding examines at most
+   16,384 old rows/index entries and copies at most `max_candidates` paths.
+3. **Uncached first visit.** The first frame gives the worker up to 4 ms to finish
+   an ordinary small listing. Filesystem calls stay off the UI thread; a slow or
+   large view streams normally after that bounded wait. Input and discovery share
+   coalesced wake notifications, so ready results no longer wait for a 30 ms
+   keyboard-poll timeout.
+4. **Quiet updates.** While staying in a view, depth-1 listings refresh every
+   `fresh_seconds` (3 seconds by default). Recursive views refresh every
+   `ttl_seconds` (60 seconds by default) to avoid repeatedly walking a large tree.
+   With `fresh_seconds = 0`, both use `ttl_seconds`. The previous rows stay visible
+   during refresh; completion reconciles additions, deletions and kind changes.
+   Scheduling is serviced by the UI's idle timer, so refresh may start up to about
+   250 ms after its deadline. Slow scans extend the interval between completions.
 
-1. **Snapshot replay.** If the cache holds a snapshot for exactly this view, its
-   paths appear at once (the status pill says `◌ cached · refreshing`) and the
-   frame is drawn before any new scan results are processed.
-2. **Background scan.** A worker thread always walks the directory again, down to
-   the current depth, and sends what it finds in batches. Input stays live: you
-   can type, move, or leave while it runs, and leaving cancels it.
-3. **Live ordering.** While results stream in, the list is re-sorted at most every
-   `refresh_ms`, plus immediately for the first batch and when the scan ends, so
-   shallower results still move above deeper ones as they arrive.
-4. **Reconciliation.** When the scan completes, paths that no longer exist and
-   changed file/directory kinds are corrected, the status becomes `● complete`,
-   and a fresh snapshot is stored.
+Discovery is breadth first, within the requested depth. All rendered results
+retain the exact depth/kind/score/root/path ordering and path-based highlight.
+A scan never changes the last rendered numbered targets; only a completed frame
+publishes new ones. Query edits filter known paths without starting a scan.
 
-What is cached is a list of discovered paths per **view**, where a view is the
-combination of current directory, pinned roots, depth, hidden-file visibility,
-exclusion enforcement and rules, and `--glob`. Changing any of these (e.g.
-Alt+→ for more depth) is a different view with its own snapshot. Your query,
-highlight, scroll position, and marks are never cached: the current query filters
-whatever the snapshot restores, and marks are separate session state.
+A cached **view** is the combination of current directory, ordered scopes, depth,
+hidden visibility, exclusions and file glob. Query, highlight, scroll position
+and marks are not restored. Nonexhaustive or interrupted snapshots cannot prove a
+view complete. Missing marked paths block confirmation; cached targets are checked
+for existence and file/directory kind when activated. F5 bypasses all replay and
+rescans immediately, preserving query, marks and settings.
 
 ### `[cache]` settings
 
-| Setting | Default | Range | What it does |
+| Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `enabled` | `true` | `true`/`false` | Turns snapshots on or off. Off means every visit starts from an empty list and waits for the scan; nothing else changes. |
-| `max_entries` | `16` | 1–128 | How many views are remembered. When full, the view used least recently is dropped. Raise it if you hop between many directories (or depths) and want all of them instant; each extra entry costs at most `max_candidates` paths. |
-| `max_candidates` | `4096` | 1–100000 | How many paths one snapshot keeps. Picker stores the best-ranked matches of the view first, then fills the remaining room with other found paths. Directories larger than this replay a partial list instantly and the scan fills in the rest, so the limit trades instant completeness of big directories against memory. |
-| `ttl_seconds` | `60` | 1–86400 | Age after which a snapshot is *stale*. Stale snapshots are still shown instantly (they are only dropped by `max_entries`), but they are always re-verified by the scan; this setting mostly tells you how old the instant view may be. Every successful scan resets the age. |
+| `enabled` | `true` | boolean | Enables visited snapshots, reuse of known descendants, and speculative prefetch. False disables these; scans still wake the UI immediately and the current view can refresh quietly. |
+| `max_entries` | `16` | 1–128 | Maximum visited views retained in a session LRU. Evicts the least recently used view. |
+| `max_candidates` | `4096` | 1–100000 | Maximum paths per visited snapshot. Best-ranked rows are retained first, then other known paths. Larger listings replay partially and always scan to recover the rest. |
+| `ttl_seconds` | `60` | 1–86400 | Age that marks replayed data stale, and the refresh interval for recursive views (also depth 1 when `fresh_seconds = 0`). Stale data remains available for provisional replay until LRU eviction. |
+| `fresh_seconds` | `3` | 0–60 | Maximum verification age for skipping a revisit scan; also the active depth-1 refresh interval. Freshness never exceeds `ttl_seconds`. Zero restores immediate revalidation on every revisit. |
+| `prefetch` | `true` | boolean | Enables the bounded depth-1 child prefetch described below. False disables speculative filesystem reads while retaining normal caching and reuse. |
 
-**Memory.** A cached path costs roughly 100–150 bytes (the path text plus a little
-bookkeeping), so the worst case is about `max_entries × max_candidates × 125 B`:
-around 8 MB with the defaults, 50 MB at `max_entries = 32` and
-`max_candidates = 12000`. The cache only fills up to what you actually visit.
+**Memory.** Visited snapshots retain at most `max_entries × max_candidates` paths.
+A rough estimate of 100–150 bytes per path gives about 8 MiB at defaults; long
+paths can cost considerably more. This is a count limit, not an exact byte cap.
+The current view's index, result rows and BFS queue are separate and scale with
+the tree being browsed; lowering depth reduces that working set. Prefetch has its
+own small allocation budgets and cannot evict visited snapshots.
 
-Separately from the cache, picker holds an index of the **current** view while you
-browse it, sized by what that view contains (depth matters most: depth 3 over a
-home directory can be hundreds of thousands of paths). Lower the depth with
-Alt+← or `--depth` if a view is too large; the cache settings do not bound it.
+### Bounded child prefetch
 
-**Safety.** A cached path that has disappeared cannot be returned while the
-refresh runs, and an empty cached listing cannot confirm an empty directory until
-the scan verifies it. Failed or obsolete scans never become snapshots. A visit you
-leave early can store the matches you already saw, marked incomplete; it never
-replaces a complete snapshot.
+At depth 1, a directory highlighted in main results for at least **500 ms** can
+have its immediate children read before you enter it. There must be no foreground
+scan pending. Only a direct child is eligible; file, marks, bookmark, palette and
+help highlights do not start scans. A recent exhaustive visited snapshot also
+suppresses redundant prefetch. At greater depths, known descendants are reused
+on navigation instead of speculatively reading them again.
 
-**F5** discards the current view's snapshot and rescans, keeping your query,
-marks, roots, depth, and policies. Nothing is written to disk: there is no
-persistent index, cache file, or filesystem watcher.
+- One speculative worker at a time; at most **2,048 entries inspected**, plus a
+  lookahead entry to detect truncation, with a cooperative **100 ms** budget.
+- At most **1 MiB** of candidate-vector/path allocations per job and **3 MiB**
+  retained across up to four speculative snapshots. Allocator metadata, thread
+  stack, policy/key objects, and transient conversion overhead are additional;
+  these budgets do not promise a particular process RSS.
+- A bounded 32-target history suppresses another attempt for the same target and
+  settings for **60 seconds**. Speculative entries have a separate eviction queue
+  and never displace visited snapshots unless the directory is actually visited.
+- Highlight/query changes, leaving results focus, foreground work and navigation
+  cancel an outstanding job. No successor starts until that worker has exited,
+  even if its filesystem call is slow. Results from cancelled jobs are discarded.
+- On Linux, mount metadata admits only known local filesystem types and rejects
+  separate mounts (including bind mounts), remote/unknown filesystems and ambiguous
+  escaped mount paths. Symlink targets are skipped. Other platforms currently
+  disable speculative reads while retaining normal discovery and caching.
+- A prefetched listing can skip the foreground scan only if it is exhaustive,
+  recent, nonempty, and covers the whole new depth-1 scope. With pinned scopes,
+  truncation, symlink entries or a greater requested depth, it is only a prefix.
+
+Budgets are checked between filesystem calls. A blocking call cannot be interrupted
+at 100 ms; it never blocks input or creates a growing chain of speculative threads.
+No user file contents are read, and no cache/index files are written. Mount
+classification reads `/proc/self/mountinfo`.
 
 ### `[performance]` settings
 
-| Setting | Default | Range | What it does |
+| Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `refresh_ms` | `50` | 0–1000 | Minimum milliseconds between re-sorting the result list while a scan is still streaming in. Each re-sort ranks every path found so far, so on large trees re-sorting after every batch dominated scan time. Lower values make the list settle more continuously during a scan; higher values finish big scans sooner. `0` re-sorts after every batch (the old behavior). Typing, navigation and the end of a scan always update immediately. |
+| `refresh_ms` | `50` | 0–1000 | Minimum interval between result re-sorts during a scan. First results, completion and query changes update immediately. Zero re-sorts after every drained batch; larger intervals reduce repeated ranking on large trees. |
 
-### Built-in optimizations
+Workers batch up to 256 paths or 10 ms of discoveries; the UI drains for up to
+8 ms per iteration. ASCII scoring avoids allocation, narrower queries re-score
+current matches, unchanged refreshes skip work, and completed scans release their
+reconciliation set. Non-ASCII paths and exclusions retain the general code paths.
+The UI redraws after visible changes and at least once a second, with a single
+bounded terminal-input reader waking it immediately alongside discovery.
 
-These need no configuration and do not change results; tests compare each fast
-path with the original definition.
-
-- **Batched discovery.** The worker sends up to 256 paths per message (or whatever
-  it has after 10 ms), and the interface processes messages for at most 8 ms per
-  frame, so input is never stuck behind a burst of results.
-- **Throttled re-sorting** during scans, as described under `refresh_ms`.
-- **Incremental filtering.** Typing more letters can only remove matches, so
-  picker re-scores just the current matches instead of every known path. Deleting
-  letters (or any change of directory, depth, or policy) uses a full re-rank.
-- **Allocation-free scoring** for ASCII names, and a byte-level hidden/root check
-  when no exclusion rules are active. Non-ASCII names and active exclusion rules
-  use the original, fully general code.
-- **Idle frames.** The screen is redrawn after input or a visible change, and once
-  a second otherwise (so a deleted mark still shows as missing). An idle picker
-  waits 250 ms between checks instead of 30 ms.
-- **Memory.** The scan's bookkeeping set is freed when the scan completes.
-
-Measured on a synthetic tree of 102 000 entries (release build, depth 3):
-
-| | Before | After |
-| --- | --- | --- |
-| Cold scan until `● complete` | 18.6 s | 1.2–1.4 s |
-| Typing a letter (average / worst) | 96 / 146 ms | 17–25 / 34–42 ms |
-| Deleting a letter (average / worst) | 78 / 93 ms | 65 / 95 ms |
-| CPU while idle | 30 % | 1 % |
-| Memory after the scan (RSS) | 118 MB | 84–100 MB |
-
-On ordinary directories (a few thousand entries) every interaction is well under
-a millisecond of picker work.
+Navigation performance can be measured with the manual PTY benchmark; see
+[development verification](DEVELOPMENT.md#verification). Measurements depend on
+storage, tree size, build mode and terminal scheduling.
 
 ## Modal text editing
 
@@ -328,13 +346,14 @@ a millisecond of picker work.
 backend = "basic" # Default: "nvim"; CLI override: --editor basic|nvim
 ```
 
-By default a clean headless Neovim instance edits every field. When `backend`
-is left unset and `nvim` is missing or fails to start, picker silently uses
+By default a clean headless Neovim instance edits every field, initially in
+Normal mode; press `i` or `a` to type. When `backend`
+is left unset and `nvim` is missing or fails to start, fff silently uses
 basic append/Backspace editing; an explicit `"nvim"` reports the fallback. See the
 [editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics,
-reserved picker shortcuts, dependency/fallback behavior, and tested boundaries.
+reserved fff shortcuts, dependency/fallback behavior, and tested boundaries.
 
-## Normal-mode list keys
+## Normal-mode keys
 
 While a field is in Neovim **NORMAL** mode, list views (results, bookmark
 chooser, palette chooser, marked list) accept plain motion keys; see
@@ -347,16 +366,29 @@ down = "j"           # Same as Alt+j
 up = "k"             # Same as Alt+k
 right = "l"          # Same as Alt+l (results: enter highlighted directory)
 first = "gg"         # Highlight the first row
-last = ["G", "<space>e"] # A list gives alternatives
+last = "G"           # Highlight the last row
+mark = "<space>"     # Mark/unmark like Tab (results and marks only)
+apply = "ZZ"         # Apply exclusions / save bookmark form (Normal or basic editing)
 ```
+
+Marking is active only in results and the marked list. Applying is active only
+in the exclusion editor and bookmark form; other fields keep their own editing behavior.
 
 Each value is one key sequence or a list of sequences; `"none"`, `""`, or `[]`
 disables the action. A sequence is typed literally, one printable key per
 character (uppercase means Shift); write `<space>` for Space and `<lt>` for `<`.
 Ctrl/Alt chords, Escape, Enter, and other named keys are rejected: Alt and Ctrl
-chords remain picker shortcuts (remap those with `--map-key`).
+chords remain fff shortcuts (remap those with `--map-key`).
 Sequences must be unambiguous: two actions cannot share a sequence, and one
 sequence cannot be a prefix of another, because a waiting prefix has no timeout.
 Unbound keys and unfinished prefixes still reach Neovim. `--check-config` reports
 unknown actions and invalid or conflicting sequences. Changes take effect on the
 next invocation.
+
+To use Space as a sequence prefix instead of marking, disable its default first:
+
+```toml
+[keys.normal]
+mark = "none"
+last = ["G", "<space>e"]
+```

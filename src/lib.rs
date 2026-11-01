@@ -1,4 +1,5 @@
-//! Picker state, independent of terminal input and filesystem timing.
+//! Fuzzy file finder state, independent of terminal input and filesystem timing.
+pub mod bookmarks;
 mod cache;
 pub mod completion;
 pub mod config;
@@ -8,6 +9,7 @@ pub mod icons;
 pub mod keys;
 pub mod normal_keys;
 mod palettes;
+mod prefetch;
 pub mod reload;
 pub mod ui;
 mod view;
@@ -231,6 +233,7 @@ pub struct App {
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
     pub bookmarks: Vec<config::Bookmark>,
+    pub bookmark_store: bookmarks::Store,
     /// Draw Nerd Font filetype icons before result and marked names.
     pub icons: bool,
     /// Active palette name and the palettes offered by the Alt+p chooser.
@@ -277,6 +280,7 @@ impl App {
             edit_view: None,
             palette: config::Palette::default(),
             bookmarks: Vec::new(),
+            bookmark_store: bookmarks::Store::default(),
             icons: true,
             palette_name: "midnight".into(),
             palettes: config::Palette::names()

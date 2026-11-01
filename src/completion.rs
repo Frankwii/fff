@@ -1,5 +1,5 @@
 //! Shell-completion helpers. Candidates are computed by the running binary
-//! (`COMPLETE=<shell> picker`), so custom palettes come from the live config.
+//! (`COMPLETE=<shell> fff`), so custom palettes come from the live config.
 use crate::config::{Palette, default_path};
 use clap_complete::engine::CompletionCandidate;
 use std::{
@@ -16,7 +16,7 @@ pub fn shells() -> Vec<&'static str> {
     clap_complete::env::Shells::builtins().names().collect()
 }
 
-/// Print the registration script that `COMPLETE=<shell> picker` would print.
+/// Print the registration script that `COMPLETE=<shell> fff` would print.
 /// The script calls back into `program` (argv[0], made absolute when it is a
 /// relative path with directories, matching `CompleteEnv`).
 pub fn write_registration(shell: &str, program: &OsStr, out: &mut dyn Write) -> io::Result<()> {
@@ -31,7 +31,7 @@ pub fn write_registration(shell: &str, program: &OsStr, out: &mut dyn Write) -> 
     {
         program = cwd.join(program);
     }
-    completer.write_registration(ENV_VAR, "picker", "picker", &program.to_string_lossy(), out)
+    completer.write_registration(ENV_VAR, "fff", "fff", &program.to_string_lossy(), out)
 }
 
 /// Built-in palette names followed by custom `[palettes.NAME]` tables from the
@@ -228,14 +228,14 @@ mod tests {
     fn config_path_follows_the_completed_command_line() {
         let args = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>();
         assert_eq!(
-            config_path(args(&["picker", "--config", "a.toml"])),
+            config_path(args(&["fff", "--config", "a.toml"])),
             Some("a.toml".into())
         );
         assert_eq!(
-            config_path(args(&["picker", "--config=b.toml"])),
+            config_path(args(&["fff", "--config=b.toml"])),
             Some("b.toml".into())
         );
-        assert_eq!(config_path(args(&["picker", "--no-config"])), None);
+        assert_eq!(config_path(args(&["fff", "--no-config"])), None);
     }
 
     #[test]
@@ -277,6 +277,6 @@ mod tests {
     fn custom_palettes_are_read_from_toml() {
         let example = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/config.example.toml");
         assert_eq!(custom_palettes(Path::new(example)), ["ember"]);
-        assert!(custom_palettes(Path::new("/nonexistent/picker.toml")).is_empty());
+        assert!(custom_palettes(Path::new("/nonexistent/fff.toml")).is_empty());
     }
 }

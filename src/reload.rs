@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn session_choice_tracks_its_definition_and_reload_now_returns_to_config() {
         let folder =
-            std::env::temp_dir().join(format!("picker-reload-session-{}", std::process::id()));
+            std::env::temp_dir().join(format!("fff-reload-session-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
         let config = folder.join("config.toml");
         std::fs::write(

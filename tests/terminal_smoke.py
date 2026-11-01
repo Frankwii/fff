@@ -16,10 +16,11 @@ import termios
 import tempfile
 import time
 import unittest
+import tomllib
 import shutil
 from terminal_screen import Screen
 
-BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/picker")
+BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 
 
 class Session:
@@ -96,6 +97,21 @@ class Session:
         if token in self.screen.text:
             raise AssertionError(f"UI still shows {token!r}:\n{self.screen.text}")
 
+    def wait_bytes(self, token, after=0):
+        # Wait for the committed frame containing the color, not a partial write.
+        def committed():
+            data = self.ui[after:]
+            position = data.find(token)
+            return position >= 0 and b"\x1b[?2026l" in data[position:]
+        deadline = time.monotonic() + 5
+        while not committed() and time.monotonic() < deadline:
+            if select.select([self.master], [], [], 0.02)[0]:
+                chunk = os.read(self.master, 65536)
+                self.ui += chunk
+                self.screen.feed(chunk)
+        if not committed():
+            raise AssertionError(f"UI did not emit {token!r} in a completed frame")
+
     def send(self, data, wait=None):
         after = self.screen.frames
         os.write(self.master, data)
@@ -118,7 +134,7 @@ class Session:
                 except OSError:
                     pass
         if self.status is None:
-            raise AssertionError("picker did not exit")
+            raise AssertionError("fff did not exit")
         output = b""
         while chunk := os.read(self.output, 65536):
             output += chunk
@@ -137,7 +153,7 @@ class Session:
 
 class TerminalTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="picker-pty-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="fff-pty-")
         self.root = Path(self.tmp.name)
         self.session = None
 
@@ -189,7 +205,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bH", "exclusions off")
         s.send(b"\x1be", b"one glob per line")
         before_apply = len(s.ui)
-        s.send(b"\r*.tex\x17", "❯")
+        s.send(b"\r*.texZZ", "❯")
         self.assertNotIn(b"No matching results", s.ui[before_apply:])
         s.send(b"\x1bH", b"No matching results")
         s.send(b"\x03")
@@ -217,7 +233,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
-        with tempfile.TemporaryDirectory(prefix="picker-icons-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-icons-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\nicons=false\n")
             for args in (("--no-icons",), ("--config", str(config))):
@@ -258,7 +274,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_location_navigation_preserves_marks_and_fixed_root(self):
         (self.root / "a").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-location-") as other:
+        with tempfile.TemporaryDirectory(prefix="fff-location-") as other:
             target = Path(other) / "b"
             target.touch()
             s = self.start()
@@ -393,7 +409,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_status_messages_fade_after_configured_seconds(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-status-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-status-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\nmessage_seconds=1\n")
             s = self.start("--no-dir", "--config", str(config))
@@ -430,10 +446,118 @@ class TerminalTests(unittest.TestCase):
             s.finish(), (0, os.fsencode(top) + b"\n" + os.fsencode(nested) + b"\n")
         )
 
+    def test_live_bookmark_save_edit_icon_cancel_and_delete(self):
+        config = self.root / "config.toml"
+        config.write_text("# Keep my comment\n[ui]\npalette='nord'\n")
+        s = self.start("--config", str(config), implicit_root=True)
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1bn", "Add bookmark")
+        s.send(b"\x7f" * len(self.root.name) + b"Notes", "Notes")
+        s.send(b"\x1bi", "Bookmark icons")
+        s.send(b"home", "Home house")
+        s.send(b"\r", "Add bookmark")
+        s.send(b"\x13", "Bookmark saved")
+        saved = tomllib.loads(config.read_text())["bookmarks"][0]
+        self.assertEqual(saved, dict(name="Notes", path=str(self.root), icon="\uf015"))
+        self.assertIn("# Keep my comment", config.read_text())
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"\x7f" * 5 + b"Renamed", "Renamed")
+        s.send(b"\x1bi", "Bookmark icons")
+        s.send(b"automatic", "Automatic")
+        s.send(b"\r", "Edit bookmark")
+        s.send(b"ZZ")
+        s.wait_absent("Edit bookmark")
+        s.wait_absent("Add bookmark")
+        s.wait_ui("Bookmark saved")
+        saved = tomllib.loads(config.read_text())["bookmarks"][0]
+        self.assertEqual(saved, dict(name="Renamed", path=str(self.root)))
+        before = config.read_text()
+        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"changed")
+        s.send(b"\x1b")
+        s.wait_absent("Edit bookmark")
+        self.assertEqual(config.read_text(), before)
+        s.send(b"\x1bd", "Delete bookmark?")
+        s.send(b"\x1b")
+        s.wait_absent("Delete bookmark?")
+        self.assertEqual(config.read_text(), before)
+        s.send(b"\x1bd", "Delete bookmark?")
+        s.send(b"\r", "Bookmark deleted")
+        self.assertEqual(tomllib.loads(config.read_text()).get("bookmarks", []), [])
+        self.assertTrue(self.root.is_dir())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_bookmark_save_creates_missing_default_config_and_survives_restart(self):
+        config_home = self.root / "settings"
+        config = config_home / "fff" / "config.toml"
+        environment = {"XDG_CONFIG_HOME": str(config_home)}
+        s = self.start(implicit_root=True, environment=environment)
+        self.assertFalse(config.exists())
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1bn", "Add bookmark")
+        s.send(b"\x13", "Bookmark saved")
+        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["path"], str(self.root))
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        self.session = None
+        s = self.start(implicit_root=True, environment=environment)
+        s.send(b"\x1bb", "Bookmarks")
+        self.assertIn(self.root.name, s.screen.text)
+        s.send(b"\r", ("cwd", self.root))
+        s.wait_absent("Bookmarks ·")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_live_bookmarks_session_only_and_external_reload(self):
+        s = self.start(implicit_root=True)
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1bn", "Add bookmark")
+        s.send(b"\x13", "for this session")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        self.session = None
+        config = self.root / "config.toml"
+        config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
+        s = self.start("--config", str(config), implicit_root=True)
+        s.send(b"\x1bb", "Before")
+        s.send(b"\x1be", "Edit bookmark")
+        config.write_text("[[bookmarks]]\nname='External'\npath='.'\n")
+        s.send(b"\x13", "Alt+r")
+        self.assertIn("External", config.read_text())
+        s.send(b"\x1b")
+        s.wait_absent("Edit bookmark")
+        s.send(b"\x1br", "Bookmarks reloaded")
+        self.assertIn("External", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
+    def test_live_bookmark_nvim_form_and_icon_picker(self):
+        s = self.start(implicit_root=True, editor="nvim")
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1bn", "Add bookmark")
+        self.assertIn("NORMAL", s.screen.text)
+        s.send(b"ccNotes", "Notes")
+        s.send(b"\x1bi", "Bookmark icons")
+        self.assertIn("NORMAL", s.screen.text)
+        s.send(b"ihome", "Home house")
+        s.send(b"\x1b", "NORMAL")
+        s.send(b"\r", "Add bookmark")
+        s.send(b"ZZ")
+        s.wait_absent("Edit bookmark")
+        s.wait_absent("Add bookmark")
+        s.wait_ui("Bookmark saved")
+        self.assertIn("Notes", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_configured_bookmarks_filter_missing_target_and_preserve_marks(self):
         marked = self.root / "marked"
         marked.touch()
-        with tempfile.TemporaryDirectory(prefix="picker-bookmarks-") as config_dir:
+        with tempfile.TemporaryDirectory(prefix="fff-bookmarks-") as config_dir:
             base = Path(config_dir)
             target = base / "notes folder"
             target.mkdir()
@@ -453,7 +577,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_toml_palette_cli_override_and_directory_banner(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-palette-") as config_dir:
+        with tempfile.TemporaryDirectory(prefix="fff-palette-") as config_dir:
             config = Path(config_dir) / "config.toml"
             config.write_text("[ui]\npalette='custom'\n[palettes.custom]\nextends='light'\ncurrent_directory='#123456'\n")
             s = self.start("--config", str(config))
@@ -504,14 +628,26 @@ class TerminalTests(unittest.TestCase):
         new = directory / "new"
         new.touch()
         s.send(b"\x1bl", ("cwd", directory))
+        self.assertIn("old", s.screen.text)  # recent snapshot intentionally stays usable
+        s.send(b"\x1b[15~", "● complete")  # F5 forces freshness
         self.assertIn("new", s.screen.text)
-        s.send(b"\x1b[15~", "● complete")  # F5
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(new) + b"\n"))
 
+    def test_current_directory_refreshes_without_keyboard_input(self):
+        (self.root / "old").touch()
+        with tempfile.TemporaryDirectory(prefix="fff-freshness-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[cache]\nfresh_seconds=1\nprefetch=false\n")
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            (self.root / "newly-created").touch()
+            s.wait_ui("newly-created")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
     def test_palette_live_reload_survives_invalid_edits(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-reload-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-reload-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
             s = self.start("--config", str(config))
@@ -530,7 +666,7 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_query_operators_undo_redo_and_exact_stdout(self):
         (self.root / "world.txt").touch()
         s = self.start("--editor", "nvim")
-        s.send(b"hello world", "❯ hello world")
+        s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0dw", "❯ world")
         s.send(b"u", "❯ hello world")
@@ -541,19 +677,19 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_location_and_bookmark_filter(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-vim-fields-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-vim-fields-") as folder:
             target = Path(folder) / "notes"
             target.mkdir()
             (target / "note").touch()
             config = Path(folder) / "config.toml"
             config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
             s = self.start("--config", str(config), implicit_root=True, editor=None)
-            s.send(b"\x1bg", "INSERT")
-            s.send(b"junk " + os.fsencode(target), b"junk")
+            s.send(b"\x1bg", "NORMAL")
+            s.send(b"ijunk " + os.fsencode(target), b"junk")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"0dw\r", ("cwd", target))
             s.send(b"\x1bb", "Bookmarks")
-            s.send(b"Junk Notes", "Find: Junk Notes")
+            s.send(b"iJunk Notes", "Find: Junk Notes")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"0dw", "Find: Notes")
             s.send(b"\r", ("cwd", target))
@@ -565,11 +701,10 @@ class TerminalTests(unittest.TestCase):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
         s = self.start("--editor", "nvim", "--exclude", "build")
-        s.send(b"\x1be", "INSERT")
-        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1be", "NORMAL")
         s.send(b"o*.tex", "*.tex")
-        s.send(b"\x17", "No matching results")
-        # First Escape enters Normal; another clears the main query.
+        s.send(b"\x1b[27uZZ", "No matching results")
+        # Applying exclusions returns to the main query, initially Normal.
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0f", "PENDING")
         s.send(b"x", "NORMAL")
@@ -579,13 +714,13 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_ignores_personal_init_files(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-clean-nvim-") as home:
+        with tempfile.TemporaryDirectory(prefix="fff-clean-nvim-") as home:
             config = Path(home) / ".config/nvim"
             config.mkdir(parents=True)
             marker = Path(home) / "init-loaded"
             (config / "init.lua").write_text("vim.fn.writefile({'loaded'}, " + repr(str(marker)) + ")")
             s = self.start("--editor", "nvim", "--no-config", environment={"HOME": home})
-            self.assertIn("INSERT", s.screen.text)
+            self.assertIn("NORMAL", s.screen.text)
             self.assertFalse(marker.exists())
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -604,7 +739,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "beta") + b"\n"))
         s.close()
         s = self.session = Session(self.root, "--editor", "nvim", "--no-config")
-        s.send(b"gamma", "❯ gamma")
+        s.send(b"igamma", "❯ gamma")
         s.send(b"\x1b[27u", "NORMAL")
         # Unbound continuations reach Neovim intact: gU, ge.
         s.send(b"0gUiw", "❯ GAMMA")
@@ -624,7 +759,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--editor", "nvim", "--no-config", "--depth", "1", implicit_root=True)
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"l", ("cwd", directory))
-        # Entering a location starts in Normal mode, so h needs no Escape first.
+        # Normal-mode navigation stays Normal, so h needs no Escape first.
         self.assertIn("Filter · NORMAL", s.screen.text)
         s.send(b"h", ("cwd", self.root))
         self.assertIn("Filter · NORMAL", s.screen.text)
@@ -637,12 +772,12 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_normal_mode_keys_in_marks_bookmarks_and_config(self):
         for name in ("alpha", "beta", "gamma"):
             (self.root / name).touch()
-        with tempfile.TemporaryDirectory(prefix="picker-normal-keys-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-normal-keys-") as folder:
             for name in ("one", "two", "three"):
                 (Path(folder) / name).mkdir()
             config = Path(folder) / "config.toml"
             config.write_text(
-                "[keys.normal]\nfirst='<space>t'\nlast=['G','<space>b']\ndown='none'\n"
+                "[keys.normal]\nmark='none'\nfirst='<space>t'\nlast=['G','<space>b']\ndown='none'\n"
                 + "".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
             )
             s = self.start("--editor", "nvim", "--config", str(config), implicit_root=True)
@@ -651,9 +786,8 @@ class TerminalTests(unittest.TestCase):
             # Marks list: last, then first via the remapped sequence; Tab unmarks.
             s.send(b"G\t", b"Marks (2)")
             s.send(b" t\t", b"Marks (1)")
-            s.send(b"\x1b[27u", "INSERT")
-            s.send(b"\x1bb", "Bookmarks")
             s.send(b"\x1b[27u", "NORMAL")
+            s.send(b"\x1bb", "Bookmarks")
             # j is unbound here, so it reaches Neovim and leaves "one" highlighted.
             s.send(b" b t")
             s.send(b"j\r", ("cwd", Path(folder) / "one"))
@@ -664,22 +798,110 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_normal_mode_keys_in_palette_chooser(self):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim", "--no-config")
-        s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · INSERT")
-        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · NORMAL")
         # G previews and applies the last palette; gg then j select the second.
         mark = len(s.ui)
         s.send(b"G")
-        s.send(b"\r", "Palette solarized-light applied")
-        self.assertIn(b"48;2;253;246;227", s.ui[mark:])
+        s.send(b"\r", "Palette tomorrow-night applied")
+        self.assertIn(b"48;2;29;31;33", s.ui[mark:])
         s.send(b"\x1bp", "Palettes ·")
-        s.send(b"\x1b[27u", "NORMAL")
         s.send(b"ggj\r", "Palette light applied")
         # A g not followed by a binding still edits the filter inside Neovim.
         s.send(b"\x1bp", "Palettes ·")
-        s.send(b"nord", "Find: nord")
+        s.send(b"inord", "Find: nord")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0gUiw", "Find: NORD")
         s.send(b"\r", "Palette nord applied")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_navigation_preserves_insert_and_normal_modes(self):
+        directory = self.root / "folder"
+        directory.mkdir()
+        (directory / "file").touch()
+        s = self.start("--editor", "nvim", "--depth", "1", implicit_root=True)
+        s.send(b"ifol", "❯ fol")
+        s.send(b"\x1bl", ("cwd", directory))
+        self.assertIn("Filter · INSERT", s.screen.text)
+        s.send(b"file", "❯ file")
+        s.send(b"\x1bh", ("cwd", self.root))
+        self.assertIn("Filter · INSERT", s.screen.text)
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "❯")
+        s.send(b"l", ("cwd", directory))
+        self.assertIn("Filter · NORMAL", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_space_marks_in_normal_and_types_in_insert(self):
+        for name in ("a", "b"):
+            (self.root / name).touch()
+        s = self.start("--editor", "nvim")
+        s.send(b" ", "Marks (1)")
+        s.send(b"i ", "No matching results")
+        self.assertIn("Marks (1)", s.screen.text)
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "❯")
+        s.send(b"\x1b ", "Marks (1)")
+        s.send(b" ", "Marks (0)")
+        s.send(b"\x1b ", "Marks (0)")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_exclusions_zz_applies_only_in_normal_and_ctrl_w_keeps_editor(self):
+        (self.root / "main.tex").touch()
+        (self.root / "build").mkdir()
+        s = self.start("--editor", "nvim", "--exclude", "build")
+        s.send(b"\x1be", "Exclusions")
+        s.send(b"0iZZ", "ZZbuild")
+        self.assertIn("Exclusions", s.screen.text)
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"0xxo*.tex", "*.tex")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x17", "PENDING")
+        self.assertIn("Exclusions", s.screen.text)
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"Z", "PENDING")
+        self.assertIn("Exclusions", s.screen.text)
+        s.send(b"Z", "No matching results")
+        self.assertNotIn("Exclusions ·", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_mark_and_exclusion_apply_sequences_can_be_configured(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="fff-action-keys-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[keys.normal]\nmark='x'\napply='qq'\n")
+            s = self.start("--editor", "nvim", "--config", str(config))
+            s.send(b"x", "Marks (1)")
+            s.send(b"\x1be", "Edit exclusions")
+            s.send(b"inot-present", "not-present")
+            s.send(b"\x1b[27u", "NORMAL")
+            s.send(b"qq")
+            s.wait_absent("Edit exclusions")
+            s.send(b"\x17")
+            self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
+
+    def test_palette_chooser_starts_on_the_canonical_palette_for_an_alias(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "basic", "--palette", "gruvbox")
+        s.send(b"\x1bp", "Palettes ·")
+        s.send(b"\r", "Palette gruvbox-dark applied")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_basic_exclusion_prefix_is_literal_unless_completed(self):
+        (self.root / "file").touch()
+        s = self.start("--editor", "basic")
+        s.send(b"\x1be", "Exclusions")
+        s.send(b"Zx", "Zx")
+        s.send(b"\x17", "Exclusions")
+        s.send(b"\x7f\x7ffileZZ", "No matching results")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -695,8 +917,8 @@ class TerminalTests(unittest.TestCase):
     def test_default_editor_is_neovim(self):
         (self.root / "world.txt").touch()
         s = self.start(editor=None)
-        self.assertIn("INSERT", s.screen.text)
-        s.send(b"hello world", "❯ hello world")
+        self.assertIn("NORMAL", s.screen.text)
+        s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0dw", "❯ world")
         s.send(b"\r")
@@ -723,10 +945,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bp", "Palettes · Enter applies")
         mark = len(s.ui)
         s.send(b"nord", "Find: nord")
-        self.assertIn(b"48;2;46;52;64", s.ui[mark:])  # live nord preview
+        s.wait_bytes(b"48;2;46;52;64", after=mark)  # delayed nord preview
         mark = len(s.ui)
-        s.send(b"\x1b[27u", "❯")  # Escape reverts to midnight
-        self.assertNotIn("Palettes ·", s.screen.text)
+        s.send(b"\x1b[27u")  # Escape reverts to midnight
+        s.wait_absent("Palettes ·")
         self.assertIn(b"48;2;15;23;36", s.ui[mark:])
         s.send(b"\x1bpforest", "Find: forest")
         s.send(b"\r", "Palette forest applied for this session")
@@ -738,7 +960,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_palette_session_choice_survives_watcher_until_config_reload(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-palette-keys-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-palette-keys-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
             s = self.start("--editor", "basic", "--config", str(config))
@@ -757,12 +979,14 @@ class TerminalTests(unittest.TestCase):
 
     def test_failed_palette_reload_in_chooser_drops_the_preview(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-palette-fail-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-palette-fail-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
             s = self.start("--editor", "basic", "--config", str(config))
             s.send(b"\x1bp", "Palettes · Enter applies")
+            mark = len(s.ui)
             s.send(b"light", "Find: light")
+            s.wait_bytes(b"48;2;255;255;255", after=mark)
             config.write_text("[ui\n")
             mark = len(s.ui)
             s.send(b"\x1b[112;4u", "Palette reload failed")  # CSI-u Alt+Shift+p
@@ -773,7 +997,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_palette_reload_honors_cli_pin_and_remapped_keys(self):
         (self.root / "file").touch()
-        with tempfile.TemporaryDirectory(prefix="picker-palette-pin-") as folder:
+        with tempfile.TemporaryDirectory(prefix="fff-palette-pin-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
             s = self.start(
@@ -790,15 +1014,15 @@ class TerminalTests(unittest.TestCase):
     def test_nvim_palette_filter_escape_returns_to_normal_before_reverting(self):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim")
-        s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · INSERT")
-        s.send(b"junk nord", "Find: junk nord")
+        s.send(b"\x1bp", "Palettes · Enter applies · Esc reverts · NORMAL")
+        s.send(b"ijunk nord", "Find: junk nord")
         s.send(b"\x1b[27u", "NORMAL")
         self.assertIn("Palettes ·", s.screen.text)
         mark = len(s.ui)
         s.send(b"0dw", "Find: nord")
-        self.assertIn(b"48;2;46;52;64", s.ui[mark:])
-        s.send(b"\x1b[27u", "❯")
-        self.assertNotIn("Palettes ·", s.screen.text)
+        s.wait_bytes(b"48;2;46;52;64", after=mark)
+        s.send(b"\x1b[27u")
+        s.wait_absent("Palettes ·")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

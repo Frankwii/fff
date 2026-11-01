@@ -1,15 +1,22 @@
-use picker::{App, Policy, config::CacheConfig, discovery::Discovery};
+use fuzzy_file_finder::{App, Policy, config::CacheConfig, discovery::Discovery};
 use std::{
     fs,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+// Existing reconciliation scenarios explicitly request immediate revalidation.
+fn always_refresh() -> CacheConfig {
+    CacheConfig {
+        fresh_seconds: 0,
+        ..CacheConfig::default()
+    }
+}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let p = std::env::temp_dir().join(format!(
-            "picker-cache-{}-{}",
+            "fff-cache-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -44,7 +51,7 @@ fn completed_visit_restores_synchronously_then_revalidates() {
     let f = Fixture::new();
     let file = f.file("report.tex");
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     assert_eq!(d.stats().stores, 1);
@@ -80,12 +87,12 @@ fn changed_options_miss_and_restoring_options_hits() {
     f.file("a");
     f.file(".hidden");
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     app.policy.hidden = true;
     d.start(&mut app, true);
-    assert!(!app.cache_pending);
+    assert!(app.scanning);
     complete(&mut d, &mut app);
     assert_eq!(app.rows.len(), 2);
     app.policy.hidden = false;
@@ -95,15 +102,15 @@ fn changed_options_miss_and_restoring_options_hits() {
     complete(&mut d, &mut app);
     app.depth = 1;
     d.start(&mut app, true);
-    assert!(!app.cache_pending);
+    assert!(app.scanning);
     complete(&mut d, &mut app);
     app.policy.set_rules(vec!["a".into()]).unwrap();
     d.start(&mut app, true);
-    assert!(!app.cache_pending);
+    assert!(app.scanning);
     complete(&mut d, &mut app);
-    app.policy.glob = Some(picker::glob("*.tex").unwrap());
+    app.policy.glob = Some(fuzzy_file_finder::glob("*.tex").unwrap());
     d.start(&mut app, true);
-    assert!(!app.cache_pending);
+    assert!(app.scanning);
     complete(&mut d, &mut app);
 }
 #[test]
@@ -111,7 +118,7 @@ fn cancelled_or_failed_scans_are_never_stored() {
     let f = Fixture::new();
     f.file("a");
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     d.start(&mut app, true);
     assert!(!app.cache_pending);
@@ -136,7 +143,7 @@ fn refresh_reconciles_deletions_additions_kind_changes_and_preserves_marks() {
     let a = f.file("a");
     let b = f.file("b");
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     app.marks.push(a.clone());
@@ -166,7 +173,7 @@ fn snapshots_bound_rows_and_prioritize_first_completed_matches() {
     app.query = "099".into();
     let mut d = Discovery::new(CacheConfig {
         max_candidates: 3,
-        ..CacheConfig::default()
+        ..always_refresh()
     });
     d.start(&mut app, true);
     complete(&mut d, &mut app);
@@ -185,7 +192,7 @@ fn explicit_refresh_bypasses_cache_without_losing_session_settings() {
     let f = Fixture::new();
     let file = f.file("a");
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     app.marks.push(file);
@@ -208,7 +215,7 @@ fn disabled_cache_and_empty_directory_confirmation_are_safe() {
     let mut app = f.app();
     let mut d = Discovery::new(CacheConfig {
         enabled: false,
-        ..CacheConfig::default()
+        ..always_refresh()
     });
     d.start(&mut app, true);
     complete(&mut d, &mut app);
@@ -218,16 +225,16 @@ fn disabled_cache_and_empty_directory_confirmation_are_safe() {
     assert!(!app.physical_empty);
     complete(&mut d, &mut app);
     assert_eq!(d.stats().stores, 0);
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     d.start(&mut app, true);
     assert!(app.cache_pending);
-    assert_eq!(app.enter_numbered(1), picker::EnterOutcome::Stay);
+    assert_eq!(app.enter_numbered(1), fuzzy_file_finder::EnterOutcome::Stay);
     complete(&mut d, &mut app);
     assert_eq!(
         app.enter_numbered(1),
-        picker::EnterOutcome::Selected(vec![f.0.clone()])
+        fuzzy_file_finder::EnterOutcome::Selected(vec![f.0.clone()])
     );
 }
 #[test]
@@ -237,7 +244,7 @@ fn overlapping_roots_keep_effective_depth_and_scope_attribution_on_hits() {
     let root = f.0.clone();
     let nested = root.join("nested");
     let mut app = App::new(vec![root, nested], 3, Policy::default());
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     assert_eq!(app.known[&file].depth, 1);
@@ -255,7 +262,7 @@ fn navigation_only_action_never_confirms_files_or_empty_directories() {
     let directory = f.0.join("directory");
     fs::create_dir(&directory).unwrap();
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     app.highlight = Some(file.clone());
@@ -282,17 +289,17 @@ fn bookmarks_filter_and_navigate_without_mutating_roots_depth_or_marks() {
     app.query = "old query".into();
     app.marks.push(file.clone());
     app.bookmarks = vec![
-        picker::config::Bookmark {
+        fuzzy_file_finder::config::Bookmark {
             name: "My notes".into(),
             path: directory.clone(),
             icon: None,
         },
-        picker::config::Bookmark {
+        fuzzy_file_finder::config::Bookmark {
             name: "File".into(),
             path: file.clone(),
             icon: None,
         },
-        picker::config::Bookmark {
+        fuzzy_file_finder::config::Bookmark {
             name: "Missing".into(),
             path: f.0.join("missing"),
             icon: None,
@@ -327,7 +334,10 @@ fn cached_file_changed_to_directory_navigates_instead_of_confirming() {
     assert!(app.cache_pending);
     assert!(!app.rows[0].directory);
     app.rendered = vec![path.clone()];
-    assert_eq!(app.enter_numbered(1), picker::EnterOutcome::Navigated);
+    assert_eq!(
+        app.enter_numbered(1),
+        fuzzy_file_finder::EnterOutcome::Navigated
+    );
     assert_eq!(app.cwd, path);
     d.start(&mut app, true);
     complete(&mut d, &mut app);
@@ -343,13 +353,13 @@ fn partial_visits_and_current_query_are_checkpointed_and_replay_before_drain() {
     let mut app = f.app();
     let mut d = Discovery::new(CacheConfig {
         max_candidates: 3,
-        ..CacheConfig::default()
+        ..always_refresh()
     });
     d.start(&mut app, true);
     // Deterministic partially discovered prefix, before the worker completes.
     app.insert(
         app.generation,
-        picker::Candidate {
+        fuzzy_file_finder::Candidate {
             path: f.0.join("file099"),
             directory: false,
             depth: 1,
@@ -378,12 +388,12 @@ fn partial_visits_and_current_query_are_checkpointed_and_replay_before_drain() {
 fn report_warm_replay_cost_for_large_directory_without_waiting_for_worker() {
     let f = Fixture::new();
     let mut app = f.app();
-    let mut d = Discovery::new(CacheConfig::default());
+    let mut d = Discovery::new(always_refresh());
     d.start(&mut app, true);
     for i in 0..20_000 {
         app.insert(
             app.generation,
-            picker::Candidate {
+            fuzzy_file_finder::Candidate {
                 path: f.0.join(format!("file{i:06}")),
                 directory: false,
                 depth: 1,
@@ -401,4 +411,104 @@ fn report_warm_replay_cost_for_large_directory_without_waiting_for_worker() {
     d.drain(&mut app);
     assert_eq!(app.rows.len(), 4096);
     println!("Warm replay of 4096 cached paths from 20000 candidates: {replay:?}");
+}
+
+#[test]
+fn recent_complete_views_skip_scanning_but_expire_and_f5_forces_freshness() {
+    let f = Fixture::new();
+    let a = f.file("a");
+    let mut app = f.app();
+    app.depth = 1;
+    let mut d = Discovery::new(CacheConfig::default());
+    d.start(&mut app, true);
+    complete(&mut d, &mut app);
+    let verified = Instant::now();
+    let b = f.file("b");
+    app.marks.push(a.clone());
+    app.rendered = vec![a.clone()];
+    d.checkpoint(&app);
+    d.start(&mut app, true);
+    assert!(!app.scanning);
+    assert!(app.cache_pending);
+    assert_eq!(app.rows.len(), 1); // a new file can wait a few seconds
+    assert_eq!(d.stats().stores, 2); // scan plus checkpoint, no revisit scan
+    // Checkpointing/revisiting must not postpone the original verification age.
+    for _ in 0..3 {
+        d.checkpoint(&app);
+        d.start(&mut app, true);
+    }
+    d.drain_at(&mut app, verified + Duration::from_secs(4));
+    assert!(app.scanning);
+    complete(&mut d, &mut app);
+    assert!(app.known.contains_key(&b));
+    assert_eq!(app.rendered, vec![a.clone()]); // discovery never publishes shortcuts
+    assert_eq!(app.marks, vec![a]);
+    let c = f.file("c");
+    d.force_refresh(&mut app);
+    assert!(app.scanning && app.rows.is_empty());
+    complete(&mut d, &mut app);
+    assert!(app.known.contains_key(&c));
+}
+
+#[test]
+fn truncated_or_empty_snapshots_never_skip_verification() {
+    let f = Fixture::new();
+    f.file("a");
+    f.file("b");
+    let mut app = f.app();
+    let mut d = Discovery::new(CacheConfig {
+        max_candidates: 1,
+        ..CacheConfig::default()
+    });
+    d.start(&mut app, true);
+    complete(&mut d, &mut app);
+    d.start(&mut app, true);
+    assert!(app.scanning);
+    assert_eq!(app.known.len(), 1);
+    complete(&mut d, &mut app);
+    assert_eq!(app.known.len(), 2);
+    let empty = f.0.join("empty");
+    fs::create_dir(&empty).unwrap();
+    app.navigate(empty, false);
+    d.start(&mut app, true);
+    complete(&mut d, &mut app);
+    d.start(&mut app, true);
+    assert!(app.scanning && !app.physical_empty);
+    assert_eq!(app.enter(None), fuzzy_file_finder::EnterOutcome::Stay);
+}
+
+#[test]
+fn first_child_visit_reuses_known_descendants_without_claiming_completeness() {
+    let f = Fixture::new();
+    let immediate = f.file("child/immediate");
+    let deeper = f.file("child/one/two/deeper");
+    let mut app = f.app();
+    app.depth = 3;
+    let mut d = Discovery::new(CacheConfig::default());
+    d.start(&mut app, true);
+    complete(&mut d, &mut app);
+    assert!(!app.known.contains_key(&deeper));
+    app.navigate(f.0.join("child"), false);
+    d.start(&mut app, true);
+    assert!(app.cache_pending && app.scanning);
+    assert_eq!(app.known[&immediate].depth, 1);
+    assert!(!app.physical_empty);
+    complete(&mut d, &mut app);
+    assert_eq!(app.known[&deeper].depth, 3);
+}
+
+#[test]
+fn worker_notifies_ui_without_keyboard_input() {
+    let f = Fixture::new();
+    f.file("file");
+    let mut app = f.app();
+    let (wake, waking) = std::sync::mpsc::sync_channel(1);
+    let mut d = Discovery::new(CacheConfig::default());
+    d.set_waker(wake);
+    d.start(&mut app, true);
+    waking
+        .recv_timeout(Duration::from_secs(2))
+        .expect("discovery must wake a sleeping UI");
+    complete(&mut d, &mut app);
+    assert_eq!(app.rows.len(), 1);
 }

@@ -1,148 +1,118 @@
-# Neovim editing
+# Text editing
 
-Picker runs a clean Neovim process as the text-editing engine inside its own
-interface. This is the **default**. The `basic` backend retains the original
-append/Backspace editing and Escape behavior:
-
-```sh
-cargo run -- --editor basic
-```
-
-Or choose it in your TOML config:
+Fuzzy file finder uses a clean embedded Neovim by default. `nvim` must be on PATH; when no
+backend is explicitly chosen and it cannot start, fff quietly falls back to
+basic typing/Backspace. `--editor basic` / `--editor nvim` overrides TOML:
 
 ```toml
 [editor]
 backend = "basic"
 ```
 
-`--editor basic` / `--editor nvim` overrides the config. Neovim must be available
-as `nvim` on PATH; the implementation was tested with Neovim 0.12.6. When no
-backend was chosen explicitly and `nvim` is missing or fails to start, picker
-quietly starts with basic editing. An explicit `nvim` choice reports the startup
-problem in the status line instead. If RPC fails later, picker reports it and
-switches to basic editing, preserving the last synchronized text. Palette hot reload does not switch editing backends;
-restart to change `[editor]` settings.
+An explicitly requested Neovim that cannot start reports the fallback in the
+status line. An engine failure after startup also reports the problem and
+preserves the last synchronized text in basic mode. Restart to change backends;
+palette reload applies only to colors.
 
 ## Fields and modes
 
-All editable fields use the engine:
+The query, location prompt, exclusions, bookmark name/path, bookmark and icon
+filters, and palette filter all
+initially start in **Normal mode**. Press `i` or `a` to type. Directory navigation
+preserves the initiating field's mode, including Insert, Normal, Replace, Visual
+and Select modes. Pending motions/operators and command-line input are cancelled;
+visual selections restart in the new query buffer. Returning to an existing
+nonempty field preserves its editing state and cursor. The basic backend has no modes.
 
-- filename query;
-- location entry (Alt+g);
-- multiline exclusion editor (Alt+e);
-- bookmark-name filter (Alt+b);
-- palette-name filter (Alt+p).
+Borders show the mode. Normal/Visual uses a block cursor; Insert uses a bar.
+Horizontal scrolling follows the cursor, and exclusions have a multiline viewport.
+Bracketed paste preserves newlines in exclusions and converts them to spaces in
+single-line fields.
 
-Fields start in **INSERT**, so ordinary typing still filters immediately. Their
-borders show the current mode. **Escape** enters **NORMAL**; `i`, `a`, `I`, `A`,
-`o`, and the other usual Neovim editing commands behave through the real engine.
-Normal/Visual mode uses a block cursor; Insert uses a bar. Horizontal scrolling
-keeps the text cursor visible, and the exclusion editor follows its active line.
+Neovim provides motions, operators, counts, registers, undo and Unicode editing.
+Fields have separate scratch buffers, cursors and undo histories. Pending input
+such as `f` or `r` shows **PENDING** without blocking fff; switching fields
+cancels transient pending input or selection.
 
-Examples:
-
-| Action | Keys |
+| Action | Keys in Normal mode |
 | --- | --- |
-| Move within text | Escape, then `h`, `l`, `w`, `b`, `0`, `$` |
+| Enter text | `i`, `a`, `I`, `A` |
+| Move within text | `w`, `b`, `0`, `$` |
 | Delete/change a word | `dw`, `ciw` |
 | Delete a line | `dd` |
 | Undo / redo | `u` / Ctrl+r |
-| Characterwise selection | `v`, motions, then `y`, `d`, or `c` |
+| Characterwise selection | `v`, then motions and `y`, `d` or `c` |
 | Linewise/block selection | `V` / Ctrl+v |
-| Paste an internal register | `p` / `P` in Normal mode |
-| Edit multiple exclusion lines | `o`, `O`, `j`, `k`, `gg`, `G`, line operators |
-| Substitute buffer text | `:s/old/new/`, then Enter |
+| Paste an internal register | `p` / `P` |
+| Edit exclusion lines | `o`, `O`, motions and line operators |
+| Substitute text | `:s/old/new/`, then Enter |
 
-Neovim owns motions, operators, counts, registers, undo, Unicode handling, and
-pending commands. A partially entered command such as `f` or `r` is shown as
-**PENDING** and waits for its next character without blocking picker. The fields
-have separate scratch buffers, cursor positions, and undo histories. Switching
-fields cancels a transient pending command/selection. Entering a new location
-(directory Enter, Alt+l/`l`, Alt+h/`h`, Alt+g, bookmarks) resets the query field to
-**NORMAL** mode, so `j`/`k`/`l`/`h`, `gg` and `G` keep browsing immediately; press
-`i` or `a` to type a filter. The picker itself still starts in Insert mode.
+For example, type `ihello world`, press Escape, then `0dw`: the query becomes
+`world`. `u` restores it and Ctrl+r reapplies the deletion.
 
-Queries, locations, and bookmark filters use a compact single-line presentation;
-exclusions have a multiline viewport. Bracketed paste is supported; pasted
-newlines are converted to spaces in the compact fields and preserved in exclusions.
+## Application keys and Escape
 
-## Picker keys still belong to picker
+Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,
+and Ctrl+w retain their fff actions in results/marks. Space in Normal mode
+marks/unmarks like Tab; in Insert mode it types a space. The marked list always
+accepts Space because it has no text field.
 
-| Key / context | Behavior |
-| --- | --- |
-| Ctrl+c | Quit picker without selected paths, in every mode. |
-| Alt bindings, Ctrl+digits, Alt+digits | Existing picker navigation/selection shortcuts. |
-| Tab in results | Mark the highlighted result. |
-| Ctrl+w in results/marks | Confirm marked paths. |
-| Ctrl+w in exclusions | Apply exclusion edits. |
-| Enter in results | Normal picker Enter, except while completing a Neovim command. |
-| Enter in location/bookmarks | Navigate to the entered/selected directory. |
-| Enter in exclusions | Neovim's newline/motion behavior; Ctrl+w applies. |
-| Escape in Insert/Visual/pending/command mode | Return toward Normal mode inside the editor. |
-| Escape when already Normal | Clear the main query, or cancel/leave the subordinate field. |
+In exclusions, **ZZ** (two uppercase keystrokes in Normal mode) applies the rules
+and closes the editor. Ctrl+w goes to Neovim instead of applying changes. Insert
+mode can type literal `ZZ`. Basic editing also accepts `ZZ`; an unmatched leading
+`Z` becomes text when the next key arrives. Escape cancels without applying.
+In bookmark forms, Ctrl+s saves from any mode; ZZ saves in Normal/basic mode.
+Tab switches fields and Alt+i opens the icon chooser.
+Rebind marking and applying with `[keys.normal] mark` and `apply`.
 
-In Normal mode, digits are Vim counts; in Insert mode, plain digits remain query
-text. Alt+j/Alt+k move the result/marked highlight in every mode. Up/Down
-remain chooser controls in results/bookmarks; in exclusions they edit/move through
-the buffer. During Neovim command entry they go to Neovim instead.
+Enter in results navigates or confirms; in locations/bookmarks it navigates; in
+palettes it applies the selected palette. Pending Neovim input and command-line
+entry receive Enter instead. In exclusions, Enter retains Neovim's behavior.
+
+Escape from Insert, Visual, pending input or command entry returns toward Normal.
+Escape when already Normal clears the main query or closes the subordinate view.
+It never exits the session. With basic editing it clears/cancels immediately.
+
+Digits are Vim counts in Normal mode and query text in Insert/basic mode.
+Alt+j/Alt+k move list highlights in every mode. Up/Down control results and
+choosers; in exclusions and during command-line editing they go to Neovim.
 
 ## Normal-mode list keys
 
-In **NORMAL** mode, list views accept plain Vim-style motions for the highlight:
+These defaults apply in results, bookmarks, bookmark icons and palettes when the field is Normal,
+and always in the marked list, which has no text field:
 
 | Key | Results | Bookmark / palette chooser | Marked list |
 | --- | --- | --- | --- |
-| `j` / `k` | Same as Alt+j / Alt+k | Same as Alt+j / Alt+k | Same as Alt+j / Alt+k |
-| `h` | Same as Alt+h (parent directory) | Goes to Neovim | Nothing |
-| `l` | Same as Alt+l (enter highlighted directory) | Goes to Neovim | Nothing |
+| `j` / `k` | Next / previous result | Next / previous entry | Next / previous mark |
+| `h` | Parent directory | Neovim motion | No action |
+| `l` | Enter highlighted directory | Neovim motion | No action |
 | `gg` / `G` | First / last result | First / last entry | First / last mark |
 
-In the palette chooser every highlight move, including `gg` and `G`, previews
-the highlighted palette just like Alt+j/Alt+k.
+The palette chooser waits for a highlight to stay still for at least 100 ms
+before previewing it. Moving again restarts the wait; Enter applies immediately. The location
+prompt and exclusion editor keep Neovim's own `hjkl`, `gg` and `G` motions.
+Insert, Visual, Replace, operator, pending and command-line modes keep their
+editing behavior. Alt bindings remain available in every mode.
 
-Insert, Visual, Replace, pending, and command-line modes are unaffected: there
-the letters edit or move through text as usual. The multiline exclusion editor
-and location prompt are not lists, so `hjkl`, `gg`, and `G` keep their Vim
-meaning there. The marked list has no text field, so it accepts these keys
-regardless of the editing backend. Alt bindings keep working in every mode.
+Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
+unmatched continuation sends both keys to Neovim, preserving commands such as
+`gU`, `ge`, `gu` and `g~`. Escape after a lone `g` cancels it without clearing the
+query. Configure sequences in [keys.normal](CONFIGURATION.md#normal-mode-keys).
 
-Keys that are not bound still go to Neovim. A key that starts a binding (`g`)
-waits, shown as **PENDING**; if the next key does not complete a binding, both
-keys reach Neovim unchanged, so `gU`, `ge`, `gu`, and `g~` still edit the field.
-Escape after a lone `g` cancels it inside Neovim without clearing the query.
+## Isolation and terminal behavior
 
-The bindings are configurable in `[keys.normal]`; see
-[CONFIGURATION.md](CONFIGURATION.md#normal-mode-list-keys).
+One private `nvim --embed --headless -u NONE -i NONE --noplugin -n` process edits
+scratch buffers through [MessagePack-RPC](https://neovim.io/doc/user/api/#rpc-connecting).
+No personal init, plugins, ShaDa, swap, backups, undo files or persistent history
+are used. Logging goes to `/dev/null`; listener sockets are stopped. Communication
+uses private child stdin/stdout, separate from selected-path output. RPC has a
+bounded timeout and the child is reaped on exit.
 
-For example, type `hello world`, press Escape, then `0dw`: the query becomes
-`world`. `u` restores the query and Ctrl+r reapplies the deletion. Enter can then
-confirm a matching file using the usual mark rules.
+Text-local commands such as substitutions work. Commands needing Neovim windows,
+external programs or a full editor UI are outside this integration. Quitting or
+crashing the engine causes fallback without confirming paths.
 
-On terminals supporting the requested keyboard protocol, Escape is reported
-distinctly. Legacy terminals can encode a rapidly typed Escape+digit exactly like
-Alt+digit; picker preserves the existing Alt shortcut decoding.
-
-## How clean embedding works
-
-Investigation confirmed that Neovim's documented [MessagePack-RPC embedding
-API](https://neovim.io/doc/user/api/#rpc-connecting) works as a field-editing engine.
-Picker starts one private `nvim --embed --headless -u NONE -i NONE --noplugin -n`
-process, uses unnamed `nofile` scratch buffers, disables backups/undo files/modelines
-and persistent history, and redirects logging to `/dev/null`. No personal init,
-plugins, ShaDa, swap, or editor temp files are loaded/written. Unneeded Neovim
-listener sockets are stopped; communication uses private child stdin/stdout.
-Selected path output stays isolated on picker stdout.
-
-This embeds the text engine, not Neovim's full window UI. Text-local commands such
-as substitutions are supported. Commands that open windows/buffers, run external
-programs, or expect a complete Neovim UI are outside this integration. Quitting
-or crashing the engine causes basic-mode fallback; it does not confirm paths.
-RPC has a bounded timeout, and the child is shut down/reaped when picker exits.
-
-Tests exercise the real installed Neovim: operators, find/replace pending input,
-Unicode, visual selection/yank/paste, undo/redo, substitutions, field switching,
-multiline edits, process failure, and cleanup. Terminal tests verify every field,
-clean-init isolation, the Neovim default, quiet default fallback without `nvim`
-on PATH, explicit-choice fallback reporting, mode/cursor rendering, and exact
-stdout bytes. Terminal tests about basic editing pin `--editor basic`.
-Neovim-specific tests explicitly skip when `nvim` is not installed.
+The requested keyboard protocol reports Escape distinctly where supported. With
+ESC-prefix terminal reporting, rapidly typed Escape+digit can look like Alt+digit;
+fff preserves Alt shortcut decoding.

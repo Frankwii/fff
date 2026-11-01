@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use picker::{
+use fuzzy_file_finder::{
     App, Candidate, Policy, discovery::Scan, glob, keys::KeyMap, relative_to, score,
     ui::numbered_key, write_paths,
 };
@@ -20,7 +20,7 @@ fn candidate(name: &str, directory: bool, depth: usize) -> Candidate {
     }
 }
 #[test]
-fn example13_live_order_highlight_late_depth_and_rendered_choice() {
+fn live_order_highlight_late_depth_and_rendered_choice() {
     let mut app = app();
     for (name, dir, depth) in [
         ("alpha/beta/00.txt", false, 3),
@@ -65,7 +65,7 @@ fn example13_live_order_highlight_late_depth_and_rendered_choice() {
     assert!(!app.known.contains_key(Path::new("/fixture/obsolete")));
 }
 #[test]
-fn example04_overlap_and_root_order() {
+fn overlap_and_root_order() {
     let mut app = App::new(
         vec![
             "/fixture".into(),
@@ -104,7 +104,7 @@ fn example04_overlap_and_root_order() {
     assert_eq!(app.known[&path].root, 2);
 }
 #[test]
-fn example01_subsequence_and_depth_before_score() {
+fn subsequence_and_depth_before_score() {
     assert!(score("Downloads", "dwn").is_some());
     assert!(score("report.tex", "rpx").is_some());
     assert!(score("scratch", "sh").is_some());
@@ -117,7 +117,7 @@ fn example01_subsequence_and_depth_before_score() {
     assert_eq!(app.rows[0].depth, 1);
 }
 #[test]
-fn example12_numbered_choice_zero_fallback_and_key_decoding() {
+fn numbered_choice_zero_fallback_and_key_decoding() {
     let mut app = app();
     app.marks.push("/unrelated".into());
     assert_eq!(app.numbered(2), app.cwd);
@@ -163,7 +163,7 @@ impl Fixture {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
-            "picker-test-{}-{}",
+            "fff-test-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -191,7 +191,7 @@ fn complete(scan: &mut Scan, app: &mut App) {
     }
 }
 #[test]
-fn example03_real_discovery_glob_depth_and_retained_state() {
+fn real_discovery_glob_depth_and_retained_state() {
     let f = Fixture::new();
     for name in ["zebra.tex", "topic/alpha.tex", "topic/details/beta.tex"] {
         f.file(name);
@@ -210,7 +210,7 @@ fn example03_real_discovery_glob_depth_and_retained_state() {
     }
 }
 #[test]
-fn example05_marks_confirmation_and_missing_paths() {
+fn marks_confirmation_and_missing_paths() {
     let f = Fixture::new();
     let a = f.file("a");
     let b = f.file("b");
@@ -232,7 +232,7 @@ fn example05_marks_confirmation_and_missing_paths() {
     assert_eq!(app.confirm(None), Some(vec![b]));
 }
 #[test]
-fn example07_policy_toggles_prune_and_preserve_marks() {
+fn policy_toggles_prune_and_preserve_marks() {
     let f = Fixture::new();
     let main = f.file("main.tex");
     f.file(".draft.tex");
@@ -336,7 +336,7 @@ fn navigation_combines_one_current_directory_and_fixed_roots() {
 
 #[test]
 fn alt_numbered_directories_navigate_and_keep_session_state() {
-    use picker::EnterOutcome;
+    use fuzzy_file_finder::EnterOutcome;
     let mut app = app();
     app.insert(0, candidate("alpha", true, 1));
     app.insert(0, candidate("beta", true, 1));
@@ -358,7 +358,7 @@ fn alt_numbered_directories_navigate_and_keep_session_state() {
 }
 #[test]
 fn alt_numbered_file_matches_enter_including_marks_missing_and_zero() {
-    use picker::EnterOutcome;
+    use fuzzy_file_finder::EnterOutcome;
     let f = Fixture::new();
     let a = f.file("a");
     let b = f.file("b");
@@ -395,7 +395,7 @@ fn alt_numbered_file_matches_enter_including_marks_missing_and_zero() {
 }
 #[test]
 fn alt_numbers_are_distinct_from_plain_and_control_digits() {
-    use picker::ui::alt_numbered_key;
+    use fuzzy_file_finder::ui::alt_numbered_key;
     assert_eq!(
         alt_numbered_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::ALT)),
         Some(2)
@@ -434,7 +434,7 @@ fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
     // A directory candidate (e.g. a cached kind change) is not entered.
     assert_eq!(
         app.enter(Some(candidate("alpha", true, 1))),
-        picker::EnterOutcome::Stay
+        fuzzy_file_finder::EnterOutcome::Stay
     );
     assert!(app.status.contains("--no-dir"));
     assert!(!app.navigate_highlighted());
@@ -443,11 +443,11 @@ fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
     app.rows.clear();
     app.scanning = false;
     app.physical_empty = true;
-    assert_eq!(app.enter(None), picker::EnterOutcome::Stay);
+    assert_eq!(app.enter(None), fuzzy_file_finder::EnterOutcome::Stay);
 }
 #[test]
 fn status_messages_expire_and_restart_when_reported_again() {
-    use picker::ui::StatusTimer;
+    use fuzzy_file_finder::ui::StatusTimer;
     let mut app = app();
     let mut timer = StatusTimer::default();
     let start = Instant::now();

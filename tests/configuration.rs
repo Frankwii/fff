@@ -1,10 +1,10 @@
-use picker::config::{Palette, Settings, default_path};
+use fuzzy_file_finder::config::{Palette, Settings, default_path};
 use ratatui::style::Color;
 use std::path::Path;
 fn parse(text: &str) -> Result<Settings, String> {
     Settings::parse(
         text,
-        Path::new("/config/picker"),
+        Path::new("/config/fff"),
         Some(Path::new("/home/user")),
         None,
     )
@@ -44,7 +44,7 @@ fn bookmarks_preserve_order_expand_home_and_resolve_relative_to_config() {
     );
     assert_eq!(s.bookmarks[0].path, Path::new("/home/user"));
     assert_eq!(s.bookmarks[1].path, Path::new("/home/user/My Papers"));
-    assert_eq!(s.bookmarks[2].path, Path::new("/config/picker/../notes"));
+    assert_eq!(s.bookmarks[2].path, Path::new("/config/fff/../notes"));
     assert_eq!(s.bookmarks[3].path, Path::new("/missing"));
     assert!(s.bookmarks.iter().all(|b| b.icon.is_none()));
 }
@@ -102,11 +102,11 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
 fn standard_config_location_precedence() {
     assert_eq!(
         default_path(Some(Path::new("/custom")), Some(Path::new("/home/u"))).unwrap(),
-        Path::new("/custom/picker/config.toml")
+        Path::new("/custom/fff/config.toml")
     );
     assert_eq!(
         default_path(Some(Path::new("relative")), Some(Path::new("/home/u"))).unwrap(),
-        Path::new("/home/u/.config/picker/config.toml")
+        Path::new("/home/u/.config/fff/config.toml")
     );
     assert!(default_path(None, None).is_none());
 }
@@ -120,19 +120,19 @@ fn documented_example_is_valid() {
 #[test]
 fn cli_config_precedence_validation_and_missing_files() {
     use std::{fs, process::Command};
-    let base = std::env::temp_dir().join(format!("picker-config-cli-{}", std::process::id()));
-    fs::create_dir_all(base.join("home/.config/picker")).unwrap();
-    fs::create_dir_all(base.join("xdg/picker")).unwrap();
+    let base = std::env::temp_dir().join(format!("fff-config-cli-{}", std::process::id()));
+    fs::create_dir_all(base.join("home/.config/fff")).unwrap();
+    fs::create_dir_all(base.join("xdg/fff")).unwrap();
     let home = base.join("home");
     let xdg = base.join("xdg");
     fs::write(
-        home.join(".config/picker/config.toml"),
+        home.join(".config/fff/config.toml"),
         "[ui]\npalette='unknown'",
     )
     .unwrap();
-    fs::write(xdg.join("picker/config.toml"), "[ui]\npalette='light'").unwrap();
+    fs::write(xdg.join("fff/config.toml"), "[ui]\npalette='light'").unwrap();
     let run = |args: &[&str], use_xdg: bool| {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_picker"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_fff"));
         cmd.args(args)
             .env("HOME", &home)
             .env_remove("XDG_CONFIG_HOME");
@@ -146,7 +146,7 @@ fn cli_config_precedence_validation_and_missing_files() {
     assert!(checked.status.success());
     assert!(
         String::from_utf8_lossy(&checked.stderr)
-            .contains(&xdg.join("picker/config.toml").display().to_string())
+            .contains(&xdg.join("fff/config.toml").display().to_string())
     );
     let invalid = run(&["--check-config"], false);
     assert!(!invalid.status.success());
@@ -162,7 +162,7 @@ fn cli_config_precedence_validation_and_missing_files() {
             .status
             .success()
     );
-    let explicit = xdg.join("picker/config.toml");
+    let explicit = xdg.join("fff/config.toml");
     assert!(
         run(
             &["--config", explicit.to_str().unwrap(), "--check-config"],
@@ -210,6 +210,18 @@ fn official_palette_variants_and_aliases() {
         ("rose-pine-dawn", 0xfaf4ed),
         ("solarized-dark", 0x002b36),
         ("solarized-light", 0xfdf6e3),
+        ("ayu-dark", 0x0b0e14),
+        ("ayu-light", 0xf8f9fa),
+        ("ayu-mirage", 0x1f2430),
+        ("monokai", 0x272822),
+        ("material-darker", 0x212121),
+        ("zenburn", 0x383838),
+        ("ocean", 0x2b303b),
+        ("eighties", 0x2d2d2d),
+        ("ashes", 0x1c2023),
+        ("atelier-dune", 0x20201d),
+        ("black-metal", 0x000000),
+        ("tomorrow-night", 0x1d1f21),
     ] {
         assert_eq!(
             Palette::named(name).unwrap().background,
@@ -235,7 +247,7 @@ fn official_palette_variants_and_aliases() {
 
 #[test]
 fn editor_config_defaults_to_unspecified_nvim_and_is_validated() {
-    use picker::config::EditorBackend;
+    use fuzzy_file_finder::config::EditorBackend;
     assert_eq!(parse("").unwrap().editor.backend, None);
     assert_eq!(EditorBackend::default(), EditorBackend::Nvim);
     assert_eq!(
@@ -260,7 +272,10 @@ fn ui_icons_default_on_can_be_disabled_and_reject_non_booleans() {
 }
 #[test]
 fn normal_mode_list_keys_are_validated() {
-    assert!(parse("[keys.normal]\nfirst=['gg','<space>g']\nlast='none'\nleft=''\n").is_ok());
+    assert!(
+        parse("[keys.normal]\nmark='none'\nfirst=['gg','<space>g']\nlast='none'\nleft=''\n")
+            .is_ok()
+    );
     for bad in [
         "[keys.normal]\nfirst='g'\nlast='gg'\n",
         "[keys.normal]\ndown='x'\nup='x'\n",
@@ -335,4 +350,21 @@ fn performance_refresh_interval_defaults_to_fifty_and_accepts_zero() {
             .refresh_ms,
         0
     );
+}
+
+#[test]
+fn cache_freshness_and_prefetch_configuration() {
+    let settings = parse("").unwrap();
+    assert_eq!(settings.cache.fresh_seconds, 3);
+    assert!(settings.cache.prefetch);
+    let settings = parse("[cache]\nfresh_seconds=0\nprefetch=false").unwrap();
+    assert_eq!(settings.cache.fresh_seconds, 0);
+    assert!(!settings.cache.prefetch);
+    for text in [
+        "[cache]\nfresh_seconds=61",
+        "[cache]\nfresh_seconds=-1",
+        "[cache]\nprefetch='yes'",
+    ] {
+        assert!(parse(text).is_err(), "{text}");
+    }
 }

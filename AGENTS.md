@@ -1,22 +1,20 @@
-# Working on picker
+# Working on fff
 
-Read [docs/SPECIFICATION.md](docs/SPECIFICATION.md) before changing program behavior.
-It consolidates the product intent, active acceptance examples, proposed technical
-direction, and unresolved decisions.
+The current implementation is the behavior baseline. Read [README.md](README.md)
+and the relevant guides before making changes. When documentation disagrees with
+code, verify the behavior and correct the documentation. Preserve existing behavior
+unless the user requests a change; tests provide regression coverage.
 
-Read `docs/tui_functionality_examples/AGENTS.md` and relevant active examples as well.
-Explicit user instructions take precedence. Active examples take precedence over
-the consolidated specification and `KEYBINDINGS.md` if they disagree. Do not treat
-examples marked `STATUS: Delayed until future versions` as active requirements,
-even when an older conversation or reference script mentions that functionality.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): code map, invariants and verification.
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md): TOML settings and discovery/cache behavior.
+- [docs/EDITING.md](docs/EDITING.md): Neovim integration and input routing.
+- [docs/PALETTES.md](docs/PALETTES.md): palette catalog and sources.
+- [docs/ROADMAP.md](docs/ROADMAP.md): possible future work, not current requirements.
 
-Keep behavior changes traceable to an active example or a user decision. Preserve
-unresolved decisions as unresolved until clarified; do not change curated examples
-to make an implementation pass. Technical proposals are not settled product rules.
-
-The user authorized the first implementation on 2026-10-31. First-version user
-decisions are recorded in docs/SPECIFICATION.md sections 14–19. Keep future behavior
-changes within active examples and explicit user decisions.
+Keep documentation current when behavior changes. Update the relevant guide rather
+than appending chronological decisions or maintaining a separate historical spec.
+Keep stdout limited to selected paths and preserve original filesystem paths
+independently of abbreviated display labels.
 
 When adding or changing a CLI argument whose values make sense to complete
 (paths, enumerations, palette or other names, structured values like key chords),

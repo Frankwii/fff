@@ -349,6 +349,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "fuzzy-file-finder"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "clap_complete",
+ "color-print",
+ "crossterm",
+ "globset",
+ "ratatui",
+ "rmpv",
+ "serde",
+ "toml",
+ "toml_edit",
+ "unicode-width",
+]
+
+[[package]]
 name = "globset"
 version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -632,22 +649,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "picker"
-version = "0.1.0"
-dependencies = [
- "clap",
- "clap_complete",
- "color-print",
- "crossterm",
- "globset",
- "ratatui",
- "rmpv",
- "serde",
- "toml",
- "unicode-width",
 ]
 
 [[package]]
@@ -1049,6 +1050,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_edit"
+version = "0.25.17+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
+dependencies = [
+ "indexmap",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
 name = "toml_parser"
 version = "1.1.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1146,3 +1160,6 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+dependencies = [
+ "memchr",
+]

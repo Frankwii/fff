@@ -1,4 +1,4 @@
-//! Read-only TOML configuration. Relative bookmark paths use the config directory.
+//! TOML configuration. Relative bookmark paths use the config directory.
 use ratatui::style::Color;
 use serde::Deserialize;
 use std::{
@@ -118,6 +118,10 @@ pub struct CacheConfig {
     pub max_entries: usize,
     pub max_candidates: usize,
     pub ttl_seconds: u64,
+    /// Recent exhaustive listings may be used without an immediate rescan.
+    pub fresh_seconds: u64,
+    /// Speculatively read the highlighted child directory after a short dwell.
+    pub prefetch: bool,
 }
 impl Default for CacheConfig {
     fn default() -> Self {
@@ -126,6 +130,8 @@ impl Default for CacheConfig {
             max_entries: 16,
             max_candidates: 4096,
             ttl_seconds: 60,
+            fresh_seconds: 3,
+            prefetch: true,
         }
     }
 }
@@ -139,6 +145,9 @@ impl CacheConfig {
         }
         if !(1..=86_400).contains(&self.ttl_seconds) {
             return Err("cache.ttl_seconds must be 1..86400".into());
+        }
+        if self.fresh_seconds > 60 {
+            return Err("cache.fresh_seconds must be 0..60".into());
         }
         Ok(())
     }
@@ -157,7 +166,7 @@ impl Default for PerformanceConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bookmark {
     pub name: String,
     pub path: PathBuf,
@@ -222,6 +231,8 @@ pub struct Settings {
     pub message_timeout: Option<std::time::Duration>,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
+    /// Active bookmark save destination, including a missing default config.
+    pub bookmark_path: Option<PathBuf>,
 }
 impl Settings {
     pub fn parse(
@@ -266,49 +277,7 @@ impl Settings {
         }
         let chosen = palette_override.unwrap_or(&raw.ui.palette);
         let palette=Palette::named(chosen).or_else(||palettes.get(chosen).copied()).ok_or_else(||format!("Unknown palette {chosen:?}; use midnight, light, forest, or define [palettes.{chosen}]"))?;
-        let mut names = HashSet::new();
-        let mut bookmarks = Vec::new();
-        for bookmark in raw.bookmarks {
-            if bookmark.name.trim().is_empty() || !names.insert(bookmark.name.clone()) {
-                return Err(format!(
-                    "Bookmark names must be nonempty and unique: {:?}",
-                    bookmark.name
-                ));
-            }
-            if bookmark.path.is_empty() {
-                return Err(format!(
-                    "Bookmark {:?}: path must not be empty",
-                    bookmark.name
-                ));
-            }
-            // One or two terminal columns keep the chooser's names aligned.
-            let icon = bookmark.icon.map(|icon| icon.trim().to_string());
-            if let Some(icon) = &icon
-                && !(1..=2).contains(&unicode_width::UnicodeWidthStr::width(icon.as_str()))
-            {
-                return Err(format!(
-                    "Bookmark {:?}: icon must be one or two terminal columns wide, got {icon:?}",
-                    bookmark.name
-                ));
-            }
-            let path = if bookmark.path == "~" {
-                home.ok_or("Cannot expand ~ without HOME")?.to_path_buf()
-            } else if let Some(suffix) = bookmark.path.strip_prefix("~/") {
-                home.ok_or("Cannot expand ~/ without HOME")?.join(suffix)
-            } else {
-                let path = PathBuf::from(bookmark.path);
-                if path.is_absolute() {
-                    path
-                } else {
-                    base.join(path)
-                }
-            };
-            bookmarks.push(Bookmark {
-                name: bookmark.name,
-                path,
-                icon,
-            });
-        }
+        let bookmarks = resolve_bookmarks(raw.bookmarks, base, home)?;
         let available = Palette::names()
             .iter()
             .map(|name| (name.to_string(), Palette::named(name).unwrap()))
@@ -327,6 +296,7 @@ impl Settings {
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
             source: None,
+            bookmark_path: None,
         })
     }
     pub fn load(
@@ -371,6 +341,7 @@ impl Settings {
                 palette_override,
             )
             .map_err(|e| format!("{}: {e}", absolute.display()))?;
+            settings.bookmark_path = Some(absolute.clone());
             settings.source = found.then_some(absolute);
             Ok(settings)
         } else {
@@ -378,8 +349,73 @@ impl Settings {
         }
     }
 }
+#[derive(Deserialize)]
+struct BookmarkDocument {
+    #[serde(default)]
+    bookmarks: Vec<RawBookmark>,
+}
+pub(crate) fn bookmarks_from_text(
+    text: &str,
+    base: &Path,
+    home: Option<&Path>,
+) -> Result<Vec<Bookmark>, String> {
+    let raw: BookmarkDocument = toml::from_str(text).map_err(|e| e.to_string())?;
+    resolve_bookmarks(raw.bookmarks, base, home)
+}
+fn resolve_bookmarks(
+    raw: Vec<RawBookmark>,
+    base: &Path,
+    home: Option<&Path>,
+) -> Result<Vec<Bookmark>, String> {
+    let mut names = HashSet::new();
+    let mut bookmarks = Vec::new();
+    for bookmark in raw {
+        if bookmark.name.trim().is_empty() || !names.insert(bookmark.name.clone()) {
+            return Err(format!(
+                "Bookmark names must be nonempty and unique: {:?}",
+                bookmark.name
+            ));
+        }
+        if bookmark.path.is_empty() {
+            return Err(format!(
+                "Bookmark {:?}: path must not be empty",
+                bookmark.name
+            ));
+        }
+        // One or two terminal columns keep the chooser's names aligned.
+        let icon = bookmark.icon.map(|icon| icon.trim().to_string());
+        if let Some(icon) = &icon
+            && !(1..=2).contains(&unicode_width::UnicodeWidthStr::width(icon.as_str()))
+        {
+            return Err(format!(
+                "Bookmark {:?}: icon must be one or two terminal columns wide, got {icon:?}",
+                bookmark.name
+            ));
+        }
+        let path = if bookmark.path == "~" {
+            home.ok_or("Cannot expand ~ without HOME")?.to_path_buf()
+        } else if let Some(suffix) = bookmark.path.strip_prefix("~/") {
+            home.ok_or("Cannot expand ~/ without HOME")?.join(suffix)
+        } else {
+            let path = PathBuf::from(bookmark.path);
+            if path.is_absolute() {
+                path
+            } else {
+                base.join(path)
+            }
+        };
+        bookmarks.push(Bookmark {
+            name: bookmark.name,
+            path,
+            icon,
+        });
+    }
+    Ok(bookmarks)
+}
 pub fn default_path(xdg: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
-    xdg.filter(|p| p.is_absolute())
-        .map(|p| p.join("picker/config.toml"))
-        .or_else(|| home.map(|p| p.join(".config/picker/config.toml")))
+    let base = xdg
+        .filter(|p| p.is_absolute())
+        .map(Path::to_path_buf)
+        .or_else(|| home.map(|p| p.join(".config")))?;
+    Some(base.join("fff/config.toml"))
 }

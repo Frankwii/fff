@@ -46,18 +46,16 @@ impl Drop for Scan {
 }
 impl Scan {
     pub fn start(app: &mut App, clear: bool) -> Self {
-        app.generation += 1;
-        app.scanning = true;
-        app.physical_empty = false;
-        app.cache_pending = false;
-        app.status.clear();
-        if clear {
-            app.known.clear();
-            app.known_version += 1;
-        }
-        app.refresh();
+        Self::start_waking(app, clear, None)
+    }
+    fn start_waking(app: &mut App, clear: bool, wake: Option<SyncSender<()>>) -> Self {
+        Self::reset(app, clear);
         // Bounded in batches: at most 16 × BATCH_SIZE candidates wait in flight.
-        let (tx, events) = mpsc::sync_channel(16);
+        let (events_tx, events) = mpsc::sync_channel(16);
+        let tx = EventSender {
+            events: events_tx,
+            wake,
+        };
         let cancel = Arc::new(AtomicBool::new(false));
         let stopped = cancel.clone();
         let roots = app.scope.clone();
@@ -77,16 +75,41 @@ impl Scan {
             pending: false,
         }
     }
+    fn reset(app: &mut App, clear: bool) {
+        app.generation += 1;
+        app.scanning = true;
+        app.physical_empty = false;
+        app.cache_pending = false;
+        app.status.clear();
+        if clear {
+            app.known.clear();
+            app.known_version += 1;
+        }
+        app.refresh();
+    }
     /// Apply waiting events for up to `DRAIN_BUDGET`, then re-sort if due: the
     /// first results, completion, and otherwise at most every `refresh_every`.
     /// Returns whether anything visible may have changed.
     pub fn drain(&mut self, app: &mut App) -> bool {
+        self.drain_for(app, Duration::ZERO)
+    }
+    fn drain_for(&mut self, app: &mut App, settle: Duration) -> bool {
         let start = Instant::now();
         let mut changed = false;
         let mut finished = false;
         while start.elapsed() < DRAIN_BUDGET {
-            let Ok(event) = self.events.try_recv() else {
-                break;
+            let event = match self.events.try_recv() {
+                Ok(event) => event,
+                Err(_) if !finished && start.elapsed() < settle => {
+                    let Ok(event) = self
+                        .events
+                        .recv_timeout(settle.saturating_sub(start.elapsed()))
+                    else {
+                        break;
+                    };
+                    event
+                }
+                Err(_) => break,
             };
             changed = true;
             match event {
@@ -137,13 +160,19 @@ impl Scan {
         self.pending
     }
 }
-/// Session discovery controller: restore a snapshot, then always revalidate it.
+/// Session discovery controller: recent exhaustive snapshots avoid redundant scans.
 pub struct Discovery {
     scan: Option<Scan>,
     cache: crate::cache::Cache,
+    options: crate::config::CacheConfig,
     key: Option<crate::cache::Key>,
     stored: bool,
     defer_drain: bool,
+    first_frame: bool,
+    verified_at: Option<Instant>,
+    refresh_at: Option<Instant>,
+    wake: Option<SyncSender<()>>,
+    prefetch: crate::prefetch::Prefetch,
     /// `[performance] refresh_ms` for every scan this controller starts.
     pub refresh_every: Duration,
 }
@@ -151,12 +180,22 @@ impl Discovery {
     pub fn new(options: crate::config::CacheConfig) -> Self {
         Self {
             scan: None,
-            cache: crate::cache::Cache::new(options),
+            cache: crate::cache::Cache::new(options.clone()),
+            options,
             key: None,
             stored: false,
             defer_drain: false,
+            first_frame: false,
+            verified_at: None,
+            refresh_at: None,
+            wake: None,
+            prefetch: crate::prefetch::Prefetch::default(),
             refresh_every: Duration::ZERO,
         }
+    }
+    /// Coalesced notifications shared with terminal input. Never blocks a worker.
+    pub fn set_waker(&mut self, wake: SyncSender<()>) {
+        self.wake = Some(wake);
     }
     pub fn start(&mut self, app: &mut App, clear: bool) {
         self.restart(app, clear, false);
@@ -164,73 +203,187 @@ impl Discovery {
     pub fn force_refresh(&mut self, app: &mut App) {
         self.restart(app, true, true);
     }
+    fn interval(&self, app: &App) -> Duration {
+        // Recursive walks can be expensive; only depth-1 views refresh frequently.
+        Duration::from_secs(if app.depth == 1 && self.options.fresh_seconds > 0 {
+            self.options.fresh_seconds
+        } else {
+            self.options.ttl_seconds
+        })
+    }
     fn restart(&mut self, app: &mut App, clear: bool, force: bool) {
-        // Drop the receiver before starting a successor, unblocking a cancelled sender.
-        self.scan.take();
+        self.scan.take(); // Disconnect a cancelled sender before its successor.
+        let now = Instant::now();
         let key = crate::cache::Key::of(app);
         if force {
             self.cache.invalidate(&key);
+            self.prefetch.invalidate(&key);
         }
         let snapshot = if force {
             None
         } else {
-            self.cache.get(&key, Instant::now())
+            self.cache
+                .get(&key, now)
+                .or_else(|| self.prefetch.take(&key, now))
         };
-        let mut scan = Scan::start(app, clear);
-        scan.refresh_every = self.refresh_every;
-        self.defer_drain = snapshot.is_some();
+        self.prefetch.cancel();
+        // Reuse known paths, even on a first child visit. Attribution is recomputed
+        // by App::insert; these are only a provisional prefix. Bound work on the UI.
+        let reused: Vec<_> = if !force && snapshot.is_none() && self.options.enabled {
+            app.rows
+                .iter()
+                .chain(app.known.values())
+                .take(16_384)
+                .filter(|c| {
+                    app.scope.iter().any(|root| {
+                        c.path.strip_prefix(root).is_ok_and(|p| {
+                            let depth = p.components().count();
+                            depth > 0 && depth <= app.depth && app.policy.allows(p)
+                        })
+                    })
+                })
+                .take(self.options.max_candidates)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let fresh = snapshot.as_ref().is_some_and(|s| {
+            s.complete
+                && s.exhaustive
+                && !s.physical_empty
+                && !s.stale
+                && self.options.fresh_seconds > 0
+                && now.saturating_duration_since(s.verified_at)
+                    < Duration::from_secs(self.options.fresh_seconds.min(self.options.ttl_seconds))
+        });
+        if fresh {
+            Scan::reset(app, clear);
+            app.scanning = false;
+        } else {
+            let mut scan = Scan::start_waking(app, clear, self.wake.clone());
+            scan.refresh_every = self.refresh_every;
+            self.scan = Some(scan);
+        }
+        self.verified_at = None;
+        self.refresh_at = None;
+        self.first_frame = !fresh && snapshot.is_none() && reused.is_empty();
+        self.defer_drain = !fresh && (snapshot.is_some() || !reused.is_empty());
         if let Some(snapshot) = snapshot {
+            if fresh {
+                self.verified_at = Some(snapshot.verified_at);
+                self.refresh_at = Some(snapshot.verified_at + self.interval(app));
+            }
             for candidate in snapshot.candidates.iter() {
                 app.insert(app.generation, candidate.clone());
             }
-            app.cache_pending = true;
-            app.refresh();
+            app.cache_pending = true; // Returned paths/kinds still need validation.
+        } else if !reused.is_empty() {
+            for candidate in reused {
+                app.insert(app.generation, candidate);
+            }
+            app.cache_pending = !app.known.is_empty();
         }
-        self.scan = Some(scan);
+        app.refresh();
         self.key = Some(key);
-        self.stored = false;
+        self.stored = fresh;
     }
-    /// Save current visible matches before a navigation changes the scope.
+    /// Preserve the verification age: navigation/query changes do not renew it.
     pub fn checkpoint(&mut self, app: &App) {
-        if let (Some(scan), Some(key)) = (&self.scan, &self.key)
-            && !scan.failed
+        if let Some(key) = &self.key
             && key == &crate::cache::Key::of(app)
+            && self.scan.as_ref().is_none_or(|s| !s.failed)
         {
-            self.cache
-                .capture_visit(key.clone(), app, Instant::now(), scan.completed);
+            let complete = self.verified_at.is_some();
+            self.cache.capture_visit(
+                key.clone(),
+                app,
+                self.verified_at.unwrap_or_else(Instant::now),
+                complete,
+            );
         }
     }
-    /// Returns whether anything visible may have changed.
     pub fn drain(&mut self, app: &mut App) -> bool {
-        // Give a warm visit its own completed frame before any incoming batch
-        // can trigger a potentially expensive full-index sort.
+        self.drain_at(app, Instant::now())
+    }
+    pub fn drain_at(&mut self, app: &mut App, now: Instant) -> bool {
         if self.defer_drain {
             self.defer_drain = false;
             return true;
         }
+        if self.refresh_at.is_some_and(|at| now >= at) {
+            self.refresh_at = None;
+            self.prefetch.cancel();
+            // Keep all current rows while a quiet background refresh reconciles.
+            let status = std::mem::take(&mut app.status);
+            let mut scan = Scan::start_waking(app, false, self.wake.clone());
+            app.status = status;
+            scan.refresh_every = self.refresh_every;
+            app.cache_pending = true;
+            self.scan = Some(scan);
+            self.stored = false;
+            self.verified_at = None;
+        }
         let Some(scan) = self.scan.as_mut() else {
             return false;
         };
-        let changed = scan.drain(app);
+        let settle = if std::mem::take(&mut self.first_frame) {
+            Duration::from_millis(4)
+        } else {
+            Duration::ZERO
+        };
+        let changed = scan.drain_for(app, settle);
         if scan.completed && !self.stored {
             let key = self.key.as_ref().unwrap();
             if key == &crate::cache::Key::of(app) {
                 if scan.failed {
                     self.cache.invalidate(key);
                 } else {
-                    self.cache.capture(key.clone(), app, Instant::now());
+                    self.cache.capture(key.clone(), app, now);
+                    self.verified_at = Some(now);
                 }
+                self.refresh_at = Some(now + self.interval(app));
             }
             self.stored = true;
         }
         changed
     }
-    /// Discovery may still change the rows: a scan runs or a re-sort is due.
+    /// Schedule only stable results highlights, never chooser rows.
+    pub fn idle(&mut self, app: &App, results_focus: bool, now: Instant) {
+        let eligible = results_focus
+            && self.options.enabled
+            && self.options.prefetch
+            && app.depth == 1
+            && !app.no_dir
+            && !app.scanning;
+        // Do not clone roots/rules on every idle tick in recursive views or
+        // choosers, where no speculative work can be admitted.
+        let already_cached = eligible
+            && app.highlight.as_ref().is_some_and(|path| {
+                self.cache
+                    .recently_verified(&crate::cache::Key::for_directory(app, path.clone()), now)
+            });
+        self.prefetch
+            .tick(app, eligible && !already_cached, now, self.wake.clone());
+    }
     pub fn busy(&self, app: &App) -> bool {
         app.scanning || self.scan.as_ref().is_some_and(Scan::pending)
     }
     pub fn stats(&self) -> crate::cache::Stats {
         self.cache.stats
+    }
+}
+struct EventSender {
+    events: SyncSender<Event>,
+    wake: Option<SyncSender<()>>,
+}
+impl EventSender {
+    fn send(&self, event: Event) -> Result<(), mpsc::SendError<Event>> {
+        self.events.send(event)?;
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
+        Ok(())
     }
 }
 
@@ -240,7 +393,7 @@ fn walk(
     max: usize,
     policy: Policy,
     generation: u64,
-    tx: SyncSender<Event>,
+    tx: EventSender,
     cancel: Arc<AtomicBool>,
 ) {
     let empty = fs::read_dir(&current)
@@ -380,5 +533,58 @@ mod tests {
         assert!(app.rows.is_empty());
         assert!(!app.scanning);
         assert_eq!(discovery.stats().stores, 1);
+    }
+    #[test]
+    fn checkpointing_preserves_the_original_verification_deadline() {
+        let mut app = App::browse("/fixture".into(), 1, Policy::default());
+        app.insert(
+            0,
+            Candidate {
+                path: "/fixture/file".into(),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+        app.refresh();
+        app.scanning = false;
+        let mut d = Discovery::new(crate::config::CacheConfig::default());
+        let key = crate::cache::Key::of(&app);
+        let verified = Instant::now() - Duration::from_secs(2);
+        d.key = Some(key.clone());
+        d.verified_at = Some(verified);
+        for _ in 0..3 {
+            app.query.push('f');
+            app.refresh();
+            d.checkpoint(&app);
+            assert_eq!(
+                d.cache.get(&key, Instant::now()).unwrap().verified_at,
+                verified
+            );
+            d.start(&mut app, true);
+            assert_eq!(d.refresh_at, Some(verified + Duration::from_secs(3)));
+            assert!(!app.scanning);
+        }
+    }
+    #[test]
+    fn full_wakeup_slot_coalesces_without_blocking_discovery_events() {
+        let (wake, waking) = mpsc::sync_channel(1);
+        let (events, incoming) = mpsc::sync_channel(2);
+        let sender = EventSender {
+            events,
+            wake: Some(wake),
+        };
+        sender.send(Event::Done(1, false)).unwrap();
+        sender.send(Event::Done(2, false)).unwrap();
+        assert!(waking.try_recv().is_ok());
+        assert!(waking.try_recv().is_err());
+        assert!(matches!(
+            incoming.try_recv().unwrap(),
+            Event::Done(1, false)
+        ));
+        assert!(matches!(
+            incoming.try_recv().unwrap(),
+            Event::Done(2, false)
+        ));
     }
 }

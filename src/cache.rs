@@ -28,12 +28,28 @@ impl Key {
             glob: app.policy.glob.as_ref().map(|g| g.glob().glob().to_owned()),
         }
     }
+    pub(crate) fn for_directory(app: &App, cwd: PathBuf) -> Self {
+        let mut key = Self::of(app);
+        key.cwd = cwd.clone();
+        key.scope = app.roots.clone();
+        if !key.scope.contains(&cwd) {
+            key.scope.push(cwd);
+        }
+        key
+    }
+    pub(crate) fn single_level(&self) -> bool {
+        self.depth == 1 && self.scope.len() == 1 && self.scope[0] == self.cwd
+    }
 }
 #[derive(Clone)]
 pub(crate) struct Snapshot {
     pub candidates: Arc<[Candidate]>,
     pub complete: bool,
     pub stale: bool,
+    /// A completed scan may have been truncated to the cache's path limit.
+    pub exhaustive: bool,
+    pub physical_empty: bool,
+    pub verified_at: Instant,
 }
 struct Entry {
     key: Key,
@@ -79,6 +95,15 @@ impl Cache {
     }
     pub fn invalidate(&mut self, key: &Key) {
         self.entries.retain(|e| &e.key != key);
+    }
+    pub fn recently_verified(&self, key: &Key, now: Instant) -> bool {
+        self.entries.iter().any(|entry| {
+            &entry.key == key
+                && entry.snapshot.complete
+                && entry.snapshot.exhaustive
+                && now.saturating_duration_since(entry.created)
+                    < Duration::from_secs(self.options.fresh_seconds.min(self.options.ttl_seconds))
+        })
     }
     pub fn capture(&mut self, key: Key, app: &App, now: Instant) {
         self.capture_visit(key, app, now, true);
@@ -138,6 +163,9 @@ impl Cache {
                 candidates: candidates.into(),
                 complete,
                 stale: false,
+                exhaustive: complete && app.known.len() <= self.options.max_candidates,
+                physical_empty: app.physical_empty,
+                verified_at: now,
             },
             created: now,
         });

@@ -9,6 +9,7 @@ palette = "catppuccin-mocha"
 
 | Family | Names |
 | --- | --- |
+| Fuzzy file finder originals | `midnight`, `light`, `forest` |
 | Catppuccin | `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` |
 | Nord | `nord` |
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` (`gruvbox` aliases dark) |
@@ -19,7 +20,16 @@ palette = "catppuccin-mocha"
 | One Dark | `onedark` |
 | Rosé Pine | `rose-pine`, `rose-pine-moon`, `rose-pine-dawn` |
 | Solarized | `solarized-dark`, `solarized-light` (`solarized` aliases dark) |
-| Picker originals | `midnight`, `light`, `forest` |
+| Ayu | `ayu-dark`, `ayu-light`, `ayu-mirage` |
+| Monokai | `monokai` |
+| Material | `material-darker` |
+| Zenburn | `zenburn` |
+| Ocean | `ocean` |
+| Eighties | `eighties` |
+| Ashes | `ashes` |
+| Atelier | `atelier-dune` |
+| Black Metal | `black-metal` |
+| Tomorrow | `tomorrow-night` |
 
 Names are lowercase and use dashes. Catppuccin is spelled `catppuccin`; Frappé's
 identifier is ASCII `frappe`. Any built-in can be the `extends` base of a custom
@@ -31,14 +41,14 @@ reading and parsing happen in a background thread. Invalid intermediate edits
 keep the last working colors and show an error; correcting the file recovers
 automatically. Atomic-save/rename workflows work too. `--palette` pins the chosen
 name but still reloads custom colors for that name. `--no-config` disables file
-reload. This reload applies to colors only; bookmarks/cache settings need a new
+reload. This reload applies to colors only; bookmarks reload with Alt+r in their chooser; cache settings need a new
 invocation. Query, cursor, marks, discovery, and numbered targets are preserved.
 
 ## Switching palettes while running
 
 | Key | Action |
 | --- | --- |
-| Alt+p | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Type to fuzzy-filter names; moving the highlight previews it across the whole interface. Enter applies it for this session; Escape (or Alt+p again) restores the previous colors. |
+| Alt+p | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Press `i` to fuzzy-filter names (the chooser starts in Normal mode); a highlight held for at least 100 ms previews it across the whole interface. Moving again restarts the wait. Enter applies it immediately for this session; Escape (or Alt+p again) restores the previous colors. |
 | Alt+P | Re-read the config file now and apply its palette, discarding any Alt+p session choice. With `--palette NAME`, re-read that name's definition instead. |
 
 The chooser never writes the config file. After Enter, background reload keeps
@@ -51,7 +61,7 @@ Both chords can be remapped, e.g. `--map-key ctrl+t=alt+p --map-key ctrl+r=alt+P
 
 ## Color sources
 
-The numeric colors were checked against these upstream sources on 2026-11-01:
+Built-in colors come from these upstream definitions:
 
 - [Catppuccin palette](https://catppuccin.com/palette/) and
   [official palette JSON](https://github.com/catppuccin/palette/blob/main/palette.json), version 1.8.0.
@@ -70,32 +80,39 @@ The numeric colors were checked against these upstream sources on 2026-11-01:
   [moon](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_moon.toml),
   [day](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_day.toml).
 
-Picker maps those upstream colors to its own UI roles; it does not reproduce an
-editor's syntax-highlight rules. Catppuccin uses base/mantle/text, subtext0,
-overlay0, blue/yellow/green/red, and surface0 for the main roles. Nord uses its
-Polar Night backgrounds, Snow Storm text, Frost accents, and Aurora statuses.
-Gruvbox follows how the Vim/Neovim colorscheme *feels* rather than its first
-palette slots: a flat `bg0` canvas (`#282828` / `#fbf1c7`) with `bg2`/`bg3`
-borders and the gray comment color (`#928374`) for secondary text. Orange — bright
-`#fe8019` in dark, faded `#af3a03` in light — is the accent: focused borders,
-directories, the highlight caret and the current-directory badge, with yellow for
-marks and bright/faded green and red for status.
-Tokyo Night uses exported primary, normal, and bright terminal colors.
-
-The families added later follow the same flat-canvas approach, each with its
-signature accent on directories, focus and the `@` badge:
-
-- **Dracula**: Background/Current Line/Comment, purple accent, pink marks.
-- **Everforest** (medium): `bg0`, `grey1` muted, `bg4` borders, green accent,
-  yellow marks, aqua success.
-- **Kanagawa**: wave uses sumiInk3, fujiWhite/fujiGray, crystalBlue, carpYellow and
-  waveBlue2 selection; dragon uses dragonBlack3, dragonBlue2 and a dragonOrange badge.
-- **One Dark**: `#282c34`, blue accent, purple badge, and the One Dark Pro comment
-  gray `#7f848e` (the original `#5c6370` is too dim for secondary text).
-- **Rosé Pine**: base, subtle, highlight med/high, rose accent, gold marks, foam
-  (pine in dawn) success, love errors.
-- **Solarized**: base03/base3 canvases, blue accent, yellow marks, green/red status.
+Fuzzy file finder maps upstream colors to semantic UI roles. It uses each family's canvas,
+text and signature accents for directories, focus, marks, status and the `@`
+badge; syntax-highlighting rules are not reproduced. The numeric mappings live
+in `src/palettes.rs`, with Fuzzy file finder's own palettes in `src/config.rs`.
 
 Light variants keep upstream accents even where their contrast is lower; a test
 keeps every built-in's text at 4:1 or better and other text roles at 2:1 or better. All
 values are compiled into the binary; runtime palette selection needs no network.
+
+## Base16 sources
+
+The following palettes use [Tinted Theming definitions](https://github.com/tinted-theming/schemes/tree/spec-0.11/base16):
+
+| Name | Author credited by source | Exact definition |
+| --- | --- | --- |
+| `ayu-dark` | Tinted Theming / Ayu Theme | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ayu-dark.yaml) |
+| `ayu-light` | Tinted Theming / Ayu Theme | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ayu-light.yaml) |
+| `ayu-mirage` | Tinted Theming / Ayu Theme | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ayu-mirage.yaml) |
+| `monokai` | Wimer Hazenberg | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/monokai.yaml) |
+| `material-darker` | Nate Peterson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/material-darker.yaml) |
+| `zenburn` | elnawe | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/zenburn.yaml) |
+| `ocean` | Chris Kempson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ocean.yaml) |
+| `eighties` | Chris Kempson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/eighties.yaml) |
+| `ashes` | Jannik Siebert | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ashes.yaml) |
+| `atelier-dune` | Bram de Haan | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/atelier-dune.yaml) |
+| `black-metal` | metalelf0 | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/black-metal.yaml) |
+| `tomorrow-night` | Chris Kempson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/tomorrow-night.yaml) |
+
+These are Fuzzy file finder mappings of those Base16 definitions. Background and panel use
+base00, text base05, muted base04, borders and selection base02, accent/base badge
+base0D, marks base0A, success base0B, error base08; badge text uses base00.
+For readable selections, Atelier Dune uses base01. Ayu Light uses purple base0E
+for marks because its yellow is too faint on the light canvas. Values remain
+upstream colors. Every scheme participates in the existing text/selection
+contrast checks, dynamic completion, live chooser, reload, and custom inheritance.
+The source license is retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
