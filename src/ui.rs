@@ -41,7 +41,7 @@ pub(crate) enum Focus {
         selected: Vec<PathBuf>,
     },
     DeleteConfirm(crate::operations::DeletePlan),
-    MoveConfirm(crate::operations::MovePlan),
+    OverwriteConfirm(crate::operations::TransferPlan),
     NewChoice,
     Location(String),
     Bookmarks {
@@ -491,21 +491,22 @@ pub fn run(
                         let directory = app.cwd.clone();
                         focus = Focus::Results;
                         let request = match key.code {
+                            K::Char('s') => {
+                                Ok(crate::operations::Request::Symlink { sources, directory })
+                            }
                             // Existing destinations need confirmation before overwriting.
-                            K::Char('v') => {
-                                match crate::operations::MovePlan::new(sources, directory) {
+                            _ => {
+                                let copy = key.code == K::Char('p');
+                                match crate::operations::TransferPlan::new(copy, sources, directory)
+                                {
                                     Ok(plan) if plan.rows.is_empty() => plan.request(),
                                     Ok(plan) => {
-                                        focus = Focus::MoveConfirm(plan);
+                                        focus = Focus::OverwriteConfirm(plan);
                                         continue;
                                     }
                                     Err(error) => Err(error),
                                 }
                             }
-                            K::Char('s') => {
-                                Ok(crate::operations::Request::Symlink { sources, directory })
-                            }
-                            _ => Ok(crate::operations::Request::Copy { sources, directory }),
                         };
                         match request {
                             Ok(request) => perform_operation(&mut app, &mut discovery, request),
@@ -541,8 +542,13 @@ pub fn run(
                     } else {
                         match crate::operations::rename_text(&sources, &app.cwd) {
                             Ok(text) => {
+                                // Start on the highlighted row, ready to append.
+                                let row = sources
+                                    .iter()
+                                    .position(|p| Some(p) == app.highlight.as_ref())
+                                    .unwrap_or(0);
                                 if let Some(e) = &mut editor {
-                                    e.reset(Field::Operation);
+                                    e.reset_at_row(Field::Operation, row);
                                 }
                                 focus = Focus::Operation(crate::operations::Draft {
                                     kind: crate::operations::EditKind::Rename(sources),
@@ -823,7 +829,7 @@ pub fn run(
                 K::Esc => focus = Focus::Results,
                 _ => {}
             },
-            Focus::MoveConfirm(plan) => match key.code {
+            Focus::OverwriteConfirm(plan) => match key.code {
                 K::Enter => {
                     let request = plan.request();
                     focus = Focus::Results;
@@ -833,8 +839,13 @@ pub fn run(
                     }
                 }
                 K::Esc => {
+                    app.status = if plan.copy {
+                        "Copy cancelled; nothing changed"
+                    } else {
+                        "Move cancelled; nothing changed"
+                    }
+                    .into();
                     focus = Focus::Results;
-                    app.status = "Move cancelled; nothing changed".into();
                 }
                 _ => {}
             },
@@ -907,8 +918,12 @@ pub fn run(
                         }
                         continue;
                     }
-                    K::Down | K::Char('j') if key.code == K::Down || alt => (*index + 1).min(last),
-                    K::Up | K::Char('k') if key.code == K::Up || alt => index.saturating_sub(1),
+                    K::Down | K::Char('j') if key.code == K::Down || alt => {
+                        cycle(*index, matches.len(), true)
+                    }
+                    K::Up | K::Char('k') if key.code == K::Up || alt => {
+                        cycle(*index, matches.len(), false)
+                    }
                     K::PageDown => (*index + page).min(last),
                     K::PageUp => index.saturating_sub(page),
                     _ => {
@@ -933,10 +948,10 @@ pub fn run(
                     K::Esc => focus = Focus::Results,
                     K::Char('b') if alt => focus = Focus::Results,
                     K::Down | K::Char('j') if key.code == K::Down || alt => {
-                        *index = (*index + 1).min(matches.len().saturating_sub(1))
+                        *index = cycle(*index, matches.len(), true)
                     }
                     K::Up | K::Char('k') if key.code == K::Up || alt => {
-                        *index = index.saturating_sub(1)
+                        *index = cycle(*index, matches.len(), false)
                     }
                     K::PageDown => *index = (*index + page).min(matches.len().saturating_sub(1)),
                     K::PageUp => *index = index.saturating_sub(page),
@@ -1031,10 +1046,10 @@ pub fn run(
                         }
                     }
                     K::Down | K::Char('j') if key.code == K::Down || alt => {
-                        *index = (*index + 1).min(matches.len().saturating_sub(1))
+                        *index = cycle(*index, matches.len(), true)
                     }
                     K::Up | K::Char('k') if key.code == K::Up || alt => {
-                        *index = index.saturating_sub(1)
+                        *index = cycle(*index, matches.len(), false)
                     }
                     K::PageDown => *index = (*index + page).min(matches.len().saturating_sub(1)),
                     K::PageUp => *index = index.saturating_sub(page),
@@ -1147,9 +1162,9 @@ pub fn run(
                         app.toggle(p.clone());
                     }
                 } else if key.code == K::Down || (alt && key.code == K::Char('j')) {
-                    *index = (*index + 1).min(rows.len().saturating_sub(1));
+                    *index = cycle(*index, rows.len(), true);
                 } else if key.code == K::Up || (alt && key.code == K::Char('k')) {
-                    *index = index.saturating_sub(1);
+                    *index = cycle(*index, rows.len(), false);
                 } else if ctrl
                     && key.code == K::Char('w')
                     && let Some(p) = app.confirm(None)
@@ -1212,8 +1227,8 @@ pub fn run(
                         discovery.start(&mut app, true);
                     }
                 }
-                (K::Char('j'), _, true) | (K::Down, false, false) => app.move_by(1),
-                (K::Up, false, false) | (K::Char('k'), _, true) => app.move_by(-1),
+                (K::Char('j'), _, true) | (K::Down, false, false) => app.step(true),
+                (K::Up, false, false) | (K::Char('k'), _, true) => app.step(false),
                 (K::PageDown, _, _) => {
                     app.move_by(page as isize);
                     app.offset = app
@@ -1409,6 +1424,14 @@ impl PalettePreview {
         })
     }
 }
+/// Single steps wrap around a list's ends; paging still stops at them.
+fn cycle(index: usize, len: usize, forward: bool) -> usize {
+    match (len, forward) {
+        (0, _) => 0,
+        (_, true) => (index + 1) % len,
+        (_, false) => index.checked_sub(1).unwrap_or(len - 1).min(len - 1),
+    }
+}
 fn delete_confirmation(sources: Vec<PathBuf>, status: &mut String) -> Focus {
     match crate::operations::DeletePlan::new(sources) {
         Ok(plan) => Focus::DeleteConfirm(plan),
@@ -1434,6 +1457,8 @@ fn perform_operation(
         Request::Move {
             sources, replace, ..
         } => sources.iter().chain(replace).collect(),
+        // Overwritten entries are removed just like deleted ones.
+        Request::Copy { replace, .. } => replace.iter().collect(),
         Request::Rename { sources, .. } | Request::Delete { sources } => sources.iter().collect(),
         _ => vec![],
     };
@@ -1506,13 +1531,21 @@ fn operation_summary(request: &crate::operations::Request) -> Option<String> {
     Some(match request {
         Request::Move {
             sources, replace, ..
-        } if !replace.is_empty() => format!(
-            "Moved {}, replacing {}",
-            entries(sources.iter()),
-            entries(replace.iter())
-        ),
-        Request::Move { sources, .. } => format!("Moved {}", entries(sources.iter())),
-        Request::Copy { sources, .. } => format!("Copied {}", entries(sources.iter())),
+        }
+        | Request::Copy {
+            sources, replace, ..
+        } => {
+            let verb = if matches!(request, Request::Move { .. }) {
+                "Moved"
+            } else {
+                "Copied"
+            };
+            let mut done = format!("{verb} {}", entries(sources.iter()));
+            if !replace.is_empty() {
+                done += &format!(", overwriting {}", entries(replace.iter()));
+            }
+            done
+        }
         Request::Symlink { sources, .. } => format!("Linked {}", entries(sources.iter())),
         Request::Delete { sources } => format!("Deleted {}", entries(sources.iter())),
         Request::Create { path, directory } => format!(

@@ -78,9 +78,10 @@ marks/unmarks like Tab; in Insert mode it types a space. The marked list always
 accepts Space because it has no text field.
 
 Exclusions, bookmark forms, rename lists, extraction destinations and new names
-use Neovim's buffer lifecycle. Write the buffer
-and close it (`:wq`) to apply changes, or close without writing (`:q!`) to discard
-them. `:w` records a snapshot but keeps editing; closing later applies that last
+use Neovim's buffer lifecycle. Press `ZZ` to write and close (apply), or `ZQ`
+to close without writing (discard); `:wq` and `:q!` do the same. In these
+buffers `ZZ` always writes, so it applies even when nothing was edited (native
+`ZZ` would close an unchanged buffer without writing). `:w` records a snapshot but keeps editing; closing later applies that last
 written snapshot and discards any edits made since. Unchanged exclusions or
 existing bookmarks leave the stored data alone. Validation errors keep the
 previous data, close the editor, and show a short error at the bottom. Exclusion
@@ -89,9 +90,9 @@ errors include the line number; blank lines are ignored.
 File operation details and the temporary backup guard are described in
 [the operation guide](OPERATIONS.md).
 
-These editors have no fff `ZZ`, Escape or Ctrl+s bindings in Neovim: those keys
-go to Neovim, including its native `ZZ` (write and quit) and `ZQ` (quit without
-writing). Escape in Normal mode leaves the editor open. In bookmark forms,
+Apart from that `ZZ` mapping, these editors have no fff Escape or Ctrl+s
+bindings in Neovim: those keys go to Neovim, including its native `ZQ` (quit
+without writing). Escape in Normal mode leaves the editor open. In bookmark forms,
 Tab/Shift+Tab switches fields and Alt+i opens the icon chooser. Writing a name
 or path buffer records the whole form at that point; closing a field applies
 the last written form and returns to the bookmark chooser. Exclusions return

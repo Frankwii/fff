@@ -66,7 +66,7 @@ impl Palette {
             selection: c[9],
             current_directory: c[10],
             current_directory_text: c[11],
-            link: rgb(crate::palettes::link(name)?),
+            link: rgb(crate::palettes::link(name)),
             executable: c[7],
             empty: c[8],
         })

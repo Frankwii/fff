@@ -111,7 +111,7 @@ color for that role. Unspecified roles are inherited.
 | `selection` | Highlighted-row background. |
 | `current_directory` | Background of the `@ <current directory>` segment below the filter. |
 | `current_directory_text` | Foreground of that segment; `@` and the basename are bold, the basename underlined. |
-| `link` | Result names of symbolic links, including links to directories. Built-ins use their family's blue. |
+| `link` | Result names of symbolic links, including links to directories. Built-ins use a vivid blue distinct from `accent`. |
 | `executable` | Result names of regular files with any execute bit. Built-ins reuse `success`. |
 | `empty` | Result names of empty (zero-byte) regular files. Built-ins reuse `error`. |
 
@@ -222,10 +222,10 @@ the icon field opens the icon chooser. Basic editing also uses Enter to advance.
 **Alt+i** opens a searchable selection of 37 choices,
 including common Nerd Font glyphs and **Automatic** to clear a custom icon.
 Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
-icons remain intact unless changed. In Neovim, write and close (`:wq`) to save
-or close without writing (`:q!`) to discard. Writing records the whole form;
-closing applies its last written snapshot. Escape stays inside Neovim, and native
-`ZZ` / `ZQ` retain their Neovim behavior. Basic editing uses Ctrl+s to save and
+icons remain intact unless changed. In Neovim, `ZZ` writes and closes to save
+and `ZQ` closes without writing to discard (`:wq` / `:q!` work too). Writing
+records the whole form; closing applies its last written snapshot. Escape stays
+inside Neovim. Basic editing uses Ctrl+s to save and
 Escape to discard.
 
 Paths entered in the form resolve relative to the current browsing directory;

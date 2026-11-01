@@ -195,7 +195,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::DeleteChoice { current, selected } => {
             delete_choice(frame, main, app, current, selected.len())
         }
-        Focus::MoveConfirm(plan) => replace_confirmation(frame, main, app, plan),
+        Focus::OverwriteConfirm(plan) => overwrite_confirmation(frame, main, app, plan),
         Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
         Focus::Exclusions(text) => prompt(
             frame,
@@ -991,7 +991,11 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "delete / rename / extract / create (Normal)",
                     false,
                 ),
-                (":wq / :q!".into(), "save / discard buffer edits", false),
+                (
+                    "ZZ / ZQ".into(),
+                    "save / discard buffer edits (or :wq / :q!)",
+                    false,
+                ),
                 ("F5".into(), "rescan, bypassing the cache", false),
             ],
         ),
@@ -1035,7 +1039,7 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 ("Alt+i".into(), "choose bookmark Nerd Font icon", true),
                 ("Ctrl+s".into(), "save bookmark (basic editor)", true),
-                (":wq / :q!".into(), "save / discard bookmark", true),
+                ("ZZ / ZQ".into(), "save / discard bookmark", true),
             ],
         ),
     ];
@@ -1507,30 +1511,31 @@ fn delete_confirmation(frame: &mut Frame, main: Rect, app: &App, rows: &[(PathBu
         rows,
     );
 }
-fn replace_confirmation(
+fn overwrite_confirmation(
     frame: &mut Frame,
     main: Rect,
     app: &App,
-    plan: &crate::operations::MovePlan,
+    plan: &crate::operations::TransferPlan,
 ) {
+    let (verb, noun, title) = if plan.copy {
+        ("Copying", "copy", "Overwrite on copy")
+    } else {
+        ("Moving", "move", "Overwrite on move")
+    };
     let one = plan.rows.len() == 1;
     listing(
         frame,
         main,
         app,
-        "Replace on move",
+        title,
         &format!(
-            "Moving {} here would replace {} with the same name. Press *Enter* to move \
-             everything and permanently replace {}, or *Esc* to cancel the whole move.",
+            "{verb} {} here would overwrite {}. Press *Enter* to {noun} everything and \
+             overwrite {}, or *Esc* to cancel the whole {noun}.",
             count(plan.sources.len()),
-            if one {
-                "this existing entry"
-            } else {
-                "these existing entries"
-            },
+            if one { "this entry" } else { "these entries" },
             if one { "it" } else { "them" },
         ),
-        &[("Enter", "Replace"), ("Esc", "Cancel move")],
+        &[("Enter", "Overwrite"), ("Esc", "Cancel")],
         &plan.rows,
     );
 }
@@ -1625,7 +1630,7 @@ fn operation_prompt(frame: &mut Frame, main: Rect, app: &App, draft: &crate::ope
         ),
     };
     let keys: &[(&str, &str)] = if app.edit_view.is_some() {
-        &[(":wq", "Apply"), (":q!", "Discard")]
+        &[("ZZ", "Apply"), ("ZQ", "Discard")]
     } else {
         &[("Ctrl+s", "Apply"), ("Esc", "Discard")]
     };

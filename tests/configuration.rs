@@ -358,6 +358,16 @@ fn built_in_palettes_keep_text_readable() {
             assert!(contrast(color, p.panel) >= 2.0, "{name} {role}");
         }
         assert!(contrast(p.text, p.selection) >= 2.5, "{name} selection");
+        // Symlinks must read as a different blue from directories.
+        let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (p.link, p.accent) else {
+            panic!("{name}")
+        };
+        let distance = [(r1, r2), (g1, g2), (b1, b2)]
+            .map(|(x, y)| (x as f64 - y as f64).powi(2))
+            .iter()
+            .sum::<f64>()
+            .sqrt();
+        assert!(distance >= 60.0, "{name} link too close to directories");
         assert_ne!(p.selection, p.panel, "{name} selection");
     }
 }

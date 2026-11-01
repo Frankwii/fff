@@ -82,8 +82,12 @@ Built-in colors come from these upstream definitions:
 
 Fuzzy file finder maps upstream colors to semantic UI roles. It uses each family's canvas,
 text and signature accents for directories, focus, marks, status and the `@`
-badge; symbolic links use the family's blue (Base16 `base0D`; Dracula cyan and
-Rosé Pine foam), executables its green and empty files its red.
+badge; executables use its green and empty files its red. Symbolic links use a
+vivid blue chosen to stand apart from the directory color, since many families
+use their own blue for directories: `#5f6fff` on dark palettes and `#2f2fd0` on
+light ones, with lighter or purer blues where a palette's directories are
+already blue (Solarized dark `#7a7aff`, Atelier Dune `#4040ff`, Gruvbox light
+`#1a3fe0`).
 Syntax-highlighting rules are not reproduced. The numeric mappings live
 in `src/palettes.rs`, with Fuzzy file finder's own palettes in `src/config.rs`.
 

@@ -94,7 +94,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Tab / Space in Normal | Toggle mark; advance in results |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
-| :wq / :q! | In Neovim exclusions/bookmark editors, save and close / discard and close |
+| ZZ / ZQ | In Neovim buffers (exclusions, bookmarks, operations), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Activate a visible target / last target like Enter |
 | PageUp / PageDown | Page through results |
@@ -134,7 +134,7 @@ configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURAT
 
 File operations make a mandatory backup under `/tmp/fff/backup` before applying
 changes; only a confirmed move overwrites. Rename and destination/name buffers
-use `:wq` to apply or `:q!` to discard. See [file operations](docs/OPERATIONS.md) for the backup
+use `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for the backup
 layout, deletion confirmation, archive limits and current boundaries. Building
 requires libarchive development files; the operation engine requires Linux 5.6+.
 
@@ -155,8 +155,8 @@ fff --config docs/config.example.toml --check-config
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 
 In the bookmark editor, Tab switches fields, Alt+i opens a searchable Nerd Font
-icon picker. With Neovim, write then close (`:wq`) to save, or close without
-writing (`:q!`) to discard; basic editing uses Ctrl+s / Escape. Saves update the
+icon picker. With Neovim, `ZZ` saves and closes, `ZQ` discards (`:wq` / `:q!`
+also work); basic editing uses Ctrl+s / Escape. Saves update the
 active TOML file; `--no-config`
 keeps edits for this session only.
 

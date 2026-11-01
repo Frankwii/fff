@@ -86,6 +86,8 @@ pub struct Nvim {
     serial: u64,
     /// Fields to replace on next activation, with the mode to restore.
     invalid: HashMap<Field, String>,
+    /// Row whose end receives the cursor on the next replacement; else the last.
+    start_row: HashMap<Field, usize>,
     active: Option<Field>,
     buffers: HashMap<Field, Buffer>,
 }
@@ -149,6 +151,7 @@ impl Nvim {
             responses,
             serial: 0,
             invalid: HashMap::new(),
+            start_row: HashMap::new(),
             active: None,
             buffers: HashMap::new(),
         };
@@ -267,6 +270,11 @@ impl Nvim {
     pub fn reset_normal(&mut self, field: Field) {
         self.reset(field);
     }
+    /// Reset in Normal mode with the cursor at the end of `row`.
+    pub fn reset_at_row(&mut self, field: Field, row: usize) {
+        self.reset(field);
+        self.start_row.insert(field, row);
+    }
     /// Replace the field's buffer on next activation, ready for typing.
     pub fn reset_insert(&mut self, field: Field) {
         self.invalid.insert(field, "i".into());
@@ -307,6 +315,9 @@ impl Nvim {
                     end
                     vim.keymap.set({'n','i'},'<CR>','<Nop>',{buffer=b,noremap=true})
                 end
+                -- ZZ applies like :wq even when nothing changed; native ZZ
+                -- would close an unmodified buffer without writing (a discard).
+                vim.keymap.set('n','ZZ','<Cmd>wq<CR>',{buffer=b,noremap=true})
                 vim.api.nvim_create_autocmd('BufWriteCmd', {buffer=b, callback=function()
                     vim.rpcnotify(fff_channel, 'fff_written', b, vim.api.nvim_buf_get_lines(b, 0, -1, false))
                     vim.bo[b].modified=false
@@ -345,7 +356,11 @@ impl Nvim {
         {
             self.buffers.get_mut(&field).unwrap().saved = None;
             let lines = text.split('\n').map(Value::from).collect::<Vec<_>>();
-            self.lua("local b,lines=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.bo[b].modified=false; vim.api.nvim_win_set_cursor(0,{#lines,#lines[#lines]}); vim.cmd('stopinsert')",vec![id,arr(lines)])?;
+            let row = self
+                .start_row
+                .remove(&field)
+                .map_or(lines.len(), |row| row.min(lines.len() - 1) + 1);
+            self.lua("local b,lines,row=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.bo[b].modified=false; vim.api.nvim_win_set_cursor(0,{row,#lines[row]}); vim.cmd('stopinsert')",vec![id,arr(lines),row.into()])?;
         } else {
             let view = &self.buffers[&field].view;
             let row = view.row + 1;

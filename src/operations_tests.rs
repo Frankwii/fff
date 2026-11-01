@@ -61,6 +61,7 @@ fn backup_is_complete_before_mutation_and_keeps_each_version() {
         .execute(Request::Copy {
             sources: vec![src.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap();
     assert!(out.backup.join("COMPLETE").exists());
@@ -75,6 +76,7 @@ fn backup_is_complete_before_mutation_and_keeps_each_version() {
         .execute(Request::Copy {
             sources: vec![src],
             directory: f.root.join("other"),
+            replace: vec![],
         })
         .unwrap();
     assert_eq!(f.batches().len(), 2);
@@ -93,6 +95,7 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
         .execute(Request::Copy {
             sources: vec![dir.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap();
     for root in [f.dest.join("tree"), out.backup.join("0000")] {
@@ -186,6 +189,7 @@ fn all_collisions_are_checked_before_any_copy_or_move() {
             Request::Copy {
                 sources,
                 directory: f.dest.clone(),
+                replace: vec![],
             }
         };
         assert!(
@@ -208,7 +212,8 @@ fn dangling_destination_symlink_is_a_collision() {
         f.engine()
             .execute(Request::Copy {
                 sources: vec![p],
-                directory: f.dest.clone()
+                directory: f.dest.clone(),
+                replace: vec![],
             })
             .is_err()
     );
@@ -225,7 +230,8 @@ fn rejects_overlapping_sources_and_destination_in_source() {
         f.engine()
             .execute(Request::Copy {
                 sources: vec![dir.clone(), file],
-                directory: f.dest.clone()
+                directory: f.dest.clone(),
+                replace: vec![],
             })
             .is_err()
     );
@@ -233,7 +239,8 @@ fn rejects_overlapping_sources_and_destination_in_source() {
         f.engine()
             .execute(Request::Copy {
                 sources: vec![dir.clone()],
-                directory: dir
+                directory: dir,
+                replace: vec![],
             })
             .is_err()
     );
@@ -269,6 +276,7 @@ fn backup_failure_is_fail_closed_for_all_mutations() {
         Request::Copy {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         },
         Request::Move {
             sources: vec![p.clone()],
@@ -576,6 +584,7 @@ fn copies_and_backups_keep_modification_times() {
         .execute(Request::Copy {
             sources: vec![tree.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap();
     for root in [f.dest.join("tree"), out.backup.join("0000")] {
@@ -901,7 +910,8 @@ fn racing_copy_destination_rolls_back_every_published_copy() {
     assert!(
         e.execute(Request::Copy {
             sources: vec![a.clone(), b.clone()],
-            directory: f.dest.clone()
+            directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap_err()
         .contains("rolled back")
@@ -1159,6 +1169,7 @@ fn readonly_destination_failure_leaves_sources_and_destinations_intact() {
         .execute(Request::Copy {
             sources: vec![a.clone()],
             directory: f.dest.clone(),
+            replace: vec![],
         })
         .unwrap_err();
     fs::set_permissions(&f.dest, fs::Permissions::from_mode(0o700)).unwrap();
@@ -1261,7 +1272,7 @@ fn move_overwrites_only_confirmed_destinations_and_backs_them_up() {
     };
     assert!(f.engine().execute(unconfirmed).is_err());
     assert!(a.exists() && c.exists() && !f.backup.exists());
-    let plan = MovePlan::new(sources, f.dest.clone()).unwrap();
+    let plan = TransferPlan::new(false, sources, f.dest.clone()).unwrap();
     assert_eq!(
         plan.rows,
         vec![(f.dest.join("a"), 5), (f.dest.join("tree"), 8)]
@@ -1288,11 +1299,11 @@ fn move_overwrite_refuses_changed_self_and_containing_destinations() {
     let f = Fixture::new();
     let a = f.file("a", b"a");
     fs::write(f.dest.join("a"), b"old").unwrap();
-    let plan = MovePlan::new(vec![a.clone()], f.dest.clone()).unwrap();
+    let plan = TransferPlan::new(false, vec![a.clone()], f.dest.clone()).unwrap();
     fs::write(f.dest.join("a"), b"changed").unwrap();
     assert!(plan.request().is_err());
     // Moving a path into its own directory would replace itself.
-    assert!(MovePlan::new(vec![a.clone()], f.work.clone()).is_err());
+    assert!(TransferPlan::new(false, vec![a.clone()], f.work.clone()).is_err());
     // A destination that contains a moved path cannot be replaced.
     let inner = f.work.join("x");
     fs::create_dir(&inner).unwrap();
@@ -1313,7 +1324,7 @@ fn failed_overwriting_move_restores_replaced_entries() {
     let a = f.file("a", b"new a");
     let b = f.file("b", b"new b");
     fs::write(f.dest.join("a"), b"old a").unwrap();
-    let plan = MovePlan::new(vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
+    let plan = TransferPlan::new(false, vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
     let mut e = f.engine();
     let racer = f.dest.join("b");
     e.hook = Some(Box::new(move |phase| {
@@ -1327,5 +1338,59 @@ fn failed_overwriting_move_restores_replaced_entries() {
     assert_eq!(fs::read(&b).unwrap(), b"new b");
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"old a");
     assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"race");
+    assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
+}
+#[test]
+fn copy_overwrites_only_confirmed_destinations_and_keeps_sources() {
+    let f = Fixture::new();
+    let a = f.file("a", b"new a");
+    let tree = f.work.join("tree");
+    fs::create_dir(&tree).unwrap();
+    fs::write(tree.join("new"), b"new tree").unwrap();
+    fs::write(f.dest.join("a"), b"old a").unwrap();
+    fs::create_dir(f.dest.join("tree")).unwrap();
+    fs::write(f.dest.join("tree/old"), b"old tree").unwrap();
+    let sources = vec![a.clone(), tree.clone()];
+    let unconfirmed = Request::Copy {
+        sources: sources.clone(),
+        directory: f.dest.clone(),
+        replace: vec![],
+    };
+    assert!(f.engine().execute(unconfirmed).is_err());
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"old a");
+    let plan = TransferPlan::new(true, sources, f.dest.clone()).unwrap();
+    assert_eq!(plan.rows.len(), 2);
+    let out = f.engine().execute(plan.request().unwrap()).unwrap();
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new a");
+    assert!(!f.dest.join("tree/old").exists());
+    assert_eq!(fs::read(f.dest.join("tree/new")).unwrap(), b"new tree");
+    // Copies keep their sources; the overwritten entries are in the backup.
+    assert_eq!(fs::read(&a).unwrap(), b"new a");
+    assert_eq!(fs::read(tree.join("new")).unwrap(), b"new tree");
+    assert_eq!(fs::read(out.backup.join("0002")).unwrap(), b"old a");
+    assert_eq!(fs::read(out.backup.join("0003/old")).unwrap(), b"old tree");
+    assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
+    // Copying into the source's own directory would overwrite the source.
+    assert!(TransferPlan::new(true, vec![a.clone()], f.work.clone()).is_err());
+}
+#[test]
+fn failed_overwriting_copy_restores_overwritten_entries() {
+    let f = Fixture::new();
+    let a = f.file("a", b"new a");
+    let b = f.file("b", b"new b");
+    fs::write(f.dest.join("a"), b"old a").unwrap();
+    let plan = TransferPlan::new(true, vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
+    let mut e = f.engine();
+    let racer = f.dest.join("b");
+    e.hook = Some(Box::new(move |phase| {
+        if phase == 1 {
+            fs::write(&racer, b"race").unwrap();
+        }
+    }));
+    let error = e.execute(plan.request().unwrap()).unwrap_err();
+    assert!(error.contains("rolled back"), "{error}");
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"old a");
+    assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"race");
+    assert_eq!(fs::read(&a).unwrap(), b"new a");
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
 }

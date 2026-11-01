@@ -368,11 +368,13 @@ impl BackupGuard {
 }
 #[derive(Clone, Debug)]
 pub enum Request {
+    /// `replace` lists confirmed existing destinations to overwrite; any other
+    /// collision aborts.
     Copy {
         sources: Vec<PathBuf>,
         directory: PathBuf,
+        replace: Vec<PathBuf>,
     },
-    /// `replace` lists confirmed existing destinations; any other collision aborts.
     Move {
         sources: Vec<PathBuf>,
         directory: PathBuf,
@@ -427,7 +429,9 @@ impl Engine {
     }
     pub fn execute(&self, request: Request) -> Result<Outcome> {
         let (mut sources, mut targets) = match &request {
-            Request::Copy { sources, directory }
+            Request::Copy {
+                sources, directory, ..
+            }
             | Request::Move {
                 sources, directory, ..
             }
@@ -494,7 +498,7 @@ impl Engine {
             .map(|p| Entry::at(p))
             .collect::<Result<Vec<_>>>()?;
         let old = match &request {
-            Request::Move { replace, .. } => replace
+            Request::Move { replace, .. } | Request::Copy { replace, .. } => replace
                 .iter()
                 .map(|p| Entry::at(p))
                 .collect::<Result<Vec<_>>>()?,
@@ -506,7 +510,7 @@ impl Engine {
             }
             if src.iter().any(|s| s.path.starts_with(&o.path)) {
                 return Err(format!(
-                    "Cannot overwrite {:?}: it is or contains a moved path",
+                    "Cannot overwrite {:?}: it is or contains a selected path",
                     o.path
                 ));
             }
@@ -590,52 +594,7 @@ impl Engine {
         let result = (|| -> Result<()> {
             match request {
                 Request::Move { .. } | Request::Rename { .. } => {
-                    // Confirmed overwrites are detached into a private stage
-                    // first, and deleted only once every move has published.
-                    let mut held = match old.is_empty() {
-                        true => None,
-                        false => Some(Stage::new(&dst[0].parent)?),
-                    };
-                    let restore = |held: &mut Option<Stage>, count: usize| {
-                        let Some(stage) = held else {
-                            return true;
-                        };
-                        let mut restored = true;
-                        for (j, o) in old.iter().enumerate().take(count).rev() {
-                            restored &=
-                                rename(&stage.dir, OsStr::new(&j.to_string()), &o.parent, &o.name)
-                                    .is_ok();
-                        }
-                        stage.keep = !restored;
-                        restored
-                    };
-                    if let Some(stage) = &mut held {
-                        for (j, o) in old.iter().enumerate() {
-                            let result = tree(o).and_then(|now| {
-                                if now == replaced[j] {
-                                    rename(
-                                        &o.parent,
-                                        &o.name,
-                                        &stage.dir,
-                                        OsStr::new(&j.to_string()),
-                                    )
-                                } else {
-                                    Err("An entry to overwrite changed".into())
-                                }
-                            });
-                            if let Err(e) = result {
-                                return Err(format!(
-                                    "{e}; {}",
-                                    if restore(&mut held, j) {
-                                        "nothing moved"
-                                    } else {
-                                        "restore incomplete; originals retained in staging"
-                                    }
-                                ));
-                            }
-                            stage.keep = true;
-                        }
-                    }
+                    let mut over = Overwrite::detach(&old, &replaced, &dst)?;
                     let mut done: Vec<usize> = vec![];
                     for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
                         if s.path == d.path {
@@ -656,7 +615,7 @@ impl Engine {
                                 let b: &Entry = &dst[j];
                                 rollback &= rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
                             }
-                            rollback &= restore(&mut held, old.len());
+                            rollback &= over.restore();
                             return Err(format!(
                                 "{e}; {}",
                                 if rollback {
@@ -668,12 +627,7 @@ impl Engine {
                         }
                         done.push(i);
                     }
-                    if let Some(mut stage) = held {
-                        for j in 0..old.len() {
-                            remove_tree(&stage.dir, OsStr::new(&j.to_string()))?;
-                        }
-                        stage.keep = false;
-                    }
+                    over.finish()?;
                     let names = rename_map(&sources, &targets);
                     outcome.moved = src
                         .iter()
@@ -708,6 +662,9 @@ impl Engine {
                             return Err("Source changed while staging; nothing copied".into());
                         }
                     }
+                    // Staging is complete, so overwritten entries are absent only
+                    // while the copies are published.
+                    let mut over = Overwrite::detach(&old, &replaced, &dst)?;
                     let mut done: Vec<usize> = vec![];
                     for (i, d) in dst.iter().enumerate() {
                         self.checkpoint(i);
@@ -725,6 +682,7 @@ impl Engine {
                                 )
                                 .is_ok();
                             }
+                            rollback &= over.restore();
                             return Err(format!(
                                 "{e}; {}",
                                 if rollback {
@@ -736,6 +694,7 @@ impl Engine {
                         }
                         done.push(i);
                     }
+                    over.finish()?;
                 }
                 Request::Delete { .. } => {
                     // Detach all selected roots before deleting any contents;
@@ -877,6 +836,73 @@ impl Engine {
         })();
         result.map_err(|e| format!("{e}. Backup: {}", backup.display()))?;
         Ok(outcome)
+    }
+}
+/// Confirmed overwrite targets, detached into a private stage before
+/// publication and deleted only after every entry has been published.
+struct Overwrite<'a> {
+    old: &'a [Entry],
+    stage: Option<Stage>,
+}
+impl<'a> Overwrite<'a> {
+    fn detach(
+        old: &'a [Entry],
+        expected: &[BTreeMap<PathBuf, Stamp>],
+        dst: &[Entry],
+    ) -> Result<Self> {
+        let mut over = Self { old, stage: None };
+        if old.is_empty() {
+            return Ok(over);
+        }
+        let mut stage = Stage::new(&dst[0].parent)?;
+        for (j, o) in old.iter().enumerate() {
+            let result = tree(o).and_then(|now| {
+                if now == expected[j] {
+                    rename(&o.parent, &o.name, &stage.dir, OsStr::new(&j.to_string()))
+                } else {
+                    Err("An entry to overwrite changed".into())
+                }
+            });
+            if let Err(e) = result {
+                over.stage = Some(stage);
+                let restored = over.restore_first(j);
+                return Err(format!(
+                    "{e}; {}",
+                    if restored {
+                        "nothing changed"
+                    } else {
+                        "restore incomplete; originals retained in staging"
+                    }
+                ));
+            }
+            stage.keep = true;
+        }
+        over.stage = Some(stage);
+        Ok(over)
+    }
+    fn restore_first(&mut self, count: usize) -> bool {
+        let Some(stage) = &mut self.stage else {
+            return true;
+        };
+        let mut restored = true;
+        for (j, o) in self.old.iter().enumerate().take(count).rev() {
+            restored &= rename(&stage.dir, OsStr::new(&j.to_string()), &o.parent, &o.name).is_ok();
+        }
+        stage.keep = !restored;
+        restored
+    }
+    /// Puts every detached entry back after a failed publication.
+    fn restore(&mut self) -> bool {
+        self.restore_first(self.old.len())
+    }
+    fn finish(self) -> Result<()> {
+        if let Some(mut stage) = self.stage {
+            for j in 0..self.old.len() {
+                remove_tree(&stage.dir, OsStr::new(&j.to_string()))?;
+            }
+            stage.keep = false;
+        }
+        Ok(())
     }
 }
 struct Stage {
@@ -1178,17 +1204,18 @@ impl DeletePlan {
     }
 }
 
-/// A move into `directory`; `rows` lists existing destinations it would
-/// overwrite, with their sizes, for confirmation.
+/// A move or copy into `directory`; `rows` lists existing destinations it
+/// would overwrite, with their sizes, for confirmation.
 #[derive(Clone)]
-pub struct MovePlan {
+pub struct TransferPlan {
+    pub copy: bool,
     pub sources: Vec<PathBuf>,
     pub directory: PathBuf,
     pub rows: Vec<(PathBuf, u64)>,
     snapshots: Vec<BTreeMap<PathBuf, Stamp>>,
 }
-impl MovePlan {
-    pub fn new(sources: Vec<PathBuf>, directory: PathBuf) -> Result<Self> {
+impl TransferPlan {
+    pub fn new(copy: bool, sources: Vec<PathBuf>, directory: PathBuf) -> Result<Self> {
         if sources.is_empty() {
             return Err("No files selected".into());
         }
@@ -1207,6 +1234,7 @@ impl MovePlan {
             rows.push((target.clone(), weight(&target)?));
         }
         Ok(Self {
+            copy,
             sources,
             directory,
             rows,
@@ -1216,13 +1244,23 @@ impl MovePlan {
     pub fn request(&self) -> Result<Request> {
         for ((path, _), was) in self.rows.iter().zip(&self.snapshots) {
             if tree(&Entry::at(path)?)? != *was {
-                return Err("Files changed since confirmation; review the move again".into());
+                return Err("Files changed since confirmation; review again".into());
             }
         }
-        Ok(Request::Move {
-            sources: self.sources.clone(),
-            directory: self.directory.clone(),
-            replace: self.rows.iter().map(|(p, _)| p.clone()).collect(),
+        let (sources, directory) = (self.sources.clone(), self.directory.clone());
+        let replace = self.rows.iter().map(|(p, _)| p.clone()).collect();
+        Ok(if self.copy {
+            Request::Copy {
+                sources,
+                directory,
+                replace,
+            }
+        } else {
+            Request::Move {
+                sources,
+                directory,
+                replace,
+            }
         })
     }
 }

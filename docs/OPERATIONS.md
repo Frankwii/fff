@@ -17,19 +17,21 @@ its prompt buffers use Ctrl+s to apply and Escape to discard.
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
 fall back to the highlighted path. Target names retain their source basenames.
-For copy and symlink, existing files, directories and dangling symlinks are
-collisions and never overwrite targets. Repeated basenames in one selection
-also stop the operation.
+For symlinks, existing files, directories and dangling symlinks are collisions
+and never overwritten. Repeated basenames in one selection also stop the
+operation.
 
-When a move collides, a **Replace on move** window lists the existing
-destinations with their sizes, like the deletion confirmation. **Escape** cancels
-the whole move; **Enter** moves everything and replaces the listed entries. A
-replaced directory is replaced as a whole, never merged. The listed entries are
-backed up with the sources, detached into a private staging directory, and
-deleted only after every move has been published; any failure rolls the moves
-back and restores them. Entries changed since confirmation, collisions that
-appear after confirmation, moving a path into its own directory, and replacing
-an entry that contains a moved path all abort the move. To operate
+When a move or copy collides, an **Overwrite on move** / **Overwrite on copy**
+window lists the existing destinations with their sizes, like the deletion
+confirmation. **Escape** cancels the whole operation; **Enter** moves or copies
+everything and overwrites the listed entries. A directory is overwritten as a
+whole, never merged. The listed entries are backed up with the sources,
+detached into a private staging directory (for copies, only after every copy is
+staged), and deleted only after every entry has been published; any failure
+rolls the publications back and restores them. Entries changed since
+confirmation, collisions that appear after confirmation, moving or copying a
+path into its own directory, and overwriting an entry that contains a selected
+path all abort the operation. To operate
 on paths from another directory, mark them before navigating to the destination.
 Successful move, copy and symlink operations clear the entire marked list.
 Deletion unmarks only the deleted paths and their descendants, so deleting an
@@ -54,9 +56,9 @@ Every file-operation dialog is a sheet spanning the outer edges of the result
 and mark panes and resting on their bottom border, as tall as its content (the
 rename buffer fills the pane area). The text explains what each key does, and
 the bottom border repeats the keys, for example
-`─ s: Selection ─── c: Current ─── Esc: Cancel ─`. Buffers list `:wq` / `:q!`
+`─ s: Selection ─── c: Current ─── Esc: Cancel ─`. Buffers list `ZZ` / `ZQ`
 with Neovim and `Ctrl+s` / `Esc` with basic editing. Destructive confirmations
-(deletion, replacing on move) use the `error` color; choices and buffers use
+(deletion, overwriting) use the `error` color; choices and buffers use
 `marked`.
 
 A successful operation reports what it did in the footer with a `✓` in the
@@ -66,12 +68,12 @@ A successful operation reports what it did in the footer with a `✓` in the
 ## Buffer interactions
 
 Rename, extraction destinations, and new names follow the same lifecycle as
-exclusions and bookmark editing: **write and close (`:wq`) to apply**, or **close
-without writing (`:q!`) to discard**. `:w` records a snapshot but keeps editing;
+exclusions and bookmark editing: **`ZZ` writes and closes to apply**, or
+**`ZQ` closes without writing to discard** (`:wq` / `:q!` work too). `:w` records a snapshot but keeps editing;
 a later close applies that snapshot, discarding subsequent unwritten edits.
 Escape and native Neovim commands stay inside the buffer. The command line
-appears on the buffer's last row. The application has no additional `ZZ` binding;
-Neovim's own `ZZ` and `ZQ` retain their meanings.
+appears on the buffer's last row. `ZZ` is mapped to `:wq`, so it applies even an
+unchanged buffer, such as an empty extraction destination.
 
 The rename buffer freezes the filtered result list in its displayed order,
 including rows below the current page. It contains scope-relative paths, without

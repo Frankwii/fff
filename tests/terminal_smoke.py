@@ -1077,32 +1077,37 @@ class TerminalTests(unittest.TestCase):
             self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_move_conflicts_ask_before_overwriting(self):
-        target = self.root / "target"
-        target.mkdir()
-        (self.root / "file-a").write_text("new")
-        (self.root / "file-b").write_text("other")
-        (target / "file-a").write_text("old contents")
-        s = self.start(editor="nvim", implicit_root=True)
-        s.send(b"ifile-", "❯ file-")
-        s.send(b"\x1b[27u\t\t", "Marks (2)")
-        s.send(b"\x1b[27uitarget", "❯ target")
-        s.send(b"\x1b[27u\r", ("cwd", target))
-        s.send(b"v", "Replace on move")
-        self.assertIn("file-a", s.screen.text)
-        self.assertIn("12 B", s.screen.text)
-        s.send(b"\x1b[27u", "Move cancelled")
-        self.assertEqual((target / "file-a").read_text(), "old contents")
-        self.assertTrue((self.root / "file-b").exists())
-        self.assertIn("Marks (2)", s.screen.text)
-        s.send(b"v", "Replace on move")
-        s.send(b"\r", "Moved 2 entries, replacing file-a")
-        self.assertEqual((target / "file-a").read_text(), "new")
-        self.assertEqual((target / "file-b").read_text(), "other")
-        self.assertFalse((self.root / "file-a").exists())
-        self.assertIn("Marks (0)", s.screen.text)
-        s.send(b"\x03")
-        self.assertEqual(s.finish(), (130, b""))
+    def test_move_and_copy_conflicts_ask_before_overwriting(self):
+        for key, verb, label in [(b"v", "Moved", "move"), (b"p", "Copied", "copy")]:
+            root = self.root / label
+            target = root / "target"
+            target.mkdir(parents=True)
+            (root / "file-a").write_text("new")
+            (root / "file-b").write_text("other")
+            (target / "file-a").write_text("old contents")
+            s = self.session = Session(root, editor="nvim", implicit_root=True)
+            s.send(b"ifile-", "❯ file-")
+            s.send(b"\x1b[27u\t\t", "Marks (2)")
+            s.send(b"\x1b[27uitarget", "❯ target")
+            s.send(b"\x1b[27u\r", ("cwd", target))
+            s.send(key, "Overwrite on " + label)
+            self.assertIn("file-a", s.screen.text)
+            self.assertIn("12 B", s.screen.text)
+            self.assertIn("Enter: Overwrite ─── Esc: Cancel", s.screen.text)
+            s.send(b"\x1b[27u", label.capitalize() + " cancelled")
+            self.assertEqual((target / "file-a").read_text(), "old contents")
+            self.assertFalse((target / "file-b").exists())
+            self.assertIn("Marks (2)", s.screen.text)
+            s.send(key, "Overwrite on " + label)
+            s.send(b"\r", verb + " 2 entries, overwriting file-a")
+            self.assertEqual((target / "file-a").read_text(), "new")
+            self.assertEqual((target / "file-b").read_text(), "other")
+            self.assertEqual((root / "file-a").exists(), key == b"p")
+            self.assertIn("Marks (0)", s.screen.text)
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+            s.close()
+            self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_failed_file_operations_preserve_all_selected(self):
@@ -1112,7 +1117,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\t", "Marks (1)")
         for key, message in [
             (b"v", "already in this directory"),
-            (b"p", "Destination already exists"),
+            (b"p", "already in this directory"),
             (b"s", "Destination already exists"),
         ]:
             # The destination is the source's current directory: collision.
@@ -1249,6 +1254,41 @@ class TerminalTests(unittest.TestCase):
         self.assertNotIn("Extract archive", s.screen.text)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()),
                          ["corrupt.zip", "folder", "not-an-archive.zip"])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_list_steps_wrap_and_rename_starts_on_the_highlighted_row(self):
+        for name in ["alpha", "beta", "gamma"]:
+            (self.root / name).write_text(name)
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"k", "› 3/0")  # up from the first row wraps to the last
+        s.send(b"j", "›   1")  # and down from the last wraps to the first
+        s.send(b"j", "›   2")
+        s.send(b"r", "Rename files · NORMAL")
+        # The cursor starts at the end of the highlighted row, ready to append.
+        s.send(b"a2", "beta2")
+        s.send(b"\x1b[27u", "Rename files · NORMAL")
+        s.send(b"ZZ", "Renamed beta")
+        self.assertEqual((self.root / "beta2").read_text(), "beta")
+        self.assertTrue((self.root / "alpha").exists() and (self.root / "gamma").exists())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_zz_applies_an_unchanged_buffer_and_zq_discards(self):
+        import zipfile
+        with zipfile.ZipFile(self.root / "input.zip", "w") as z:
+            z.writestr("unpacked", "payload")
+        s = self.start(editor="nvim", implicit_root=True)
+        s.send(b"e", "Extract archive · NORMAL")
+        self.assertIn("ZZ: Apply ─── ZQ: Discard", s.screen.text)
+        s.send(b"ZQ", "Query · NORMAL")
+        s.wait_absent("Extract archive")
+        self.assertFalse((self.root / "unpacked").exists())
+        s.send(b"e", "Extract archive · NORMAL")
+        s.send(b"ZZ", "Extracted into")
+        self.assertEqual((self.root / "unpacked").read_text(), "payload")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

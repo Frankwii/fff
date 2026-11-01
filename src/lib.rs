@@ -433,6 +433,19 @@ impl App {
         let i = i.saturating_add_signed(amount).min(self.rows.len() - 1);
         self.highlight = Some(self.rows[i].path.clone());
     }
+    /// One row down or up, wrapping from the last row to the first and back.
+    pub fn step(&mut self, forward: bool) {
+        let last = self.rows.len().saturating_sub(1);
+        match self
+            .rows
+            .iter()
+            .position(|c| Some(&c.path) == self.highlight.as_ref())
+        {
+            Some(i) if forward && i == last => self.move_by(-(last as isize)),
+            Some(0) if !forward => self.move_by(last as isize),
+            _ => self.move_by(if forward { 1 } else { -1 }),
+        }
+    }
     pub fn toggle(&mut self, path: PathBuf) {
         if let Some(i) = self.marks.iter().position(|p| p == &path) {
             self.marks.remove(i);
