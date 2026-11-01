@@ -68,3 +68,5 @@ last = "G"    # Last row.
 mark = "<space>" # Toggle marks in Normal mode, like Tab.
 quit = "q"       # Exit and return the launch directory.
 quit_current = "!" # Exit and return the current browsing directory.
+run = "gx"       # Run a program on the current/marked paths, then come back.
+run_exit = "gX"  # Run a program on the current/marked paths in place of fff.

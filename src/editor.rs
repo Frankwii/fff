@@ -16,6 +16,7 @@ pub enum Field {
     FileName,
     Extraction,
     Location,
+    Command,
     Exclusions,
     Bookmarks,
     BookmarkName,
@@ -25,7 +26,10 @@ pub enum Field {
 }
 impl Field {
     fn single_line(self) -> bool {
-        matches!(self, Self::Query | Self::FileName | Self::Extraction)
+        matches!(
+            self,
+            Self::Query | Self::FileName | Self::Extraction | Self::Command
+        )
     }
 }
 #[derive(Clone, Debug)]

@@ -92,3 +92,54 @@ fn missing_root_error_names_the_path() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.starts_with("fff: no/such/root: "), "{stderr}");
 }
+
+#[test]
+fn init_wrappers_change_to_the_directory_fff_writes() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("fff-init-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    // A space and a trailing newline: the bytes must survive the round trip.
+    let target = root.join("dir with space\n");
+    let stub = root.join("stub");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::create_dir_all(&stub).unwrap();
+    // A stand-in fff that writes TARGET to the file given with --cd-file.
+    std::fs::write(
+        stub.join("fff"),
+        "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = --cd-file ]; then shift; printf '%s' \"$TARGET\" > \"$1\"; fi\n  shift\ndone\nexit 3\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(stub.join("fff"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    for (shell, flags) in [("zsh", &["-f", "-c"][..]), ("bash", &["--norc", "-c"][..])] {
+        if Command::new(shell).arg("--version").output().is_err() {
+            continue;
+        }
+        let wrapper = stdout(&fff(&["--init", shell], None));
+        assert!(wrapper.contains("command fff --cd-file"), "{shell}");
+        let out = Command::new(shell)
+            .args(flags)
+            .arg(r#"eval "$WRAPPER"; PATH="$STUB:$PATH"; fff --anything; printf '%s|%s' "$?" "$PWD""#)
+            .env("WRAPPER", &wrapper)
+            .env("STUB", &stub)
+            .env("TARGET", &target)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        let shown = String::from_utf8(out.stdout.clone()).unwrap();
+        assert_eq!(shown, format!("3|{}", target.display()), "{shell}: {out:?}");
+    }
+    let fish = stdout(&fff(&["--init", "fish"], None));
+    assert!(fish.contains("function fff") && fish.contains("command fff --cd-file"));
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn output_formatting_needs_the_output_paths_mode() {
+    for flag in ["--relative", "--null"] {
+        assert_eq!(
+            fff(&["--no-config", flag], None).status.code(),
+            Some(2),
+            "{flag}"
+        );
+    }
+}

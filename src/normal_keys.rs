@@ -23,9 +23,13 @@ pub enum ListAction {
     Quit,
     /// Return the current browsing directory and exit.
     QuitCurrent,
+    /// Run a program on the current or marked paths, then come back.
+    Run,
+    /// Run a program on the current or marked paths in place of fff.
+    RunExit,
 }
 impl ListAction {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -35,6 +39,8 @@ impl ListAction {
         Self::Mark,
         Self::Quit,
         Self::QuitCurrent,
+        Self::Run,
+        Self::RunExit,
     ];
     /// The default chord whose view-specific behavior this action repeats, if any.
     pub fn alt_key(self) -> Option<KeyEvent> {
@@ -44,7 +50,12 @@ impl ListAction {
             Self::Up => 'k',
             Self::Right => 'l',
             Self::Mark => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-            Self::First | Self::Last | Self::Quit | Self::QuitCurrent => return None,
+            Self::First
+            | Self::Last
+            | Self::Quit
+            | Self::QuitCurrent
+            | Self::Run
+            | Self::RunExit => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -177,6 +188,8 @@ pub struct NormalKeysConfig {
     pub apply: Sequences,
     pub quit: Sequences,
     pub quit_current: Sequences,
+    pub run: Sequences,
+    pub run_exit: Sequences,
 }
 impl Default for NormalKeysConfig {
     fn default() -> Self {
@@ -191,6 +204,8 @@ impl Default for NormalKeysConfig {
             apply: one("none"),
             quit: one("q"),
             quit_current: one("!"),
+            run: one("gx"),
+            run_exit: one("gX"),
         }
     }
 }
@@ -206,6 +221,8 @@ impl NormalKeysConfig {
             ListAction::Mark => ("mark", &self.mark),
             ListAction::Quit => ("quit", &self.quit),
             ListAction::QuitCurrent => ("quit_current", &self.quit_current),
+            ListAction::Run => ("run", &self.run),
+            ListAction::RunExit => ("run_exit", &self.run_exit),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {

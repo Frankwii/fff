@@ -206,6 +206,8 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             action,
         } => scope_choice(frame, main, app, current, selected.len(), *action),
         Focus::TransferConfirm(plan) => transfer_confirmation(frame, main, app, plan),
+        Focus::Command(prompt) => run_prompt(frame, main, app, prompt),
+        Focus::RunConfirm(plan) => run_confirmation(frame, main, app, plan),
         Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
         Focus::Exclusions(text) => prompt(
             frame,
@@ -1027,6 +1029,16 @@ fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 (normal(Mark), "mark / unmark, like Tab", false),
                 (normal(Quit), "exit, return launch directory", true),
                 (normal(QuitCurrent), "exit, return current directory", true),
+                (
+                    normal(Run),
+                    "run a program on current / marked, come back",
+                    true,
+                ),
+                (
+                    normal(RunExit),
+                    "run a program on current / marked, exit",
+                    true,
+                ),
                 ("i  a".into(), "enter Insert mode", false),
             ],
         ),
@@ -1607,6 +1619,193 @@ fn transfer_confirmation(
         &plan.overwrites,
     );
 }
+fn these(paths: &[PathBuf], app: &App) -> String {
+    match paths {
+        [] => "no files".into(),
+        [one] => quoted(one, app),
+        many => format!("these {} entries", many.len()),
+    }
+}
+/// The command line for gx / gX: Tab completes, a live line shows what the
+/// command word resolves to, Enter reviews.
+fn run_prompt(frame: &mut Frame, main: Rect, app: &App, prompt: &crate::run::Prompt) {
+    let theme = app.palette;
+    let here = tilde(&app.cwd, app.home.as_deref());
+    let then = if prompt.exit {
+        "fff exits and the program takes its place"
+    } else {
+        "fff comes back when the program ends"
+    };
+    let text = format!(
+        "Type a program to run on {} in {here}; the paths are added after what you \
+         type, and {then}. *Tab* completes commands and paths. There is no shell: \
+         quote shell symbols such as | > & ; ? $ to pass them literally.",
+        these(&prompt.paths, app)
+    );
+    let width = main.width.saturating_sub(4) as usize;
+    let body = prose(theme, theme.marked, &text, width);
+    let shown = prompt.candidates.len().min(4) as u16;
+    // Borders, prose, blank, input, the program line, candidates, a status row.
+    let height = body.len() as u16 + 6 + shown;
+    let title = if prompt.exit { "Run and exit" } else { "Run" };
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        height,
+        Sheet {
+            title: mode_title(app, Field::Command, title),
+            accent: theme.marked,
+            keys: &[("Enter", "Review"), ("Tab", "Complete"), ("Esc", "Cancel")],
+            summary: Some(count(prompt.paths.len())),
+        },
+    );
+    let top = (body.len() as u16 + 1).min(inner.height);
+    frame.render_widget(
+        Paragraph::new(body),
+        Rect::new(inner.x, inner.y, inner.width, top),
+    );
+    let row = inner.y + top;
+    if row >= inner.bottom() {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(bold("❯ ", theme.marked)),
+        Rect::new(inner.x, row, 2.min(inner.width), 1),
+    );
+    edit_rows(
+        frame,
+        app,
+        Field::Command,
+        &prompt.text,
+        Rect::new(inner.x + 2, row, inner.width.saturating_sub(2), 1),
+    );
+    let mut lines = vec![match prompt.program(&app.cwd, app.home.as_deref()) {
+        Some(Ok(path)) => Line::from(styled(
+            format!("✓ {}", safe(path.to_string_lossy())),
+            theme.success,
+        )),
+        Some(Err(error)) => Line::from(styled(format!("✗ {}", safe(error)), theme.error)),
+        None => Line::from(styled("Type a command name", theme.muted)),
+    }];
+    if !prompt.candidates.is_empty() {
+        let mut spans = vec![];
+        for (i, candidate) in prompt.candidates.iter().enumerate() {
+            let style = if prompt.chosen == Some(i) {
+                Style::default()
+                    .fg(theme.marked)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            spans.push(Span::styled(safe(candidate), style));
+            spans.push(Span::raw("  "));
+        }
+        lines.push(Line::from(spans));
+    }
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        Rect::new(
+            inner.x,
+            row + 1,
+            inner.width,
+            inner.bottom().saturating_sub(row + 2),
+        ),
+    );
+    let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
+    if app
+        .edit_view
+        .as_ref()
+        .is_some_and(|v| v.field == Field::Command && v.mode.starts_with('c'))
+    {
+        command_line(frame, app, Field::Command, last);
+    }
+}
+/// The paths a program will receive, in argument order.
+fn path_lines(app: &App, paths: &[PathBuf], capacity: usize, width: usize) -> Vec<Line<'static>> {
+    let theme = app.palette;
+    let take = if paths.len() > capacity {
+        capacity.saturating_sub(1)
+    } else {
+        paths.len()
+    };
+    let mut lines = paths[..take]
+        .iter()
+        .map(|path| {
+            let directory = std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
+            let (glyph, group) = crate::icons::marker(path, directory, app.icons);
+            let name = elide(&quoted(path, app), width.saturating_sub(glyph.width()));
+            let split = name.trim_end_matches('/').rfind('/').map_or(0, |i| i + 1);
+            Line::from(vec![
+                styled(glyph, icon_color(theme, group)),
+                styled(name[..split].to_string(), theme.muted),
+                styled(
+                    name[split..].to_string(),
+                    path_color(theme, path, directory),
+                ),
+            ])
+        })
+        .collect::<Vec<_>>();
+    if take < paths.len() {
+        lines.push(Line::from(
+            styled(
+                format!("and {} more", count(paths.len() - take)),
+                theme.muted,
+            )
+            .italic(),
+        ));
+    }
+    lines
+}
+fn run_confirmation(frame: &mut Frame, main: Rect, app: &App, plan: &crate::run::Plan) {
+    let theme = app.palette;
+    let here = tilde(&plan.cwd, app.home.as_deref());
+    let then = if plan.exit {
+        "fff exits and the program takes its place"
+    } else {
+        "fff comes back when it ends"
+    };
+    let text = format!(
+        "Press *Enter* to run {} on {} in {here}; {then}. Press *Esc* to cancel.",
+        plan.line,
+        these(&plan.paths, app)
+    );
+    let width = main.width.saturating_sub(4) as usize;
+    let body = prose(theme, theme.marked, &text, width);
+    let program = Line::from(vec![
+        styled("❯ ", theme.marked),
+        bold(safe(&plan.line), theme.text),
+        styled(
+            format!("  {}", safe(plan.program.to_string_lossy())),
+            theme.muted,
+        ),
+    ]);
+    let height = (body.len() + plan.paths.len() + 5) as u16;
+    let title = if plan.exit {
+        "Run and exit"
+    } else {
+        "Run here"
+    };
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        height,
+        Sheet {
+            title: format!(" {title} "),
+            accent: theme.marked,
+            keys: &[("Enter", "Run"), ("Esc", "Cancel")],
+            summary: Some(count(plan.paths.len())),
+        },
+    );
+    let capacity = (inner.height as usize).saturating_sub(body.len() + 3);
+    let mut lines = body;
+    lines.push(Line::default());
+    lines.push(program);
+    lines.push(Line::default());
+    lines.extend(path_lines(app, &plan.paths, capacity, inner.width as usize));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
 /// A one-keystroke choice: prose naming each key, keys repeated in the border.
 fn choice(
     frame: &mut Frame,
@@ -1648,6 +1847,8 @@ fn scope_choice(
     let (title, verb) = match action {
         crate::ui::ScopedAction::Extract => ("Extract", "extract"),
         crate::ui::ScopedAction::Delete => ("Delete", "delete"),
+        crate::ui::ScopedAction::Run(false) => ("Run", "run a program on"),
+        crate::ui::ScopedAction::Run(true) => ("Run and exit", "run a program on"),
     };
     choice(
         frame,

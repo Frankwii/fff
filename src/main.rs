@@ -19,8 +19,9 @@ Interactive fuzzy file picker for the terminal.
 
 Press i to type and fuzzy-filter file and directory basenames (Neovim default),
 navigate with Enter, Alt+h and Alt+l, mark several paths with Tab, and confirm.
-The interface draws on /dev/tty; stdout receives only the selected paths, so
-fff works inside pipes and command substitution.
+The interface draws on /dev/tty. By default, leaving fff changes your shell's
+directory (with the --init shell function); --output-paths prints the selected
+paths instead, for pipes and command substitution.
 
 With no ROOTS, browsing starts in the invocation directory and follows
 navigation. Each ROOT is pinned: its descendants stay in the results wherever
@@ -28,9 +29,9 @@ you navigate.";
 
 const AFTER_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
-  <cyan>fff</cyan>                          browse from the current directory
-  <cyan>vim \"$(fff -g '*.rs')\"</cyan>       open one picked Rust file
-  <cyan>fff -0 | xargs -0 ls -ld</cyan>     pass marked paths safely to another tool
+  <cyan>fff</cyan>                          browse; ! or Enter on a file changes directory
+  <cyan>eval \"$(fff --init zsh)\"</cyan>     shell integration line for ~/.zshrc
+  <cyan>vim \"$(fff --output-paths)\"</cyan>  open one picked file
 
 Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 );
@@ -41,9 +42,11 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Browse from the current directory, three levels deep.
   <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex'</cyan>
       Search two pinned roots for TeX files.
-  <cyan>vim \"$(fff --relative)\"</cyan>
+  <cyan>eval \"$(fff --init zsh)\"</cyan>
+      In ~/.zshrc: leaving fff changes the shell's directory (bash, fish too).
+  <cyan>vim \"$(fff --output-paths --relative)\"</cyan>
       Open the picked file using a path relative to here.
-  <cyan>fff --exclude build --exclude '*.log' -0 | xargs -0 ls -ld</cyan>
+  <cyan>fff --output-paths --exclude build -0 | xargs -0 ls -ld</cyan>
       Act on every marked path with NUL-separated records.
   <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
@@ -57,6 +60,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
+  <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
   <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.
 
 <bold><green>Configuration file:</green></bold>
@@ -66,11 +70,12 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>fff --check-config</cyan> validates it and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
-  <cyan>0</cyan>    paths were selected (or the configuration is valid)
+  <cyan>0</cyan>    normal exit: a directory was chosen or paths printed (or the
+       configuration is valid); after gX, the program's own status
   <cyan>1</cyan>    startup, configuration (including an unknown --palette) or I/O error
   <cyan>2</cyan>    invalid command-line usage: unknown options or malformed values
        (--depth, --map-key, --glob, --exclude, ...)
-  <cyan>130</cyan>  cancelled with Ctrl+c; nothing is written to stdout
+  <cyan>130</cyan>  cancelled with Ctrl+c; nothing printed, no directory change
 
 <bold><green>Shell completions:</green></bold>
   bash  <cyan>source <<(fff --completions bash)</cyan>   in ~/.bashrc
@@ -85,7 +90,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
     name = "fff",
     bin_name = "fff",
     version,
-    about = "Interactive fuzzy file picker: browse in the terminal, print selected paths to stdout",
+    about = "Interactive fuzzy file browser and picker for the terminal",
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP,
     after_long_help = AFTER_LONG_HELP,
@@ -132,11 +137,19 @@ struct Args {
     /// Start with exclusion rules disabled; toggle with Alt+H
     #[arg(long, help_heading = "Search")]
     no_exclusions: bool,
-    /// Print paths relative to the invocation directory instead of absolute
+    /// Print the selected paths to stdout instead of changing directory
+    ///
+    /// The picker behavior for scripts and command substitution: Enter on a
+    /// file prints the marks and that file, Ctrl+w the marks, q the launch
+    /// directory and ! the browsing directory. Without it, fff chooses a
+    /// directory to change into (see --init).
     #[arg(long, help_heading = "Output")]
+    output_paths: bool,
+    /// Print paths relative to the invocation directory instead of absolute
+    #[arg(long, requires = "output_paths", help_heading = "Output")]
     relative: bool,
     /// Terminate each output path with NUL instead of newline (for xargs -0)
-    #[arg(short = '0', long, help_heading = "Output")]
+    #[arg(short = '0', long, requires = "output_paths", help_heading = "Output")]
     null: bool,
     /// Text-field editor backend; overrides [editor] backend in the configuration
     ///
@@ -188,6 +201,25 @@ struct Args {
     #[arg(long, value_name = "SHELL", help_heading = "Shell integration",
         value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
     completions: Option<String>,
+    /// Print a shell function that changes directory when fff exits, and exit
+    ///
+    /// Add `eval "$(fff --init zsh)"` (or bash) to your shell's startup file,
+    /// or `fff --init fish | source` for fish. The function is named fff and
+    /// calls the real binary with --cd-file.
+    #[arg(
+        long,
+        value_enum,
+        value_name = "SHELL",
+        help_heading = "Shell integration"
+    )]
+    init: Option<completion::InitShell>,
+    /// Write the directory to change into to FILE instead of printing it
+    ///
+    /// Used by the --init function. Nothing is written when the directory
+    /// would not change.
+    #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath,
+        help_heading = "Shell integration")]
+    cd_file: Option<PathBuf>,
 }
 fn main() -> ExitCode {
     // Answers `COMPLETE=<shell> fff ...` requests before anything is printed.
@@ -205,6 +237,10 @@ fn main() -> ExitCode {
 }
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let args = Args::parse();
+    if let Some(shell) = args.init {
+        print!("{}", completion::wrapper(shell));
+        return Ok(true);
+    }
     if let Some(shell) = &args.completions {
         let program = std::env::args_os().next().unwrap_or_else(|| "fff".into());
         completion::write_registration(shell, &program, &mut io::stdout().lock())?;
@@ -286,24 +322,63 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.bookmarks.clone(),
         app.home.clone(),
     );
-    if let Some(paths) = ui::run(
+    let finish = ui::run(
         app,
         keys,
         settings.cache,
         watcher,
         args.editor.or(settings.editor.backend),
         settings.performance,
-    )? {
-        write_paths(
-            io::stdout().lock(),
-            &paths,
-            &invocation,
-            args.relative,
-            args.null,
-        )?;
-        Ok(true)
-    } else {
-        Ok(false)
+    )?;
+    // In the default mode the session chooses a directory: the folder of the
+    // confirmed entry (a directory itself for directories).
+    let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
+        let Some(target) = target else {
+            return Ok(());
+        };
+        let dir = if target.is_dir() {
+            target.as_path()
+        } else {
+            target.parent().unwrap_or(target)
+        };
+        if dir == invocation {
+            return Ok(());
+        }
+        match &args.cd_file {
+            Some(file) => std::fs::write(file, dir.as_os_str().as_encoded_bytes()),
+            // Without the wrapper, `cd "$(command fff)"` still works.
+            None => write_paths(
+                io::stdout().lock(),
+                &[dir.to_owned()],
+                &invocation,
+                false,
+                false,
+            ),
+        }
+    };
+    match finish {
+        ui::Finish::Cancelled => Ok(false),
+        ui::Finish::Paths(paths) if args.output_paths => {
+            write_paths(
+                io::stdout().lock(),
+                &paths,
+                &invocation,
+                args.relative,
+                args.null,
+            )?;
+            Ok(true)
+        }
+        ui::Finish::Paths(paths) => {
+            change_to(paths.last())?;
+            Ok(true)
+        }
+        ui::Finish::Exec(plan) => {
+            // The wrapper changes to the browsing directory once the program ends.
+            if !args.output_paths {
+                change_to(Some(&plan.cwd))?;
+            }
+            Err(format!("Could not run {}: {}", plan.name, plan.exec()).into())
+        }
     }
 }
 

@@ -18,13 +18,41 @@ Or build and run directly:
 cargo build --release
 ./target/release/fff
 ./target/release/fff ~/notes ~/papers --depth 2 --glob '*.tex'
-./target/release/fff --no-dir --relative --null > paths.bin
+./target/release/fff --output-paths --no-dir --relative --null > paths.bin
 ```
 
 Run in a Linux/Unix terminal with `/dev/tty`. The interface uses the controlling
-terminal; stdout contains only selected paths, so redirection and command
-substitution work. Use the built binary directly or put it on your PATH as `fff`.
-`-h` summarizes options; `--help` includes defaults, examples and exit codes.
+terminal, never stdout. Put the binary on your PATH as `fff` and add the
+[shell integration](#shell-integration) line so that leaving fff can change your
+shell's directory. `-h` summarizes options; `--help` includes defaults, examples
+and exit codes.
+
+## Shell integration
+
+fff has two modes:
+
+- **Default: change directory on exit.** `q` leaves you where you started, `!`
+  takes you to the directory you were browsing, and Enter on a file takes you to
+  that file's folder (Ctrl+w: the last mark's folder; Ctrl+number: its target's
+  folder, or the target itself for a directory).
+- **`--output-paths`: print the selection.** The picker behavior for scripts and
+  command substitution, described under [returning paths](#browsing-and-returning-paths):
+  `nvim "$(fff --output-paths)"`, `fff --output-paths -0 | xargs -0 ls -ld`.
+
+A program cannot change its parent shell's directory, so the shell does it, as
+with nnn's quitcd scripts and zoxide. Add one line to your shell's startup file:
+
+```sh
+eval "$(fff --init zsh)"     # ~/.zshrc (or $ZDOTDIR/.zshrc)
+eval "$(fff --init bash)"    # ~/.bashrc
+fff --init fish | source     # ~/.config/fish/config.fish
+```
+
+This defines a shell function named `fff` that runs the real binary with
+`--cd-file` (a private temporary file), then changes to the directory fff wrote
+there, if any. Arguments pass through unchanged, so `fff --output-paths` keeps
+printing paths. Without the function, the default mode prints the chosen
+directory instead, so `cd "$(command fff)"` also works.
 
 The default editor is a clean embedded Neovim. Fields start in **Normal mode**,
 except new file/directory naming buffers, which start in **Insert mode**.
@@ -34,6 +62,9 @@ preserves your current editing mode. Neovim is optional;
 fallback unless explicitly requested. See [editing](docs/EDITING.md).
 
 ## Browsing and returning paths
+
+This section describes what each confirmation returns with `--output-paths`; in
+the default mode the same keys choose a directory instead (see above).
 
 Without root arguments, browsing starts in the invocation directory and follows
 navigation. Explicit roots stay pinned: results combine their descendants with
@@ -111,13 +142,15 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | n in Normal | Choose a new file or directory, then enter its name |
 | F1 | Key guide; Tab switches to Session details |
 | F5 | Force fresh discovery, bypassing cache replay |
-| q / ! in Normal | Exit and return the launch / current directory, ignoring marks |
+| gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
+| q / ! in Normal | Exit to the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
 
-`q` and `!` return one directory path with status 0, using the usual output
-format. `--no-dir` makes either exit successfully without output. Insert/basic
-editing keeps these characters as text. A shell wrapper can use the returned
-path to change directories; fff itself cannot change its parent shell's directory.
+`q` and `!` exit with status 0. With `--output-paths` they print the launch or
+current directory in the usual output format; in the default mode `!` changes
+to the current directory and `q` changes nothing. `--no-dir` makes either exit
+successfully without output. Insert/basic editing keeps these characters as
+text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
@@ -193,10 +226,13 @@ chords. `COMPLETE=SHELL fff` prints the same registration script.
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Paths selected, configuration valid, or help/completion printed |
+| 0 | Normal exit (directory chosen or paths printed), configuration valid, or help/completion printed |
 | 1 | Startup, configuration or I/O error, including an unknown palette |
 | 2 | Invalid CLI usage or malformed argument value |
-| 130 | Cancelled with Ctrl+c; no selected paths |
+| 130 | Cancelled with Ctrl+c; nothing printed and no directory change |
+
+After `gX`, fff's process becomes the program, so the exit status is the
+program's.
 
 See [development](docs/DEVELOPMENT.md) for the code map and verification commands.
 Possible extensions are listed in the [roadmap](docs/ROADMAP.md).

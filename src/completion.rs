@@ -280,3 +280,52 @@ mod tests {
         assert!(custom_palettes(Path::new("/nonexistent/fff.toml")).is_empty());
     }
 }
+
+/// Shells `fff --init` can wrap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum InitShell {
+    Bash,
+    Zsh,
+    Fish,
+}
+/// A shell function named `fff` that runs the real binary and then changes
+/// to the directory it chose, like nnn's quitcd scripts. A process cannot
+/// change its parent shell's directory, so the shell does it: fff writes the
+/// directory (exact bytes, no newline) to a private temporary file.
+pub fn wrapper(shell: InitShell) -> &'static str {
+    match shell {
+        InitShell::Bash | InitShell::Zsh => {
+            r#"# fff: change to the directory chosen on exit. Load with:
+#   eval "$(fff --init zsh)"   (or bash)
+fff() {
+    local fff_cd_file fff_dir fff_status
+    fff_cd_file=$(mktemp "${TMPDIR:-/tmp}/fff-cd.XXXXXX") || return
+    command fff --cd-file "$fff_cd_file" "$@"
+    fff_status=$?
+    if [ -s "$fff_cd_file" ]; then
+        # The x keeps a trailing newline in a directory name intact.
+        fff_dir=$(cat -- "$fff_cd_file"; printf x)
+        cd -- "${fff_dir%x}" || fff_status=$?
+    fi
+    rm -f -- "$fff_cd_file"
+    return "$fff_status"
+}
+"#
+        }
+        InitShell::Fish => {
+            r#"# fff: change to the directory chosen on exit. Load with:
+#   fff --init fish | source
+function fff --wraps fff --description 'fff, changing directory on exit'
+    set -l fff_cd_file (mktemp -t fff-cd.XXXXXX); or return
+    command fff --cd-file $fff_cd_file $argv
+    set -l fff_status $status
+    if test -s $fff_cd_file
+        cd -- (string collect -- (cat -- $fff_cd_file)); or set fff_status $status
+    end
+    rm -f -- $fff_cd_file
+    return $fff_status
+end
+"#
+        }
+    }
+}

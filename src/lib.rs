@@ -13,6 +13,7 @@ pub mod operations;
 mod palettes;
 mod prefetch;
 pub mod reload;
+pub mod run;
 pub mod ui;
 mod view;
 

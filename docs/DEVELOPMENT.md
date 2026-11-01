@@ -16,6 +16,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui.rs` | Terminal lifecycle, input reader, wakeups, editing focus and key dispatch. |
 | `src/view.rs` | Ratatui frames, display paths, help and rendered numbered targets. |
+| `src/run.rs` | gx/gX: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback and deletion review. |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
@@ -25,7 +26,9 @@ listed separately in the [roadmap](ROADMAP.md).
 
 ## Behavior to preserve
 
-- UI output uses `/dev/tty`; stdout contains selected-path bytes only. Relative
+- UI output uses `/dev/tty`. Stdout carries only selected-path bytes
+  (`--output-paths`) or the chosen directory (default mode without `--cd-file`);
+  programs started with gx/gX get `/dev/tty`, never fff's stdout. Relative
   output is based on the invocation directory, never the current browsing location.
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.

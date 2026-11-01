@@ -26,7 +26,9 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 class Session:
     # Tests pin basic editing unless they choose --editor or opt out with editor=None
     # (which exercises the configured/default backend).
-    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, editor="basic"):
+    # Tests also pin --output-paths (the picker mode) unless they pass
+    # output_paths=False to exercise the default directory-changing mode.
+    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, editor="basic", output_paths=True):
         master, slave = pty.openpty()
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
@@ -53,6 +55,8 @@ class Session:
                 args=(*args,"--no-config")
             if editor and "--editor" not in args:
                 args=(*args,"--editor",editor)
+            if output_paths:
+                args=(*args,"--output-paths")
             os.execv(BINARY, [BINARY, *([] if implicit_root else [str(root)]), *args])
         os.close(slave)
         os.close(writer)
@@ -111,6 +115,17 @@ class Session:
                 self.screen.feed(chunk)
         if not committed():
             raise AssertionError(f"UI did not emit {token!r} in a completed frame")
+
+    def wait_raw(self, token, timeout=5):
+        # Output outside fff's frames (e.g. after it hands over the terminal).
+        deadline = time.monotonic() + timeout
+        while token not in self.ui and time.monotonic() < deadline:
+            if select.select([self.master], [], [], 0.05)[0]:
+                chunk = os.read(self.master, 65536)
+                self.ui += chunk
+                self.screen.feed(chunk)
+        if token not in self.ui:
+            raise AssertionError(f"terminal did not show {token!r}")
 
     def send(self, data, wait=None):
         after = self.screen.frames
@@ -1384,6 +1399,84 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual((self.root / "b.zip.txt").read_text(), "b.zip")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
+
+    def test_default_mode_chooses_a_directory_instead_of_printing_paths(self):
+        sub = self.root / "sub"
+        sub.mkdir()
+        (sub / "file").write_text("x")
+        cd_file = self.root / "cd"
+        for keys, expected in [(b"q", None), (b"\x1bl!", sub)]:
+            cd_file.write_bytes(b"")
+            s = self.start("--cd-file", str(cd_file), "--editor", "nvim",
+                           implicit_root=True, output_paths=False)
+            s.send(keys)
+            self.assertEqual(s.finish(), (0, b""))
+            self.assertEqual(cd_file.read_bytes(), os.fsencode(expected) if expected else b"")
+            s.close()
+            self.session = None
+        # Enter on a file chooses its folder; without --cd-file it is printed.
+        s = self.start("--editor", "nvim", implicit_root=True, output_paths=False)
+        s.send(b"ifile", "❯ file")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(sub) + b"\n"))
+
+    def run_environment(self, name, body):
+        # A program on PATH, outside the browsed directory.
+        bin_dir = Path(self.tmp.name + "-bin")
+        bin_dir.mkdir(exist_ok=True)
+        self.addCleanup(shutil.rmtree, bin_dir, True)
+        program = bin_dir / name
+        program.write_text("#!/bin/sh\n" + body)
+        program.chmod(0o755)
+        return {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_gx_runs_a_completed_program_on_the_current_entry_and_comes_back(self):
+        (self.root / "alpha").write_text("a")
+        log = self.root / "log"
+        env = self.run_environment(
+            "recordargs", f'pwd > "{log}"; printf "%s\\n" "$@" >> "{log}"\n')
+        s = self.start("--no-config", "--editor", "nvim", implicit_root=True, environment=env)
+        s.send(b"gx", "Run · INSERT")
+        self.assertIn("Enter: Review ─── Tab: Complete ─── Esc: Cancel", s.screen.text)
+        s.send(b"recorda", "❯ recorda")
+        s.send(b"\t", "❯ recordargs ")
+        s.wait_ui("✓ " + self.tmp.name + "-bin/recordargs")
+        s.send(b"\r", "Run here")
+        self.assertIn("Enter: Run ─── Esc: Cancel", s.screen.text)
+        s.send(b"\r", "recordargs finished")
+        self.assertEqual(log.read_text().splitlines(), [str(self.root), str(self.root / "alpha")])
+        # Unknown commands abort before anything runs, with a suggestion.
+        s.send(b"gx", "Run · INSERT")
+        s.send(b"recordarg\r", "recordarg: command not found; did you mean recordargs?")
+        # A failing program keeps its output on screen until Enter.
+        s.send(b"gx", "Run · INSERT")
+        s.send(b"false\r", "Run here")
+        s.send(b"\r")
+        s.wait_raw(b"false exited with status 1. Press Enter to return to fff.")
+        s.send(b"\r", "false exited with status 1")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_gX_replaces_fff_with_the_program_and_records_the_directory(self):
+        sub = self.root / "sub"
+        sub.mkdir()
+        (sub / "beta").write_text("b")
+        log = self.root / "log"
+        cd_file = self.root / "cd"
+        cd_file.write_bytes(b"")
+        env = self.run_environment("finale", f'printf "%s\\n" "$@" > "{log}"; exit 7\n')
+        s = self.start("--no-config", "--editor", "nvim", "--cd-file", str(cd_file),
+                       implicit_root=True, environment=env, output_paths=False)
+        s.send(b"\x1bl", ("cwd", sub))
+        s.send(b"gX", "Run and exit · INSERT")
+        s.send(b"finale -x\r", "Run and exit")
+        s.send(b"\r")
+        status, output = s.finish()
+        self.assertEqual((status, output), (7, b""))
+        self.assertEqual(log.read_text().splitlines(), ["-x", str(sub / "beta")])
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(sub))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_single_line_naming_and_extraction_keys(self):

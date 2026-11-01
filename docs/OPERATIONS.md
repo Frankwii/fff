@@ -140,6 +140,52 @@ New file/directory naming buffers start in Insert mode, ready for typing.
 Names must be a single nonempty basename in the current directory; existing
 entries are refused. New files get ordinary permissions under your umask. Rename and extraction buffers start in Normal mode.
 
+## Running programs
+
+`gx` runs a program on the current or marked paths and comes back to fff; `gX`
+runs it in place of fff. Both use the same current / selection / all choice as
+extraction and deletion; with nothing current or marked, the program runs on no
+paths. Both are Normal-mode sequences, configurable as `run` and `run_exit` in
+`[keys.normal]`.
+
+A one-line prompt (starting in Insert mode) takes the command. **Tab** completes
+the command name from the programs on your PATH, and later words as paths
+relative to the browsing directory; when several candidates match, Tab inserts
+their common prefix, lists them, and pressing Tab again cycles through them. A
+line under the input shows what the command resolves to (`✓ /usr/bin/nvim`) or
+that it does not exist. **Enter** reviews; **Esc** cancels. Nothing is recorded:
+there is no command history.
+
+There is no shell. The line is split into words like a shell would split it
+(spaces separate; `'…'` is literal; `"…"` allows `\"` and `\\`; a backslash
+escapes one character; a leading `~` is your home), but nothing else is
+interpreted. Unquoted ``| & ; < > $ ` * ? ( )`` are refused with a message, since
+without a shell they could not mean what they mean in one. The first word must
+be a program on PATH (empty PATH entries, meaning the current directory, are
+ignored) or a path to an executable file, such as `./script`; an unknown command
+aborts with an error, suggesting the closest command name when there is one.
+The chosen paths are appended after the typed words, as separate absolute
+arguments, so no file name is ever read as syntax or as an option.
+
+A **Run here** / **Run and exit** window then shows the exact command, the
+program it resolved to, and the paths in argument order. **Enter** runs it;
+**Esc** cancels.
+
+- `gx`: fff leaves its screen and gives the program the terminal, then returns,
+  redraws and re-scans; marks are kept. The status line says the program
+  finished, or shows its exit status. If the program fails, fff first waits for
+  Enter so its error messages stay readable. While the program runs, Ctrl+c and
+  Ctrl+\\ (quit) reach only the program.
+- `gX`: fff restores the terminal and replaces itself with the program, which
+  then owns the terminal; the exit status is the program's. In the default mode
+  the shell integration then changes to the directory you were browsing, as `!`
+  would.
+
+Programs always read and write the terminal (`/dev/tty`), never fff's stdout,
+so both work while fff's output is redirected. They start in the browsing
+directory with fff's environment. Option completion (such as `--and-exit`) is
+not available yet.
+
 ## Deletion confirmation
 
 `x` deletes the current entry when nothing is marked, and the marks when the
@@ -222,4 +268,3 @@ entries, links, and special files. Colons are allowed. Extracted files keep the
 archive's permission bits, limited by your umask. Limits are 10,000 entries, 64 path components,
 2 GiB per file and 4 GiB total extracted bytes. Exceeding a limit discards staging.
 
-Executing commands on chosen files remains unimplemented.

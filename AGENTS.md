@@ -14,7 +14,8 @@ unless the user requests a change; tests provide regression coverage.
 
 Keep documentation current when behavior changes. Update the relevant guide rather
 than appending chronological decisions or maintaining a separate historical spec.
-Keep stdout limited to selected paths and preserve original filesystem paths
+Keep stdout limited to selected paths (`--output-paths`) or the chosen directory
+(default mode without `--cd-file`), and preserve original filesystem paths
 independently of abbreviated display labels.
 
 When adding or changing a CLI argument whose values make sense to complete

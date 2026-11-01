@@ -4,12 +4,16 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content-based search, similar to grep.
-- Execute commands on chosen files.
+- Tab completion of program options in the gx/gX prompt (for example
+  `dragon --and-exit`), which needs per-program knowledge.
+- Launching a program in the background while browsing continues, for GUI
+  programs that should not pause fff.
 
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
 
-File operations ship in 0.3.0; see [the operation guide](OPERATIONS.md). Buffer
+File operations and running programs (gx/gX) ship in 0.3.0; see [the
+operation guide](OPERATIONS.md). Buffer
 editors share write-on-close application and unwritten-edit discard behavior.
 
 The current release is 0.3.0. Version 1.0 is planned once the remaining roadmap

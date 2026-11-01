@@ -45,6 +45,9 @@ pub(crate) enum Focus {
         action: ScopedAction,
     },
     TransferConfirm(crate::operations::TransferPlan),
+    /// gx / gX: the command line, then its review before it runs.
+    Command(crate::run::Prompt),
+    RunConfirm(crate::run::Plan),
     NewChoice,
     Location(String),
     Bookmarks {
@@ -86,6 +89,40 @@ impl Terminal {
             )
         )?;
         Ok(guard)
+    }
+}
+impl Terminal {
+    /// Hands the terminal to another program: fff's screen and modes are undone.
+    fn suspend(&mut self) {
+        let _ = execute!(
+            self.0.backend_mut(),
+            EndSynchronizedUpdate,
+            PopKeyboardEnhancementFlags,
+            Show,
+            DisableBracketedPaste,
+            SetCursorStyle::DefaultUserShape,
+            LeaveAlternateScreen
+        );
+        let _ = terminal::disable_raw_mode();
+    }
+    /// Takes the terminal back and redraws everything on the next frame.
+    fn resume(&mut self) -> io::Result<()> {
+        terminal::enable_raw_mode()?;
+        execute!(
+            self.0.backend_mut(),
+            EnterAlternateScreen,
+            Hide,
+            EnableBracketedPaste,
+            PushKeyboardEnhancementFlags(
+                Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+            ),
+            terminal::Clear(terminal::ClearType::All)
+        )?;
+        // Forget both frames so the next draw sends every cell. ratatui's own
+        // clear() would query the cursor position, which needs a reply.
+        self.0.swap_buffers();
+        self.0.swap_buffers();
+        Ok(())
     }
 }
 impl Drop for Terminal {
@@ -144,6 +181,16 @@ impl Input {
         }
     }
 }
+impl Input {
+    /// A stand-in that reads nothing, while another program owns the terminal.
+    fn idle() -> Self {
+        Self {
+            events: std::sync::mpsc::sync_channel(1).1,
+            cancel: Default::default(),
+            thread: None,
+        }
+    }
+}
 impl Drop for Input {
     fn drop(&mut self) {
         self.cancel
@@ -157,6 +204,15 @@ impl Drop for Input {
     }
 }
 
+/// How a session ends.
+pub enum Finish {
+    /// Confirmed paths, or the directory of a quit key.
+    Paths(Vec<PathBuf>),
+    /// Ctrl+c.
+    Cancelled,
+    /// gX: the terminal is restored; the caller replaces fff with the program.
+    Exec(crate::run::Plan),
+}
 pub fn run(
     mut app: App,
     keys: crate::keys::KeyMap,
@@ -164,13 +220,13 @@ pub fn run(
     palettes: crate::reload::PaletteWatcher,
     backend: Option<crate::config::EditorBackend>,
     performance: crate::config::PerformanceConfig,
-) -> io::Result<Option<Vec<PathBuf>>> {
+) -> io::Result<Finish> {
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut terminal = Terminal::enter()?;
     let (wake, waking) = std::sync::mpsc::sync_channel(1);
-    let input = Input::start(wake.clone());
+    let mut input = Input::start(wake.clone());
     let mut discovery = Discovery::new(cache);
-    discovery.set_waker(wake);
+    discovery.set_waker(wake.clone());
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
     discovery.start(&mut app, true);
     let mut editor = start_editor(backend, "nvim", &mut app.status);
@@ -430,7 +486,7 @@ pub fn run(
             continue;
         };
         if key.modifiers.contains(M::CONTROL) && key.code == K::Char('c') {
-            return Ok(None);
+            return Ok(Finish::Cancelled);
         }
         // Multiline buffers keep Neovim's write/close lifecycle; single-line
         // names and destinations take Enter/Escape like the bookmark form.
@@ -449,13 +505,30 @@ pub fn run(
             NormalKey::Consumed => continue,
             NormalKey::Quit(current) => {
                 if app.no_dir {
-                    return Ok(Some(Vec::new()));
+                    return Ok(Finish::Paths(Vec::new()));
                 }
-                return Ok(Some(vec![if current {
+                return Ok(Finish::Paths(vec![if current {
                     app.cwd.clone()
                 } else {
                     invocation
                 }]));
+            }
+            NormalKey::Run(exit) => {
+                let current = match &focus {
+                    Focus::Marks { rows, index } => rows.get(*index).cloned(),
+                    _ => app.highlight.clone(),
+                };
+                focus = match scope(&app.marks, current) {
+                    Scope::Ready(paths) => start_run(&mut editor, paths, exit),
+                    Scope::Ask(current, selected) => Focus::ScopeChoice {
+                        current,
+                        selected,
+                        action: ScopedAction::Run(exit),
+                    },
+                    // A program may run on no files, in the browsing directory.
+                    Scope::Nothing => start_run(&mut editor, vec![], exit),
+                };
+                continue;
             }
         };
         let file_normal = matches!(focus, Focus::Marks { .. })
@@ -667,7 +740,7 @@ pub fn run(
             }
             let target = app.numbered(digit);
             if app.ready_path(&target) {
-                return Ok(Some(vec![target]));
+                return Ok(Finish::Paths(vec![target]));
             }
             continue;
         }
@@ -676,7 +749,7 @@ pub fn run(
         {
             discovery.checkpoint(&app);
             match app.enter_numbered(digit) {
-                EnterOutcome::Selected(paths) => return Ok(Some(paths)),
+                EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
                 EnterOutcome::Navigated => discovery.start(&mut app, true),
                 EnterOutcome::Stay => {}
             }
@@ -847,6 +920,7 @@ pub fn run(
                 focus = match action {
                     ScopedAction::Extract => start_extract(&mut app, &mut editor, paths),
                     ScopedAction::Delete => delete_confirmation(paths, &mut app.status),
+                    ScopedAction::Run(exit) => start_run(&mut editor, paths, *exit),
                 };
             }
             Focus::TransferConfirm(plan) => match key.code {
@@ -1144,6 +1218,72 @@ pub fn run(
                     );
                 }
             }
+            Focus::Command(prompt) => {
+                if key.code == K::Enter {
+                    // An unknown command or bad quoting aborts with the reason.
+                    match prompt.plan(&app.cwd, app.home.as_deref()) {
+                        Ok(plan) => focus = Focus::RunConfirm(plan),
+                        Err(error) => {
+                            app.status = error;
+                            focus = Focus::Results;
+                        }
+                    }
+                } else if key.code == K::Esc {
+                    focus = Focus::Results;
+                } else if key.code == K::Tab {
+                    prompt.complete(&app.cwd, app.home.as_deref());
+                    // Hand the completed line back to Neovim, still typing.
+                    if let Some(e) = &mut editor {
+                        e.reset_preserving_mode(Field::Command);
+                    }
+                } else {
+                    edit(
+                        &mut prompt.text,
+                        key,
+                        false,
+                        Field::Command,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                }
+            }
+            Focus::RunConfirm(plan) => match key.code {
+                K::Enter if plan.exit => return Ok(Finish::Exec(plan.clone())),
+                K::Enter => {
+                    let plan = plan.clone();
+                    focus = Focus::Results;
+                    // The program gets the terminal: stop reading input and
+                    // leave fff's screen until it ends.
+                    drop(std::mem::replace(&mut input, Input::idle()));
+                    terminal.suspend();
+                    let status = plan.wait();
+                    if let Ok(status) = &status
+                        && !status.success()
+                    {
+                        crate::run::pause_after_failure(&plan.line, *status);
+                    }
+                    terminal.resume()?;
+                    input = Input::start(wake.clone());
+                    app.status = match status {
+                        Ok(status) if status.success() => {
+                            let done = format!("{} finished", plan.name);
+                            app.status_success = done.clone();
+                            done
+                        }
+                        Ok(status) => format!("{} {}", plan.line, crate::run::describe(status)),
+                        Err(error) => format!("Could not run {}: {error}", plan.name),
+                    };
+                    let message = std::mem::take(&mut app.status);
+                    discovery.force_refresh(&mut app);
+                    app.status = message;
+                }
+                K::Esc => {
+                    app.status = "Run cancelled; nothing ran".into();
+                    focus = Focus::Results;
+                }
+                _ => {}
+            },
             Focus::Location(text) => {
                 if key.code == K::Enter {
                     let path = PathBuf::from(&*text);
@@ -1189,7 +1329,7 @@ pub fn run(
                     && key.code == K::Char('w')
                     && let Some(p) = app.confirm(None)
                 {
-                    return Ok(Some(p));
+                    return Ok(Finish::Paths(p));
                 }
             }
             Focus::Results => match (key.code, ctrl, alt) {
@@ -1201,7 +1341,7 @@ pub fn run(
                 }
                 (K::Char('w'), true, _) => {
                     if let Some(p) = app.confirm(None) {
-                        return Ok(Some(p));
+                        return Ok(Finish::Paths(p));
                     }
                 }
                 (K::Char(' '), _, true) => {
@@ -1294,7 +1434,7 @@ pub fn run(
                         .find(|c| Some(&c.path) == app.highlight.as_ref())
                         .cloned();
                     match app.enter(target) {
-                        EnterOutcome::Selected(paths) => return Ok(Some(paths)),
+                        EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
                         EnterOutcome::Navigated => discovery.start(&mut app, true),
                         EnterOutcome::Stay => {}
                     }
@@ -1456,6 +1596,8 @@ fn cycle(index: usize, len: usize, forward: bool) -> usize {
 pub enum ScopedAction {
     Extract,
     Delete,
+    /// gx (false) or gX (true).
+    Run(bool),
 }
 enum Scope {
     Ready(Vec<PathBuf>),
@@ -1510,6 +1652,12 @@ fn start_extract(
         cwd: app.cwd.clone(),
         text: String::new(),
     })
+}
+fn start_run(editor: &mut Option<Nvim>, paths: Vec<PathBuf>, exit: bool) -> Focus {
+    if let Some(e) = editor {
+        e.reset_insert(Field::Command);
+    }
+    Focus::Command(crate::run::Prompt::new(paths, exit))
 }
 fn delete_confirmation(sources: Vec<PathBuf>, status: &mut String) -> Focus {
     match crate::operations::DeletePlan::new(sources) {
@@ -1793,8 +1941,22 @@ fn palette_reloaded(app: &mut App, focus: &mut Focus, state: crate::reload::Pale
 fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
     use ListAction::*;
     match focus {
-        Focus::Results => Some(&[Left, Down, Up, Right, First, Last, Mark, Quit, QuitCurrent]),
-        Focus::Marks { .. } => Some(&[Down, Up, First, Last, Mark, Quit, QuitCurrent]),
+        Focus::Results => Some(&[
+            Left,
+            Down,
+            Up,
+            Right,
+            First,
+            Last,
+            Mark,
+            Quit,
+            QuitCurrent,
+            Run,
+            RunExit,
+        ]),
+        Focus::Marks { .. } => {
+            Some(&[Down, Up, First, Last, Mark, Quit, QuitCurrent, Run, RunExit])
+        }
         Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
             Some(&[Down, Up, First, Last, Quit, QuitCurrent])
         }
@@ -1822,6 +1984,8 @@ enum NormalKey {
     Pass(KeyEvent),
     Consumed,
     Quit(bool),
+    /// gx (false) or gX (true).
+    Run(bool),
 }
 /// Dispatch configured Normal-mode actions in their supported list views.
 /// Marked lists accept their actions without an editing mode.
@@ -1851,6 +2015,8 @@ fn normal_list_key(
             Step::Pending => return NormalKey::Consumed,
             Step::Action(ListAction::Quit) => return NormalKey::Quit(false),
             Step::Action(ListAction::QuitCurrent) => return NormalKey::Quit(true),
+            Step::Action(ListAction::Run) => return NormalKey::Run(false),
+            Step::Action(ListAction::RunExit) => return NormalKey::Run(true),
             Step::Action(action) => {
                 return match action.alt_key() {
                     Some(alt) => NormalKey::Pass(alt),
@@ -1915,6 +2081,7 @@ fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
     match focus {
         Focus::Results => Some((Field::Query, app.query.clone())),
         Focus::Location(text) => Some((Field::Location, text.clone())),
+        Focus::Command(prompt) => Some((Field::Command, prompt.text.clone())),
         Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
         Focus::Operation(draft) => Some((draft.field(), draft.text.clone())),
         Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),

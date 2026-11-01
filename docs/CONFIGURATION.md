@@ -398,11 +398,15 @@ right = "l"          # Same as Alt+l (results: enter highlighted directory)
 first = "gg"         # Highlight the first row
 last = "G"           # Highlight the last row
 mark = "<space>"     # Mark/unmark like Tab (results and marks only)
-quit = "q"           # Exit and return the launch directory
-quit_current = "!"   # Exit and return the current browsing directory
+quit = "q"           # Exit to the launch directory (no directory change)
+quit_current = "!"   # Exit to the current browsing directory
+run = "gx"           # Run a program on the current/marked paths, come back
+run_exit = "gX"      # Run a program on the current/marked paths in place of fff
 ```
 
-Quit actions work in Normal-mode fields and in the marked list, ignoring marks;
+`run` and `run_exit` work in results and the marked list; see
+[running programs](OPERATIONS.md#running-programs). Quit actions work in
+Normal-mode fields and in the marked list, ignoring marks;
 `--no-dir` exits without returning a directory. Basic text fields keep literal
 `q` and `!`. Disable `quit` before reusing `q` as a prefix for another action.
 
