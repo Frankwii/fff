@@ -14,7 +14,6 @@ pub(crate) struct Key {
     hidden: bool,
     ignore: bool,
     rules: Vec<String>,
-    glob: Option<String>,
 }
 impl Key {
     pub(crate) fn of(app: &App) -> Self {
@@ -25,7 +24,6 @@ impl Key {
             hidden: app.policy.hidden,
             ignore: app.policy.ignore,
             rules: app.policy.rules.clone(),
-            glob: app.policy.glob.as_ref().map(|g| g.glob().glob().to_owned()),
         }
     }
     pub(crate) fn for_directory(app: &App, cwd: PathBuf) -> Self {
@@ -230,14 +228,16 @@ mod tests {
         assert!(cache.entries.len() <= 2);
     }
     #[test]
-    fn cache_key_covers_discovery_options_but_not_fuzzy_query_or_marks() {
+    fn cache_key_covers_discovery_options_but_not_fuzzy_query_marks_or_filters() {
         let base = app("/a");
         let key = Key::of(&base);
         let mut other = app("/a");
         other.query = "abc".into();
         other.marks.push("/elsewhere".into());
+        // File filters only choose which discovered files are listed.
+        other.policy.set_filters(vec!["*.tex".into()]).unwrap();
         assert_eq!(key, Key::of(&other));
-        for change in 0..8 {
+        for change in 0..7 {
             let mut other = app("/a");
             match change {
                 0 => other.cwd = "/b".into(),
@@ -246,8 +246,7 @@ mod tests {
                 3 => other.policy.hidden = true,
                 4 => other.policy.ignore = true,
                 5 => other.policy.set_rules(vec!["build".into()]).unwrap(),
-                6 => other.policy.glob = Some(crate::glob("*.tex").unwrap()),
-                7 => {
+                6 => {
                     other.scope = vec!["/b".into(), "/a".into()];
                 }
                 _ => unreachable!(),

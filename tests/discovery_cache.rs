@@ -108,9 +108,12 @@ fn changed_options_miss_and_restoring_options_hits() {
     d.start(&mut app, true);
     assert!(app.scanning);
     complete(&mut d, &mut app);
-    app.policy.glob = Some(fuzzy_file_finder::glob("*.tex").unwrap());
+    // File filters only choose among discovered files, so the snapshot is reused.
+    let hits = d.stats().hits;
+    app.policy.set_filters(vec!["*.tex".into()]).unwrap();
     d.start(&mut app, true);
-    assert!(app.scanning);
+    assert_eq!(d.stats().hits, hits + 1);
+    assert!(app.rows.is_empty());
     complete(&mut d, &mut app);
 }
 #[test]

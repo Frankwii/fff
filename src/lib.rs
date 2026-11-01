@@ -36,7 +36,10 @@ pub struct Policy {
     pub ignore: bool,
     pub rules: Vec<String>,
     pub exclusions: Vec<GlobMatcher>,
-    pub glob: Option<GlobMatcher>,
+    /// File filters (`--glob`, Alt+f): with any, only files whose basename
+    /// matches one of them are listed; directories are still traversed.
+    pub filters: Vec<String>,
+    pub globs: Vec<GlobMatcher>,
 }
 
 pub fn glob(pattern: &str) -> Result<GlobMatcher, globset::Error> {
@@ -55,6 +58,20 @@ impl Policy {
         self.rules = rules;
         self.exclusions = compiled;
         Ok(())
+    }
+    /// Like `set_rules`, atomic: every filter compiles before any replaces the list.
+    pub fn set_filters(&mut self, filters: Vec<String>) -> Result<(), globset::Error> {
+        let compiled = filters
+            .iter()
+            .map(|s| glob(s))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.filters = filters;
+        self.globs = compiled;
+        Ok(())
+    }
+    /// Whether a file filter admits `name`, a basename; true when there are none.
+    pub fn admits(&self, name: &Path) -> bool {
+        self.globs.is_empty() || self.globs.iter().any(|g| g.is_match(name))
     }
     /// Byte-level `allows` for `path` below `root`, used on every refresh.
     /// `None` (use `allows`) when exclusion rules apply or the bytes do not
@@ -184,7 +201,7 @@ struct RefreshBasis {
     hidden: bool,
     ignore: bool,
     rules: Vec<String>,
-    glob: Option<String>,
+    filters: Vec<String>,
     no_dir: bool,
 }
 impl RefreshBasis {
@@ -197,7 +214,7 @@ impl RefreshBasis {
             hidden: app.policy.hidden,
             ignore: app.policy.ignore,
             rules: app.policy.rules.clone(),
-            glob: app.policy.glob.as_ref().map(|g| g.glob().glob().to_owned()),
+            filters: app.policy.filters.clone(),
             no_dir: app.no_dir,
         }
     }
@@ -359,16 +376,17 @@ impl App {
             self.known_version += 1;
         }
     }
-    /// Rows an empty query would list: eligible, and passing `--no-dir` and the glob.
+    /// Rows an empty query would list: eligible, and passing `--no-dir` and the
+    /// file filters, which hide directories whenever any is set.
     fn listed(&self, c: &Candidate) -> bool {
         self.eligible(c)
             && !(self.no_dir && c.directory)
-            && !self.policy.glob.as_ref().is_some_and(|g| {
-                c.directory
-                    || c.path
-                        .file_name()
-                        .is_none_or(|name| !g.is_match(Path::new(name.to_string_lossy().as_ref())))
-            })
+            && (self.policy.globs.is_empty()
+                || !c.directory
+                    && c.path.file_name().is_some_and(|name| {
+                        self.policy
+                            .admits(Path::new(name.to_string_lossy().as_ref()))
+                    }))
     }
     pub fn refresh(&mut self) {
         let basis = RefreshBasis::of(self);

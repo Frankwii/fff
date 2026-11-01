@@ -1,8 +1,6 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
-use fuzzy_file_finder::{
-    App, Policy, completion, config::Settings, glob, keys::KeyMap, ui, write_paths,
-};
+use fuzzy_file_finder::{App, Policy, completion, config::Settings, keys::KeyMap, ui, write_paths};
 use std::{io, path::PathBuf, process::ExitCode};
 
 const STYLES: styling::Styles = styling::Styles::styled()
@@ -39,8 +37,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
   <cyan>fff</cyan>
       Browse from the current directory, three levels deep.
-  <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex'</cyan>
-      Search two pinned roots for TeX files.
+  <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'</cyan>
+      Search two pinned roots for TeX and PDF files.
   <cyan>vim \"$(fff --relative)\"</cyan>
       Open the picked file using a path relative to here.
   <cyan>fff --exclude build --exclude '*.log' -0 | xargs -0 ls -ld</cyan>
@@ -105,12 +103,14 @@ struct Args {
     #[arg(short, long, default_value_t = 3, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: u32,
-    /// Only list files whose basename matches GLOB (still traverse directories)
+    /// Only list files whose basename matches GLOB; repeat to allow several
     ///
-    /// Uses globset syntax (*, ?, [abc], **); quote it so the shell does not
-    /// expand it.
+    /// A file is listed when it matches any GLOB; directories are hidden but
+    /// still traversed. Uses globset syntax (*, ?, [abc], {a,b}); quote it so
+    /// the shell does not expand it. Edit the filters during the session with
+    /// Alt+f.
     #[arg(short, long, value_name = "GLOB", help_heading = "Search")]
-    glob: Option<String>,
+    glob: Vec<String>,
     /// Exclude a basename or root-relative glob; repeat for several rules
     ///
     /// A matching directory prunes its whole subtree. Edit the rules during the
@@ -228,12 +228,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     if let Err(e) = policy.set_rules(args.exclusions) {
         usage("--exclude", &e);
     }
-    policy.glob = args
-        .glob
-        .as_deref()
-        .map(glob)
-        .transpose()
-        .unwrap_or_else(|e| usage("--glob", &e));
+    if let Err(e) = policy.set_filters(args.glob) {
+        usage("--glob", &e);
+    }
     let settings = Settings::load(
         args.config.as_deref(),
         args.no_config,

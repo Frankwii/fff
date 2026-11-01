@@ -17,6 +17,7 @@ pub enum Field {
     Extraction,
     Location,
     Exclusions,
+    Filters,
     Bookmarks,
     BookmarkName,
     BookmarkPath,

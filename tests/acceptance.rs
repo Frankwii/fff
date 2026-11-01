@@ -236,10 +236,8 @@ fn real_discovery_glob_depth_and_retained_state() {
     for name in ["zebra.tex", "topic/alpha.tex", "topic/details/beta.tex"] {
         f.file(name);
     }
-    let policy = Policy {
-        glob: Some(glob("*.tex").unwrap()),
-        ..Policy::default()
-    };
+    let mut policy = Policy::default();
+    policy.set_filters(vec!["*.tex".into()]).unwrap();
     let mut app = App::new(vec![f.0.clone()], 1, policy);
     for depth in [1, 2, 3, 2, 4] {
         app.depth = depth;
@@ -248,6 +246,47 @@ fn real_discovery_glob_depth_and_retained_state() {
         assert_eq!(app.rows.len(), depth.min(3));
         assert!(app.rows.iter().all(|c| !c.directory && c.depth <= depth));
     }
+}
+#[test]
+fn file_filters_list_files_matching_any_and_replace_atomically() {
+    let mut app = app();
+    for (name, dir, depth) in [
+        ("notes", true, 1),
+        ("notes/a.pdf", false, 2),
+        ("b.DJVU", false, 1),
+        ("c.epub", false, 1),
+        ("d.txt", false, 1),
+    ] {
+        app.insert(0, candidate(name, dir, depth));
+    }
+    let listed = |app: &mut App| {
+        app.refresh();
+        let mut names: Vec<_> = app
+            .rows
+            .iter()
+            .map(|c| c.path.strip_prefix("/fixture").unwrap().to_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    app.policy
+        .set_filters(vec!["*.pdf".into(), "*.{djvu,DJVU}".into()])
+        .unwrap();
+    // Any filter admits a file; directories are hidden while filters apply.
+    assert_eq!(
+        listed(&mut app),
+        [Path::new("b.DJVU"), Path::new("notes/a.pdf")]
+    );
+    // An invalid glob leaves the previous filters in force.
+    assert!(glob("[").is_err());
+    assert!(
+        app.policy
+            .set_filters(vec!["*.epub".into(), "[".into()])
+            .is_err()
+    );
+    assert_eq!(app.policy.filters, ["*.pdf", "*.{djvu,DJVU}"]);
+    app.policy.set_filters(Vec::new()).unwrap();
+    assert_eq!(listed(&mut app).len(), 5);
 }
 #[test]
 fn marks_confirmation_and_missing_paths() {

@@ -196,9 +196,14 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(Path.cwd().resolve()) + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_no_dir_quit_returns_no_directory(self):
+    def test_no_dir_starts_in_insert_and_quit_returns_no_directory(self):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim", "--no-dir")
+        # A file choice starts ready to type: "!" is query text here.
+        s.send(b"", "Query · INSERT")
+        s.send(b"!", "❯ !")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "❯ type to filter")
         s.send(b"!")
         self.assertEqual(s.finish(), (0, b""))
 
@@ -257,13 +262,31 @@ class TerminalTests(unittest.TestCase):
         (self.root / "build" / "log").touch()
         (self.root / "main.tex").touch()
         s = self.start("--depth", "1", "--exclude", "build")
-        s.send(b"\x1b[1;3C", b"depth 2")  # Alt+Right
-        s.send(b"\x1bH", "exclusions off")
+        s.send(b"\x1b[1;3C", "depth 2   exclusions on")  # Alt+Right
+        s.send(b"\x1bH")
+        s.wait_absent("exclusions on")
         s.send(b"\x1be", b"one glob per line")
         before_apply = len(s.ui)
         s.send(b"\r*.tex\x13", "❯")
         self.assertNotIn(b"No matching results", s.ui[before_apply:])
         s.send(b"\x1bH", b"No matching results")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_repeated_globs_and_filter_editor(self):
+        for name in ("a.pdf", "b.epub", "c.log"):
+            (self.root / name).touch()
+        s = self.start("--depth", "1", "--glob", "*.pdf", "--glob", "*.epub")
+        s.send(b"", "filters on")
+        s.wait_ui("b.epub")
+        self.assertIn("a.pdf", s.screen.text)
+        self.assertNotIn("c.log", s.screen.text)
+        s.send(b"\x1bf", "Edit filters")
+        self.assertIn("*.epub", s.screen.text)
+        s.send(b"\r*.log\x13", "c.log")  # Ctrl+s applies
+        s.send(b"\x1bf", "Edit filters")
+        s.send(b"\x7f" * 20 + b"\x13")  # clear every line: no filters left
+        s.wait_absent("filters on")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
