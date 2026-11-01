@@ -214,7 +214,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::BookmarkIcons { query, index, .. } => {
             bookmark_icons(frame, area, app, query, *index)
         }
-        Focus::BookmarkDelete { target, .. } => bookmark_delete(frame, area, app, *target),
+        Focus::BookmarkDelete { target, .. } => bookmark_delete(frame, main, app, *target),
         Focus::Palettes { query, index, .. } => palettes(frame, area, app, query, *index),
         Focus::Location(text) => prompt(
             frame,
@@ -1869,7 +1869,7 @@ fn bookmarks(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize
     );
     visible
 }
-/// Shared modal frame for the bookmark icon chooser and deletion prompt.
+/// Modal frame for the bookmark icon chooser.
 fn bookmark_dialog(frame: &mut Frame, area: Rect, app: &App, title: String, height: u16) -> Rect {
     let width = area.width.saturating_sub(2).min(90);
     let height = area.height.saturating_sub(2).min(height);
@@ -2103,29 +2103,77 @@ fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &str, index: 
         Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
     );
 }
-fn bookmark_delete(frame: &mut Frame, area: Rect, app: &App, index: usize) {
-    let inner = bookmark_dialog(frame, area, app, "Delete bookmark?".into(), 10);
+/// Bookmark deletion uses the operation sheet in the deletion accent, listing
+/// the one entry like a chooser row.
+fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: usize) {
     let theme = app.palette;
     let Some(bookmark) = app.bookmarks.get(index) else {
         return;
     };
-    let lines = vec![
-        Line::from(bold(safe(&bookmark.name), theme.marked)),
-        Line::from(styled(
+    let body = prose(
+        theme,
+        theme.error,
+        "Press *Enter* to remove this bookmark, or *Esc* to keep it. \
+         The directory itself is not touched.",
+        main.width.saturating_sub(4) as usize,
+    );
+    let summary = match &app.bookmark_store.path {
+        Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
+        None => "this session only".into(),
+    };
+    // Borders, prose, a blank line, the bookmark, and a row for errors.
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        body.len() as u16 + 5,
+        Sheet {
+            title: " Delete bookmark ".into(),
+            accent: theme.error,
+            keys: &[("Enter", "Delete"), ("Esc", "Cancel")],
+            summary: Some(summary),
+        },
+    );
+    let available = bookmark.path.is_dir();
+    let icon = match &bookmark.icon {
+        Some(icon) => safe(icon),
+        None if app.icons => crate::icons::icon(&bookmark.path, true).glyph.to_string(),
+        None => String::new(),
+    };
+    let mut row = vec![];
+    if !icon.is_empty() {
+        let pad = 3usize.saturating_sub(icon.width());
+        row.push(styled(
+            icon + &" ".repeat(pad),
+            if available { theme.marked } else { theme.error },
+        ));
+    }
+    let name = safe(&bookmark.name);
+    row.push(bold(
+        name.clone(),
+        if available { theme.marked } else { theme.error },
+    ));
+    let used = row.iter().map(|s| s.width()).sum::<usize>() + 3;
+    row.push(styled(
+        format!(
+            "   {}",
             elide(
-                &safe(bookmark.path.display().to_string()),
-                inner.width as usize,
-            ),
-            theme.muted,
-        )),
-        Line::from(""),
-        Line::from(styled(
-            "Enter deletes this bookmark · Esc cancels",
-            theme.text,
-        )),
-        Line::from(styled(safe(&app.status), theme.error)),
-    ];
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+                &tilde(&bookmark.path, app.home.as_deref()),
+                (inner.width as usize).saturating_sub(used),
+            )
+        ),
+        theme.muted,
+    ));
+    let mut lines = body;
+    lines.push(Line::default());
+    lines.push(Line::from(row));
+    frame.render_widget(Paragraph::new(lines), inner);
+    if !app.status.is_empty() && app.status != app.status_success {
+        frame.render_widget(
+            Paragraph::new(styled(safe(&app.status), theme.error)),
+            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        );
+    }
 }
 /// Alt+p chooser. The whole frame already uses the highlighted (previewed) palette.
 fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
