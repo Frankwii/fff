@@ -61,6 +61,11 @@ Picker maps those upstream colors to its own UI roles; it does not reproduce an
 editor's syntax-highlight rules. Catppuccin uses base/mantle/text, subtext0,
 overlay0, blue/yellow/green/red, and surface0 for the main roles. Nord uses its
 Polar Night backgrounds, Snow Storm text, Frost accents, and Aurora statuses.
-Gruvbox uses its original dark/light backgrounds with bright/faded accents.
+Gruvbox follows how the Vim/Neovim colorscheme *feels* rather than its first
+palette slots: a flat `bg0` canvas (`#282828` / `#fbf1c7`) with `bg2`/`bg3`
+borders and the gray comment color (`#928374`) for secondary text. Orange — bright
+`#fe8019` in dark, faded `#af3a03` in light — is the accent: focused borders,
+directories, the highlight caret and the current-directory badge, with yellow for
+marks and bright/faded green and red for status.
 Tokyo Night uses exported primary, normal, and bright terminal colors. All
 values are compiled into the binary; runtime palette selection needs no network.

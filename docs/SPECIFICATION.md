@@ -709,6 +709,15 @@ without an icon use the Nerd Font folder glyph when `[ui] icons` is enabled.
 Explicit icons are shown even when file icons are disabled, since the user chose
 them; names stay aligned in either case. Icons are presentation only.
 
+### 21.2 Gruvbox closer to the Neovim colorscheme
+
+User request: make gruvbox "a bit more similar to the one in nvim. I remember it
+being quite orange", since the earlier mapping used palette slots rather than the
+memorable colors. `gruvbox-dark` and `gruvbox-light` now use a flat `bg0` canvas,
+the gray comment color for muted text, `bg2`/`bg3` borders, and orange (bright
+`#fe8019`, faded `#af3a03`) as accent and current-directory color. Values remain
+upstream gruvbox colors; see PALETTES.md.
+
 ### 21.6 Default configuration path
 
 User request: "Make the default config path be `$XDG_CONFIG_HOME/picker/config.toml`".
