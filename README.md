@@ -167,7 +167,8 @@ Revisits replay a cached frame before processing fresh scan batches; interrupted
 visits can checkpoint their visible prefix. Cache size and stale age are
 configurable; F5 bypasses the current snapshot.
 
-All Catppuccin flavors, Nord, Gruvbox dark/light, and Tokyo Night variants are
+All Catppuccin flavors, Nord, Gruvbox, Tokyo Night, Dracula, Everforest, Kanagawa,
+One Dark, Rosé Pine and Solarized variants are
 available as dashed palette names. Palette changes reload live from TOML; Alt+p
 previews and applies any palette for the session without rewriting the config,
 and Alt+P re-reads the configured palette immediately. See the

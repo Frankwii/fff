@@ -808,3 +808,12 @@ empty status, so a message reported again by a key, even with identical text,
 restarts its timer, while a message left untouched keeps its deadline. Messages
 from background work (palette reload, discovery) start their timer when they
 first appear.
+
+### 22.3 More built-in palettes
+
+User request: "add more built-in themes you'd like". Added `dracula`,
+`everforest-dark`/`-light` (`everforest`), `kanagawa-wave`/`-dragon` (`kanagawa`),
+`onedark`, `rose-pine`, `rose-pine-moon`, `rose-pine-dawn`, and
+`solarized-dark`/`-light` (`solarized`), listed after Tokyo Night in the chooser.
+They use flat canvases and each family's signature accent, like gruvbox in 21.2.
+A contrast test guards all built-ins. Sources and role mappings are in PALETTES.md.

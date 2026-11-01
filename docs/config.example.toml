@@ -3,7 +3,8 @@
 # Check without opening the TUI: picker --config PATH --check-config
 
 [ui]
-# See PALETTES.md: catppuccin-*, nord, gruvbox-*, tokyonight-*, plus originals.
+# See PALETTES.md: catppuccin-*, nord, gruvbox-*, tokyonight-*, dracula,
+# everforest-*, kanagawa-*, onedark, rose-pine*, solarized-*, plus originals.
 # At runtime, Alt+p previews/applies a palette for the session (this file is
 # never rewritten) and Alt+P re-reads the palette chosen here.
 palette = "midnight"

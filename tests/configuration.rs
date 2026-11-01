@@ -197,6 +197,17 @@ fn official_palette_variants_and_aliases() {
         ("tokyonight-storm", 0x24283b),
         ("tokyonight-moon", 0x222436),
         ("tokyonight-day", 0xe1e2e7),
+        ("dracula", 0x282a36),
+        ("everforest-dark", 0x2d353b),
+        ("everforest-light", 0xfdf6e3),
+        ("kanagawa-wave", 0x1f1f28),
+        ("kanagawa-dragon", 0x181616),
+        ("onedark", 0x282c34),
+        ("rose-pine", 0x191724),
+        ("rose-pine-moon", 0x232136),
+        ("rose-pine-dawn", 0xfaf4ed),
+        ("solarized-dark", 0x002b36),
+        ("solarized-light", 0xfdf6e3),
     ] {
         assert_eq!(
             Palette::named(name).unwrap().background,
@@ -206,6 +217,14 @@ fn official_palette_variants_and_aliases() {
         assert!(parse(&text).is_ok());
     }
     assert_eq!(Palette::named("gruvbox"), Palette::named("gruvbox-dark"));
+    for (alias, name) in [
+        ("everforest", "everforest-dark"),
+        ("kanagawa", "kanagawa-wave"),
+        ("solarized", "solarized-dark"),
+    ] {
+        assert!(!Palette::names().contains(&alias));
+        assert_eq!(Palette::named(alias), Palette::named(name));
+    }
     assert_eq!(
         Palette::named("tokyonight"),
         Palette::named("tokyonight-night")
@@ -266,4 +285,39 @@ fn message_seconds_defaults_to_four_and_zero_keeps_messages() {
         parse("[ui]\nmessage_seconds=0").unwrap().message_timeout,
         None
     );
+}
+#[test]
+fn built_in_palettes_keep_text_readable() {
+    // WCAG relative luminance contrast against the panel color.
+    fn contrast(a: Color, b: Color) -> f64 {
+        let luminance = |c: Color| {
+            let Color::Rgb(r, g, b) = c else { panic!("{c:?}") };
+            let channel = |v: u8| {
+                let v = v as f64 / 255.0;
+                if v <= 0.03928 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+        };
+        let (x, y) = (luminance(a), luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+    for name in Palette::names() {
+        let p = Palette::named(name).unwrap();
+        assert!(contrast(p.text, p.panel) >= 4.0, "{name} text");
+        for (role, color) in [
+            ("muted", p.muted),
+            ("accent", p.accent),
+            ("marked", p.marked),
+            ("success", p.success),
+            ("error", p.error),
+        ] {
+            assert!(contrast(color, p.panel) >= 2.0, "{name} {role}");
+        }
+        assert!(contrast(p.text, p.selection) >= 2.5, "{name} selection");
+        assert_ne!(p.selection, p.panel, "{name} selection");
+    }
 }

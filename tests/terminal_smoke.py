@@ -669,8 +669,8 @@ class TerminalTests(unittest.TestCase):
         # G previews and applies the last palette; gg then j select the second.
         mark = len(s.ui)
         s.send(b"G")
-        s.send(b"\r", "Palette tokyonight-day applied")
-        self.assertIn(b"48;2;225;226;231", s.ui[mark:])
+        s.send(b"\r", "Palette solarized-light applied")
+        self.assertIn(b"48;2;253;246;227", s.ui[mark:])
         s.send(b"\x1bp", "Palettes ·")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"ggj\r", "Palette light applied")

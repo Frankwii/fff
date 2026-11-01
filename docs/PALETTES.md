@@ -13,6 +13,12 @@ palette = "catppuccin-mocha"
 | Nord | `nord` |
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` (`gruvbox` aliases dark) |
 | Tokyo Night | `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`, `tokyonight-day` (`tokyonight` aliases night) |
+| Dracula | `dracula` |
+| Everforest | `everforest-dark`, `everforest-light` (`everforest` aliases dark; medium contrast) |
+| Kanagawa | `kanagawa-wave`, `kanagawa-dragon` (`kanagawa` aliases wave) |
+| One Dark | `onedark` |
+| Rosé Pine | `rose-pine`, `rose-pine-moon`, `rose-pine-dawn` |
+| Solarized | `solarized-dark`, `solarized-light` (`solarized` aliases dark) |
 | Picker originals | `midnight`, `light`, `forest` |
 
 Names are lowercase and use dashes. Catppuccin is spelled `catppuccin`; Frappé's
@@ -51,6 +57,13 @@ The numeric colors were checked against these upstream sources on 2026-11-01:
   [official palette JSON](https://github.com/catppuccin/palette/blob/main/palette.json), version 1.8.0.
 - [Nord's official colors and palettes](https://www.nordtheme.com/docs/colors-and-palettes/).
 - [Gruvbox's original color definitions](https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim).
+- [Dracula specification](https://spec.draculatheme.com/).
+- [Everforest palette](https://github.com/sainnhe/everforest/blob/master/palette.md).
+- [Kanagawa colors](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/colors.lua).
+- [One Dark](https://github.com/joshdick/onedark.vim/blob/main/colors/onedark.vim) and
+  One Dark Pro's comment color.
+- [Rosé Pine palette](https://rosepinetheme.com/palette/ingredients/).
+- [Solarized](https://ethanschoonover.com/solarized/).
 - Tokyo Night's official Alacritty exports:
   [night](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_night.toml),
   [storm](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_storm.toml),
@@ -67,5 +80,22 @@ borders and the gray comment color (`#928374`) for secondary text. Orange — br
 `#fe8019` in dark, faded `#af3a03` in light — is the accent: focused borders,
 directories, the highlight caret and the current-directory badge, with yellow for
 marks and bright/faded green and red for status.
-Tokyo Night uses exported primary, normal, and bright terminal colors. All
+Tokyo Night uses exported primary, normal, and bright terminal colors.
+
+The families added later follow the same flat-canvas approach, each with its
+signature accent on directories, focus and the `@` badge:
+
+- **Dracula**: Background/Current Line/Comment, purple accent, pink marks.
+- **Everforest** (medium): `bg0`, `grey1` muted, `bg4` borders, green accent,
+  yellow marks, aqua success.
+- **Kanagawa**: wave uses sumiInk3, fujiWhite/fujiGray, crystalBlue, carpYellow and
+  waveBlue2 selection; dragon uses dragonBlack3, dragonBlue2 and a dragonOrange badge.
+- **One Dark**: `#282c34`, blue accent, purple badge, and the One Dark Pro comment
+  gray `#7f848e` (the original `#5c6370` is too dim for secondary text).
+- **Rosé Pine**: base, subtle, highlight med/high, rose accent, gold marks, foam
+  (pine in dawn) success, love errors.
+- **Solarized**: base03/base3 canvases, blue accent, yellow marks, green/red status.
+
+Light variants keep upstream accents even where their contrast is lower; a test
+keeps every built-in's text at 4:1 or better and other text roles at 2:1 or better. All
 values are compiled into the binary; runtime palette selection needs no network.

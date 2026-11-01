@@ -1,4 +1,5 @@
-//! Semantic mappings of upstream palette colors, verified 2026-11-01.
+//! Semantic mappings of upstream palette colors. Sources are listed per family
+//! in docs/PALETTES.md.
 //! Sources and role mappings: docs/PALETTES.md. No network access at runtime.
 pub const NAMES: &[&str] = &[
     "midnight",
@@ -15,6 +16,17 @@ pub const NAMES: &[&str] = &[
     "tokyonight-storm",
     "tokyonight-moon",
     "tokyonight-day",
+    "dracula",
+    "everforest-dark",
+    "everforest-light",
+    "kanagawa-wave",
+    "kanagawa-dragon",
+    "onedark",
+    "rose-pine",
+    "rose-pine-moon",
+    "rose-pine-dawn",
+    "solarized-dark",
+    "solarized-light",
 ];
 pub fn colors(name: &str) -> Option<[u32; 12]> {
     Some(match name {
@@ -61,6 +73,52 @@ pub fn colors(name: &str) -> Option<[u32; 12]> {
         "tokyonight-day" => [
             0xe1e2e7, 0xe1e2e7, 0x3760bf, 0x6172b0, 0xa1a6c5, 0x007197, 0x8c6c3e, 0x587539,
             0xf52a65, 0xb4b5b9, 0x2e7de9, 0xe1e2e7,
+        ],
+        // Signature accents: Dracula purple, Everforest green, Kanagawa crystal
+        // blue, One Dark blue, Rosé Pine rose, Solarized blue.
+        "dracula" => [
+            0x282a36, 0x282a36, 0xf8f8f2, 0x6272a4, 0x44475a, 0xbd93f9, 0xff79c6, 0x50fa7b,
+            0xff5555, 0x44475a, 0xbd93f9, 0x282a36,
+        ],
+        "everforest-dark" | "everforest" => [
+            0x2d353b, 0x2d353b, 0xd3c6aa, 0x859289, 0x4f585e, 0xa7c080, 0xdbbc7f, 0x83c092,
+            0xe67e80, 0x475258, 0xa7c080, 0x2d353b,
+        ],
+        "everforest-light" => [
+            0xfdf6e3, 0xfdf6e3, 0x5c6a72, 0x939f91, 0xe0dcc7, 0x8da101, 0xdfa000, 0x35a77c,
+            0xf85552, 0xe6e2cc, 0x8da101, 0xfdf6e3,
+        ],
+        "kanagawa-wave" | "kanagawa" => [
+            0x1f1f28, 0x1f1f28, 0xdcd7ba, 0x727169, 0x54546d, 0x7e9cd8, 0xe6c384, 0x98bb6c,
+            0xe46876, 0x2d4f67, 0x7e9cd8, 0x1f1f28,
+        ],
+        "kanagawa-dragon" => [
+            0x181616, 0x181616, 0xc5c9c5, 0x7a8382, 0x625e5a, 0x8ba4b0, 0xc4b28a, 0x87a987,
+            0xc4746e, 0x393836, 0xb6927b, 0x181616,
+        ],
+        "onedark" => [
+            0x282c34, 0x282c34, 0xabb2bf, 0x7f848e, 0x3e4451, 0x61afef, 0xe5c07b, 0x98c379,
+            0xe06c75, 0x3e4451, 0xc678dd, 0x282c34,
+        ],
+        "rose-pine" => [
+            0x191724, 0x191724, 0xe0def4, 0x908caa, 0x524f67, 0xebbcba, 0xf6c177, 0x9ccfd8,
+            0xeb6f92, 0x403d52, 0xebbcba, 0x191724,
+        ],
+        "rose-pine-moon" => [
+            0x232136, 0x232136, 0xe0def4, 0x908caa, 0x56526e, 0xea9a97, 0xf6c177, 0x9ccfd8,
+            0xeb6f92, 0x44415a, 0xea9a97, 0x232136,
+        ],
+        "rose-pine-dawn" => [
+            0xfaf4ed, 0xfaf4ed, 0x575279, 0x797593, 0xcecacd, 0xd7827e, 0xea9d34, 0x286983,
+            0xb4637a, 0xdfdad9, 0xd7827e, 0xfaf4ed,
+        ],
+        "solarized-dark" | "solarized" => [
+            0x002b36, 0x002b36, 0x839496, 0x657b83, 0x586e75, 0x268bd2, 0xb58900, 0x859900,
+            0xdc322f, 0x073642, 0x268bd2, 0xfdf6e3,
+        ],
+        "solarized-light" => [
+            0xfdf6e3, 0xfdf6e3, 0x657b83, 0x93a1a1, 0x93a1a1, 0x268bd2, 0xb58900, 0x859900,
+            0xdc322f, 0xeee8d5, 0x268bd2, 0xfdf6e3,
         ],
         _ => return None,
     })
