@@ -81,6 +81,19 @@ Ctrl+w returns marks only. Enter in a verified physically empty directory return
 marks plus that directory; a no-match query in a nonempty directory stays open.
 Missing marks block confirmation until unmarked.
 
+### Tabs
+
+Every session has three tabs, like nnn's contexts, numbered at the right end of
+the location line. All start in the session's first directory. Alt+Down /
+Alt+Up (or Down / Up in Normal mode) switch to the next / previous tab,
+wrapping around; each tab keeps its own directory and Ctrl+o / Ctrl+i history,
+while marks, the query, depth, hidden entries, exclusions and filters are
+shared. Mark files in one tab, switch, browse somewhere far away, then move
+or copy them there with `v` / `p`. Switching to a tab in another directory lists
+it again with an empty query; a tab whose directory vanished falls back to the
+nearest existing parent. F1's session details list every tab's directory; tabs
+are unavailable with `--no-dir`.
+
 Ctrl+number immediately returns one visible target, ignoring marks. Alt+number
 activates the same target like Enter. Labels refer to the last fully rendered
 page: 1–9 select that position, out-of-range digits clamp to the last row, and 0
@@ -124,14 +137,15 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | i / a, then type | Edit a Neovim field; basic editing accepts text directly |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Enter | Enter a directory or confirm files/marks |
-| Up / Alt+k | Previous row |
-| Down / Alt+j | Next row |
+| Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
+| Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
 | gg / G | First / last row in Normal-mode lists |
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l | Enter highlighted directory only |
 | Alt+g / `/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
-| Ctrl+o / Ctrl+i | Back / forward through the folders visited this session (Ctrl+i needs a terminal that tells it from Tab) |
+| Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
+| Alt+Down / Alt+Up | Next / previous [tab](#tabs) (Down / Up in Normal-mode results) |
 | Alt+b / b in Normal | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |

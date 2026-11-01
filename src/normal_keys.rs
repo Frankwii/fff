@@ -46,9 +46,13 @@ pub enum ListAction {
     Hidden,
     /// Same as Alt+g in the results: the go-to prompt.
     GoTo,
+    /// Same as Alt+↑ in the results: the previous tab.
+    PrevTab,
+    /// Same as Alt+↓ in the results: the next tab.
+    NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 26] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -73,6 +77,8 @@ impl ListAction {
         Self::Bookmarks,
         Self::Hidden,
         Self::GoTo,
+        Self::PrevTab,
+        Self::NextTab,
     ];
     /// The default letter of a file operation: the view handles operations by
     /// it, whatever sequence the configuration binds.
@@ -99,6 +105,8 @@ impl ListAction {
             Self::Mark => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
             Self::Shallower => return Some(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)),
             Self::Deeper => return Some(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)),
+            Self::PrevTab => return Some(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)),
+            Self::NextTab => return Some(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)),
             Self::Bookmarks => 'b',
             Self::Hidden => '.',
             Self::GoTo => 'g',
@@ -272,6 +280,8 @@ pub struct NormalKeysConfig {
     pub bookmarks: Sequences,
     pub hidden: Sequences,
     pub go_to: Sequences,
+    pub prev_tab: Sequences,
+    pub next_tab: Sequences,
     /// Plain digits 1–9 set the search depth in Normal-mode results.
     pub depth_digits: bool,
 }
@@ -303,6 +313,8 @@ impl Default for NormalKeysConfig {
             bookmarks: one("b"),
             hidden: one("."),
             go_to: one("/"),
+            prev_tab: one("<up>"),
+            next_tab: one("<down>"),
             depth_digits: true,
         }
     }
@@ -334,6 +346,8 @@ impl NormalKeysConfig {
             ListAction::Bookmarks => ("bookmarks", &self.bookmarks),
             ListAction::Hidden => ("hidden", &self.hidden),
             ListAction::GoTo => ("go_to", &self.go_to),
+            ListAction::PrevTab => ("prev_tab", &self.prev_tab),
+            ListAction::NextTab => ("next_tab", &self.next_tab),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
@@ -462,6 +476,15 @@ mod tests {
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
         assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
         assert_eq!(k.describe(ListAction::Deeper), "→");
+        assert_eq!(
+            k.feed(arrow(KeyCode::Down), all),
+            Step::Action(ListAction::NextTab)
+        );
+        assert_eq!(
+            k.feed(arrow(KeyCode::Up), all),
+            Step::Action(ListAction::PrevTab)
+        );
+        assert_eq!(ListAction::NextTab.alt_key(), alt(KeyCode::Down));
         assert!(k.depth_digits);
         let alt_left = KeyEvent::new(KeyCode::Left, KeyModifiers::ALT);
         assert_eq!(k.feed(alt_left, all), Step::Pass);
