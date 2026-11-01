@@ -2,7 +2,7 @@
 # Check without opening the TUI: picker --config PATH --check-config
 
 [ui]
-# Built-ins: midnight, light, forest. Or select a custom palette defined below.
+# See PALETTES.md: catppuccin-*, nord, gruvbox-*, tokyonight-*, plus originals.
 palette = "midnight"
 
 [palettes.ember]
@@ -32,4 +32,4 @@ path = "../../notes"
 enabled = true
 max_entries = 16       # LRU snapshots of completed discovery scopes; 1..128.
 max_candidates = 4096 # Maximum paths stored per snapshot; 1..100000.
-ttl_seconds = 60      # Snapshot expiry from completion time; 1..86400.
+ttl_seconds = 60      # Snapshot stale age; retained for provisional replay until LRU eviction.

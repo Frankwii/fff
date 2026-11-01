@@ -3,6 +3,7 @@ use crate::{App, Candidate, config::CacheConfig};
 use std::{
     collections::{HashSet, VecDeque},
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,7 +31,9 @@ impl Key {
 }
 #[derive(Clone)]
 pub(crate) struct Snapshot {
-    pub candidates: Vec<Candidate>,
+    pub candidates: Arc<[Candidate]>,
+    pub complete: bool,
+    pub stale: bool,
 }
 struct Entry {
     key: Key,
@@ -61,15 +64,15 @@ impl Cache {
         if !self.options.enabled {
             return None;
         }
-        self.entries.retain(|e| {
-            now.saturating_duration_since(e.created) < Duration::from_secs(self.options.ttl_seconds)
-        });
+
         let Some(index) = self.entries.iter().position(|e| &e.key == key) else {
             self.stats.misses += 1;
             return None;
         };
         let entry = self.entries.remove(index).unwrap();
-        let snapshot = entry.snapshot.clone();
+        let mut snapshot = entry.snapshot.clone();
+        snapshot.stale = now.saturating_duration_since(entry.created)
+            >= Duration::from_secs(self.options.ttl_seconds);
         self.entries.push_back(entry);
         self.stats.hits += 1;
         Some(snapshot)
@@ -78,9 +81,21 @@ impl Cache {
         self.entries.retain(|e| &e.key != key);
     }
     pub fn capture(&mut self, key: Key, app: &App, now: Instant) {
+        self.capture_visit(key, app, now, true);
+    }
+    pub fn capture_visit(&mut self, key: Key, app: &App, now: Instant, complete: bool) {
         if !self.options.enabled
             || self.options.max_entries == 0
             || self.options.max_candidates == 0
+        {
+            return;
+        }
+        if !complete
+            && (app.rows.is_empty()
+                || self
+                    .entries
+                    .iter()
+                    .any(|e| e.key == key && e.snapshot.complete))
         {
             return;
         }
@@ -94,12 +109,14 @@ impl Cache {
             .collect();
         if candidates.len() < self.options.max_candidates {
             let used: HashSet<_> = candidates.iter().map(|c| c.path.clone()).collect();
+            // Fill only bounded spare capacity; never sort the full discovery index
+            // on the input/navigation thread.
             let mut rest: Vec<_> = app
                 .known
                 .values()
                 .filter(|c| app.eligible(c) && !used.contains(&c.path))
+                .take(self.options.max_candidates - candidates.len())
                 .collect();
-            let remaining = (self.options.max_candidates - candidates.len()).min(rest.len());
             let order = |a: &&Candidate, b: &&Candidate| {
                 a.depth
                     .cmp(&b.depth)
@@ -107,10 +124,6 @@ impl Cache {
                     .then(a.root.cmp(&b.root))
                     .then(a.path.cmp(&b.path))
             };
-            if remaining < rest.len() {
-                rest.select_nth_unstable_by(remaining, order);
-                rest.truncate(remaining);
-            }
             rest.sort_by(order);
             candidates.extend(rest.into_iter().cloned());
         }
@@ -121,7 +134,11 @@ impl Cache {
         }
         self.entries.push_back(Entry {
             key,
-            snapshot: Snapshot { candidates },
+            snapshot: Snapshot {
+                candidates: candidates.into(),
+                complete,
+                stale: false,
+            },
             created: now,
         });
         self.stats.stores += 1;
@@ -147,7 +164,7 @@ mod tests {
         app
     }
     #[test]
-    fn lru_hits_touch_recency_and_expiration_uses_creation_time() {
+    fn lru_hits_touch_recency_and_expired_snapshots_remain_available_as_stale() {
         let mut cache = Cache::new(CacheConfig {
             max_entries: 2,
             ttl_seconds: 10,
@@ -178,7 +195,8 @@ mod tests {
         assert!(
             cache
                 .get(&Key::of(&a), now + Duration::from_secs(10))
-                .is_none()
+                .unwrap()
+                .stale
         );
         assert_eq!(cache.stats.evictions, 1);
         assert!(cache.entries.len() <= 2);

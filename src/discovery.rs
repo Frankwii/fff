@@ -94,6 +94,7 @@ pub struct Discovery {
     cache: crate::cache::Cache,
     key: Option<crate::cache::Key>,
     stored: bool,
+    defer_drain: bool,
 }
 impl Discovery {
     pub fn new(options: crate::config::CacheConfig) -> Self {
@@ -102,6 +103,7 @@ impl Discovery {
             cache: crate::cache::Cache::new(options),
             key: None,
             stored: false,
+            defer_drain: false,
         }
     }
     pub fn start(&mut self, app: &mut App, clear: bool) {
@@ -123,9 +125,10 @@ impl Discovery {
             self.cache.get(&key, Instant::now())
         };
         let scan = Scan::start(app, clear);
+        self.defer_drain = snapshot.is_some();
         if let Some(snapshot) = snapshot {
-            for candidate in snapshot.candidates {
-                app.insert(app.generation, candidate);
+            for candidate in snapshot.candidates.iter() {
+                app.insert(app.generation, candidate.clone());
             }
             app.cache_pending = true;
             app.refresh();
@@ -134,7 +137,23 @@ impl Discovery {
         self.key = Some(key);
         self.stored = false;
     }
+    /// Save current visible matches before a navigation changes the scope.
+    pub fn checkpoint(&mut self, app: &App) {
+        if let (Some(scan), Some(key)) = (&self.scan, &self.key)
+            && !scan.failed
+            && key == &crate::cache::Key::of(app)
+        {
+            self.cache
+                .capture_visit(key.clone(), app, Instant::now(), scan.completed);
+        }
+    }
     pub fn drain(&mut self, app: &mut App) {
+        // Give a warm visit its own completed frame before any incoming batch
+        // can trigger a potentially expensive full-index sort.
+        if self.defer_drain {
+            self.defer_drain = false;
+            return;
+        }
         let Some(scan) = self.scan.as_mut() else {
             return;
         };

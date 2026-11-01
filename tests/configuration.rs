@@ -149,3 +149,35 @@ fn cli_config_precedence_validation_and_missing_files() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("missing.toml"));
     fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn official_palette_variants_and_aliases() {
+    for name in Palette::names() {
+        assert!(Palette::named(name).is_some(), "{name}");
+    }
+    for (name, color) in [
+        ("catppuccin-latte", 0xeff1f5),
+        ("catppuccin-frappe", 0x303446),
+        ("catppuccin-macchiato", 0x24273a),
+        ("catppuccin-mocha", 0x1e1e2e),
+        ("nord", 0x2e3440),
+        ("gruvbox-dark", 0x282828),
+        ("gruvbox-light", 0xfbf1c7),
+        ("tokyonight-night", 0x1a1b26),
+        ("tokyonight-storm", 0x24283b),
+        ("tokyonight-moon", 0x222436),
+        ("tokyonight-day", 0xe1e2e7),
+    ] {
+        assert_eq!(
+            Palette::named(name).unwrap().background,
+            Color::Rgb((color >> 16) as u8, (color >> 8) as u8, color as u8)
+        );
+        let text = format!("[ui]\npalette='{name}'\n[palettes.mine]\nextends='{name}'\n");
+        assert!(parse(&text).is_ok());
+    }
+    assert_eq!(Palette::named("gruvbox"), Palette::named("gruvbox-dark"));
+    assert_eq!(
+        Palette::named("tokyonight"),
+        Palette::named("tokyonight-night")
+    );
+}

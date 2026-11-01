@@ -3,6 +3,8 @@ mod cache;
 pub mod config;
 pub mod discovery;
 pub mod keys;
+mod palettes;
+pub mod reload;
 pub mod ui;
 mod view;
 

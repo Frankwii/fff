@@ -124,7 +124,13 @@ See [the configuration guide](docs/CONFIGURATION.md) and the
 [commented config example](docs/config.example.toml) for every setting, path
 resolution rules, bookmark controls, and cache behavior. Completed discovery
 snapshots appear immediately on matching revisits and refresh in the background.
-Cache size and expiry are configurable; F5 bypasses the current snapshot.
+Revisits replay a cached frame before processing fresh scan batches; interrupted
+visits can checkpoint their visible prefix. Cache size and stale age are
+configurable; F5 bypasses the current snapshot.
+
+All Catppuccin flavors, Nord, Gruvbox dark/light, and Tokyo Night variants are
+available as dashed palette names. Palette changes reload live from TOML. See
+the [palette catalog and sources](docs/PALETTES.md).
 
 Acceptance sources are in [the specification](docs/SPECIFICATION.md) and active
 [tui examples](docs/tui_functionality_examples/README.md). First-version decisions and

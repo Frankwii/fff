@@ -28,6 +28,9 @@ impl Default for Palette {
     }
 }
 impl Palette {
+    pub fn names() -> &'static [&'static str] {
+        crate::palettes::NAMES
+    }
     pub fn named(name: &str) -> Option<Self> {
         let colors = match name {
             "midnight" => [
@@ -42,7 +45,7 @@ impl Palette {
                 0x101c18, 0x172820, 0xe0ede3, 0x9ab6a3, 0x365a47, 0x8bd7ad, 0xeac482, 0xa0dfa0,
                 0xffa0a0, 0x2c4b3a, 0x315e45, 0xefffef,
             ],
-            _ => return None,
+            _ => crate::palettes::colors(name)?,
         };
         let c = colors.map(|n| Color::Rgb((n >> 16) as u8, (n >> 8) as u8, n as u8));
         Some(Self {

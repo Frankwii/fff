@@ -15,5 +15,5 @@ unresolved decisions as unresolved until clarified; do not change curated exampl
 to make an implementation pass. Technical proposals are not settled product rules.
 
 The user authorized the first implementation on 2026-10-31. First-version user
-decisions are recorded in docs/SPECIFICATION.md sections 14–17. Keep future behavior
+decisions are recorded in docs/SPECIFICATION.md sections 14–18. Keep future behavior
 changes within active examples and explicit user decisions.

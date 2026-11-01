@@ -68,12 +68,27 @@ pub fn run(
     mut app: App,
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
+    watcher: Option<crate::reload::PaletteWatcher>,
 ) -> io::Result<Option<Vec<PathBuf>>> {
     let mut terminal = Terminal::enter()?;
     let mut discovery = Discovery::new(cache);
     discovery.start(&mut app, true);
     let mut focus = Focus::Results;
     loop {
+        if let Some(watcher) = &watcher {
+            for update in watcher.updates() {
+                match update {
+                    Ok(palette) => {
+                        app.palette = palette;
+                        app.status = "Palette reloaded".into();
+                    }
+                    Err(error) => {
+                        app.status =
+                            format!("Palette reload failed; keeping current colors: {error}")
+                    }
+                }
+            }
+        }
         discovery.drain(&mut app);
         let mut completed = None;
         execute!(terminal.0.backend_mut(), BeginSynchronizedUpdate)?;
@@ -119,12 +134,23 @@ pub fn run(
         if matches!(focus, Focus::Results)
             && let Some(digit) = alt_numbered_key(key)
         {
+            discovery.checkpoint(&app);
             match app.enter_numbered(digit) {
                 EnterOutcome::Selected(paths) => return Ok(Some(paths)),
                 EnterOutcome::Navigated => discovery.start(&mut app, true),
                 EnterOutcome::Stay => {}
             }
             continue;
+        }
+        let navigation =
+            key.code == K::Enter || (alt && matches!(key.code, K::Char('h' | 'l' | '0'..='9')));
+        if navigation
+            && matches!(
+                focus,
+                Focus::Results | Focus::Bookmarks { .. } | Focus::Location(_)
+            )
+        {
+            discovery.checkpoint(&app);
         }
         match &mut focus {
             Focus::Bookmarks { query, index } => {

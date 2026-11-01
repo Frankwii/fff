@@ -330,3 +330,72 @@ fn cached_file_changed_to_directory_navigates_instead_of_confirming() {
     complete(&mut d, &mut app);
     assert!(app.physical_empty);
 }
+
+#[test]
+fn partial_visits_and_current_query_are_checkpointed_and_replay_before_drain() {
+    let f = Fixture::new();
+    for i in 0..100 {
+        f.file(&format!("file{i:03}"));
+    }
+    let mut app = f.app();
+    let mut d = Discovery::new(CacheConfig {
+        max_candidates: 3,
+        ..CacheConfig::default()
+    });
+    d.start(&mut app, true);
+    // Deterministic partially discovered prefix, before the worker completes.
+    app.insert(
+        app.generation,
+        picker::Candidate {
+            path: f.0.join("file099"),
+            directory: false,
+            depth: 1,
+            root: 0,
+        },
+    );
+    app.refresh();
+    d.checkpoint(&app);
+    assert_eq!(d.stats().stores, 1);
+    d.start(&mut app, true);
+    assert!(app.cache_pending);
+    assert_eq!(app.rows.len(), 1);
+    d.drain(&mut app);
+    assert!(app.cache_pending);
+    assert_eq!(app.rows.len(), 1); // cached frame gets priority
+    complete(&mut d, &mut app);
+    app.query = "099".into();
+    app.refresh();
+    d.checkpoint(&app);
+    app.query.clear();
+    d.start(&mut app, true);
+    assert!(app.known.contains_key(&f.0.join("file099")));
+    complete(&mut d, &mut app);
+}
+#[test]
+fn report_warm_replay_cost_for_large_directory_without_waiting_for_worker() {
+    let f = Fixture::new();
+    let mut app = f.app();
+    let mut d = Discovery::new(CacheConfig::default());
+    d.start(&mut app, true);
+    for i in 0..20_000 {
+        app.insert(
+            app.generation,
+            picker::Candidate {
+                path: f.0.join(format!("file{i:06}")),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    d.checkpoint(&app);
+    let start = Instant::now();
+    d.start(&mut app, true);
+    let replay = start.elapsed();
+    assert_eq!(app.rows.len(), 4096);
+    assert!(app.cache_pending);
+    d.drain(&mut app);
+    assert_eq!(app.rows.len(), 4096);
+    println!("Warm replay of 4096 cached paths from 20000 candidates: {replay:?}");
+}

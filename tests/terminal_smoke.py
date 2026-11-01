@@ -393,6 +393,23 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(new) + b"\n"))
 
+    def test_palette_live_reload_survives_invalid_edits(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-reload-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\npalette='nord'\n")
+            s = self.start("--config", str(config))
+            config.write_text("[ui]\npalette='catppuccin-mocha'\n")
+            s.wait_ui("Palette reloaded")
+            self.assertIn(b"48;2;30;30;46", s.ui)
+            config.write_text("not valid TOML")
+            s.wait_ui("Palette reload failed")
+            config.write_text("[ui]\npalette='tokyonight-day'\n")
+            s.wait_ui("Palette reloaded")
+            self.assertIn(b"48;2;225;226;231", s.ui)
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
     def test_remapped_numbered_choice(self):
         (self.root / "file").touch()
         s = self.start("--map-key", "ctrl+n=ctrl+1")

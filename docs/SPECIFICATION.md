@@ -1,7 +1,7 @@
 # picker specification
 
 Status: first implementation. The user authorized implementation on 2026-10-31.
-The active examples remain authoritative; sections 14–17 record decisions made for
+The active examples remain authoritative; sections 14–18 record decisions made for
 this version. See README.md for usage, implementation limits, and verification.
 
 ## 1. Purpose and source authority
@@ -480,3 +480,24 @@ and [the sample config](config.example.toml).
 
 Current curated scenarios remain unchanged; explicit user decisions in this
 section take precedence where earlier bindings or visual defaults disagree.
+
+
+## 18. Immediate revisit replay and upstream palettes
+
+User request (2026-11-01): make revisiting any visited directory immediate, add
+all Catppuccin and Tokyo Night variants plus Nord and Gruvbox, use dashed names,
+and support live color reload. Upstream definitions were verified online; see
+[PALETTES.md](PALETTES.md) for exact identifiers, role mappings, and sources.
+
+A cache hit now receives a rendered frame before incoming discovery batches are
+processed. Snapshot storage is shared and bounded; navigation checkpoints the
+current matches, including provisional prefixes of unfinished visits. An
+unfinished prefix cannot replace a complete snapshot. TTL marks snapshots stale
+rather than discarding them: they remain available for provisional replay until
+LRU eviction, and background discovery still reconciles filesystem changes.
+This supersedes section 17's completed-only/expiry-removal cache policy.
+
+Palette-only config reload runs off the input thread, retains working colors on
+invalid edits, honors a CLI-pinned palette name, and preserves session state.
+The cache/palette revision is committed before the separate experimental text
+editing work requested by the user.

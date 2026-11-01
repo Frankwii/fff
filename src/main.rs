@@ -68,6 +68,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         eprintln!("picker: configuration valid");
         return Ok(true);
     }
+    let watcher = picker::reload::PaletteWatcher::start(
+        args.config.clone(),
+        args.no_config,
+        args.palette.clone(),
+        settings.palette,
+    );
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut roots = Vec::new();
     for root in args.roots {
@@ -94,7 +100,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     app.palette = settings.palette;
     app.bookmarks = settings.bookmarks;
-    if let Some(paths) = ui::run(app, keys, settings.cache)? {
+    if let Some(paths) = ui::run(app, keys, settings.cache, watcher)? {
         write_paths(
             io::stdout().lock(),
             &paths,

@@ -49,18 +49,24 @@ while unavailable bookmark directories are handled when you try to visit them.
 A missing default file uses defaults. An explicitly requested missing file,
 invalid TOML, unknown field, unknown palette, or invalid setting produces a clear
 startup error naming the file. Picker does not create or rewrite your config.
-Edits take effect on the next invocation. Existing CLI discovery/output options
+Palette edits reload live; bookmark/cache edits take effect on the next invocation.
+Existing CLI discovery/output options
 continue to work independently of this file.
 
 ## Color palettes
 
-The built-in choices are:
+The original built-in choices are:
 
 | Name | Appearance |
 | --- | --- |
 | `midnight` | Deep blue background with cyan directories and gold marks. |
 | `light` | Light panels, dark text, and teal focus accents. |
 | `forest` | Dark green panels with soft green accents and gold marks. |
+
+Also available: all four `catppuccin-*` flavors, `nord`, `gruvbox-dark` /
+`gruvbox-light`, and all four `tokyonight-*` variants. See the
+[palette catalog and official color sources](PALETTES.md). Saving color changes
+live-reloads the running interface; invalid edits retain the last working colors.
 
 Choose one in TOML or for a single invocation:
 
@@ -167,7 +173,10 @@ max_candidates = 4096
 ttl_seconds = 60
 ```
 
-The cache lives **in memory for one picker session**. When a scan completes
+The cache lives **in memory for one picker session**. Visible prefixes are also
+checkpointed before navigation, so an interrupted first visit can replay useful
+results. Such prefixes remain provisional and cannot replace a complete snapshot.
+When a scan completes
 successfully, picker saves a bounded snapshot of its first matching results,
 filling spare capacity with other known candidates. Revisiting that directory
 with the same discovery options installs the snapshot immediately, then always
@@ -186,10 +195,15 @@ filters restored candidates, and marks remain independent session state.
 | `max_candidates` | `4096` | 1–100000 paths per snapshot |
 | `ttl_seconds` | `60` | 1–86400 seconds from snapshot completion |
 
-Least-recently-used entries are evicted at the entry limit. Expired entries are
-not restored. Cache hits do not extend expiry on their own; a successful refresh
-replaces the snapshot and its completion time. Cancelled, stale-generation, or
-failed scans never become new snapshots.
+Least-recently-used entries are evicted at the entry limit. `ttl_seconds` marks
+a snapshot stale; stale snapshots remain available for immediate provisional
+replay until LRU eviction. A successful refresh replaces their age and contents.
+Stale-generation and failed scans never become new snapshots. Cancelled visits
+can retain an explicitly checkpointed prefix, always marked incomplete.
+
+A replay gets a completed rendered frame before processing new scan batches;
+the UI does not wait for the worker to refresh it. Snapshot sharing avoids an
+extra full clone on lookup, and checkpoint work is bounded by the path limit.
 
 While a snapshot is visible, the status says **cached · refreshing (incomplete)**.
 The fresh scan reconciles additions, removals, file/directory changes, and sort
