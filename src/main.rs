@@ -50,17 +50,22 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>type</cyan>  filter          <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
-  <cyan>Escape</cyan> clear query    <cyan>Ctrl+w</cyan> return marks               <cyan>Ctrl+c</cyan> cancel
+  <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
+  <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> return marks
+  In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
+  <cyan>gg</cyan> first row and <cyan>G</cyan> last row; other keys still go to Neovim.
 
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/picker/config.toml or
-  ~/.config/picker/config.toml: palettes, bookmarks, editor backend and cache.
+  ~/.config/picker/config.toml: palettes, bookmarks, editor backend, cache,
+  file icons ([ui] icons) and Normal-mode list keys ([keys.normal]).
   Check it with <cyan>picker --check-config</cyan>.
 
 <bold><green>Exit status:</green></bold>
   <cyan>0</cyan>    paths were selected (or the configuration is valid)
-  <cyan>1</cyan>    startup, configuration or I/O error
-  <cyan>2</cyan>    invalid command-line usage
+  <cyan>1</cyan>    startup, configuration (including an unknown --palette) or I/O error
+  <cyan>2</cyan>    invalid command-line usage: unknown options or malformed values
+       (--depth, --map-key, --glob, --exclude, ...)
   <cyan>130</cyan>  cancelled with Ctrl+c; nothing is written to stdout
 
 <bold><green>Shell completions:</green></bold>
@@ -191,6 +196,30 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         completion::write_registration(shell, &program, &mut io::stdout().lock())?;
         return Ok(true);
     }
+    // Malformed argument values are usage errors (exit 2), like clap's own.
+    let usage = |flag: &str, error: &dyn std::fmt::Display| -> ! {
+        Args::command()
+            .error(
+                clap::error::ErrorKind::ValueValidation,
+                format!("invalid value for {flag}: {error}"),
+            )
+            .exit()
+    };
+    let keys = KeyMap::parse(&args.key_maps).unwrap_or_else(|e| usage("--map-key", &e));
+    let mut policy = Policy {
+        hidden: args.hidden,
+        ignore: !args.no_exclusions,
+        ..Policy::default()
+    };
+    if let Err(e) = policy.set_rules(args.exclusions) {
+        usage("--exclude", &e);
+    }
+    policy.glob = args
+        .glob
+        .as_deref()
+        .map(glob)
+        .transpose()
+        .unwrap_or_else(|e| usage("--glob", &e));
     let settings = Settings::load(
         args.config.as_deref(),
         args.no_config,
@@ -217,14 +246,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             roots.push(path);
         }
     }
-    let mut policy = Policy {
-        hidden: args.hidden,
-        ignore: !args.no_exclusions,
-        ..Policy::default()
-    };
-    policy.set_rules(args.exclusions)?;
-    policy.glob = args.glob.as_deref().map(glob).transpose()?;
-    let keys = KeyMap::parse(&args.key_maps)?;
     let mut app = if roots.is_empty() {
         App::browse(invocation.clone(), args.depth as usize, policy)
     } else {

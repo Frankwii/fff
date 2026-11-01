@@ -27,6 +27,8 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
         "Exit status:",
         "130",
         "Keys:",
+        "Alt+p",
+        "[keys.normal]",
         "--completions <SHELL>",
         "[possible values: bash, elvish, fish, powershell, zsh]",
         "source <(picker --completions bash)",
@@ -37,6 +39,16 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
     let short = stdout(&picker(&["-h"], None));
     assert!(short.contains("Examples:") && short.len() < long.len());
     assert_eq!(picker(&["--bogus"], None).status.code(), Some(2));
+    for bad in [
+        &["--map-key", "space=down"][..],
+        &["--map-key", "bogus"],
+        &["--glob", "["],
+        &["--exclude", "["],
+    ] {
+        let mut line = vec!["--no-config"];
+        line.extend_from_slice(bad);
+        assert_eq!(picker(&line, None).status.code(), Some(2), "{bad:?}");
+    }
 }
 
 #[test]

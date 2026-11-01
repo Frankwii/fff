@@ -19,7 +19,9 @@ absolute paths, newline records, hidden entries off, explicit exclusions enforce
 Use `--null` (`-0`) for exact record boundaries and `--relative` for paths relative
 to the invocation directory. `-h` summarizes options; `--help` adds defaults,
 examples, a key summary and exit codes. Success exits 0, Ctrl+c exits 130 with no
-selected paths, startup/I/O errors exit 1, and command-line usage errors exit 2.
+selected paths, startup, configuration (including an unknown `--palette`) and I/O errors exit 1,
+and command-line usage errors (unknown options, malformed `--map-key`, `--glob` or
+`--exclude` values) exit 2.
 
 ### Shell completions
 

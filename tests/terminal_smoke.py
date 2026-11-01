@@ -687,6 +687,22 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    def test_failed_palette_reload_in_chooser_drops_the_preview(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-palette-fail-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\npalette='nord'\n")
+            s = self.start("--editor", "basic", "--config", str(config))
+            s.send(b"\x1bp", "Palettes · Enter applies")
+            s.send(b"light", "Find: light")
+            config.write_text("[ui\n")
+            mark = len(s.ui)
+            s.send(b"\x1b[112;4u", "Palette reload failed")  # CSI-u Alt+Shift+p
+            self.assertNotIn("Palettes ·", s.screen.text)
+            self.assertIn(b"48;2;46;52;64", s.ui[mark:])  # nord again, not light
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
     def test_palette_reload_honors_cli_pin_and_remapped_keys(self):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="picker-palette-pin-") as folder:

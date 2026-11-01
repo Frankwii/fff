@@ -69,9 +69,9 @@ impl NormalKeys {
     pub fn pending(&self) -> bool {
         !self.pending.is_empty()
     }
-    /// Forget a partial sequence without delivering it.
-    pub fn clear(&mut self) {
-        self.pending.clear();
+    /// Hand back a partial sequence so it can be delivered unchanged.
+    pub fn take_pending(&mut self) -> Vec<KeyEvent> {
+        std::mem::take(&mut self.pending)
     }
     /// `supported` is the list view's opt-in hook: bindings for actions it does
     /// not support behave as if unbound, so their keys reach the editor.
@@ -107,9 +107,14 @@ impl NormalKeys {
     }
 }
 fn same(a: KeyEvent, b: KeyEvent) -> bool {
-    // Terminals disagree about reporting Shift with an uppercase character.
+    // Terminals disagree about reporting Shift with an uppercase character;
+    // the kitty protocol sends Shift+g as `g` with SHIFT.
     let strip = |k: KeyEvent| match k.code {
-        KeyCode::Char(c) => (KeyCode::Char(c), k.modifiers - KeyModifiers::SHIFT),
+        KeyCode::Char(c) if k.modifiers.contains(KeyModifiers::SHIFT) => (
+            KeyCode::Char(c.to_ascii_uppercase()),
+            k.modifiers - KeyModifiers::SHIFT,
+        ),
+        KeyCode::Char(c) => (KeyCode::Char(c), k.modifiers),
         code => (code, k.modifiers),
     };
     strip(a) == strip(b)
@@ -251,6 +256,16 @@ mod tests {
         assert_eq!(k.feed(shifted, all), Step::Action(ListAction::Last));
         assert_eq!(k.feed(key('G'), all), Step::Action(ListAction::Last));
         assert_eq!(k.feed(key('w'), all), Step::Pass);
+    }
+    #[test]
+    fn kitty_shifted_lowercase_matches_uppercase_binding() {
+        // Kitty-protocol terminals report Shift+g as `g` with SHIFT.
+        let mut k = NormalKeys::default();
+        let kitty = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT);
+        assert_eq!(k.feed(kitty, all), Step::Action(ListAction::Last));
+        assert!(!k.pending());
+        assert_eq!(k.feed(key('g'), all), Step::Pending);
+        assert_eq!(k.feed(kitty, all), Step::Flush(vec![key('g')]));
     }
     #[test]
     fn unmatched_continuations_are_flushed_intact() {

@@ -163,6 +163,10 @@ pub fn run(
         }
         let event = event::read()?;
         if let Event::Paste(text) = event {
+            // A held-back Normal-mode prefix reaches Neovim before the paste.
+            for pending in app.normal_keys.take_pending() {
+                deliver(&mut app, &mut focus, &mut editor, pending);
+            }
             let field = text_field(&app, &focus).map(|(field, _)| field);
             if let Some(field) = field {
                 let text = if field == Field::Exclusions {
@@ -354,6 +358,9 @@ pub fn run(
                 let last = matches.len().saturating_sub(1);
                 let moved = match key.code {
                     _ if palette == Some(PaletteKey::Reload) => {
+                        // Drop the preview first so a failed reload keeps the
+                        // colors that were actually applied.
+                        app.palette = *original;
                         focus = Focus::Results;
                         reload_palette(&mut app, &palettes);
                         continue;

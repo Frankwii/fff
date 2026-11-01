@@ -73,9 +73,11 @@ fn config_path(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
         if text == "--no-config" {
             return None;
         } else if text == "--config" {
-            explicit = args.next().map(PathBuf::from);
+            explicit = args
+                .next()
+                .map(|path| expand(&path.to_string_lossy(), env_var));
         } else if let Some(path) = text.strip_prefix("--config=") {
-            explicit = Some(PathBuf::from(path));
+            explicit = Some(expand(path, env_var));
         }
     }
     let env_path = |name| {
@@ -89,6 +91,41 @@ fn config_path(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
             env_path("HOME").as_deref(),
         )
     })
+}
+
+fn env_var(name: &str) -> Option<OsString> {
+    std::env::var_os(name).filter(|s| !s.is_empty())
+}
+
+/// Shells hand completion scripts the words as typed, so expand a leading `~`,
+/// `$NAME` or `${NAME}` the way the shell will when the command runs.
+fn expand(word: &str, var: impl Fn(&str) -> Option<OsString>) -> PathBuf {
+    let (name, rest) = if let Some(rest) = word.strip_prefix('~') {
+        if !(rest.is_empty() || rest.starts_with('/')) {
+            return PathBuf::from(word);
+        }
+        ("HOME", rest)
+    } else if let Some(braced) = word.strip_prefix("${") {
+        match braced.split_once('}') {
+            Some(split) => split,
+            None => return PathBuf::from(word),
+        }
+    } else if let Some(bare) = word.strip_prefix('$') {
+        let end = bare
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(bare.len());
+        bare.split_at(end)
+    } else {
+        return PathBuf::from(word);
+    };
+    match var(name) {
+        Some(value) if !name.is_empty() => {
+            let mut path = value;
+            path.push(rest);
+            PathBuf::from(path)
+        }
+        _ => PathBuf::from(word),
+    }
 }
 
 /// Named keys accepted by `--map-key`; single characters are also accepted.
@@ -124,7 +161,15 @@ pub fn map_key_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
         .filter(|m| !modifiers.contains(*m))
         .map(|m| (*m, "modifier"))
         .collect();
-    options.extend(KEY_NAMES.iter().map(|k| (*k, "key")));
+    // A source chord that types text (`space`) needs Ctrl or Alt.
+    let printable =
+        !side_prefix.is_empty() || modifiers.contains("ctrl+") || modifiers.contains("alt+");
+    options.extend(
+        KEY_NAMES
+            .iter()
+            .filter(|k| printable || **k != "space")
+            .map(|k| (*k, "key")),
+    );
     if !side_prefix.is_empty() && modifiers.is_empty() {
         options.push(("none", "disable the source chord"));
     }
@@ -191,6 +236,41 @@ mod tests {
             Some("b.toml".into())
         );
         assert_eq!(config_path(args(&["picker", "--no-config"])), None);
+    }
+
+    #[test]
+    fn config_path_expands_home_and_variables() {
+        let var = |name: &str| match name {
+            "HOME" => Some(OsString::from("/home/u")),
+            "CFG" => Some(OsString::from("/etc/p")),
+            _ => None,
+        };
+        assert_eq!(expand("~/x.toml", var), PathBuf::from("/home/u/x.toml"));
+        assert_eq!(expand("$HOME/x.toml", var), PathBuf::from("/home/u/x.toml"));
+        assert_eq!(expand("${CFG}/x.toml", var), PathBuf::from("/etc/p/x.toml"));
+        assert_eq!(expand("~other/x", var), PathBuf::from("~other/x"));
+        assert_eq!(expand("$UNSET/x", var), PathBuf::from("$UNSET/x"));
+        assert_eq!(expand("rel/x.toml", var), PathBuf::from("rel/x.toml"));
+    }
+
+    #[test]
+    fn map_key_sources_only_offer_space_with_ctrl_or_alt() {
+        assert!(values(map_key_candidates(OsStr::new("sp"))).is_empty());
+        assert!(values(map_key_candidates(OsStr::new("shift+sp"))).is_empty());
+        assert_eq!(
+            values(map_key_candidates(OsStr::new("alt+sp"))),
+            ["alt+space"]
+        );
+        assert_eq!(
+            values(map_key_candidates(OsStr::new("ctrl+n=sp"))),
+            ["ctrl+n=space"]
+        );
+        for candidate in values(map_key_candidates(OsStr::new(""))) {
+            if !candidate.ends_with('+') {
+                crate::keys::KeyMap::parse(&[format!("{candidate}=down")])
+                    .unwrap_or_else(|e| panic!("{candidate}: {e}"));
+            }
+        }
     }
 
     #[test]

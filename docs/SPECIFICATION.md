@@ -677,15 +677,18 @@ fish, elvish, powershell) and is identical to `COMPLETE=SHELL picker`; neither
 starts the interface or reads the configuration. Completion covers every option,
 root directories, `--config` files, `--editor` backends, `--completions` shells,
 `--palette` names (built-ins plus `[palettes.NAME]` tables from the file the
-completed command line would load: `--config`, none with `--no-config`, else the
-default path; unreadable files contribute nothing), and `--map-key` chords one
-segment at a time (modifiers, key names, `none` as target). `--depth`, `--glob`
+completed command line would load: `--config` with a leading `~`, `$NAME` or
+`${NAME}` expanded as the shell will, none with `--no-config`, else the default
+path; unreadable files contribute nothing), and `--map-key` chords one segment at
+a time (modifiers, key names, `none` as target; a source `space` only after
+`ctrl+`/`alt+`, since printable sources are rejected). `--depth`, `--glob`
 and `--exclude` take free-form values and deliberately have no completion.
 
 `-h` gives a one-line-per-option summary with short examples; `--help` adds a
 description, grouped options (Search, Output, Interface, Configuration, Shell
 integration) with defaults and possible values, examples, a key summary pointing
 to the README table and F1, the configuration path, exit status (0 selected or
-valid configuration, 1 startup/configuration/I/O error, 2 usage error, 130
-Ctrl+c) and completion installation. Help uses clap styles (colored headings,
+valid configuration, 1 startup/configuration/I/O error including an unknown
+`--palette`, 2 usage error: unknown options or malformed `--depth`, `--map-key`,
+`--glob` or `--exclude` values, 130 Ctrl+c) and completion installation. Help uses clap styles (colored headings,
 literals and placeholders) and is plain under `NO_COLOR` or when not a terminal.

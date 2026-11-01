@@ -38,9 +38,11 @@ max_entries = 16       # LRU snapshots of completed discovery scopes; 1..128.
 max_candidates = 4096 # Maximum paths stored per snapshot; 1..100000.
 ttl_seconds = 60      # Snapshot stale age; retained for provisional replay until LRU eviction.
 
-# Default: clean embedded Neovim; quietly falls back to basic without nvim. See EDITING.md.
+# Unset (the default): clean embedded Neovim, quietly falling back to basic
+# without nvim. Setting "nvim" explicitly reports that fallback in the status
+# line; "basic" selects plain append/Backspace editing. See EDITING.md.
 [editor]
-backend = "nvim" # Or "basic" for plain append/Backspace editing.
+# backend = "basic"
 
 # Plain keys for list views (results, bookmarks, palettes, marks) in Neovim Normal mode.
 # A string or list of sequences; "none" disables. See CONFIGURATION.md.
