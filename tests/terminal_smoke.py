@@ -1064,7 +1064,12 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1b[27u\t\t", "Marks (2)")
             s.send(b"\x1b[27ui" + target.name.encode(), "❯ " + target.name)
             s.send(b"\x1b[27u\r", ("cwd", target))
-            s.send(key.encode(), {"p": "Copied", "v": "Moved", "s": "Linked"}[key] + " 2 entries")
+            # Vim keys never act at once: the selection is confirmed first.
+            label = {"p": "Copy", "v": "Move", "s": "Link"}[key]
+            s.send(key.encode(), label + " here")
+            self.assertIn("Enter: " + label + " ─── Esc: Cancel", s.screen.text)
+            self.assertIn("2 entries", s.screen.text)
+            s.send(b"\r", {"p": "Copied", "v": "Moved", "s": "Linked"}[key] + " 2 entries")
             for name in names:
                 self.assertEqual((target / name).read_text(), "payload")
                 self.assertEqual((self.root / name).exists(), key != "v")
@@ -1118,7 +1123,7 @@ class TerminalTests(unittest.TestCase):
         for key, message in [
             (b"v", "already in this directory"),
             (b"p", "already in this directory"),
-            (b"s", "Destination already exists"),
+            (b"s", "already in this directory"),
         ]:
             # The destination is the source's current directory: collision.
             s.send(key, message)

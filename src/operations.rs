@@ -128,8 +128,12 @@ fn inventory(
         return Err("Directory tree is too large or deep".into());
     }
     let m = fs::symlink_metadata(fdpath(parent).join(name)).map_err(err)?;
-    // Never back up, copy or delete another filesystem mounted inside a tree.
-    if out.get(Path::new("")).is_some_and(|root| root.0 != m.dev()) {
+    // Never copy or delete through anything mounted inside a tree, including
+    // bind mounts from the same filesystem, which keep the device number.
+    if depth > 0
+        && (out.get(Path::new("")).is_some_and(|root| root.0 != m.dev())
+            || mount_root(parent, name)?)
+    {
         return Err(format!(
             "Tree contains a mount point or subvolume: {relative:?}"
         ));
@@ -171,6 +175,52 @@ fn detached_matches(
         now.6 = was.6;
     }
     Ok(&current == expected)
+}
+/// Whether `name` is the root of a mount, as reported by statx (Linux 5.8+).
+fn mount_root(parent: &File, name: &OsStr) -> Result<bool> {
+    let x = sys::statx(
+        parent,
+        name,
+        AtFlags::SYMLINK_NOFOLLOW,
+        sys::StatxFlags::BASIC_STATS,
+    )
+    .map_err(err)?;
+    if !x
+        .stx_attributes_mask
+        .contains(sys::StatxAttributes::MOUNT_ROOT)
+    {
+        return Err("Cannot detect mount points; Linux 5.8 or newer is required".into());
+    }
+    Ok(x.stx_attributes.contains(sys::StatxAttributes::MOUNT_ROOT))
+}
+/// Device and inode of `name`, without following a final symlink.
+fn identity(parent: &File, name: &OsStr) -> Option<(u64, u64)> {
+    let m = fs::symlink_metadata(fdpath(parent).join(name)).ok()?;
+    Some((m.dev(), m.ino()))
+}
+/// Every directory from `dir` up to the filesystem root, by identity, so
+/// aliases (bind mounts, case-insensitive names) cannot hide an ancestor.
+fn ancestors(dir: &File) -> Result<HashSet<(u64, u64)>> {
+    let mut seen = HashSet::new();
+    let mut current = dir.try_clone().map_err(err)?;
+    for _ in 0..4096 {
+        let m = current.metadata().map_err(err)?;
+        if !seen.insert((m.dev(), m.ino())) {
+            break;
+        }
+        current = child_dir(&current, OsStr::new(".."))?;
+    }
+    Ok(seen)
+}
+/// A confirmed tree: every entry's identity and metadata when it was shown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Snapshot(BTreeMap<PathBuf, Stamp>);
+/// The snapshot and cumulative size of `path`, for a confirmation listing.
+fn snapshot(path: &Path) -> Result<(Snapshot, u64)> {
+    let e = Entry::at(path)?;
+    let mut out = BTreeMap::new();
+    let size = inventory(&e.parent, &e.name, Path::new(""), &mut out, 0)?;
+    Ok((Snapshot(out), size))
 }
 fn tree(entry: &Entry) -> Result<BTreeMap<PathBuf, Stamp>> {
     let mut out = BTreeMap::new();
@@ -221,7 +271,13 @@ fn keep_times(dir: &File, name: &OsStr, m: &fs::Metadata) -> Result<()> {
     sys::utimensat(dir, name, &times, AtFlags::SYMLINK_NOFOLLOW).map_err(err)
 }
 fn copy_tree(src: &File, name: &OsStr, dst: &File, to: &OsStr) -> Result<()> {
+    copy_entry(src, name, dst, to, false)
+}
+fn copy_entry(src: &File, name: &OsStr, dst: &File, to: &OsStr, nested: bool) -> Result<()> {
     let m = fs::symlink_metadata(fdpath(src).join(name)).map_err(err)?;
+    if nested && mount_root(src, name)? {
+        return Err("Tree contains a mount point".into());
+    }
     if m.is_symlink() {
         let target = sys::readlinkat(src, name, Vec::new()).map_err(err)?;
         sys::symlinkat(target.as_c_str(), dst, to).map_err(err)?;
@@ -235,7 +291,7 @@ fn copy_tree(src: &File, name: &OsStr, dst: &File, to: &OsStr) -> Result<()> {
         let output = child_dir(dst, to)?;
         for item in fs::read_dir(fdpath(&input)).map_err(err)? {
             let name = item.map_err(err)?.file_name();
-            copy_tree(&input, &name, &output, &name)?;
+            copy_entry(&input, &name, &output, &name, true)?;
         }
         output
             .set_permissions(fs::Permissions::from_mode(m.mode() & 0o777))
@@ -370,19 +426,26 @@ impl BackupGuard {
 pub enum Request {
     /// `replace` lists confirmed existing destinations to overwrite; any other
     /// collision aborts.
+    ///
+    /// `confirmed` holds the snapshots shown for confirmation (sources, then
+    /// `replace`); when present, execution refuses trees that differ from them,
+    /// so a confirmation applies to those files, not merely to their paths.
     Copy {
         sources: Vec<PathBuf>,
         directory: PathBuf,
         replace: Vec<PathBuf>,
+        confirmed: Vec<Snapshot>,
     },
     Move {
         sources: Vec<PathBuf>,
         directory: PathBuf,
         replace: Vec<PathBuf>,
+        confirmed: Vec<Snapshot>,
     },
     Symlink {
         sources: Vec<PathBuf>,
         directory: PathBuf,
+        confirmed: Vec<Snapshot>,
     },
     Rename {
         sources: Vec<PathBuf>,
@@ -390,6 +453,7 @@ pub enum Request {
     },
     Delete {
         sources: Vec<PathBuf>,
+        confirmed: Vec<Snapshot>,
     },
     Create {
         path: PathBuf,
@@ -428,6 +492,9 @@ impl Engine {
         }
     }
     pub fn execute(&self, request: Request) -> Result<Outcome> {
+        // Closing the terminal or a termination signal waits until this
+        // operation has finished or rolled back.
+        let _deferred = interrupt::Deferred::new();
         let (mut sources, mut targets) = match &request {
             Request::Copy {
                 sources, directory, ..
@@ -435,7 +502,9 @@ impl Engine {
             | Request::Move {
                 sources, directory, ..
             }
-            | Request::Symlink { sources, directory } => (
+            | Request::Symlink {
+                sources, directory, ..
+            } => (
                 sources.clone(),
                 sources
                     .iter()
@@ -447,7 +516,7 @@ impl Engine {
                     .collect::<Result<Vec<_>>>()?,
             ),
             Request::Rename { sources, targets } => (sources.clone(), targets.clone()),
-            Request::Delete { sources } => (sources.clone(), vec![]),
+            Request::Delete { sources, .. } => (sources.clone(), vec![]),
             Request::Create { path, .. } => (vec![], vec![path.clone()]),
             Request::Extract {
                 archive,
@@ -564,6 +633,33 @@ impl Engine {
         }
         let before = src.iter().map(tree).collect::<Result<Vec<_>>>()?;
         let replaced = old.iter().map(tree).collect::<Result<Vec<_>>>()?;
+        let confirmed = match &request {
+            Request::Copy { confirmed, .. }
+            | Request::Move { confirmed, .. }
+            | Request::Symlink { confirmed, .. }
+            | Request::Delete { confirmed, .. } => confirmed.as_slice(),
+            _ => &[],
+        };
+        if !confirmed.is_empty()
+            && !confirmed
+                .iter()
+                .map(|s| &s.0)
+                .eq(before.iter().chain(&replaced))
+        {
+            return Err("Files changed since confirmation; review again".into());
+        }
+        // Compare identities as well as spellings: an alias of a source
+        // directory (a bind mount, another letter case) is still that source.
+        if matches!(request, Request::Copy { .. } | Request::Move { .. }) {
+            let above = ancestors(&dst[0].parent)?;
+            if before
+                .iter()
+                .filter_map(|t| t.get(Path::new("")))
+                .any(|root| (root.7 & 0o170000) == 0o040000 && above.contains(&(root.0, root.1)))
+            {
+                return Err("Destination is inside a source".into());
+            }
+        }
         if matches!(request, Request::Move { .. } | Request::Rename { .. })
             && src.iter().zip(&dst).any(|(s, d)| {
                 s.parent.metadata().map(|m| m.dev()).ok()
@@ -613,15 +709,18 @@ impl Engine {
                             for &j in done.iter().rev() {
                                 let a: &Entry = &src[j];
                                 let b: &Entry = &dst[j];
-                                rollback &= rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
+                                // Only move back the entry this operation published.
+                                let root = &before[j][Path::new("")];
+                                rollback &= identity(&b.parent, &b.name) == Some((root.0, root.1))
+                                    && rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
                             }
                             rollback &= over.restore();
                             return Err(format!(
                                 "{e}; {}",
                                 if rollback {
-                                    "earlier moves rolled back"
+                                    "earlier moves rolled back".to_string()
                                 } else {
-                                    "rollback incomplete; restore from backup"
+                                    format!("rollback incomplete; {}", over.whereabouts())
                                 }
                             ));
                         }
@@ -647,8 +746,9 @@ impl Engine {
                 Request::Copy { .. } | Request::Symlink { .. } => {
                     // Stage all entries before publishing any. Never follow an
                     // existing destination or replace one created concurrently.
-                    let stage = Stage::new(&dst[0].parent)?;
+                    let stage = Stage::new(&dst[0].parent, &dst[0].path)?;
                     let linking = matches!(request, Request::Symlink { .. });
+                    let mut staged = vec![];
                     for (i, s) in src.iter().enumerate() {
                         let name = format!("{i}");
                         if linking {
@@ -656,6 +756,7 @@ impl Engine {
                         } else {
                             copy_tree(&s.parent, &s.name, &stage.dir, OsStr::new(&name))?;
                         }
+                        staged.push(identity(&stage.dir, OsStr::new(&name)));
                     }
                     for (source, was) in src.iter().zip(&before) {
                         if tree(source)? != *was {
@@ -674,21 +775,24 @@ impl Engine {
                             let mut rollback = true;
                             for &j in done.iter().rev() {
                                 let d: &Entry = &dst[j];
-                                rollback &= rename(
-                                    &d.parent,
-                                    &d.name,
-                                    &stage.dir,
-                                    OsStr::new(&j.to_string()),
-                                )
-                                .is_ok();
+                                // Never pull back (and then delete) an entry that
+                                // replaced the published copy concurrently.
+                                rollback &= identity(&d.parent, &d.name) == staged[j]
+                                    && rename(
+                                        &d.parent,
+                                        &d.name,
+                                        &stage.dir,
+                                        OsStr::new(&j.to_string()),
+                                    )
+                                    .is_ok();
                             }
                             rollback &= over.restore();
                             return Err(format!(
                                 "{e}; {}",
                                 if rollback {
-                                    "copies rolled back"
+                                    "copies rolled back".to_string()
                                 } else {
-                                    "rollback incomplete"
+                                    format!("rollback incomplete; {}", over.whereabouts())
                                 }
                             ));
                         }
@@ -701,7 +805,7 @@ impl Engine {
                     // a failure to detach rolls earlier roots back intact.
                     let mut held = src
                         .iter()
-                        .map(|s| Stage::new(&s.parent))
+                        .map(|s| Stage::new(&s.parent, &s.path))
                         .collect::<Result<Vec<_>>>()?;
                     for (i, s) in src.iter().enumerate() {
                         self.checkpoint(i);
@@ -759,9 +863,43 @@ impl Engine {
                             }
                         ));
                     }
-                    for (i, mut st) in held.into_iter().enumerate() {
-                        remove_tree(&st.dir, OsStr::new("entry"))?;
-                        st.keep = false;
+                    self.checkpoint(usize::MAX - 2);
+                    for i in 0..held.len() {
+                        if let Err(e) = remove_tree(&held[i].dir, OsStr::new("entry")) {
+                            // Put back what remains of this root and every root not
+                            // yet deleted, so nothing is left hidden in staging.
+                            let mut stranded = vec![];
+                            for (j, st) in held.iter_mut().enumerate().skip(i) {
+                                let s = &src[j];
+                                st.keep = rename(&st.dir, OsStr::new("entry"), &s.parent, &s.name)
+                                    .is_err();
+                                if st.keep {
+                                    stranded.push(st.path.join("entry"));
+                                }
+                            }
+                            let deleted = if i == 0 {
+                                String::new()
+                            } else {
+                                format!("deleted {i} of {}; ", src.len())
+                            };
+                            return Err(if stranded.is_empty() {
+                                format!(
+                                    "Could not delete {:?}: {e}; {deleted}the rest is back in place",
+                                    sources[i]
+                                )
+                            } else {
+                                format!(
+                                    "Could not delete {:?}: {e}; {deleted}could not restore {}",
+                                    sources[i],
+                                    stranded
+                                        .iter()
+                                        .map(|p| format!("{p:?}"))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )
+                            });
+                        }
+                        held[i].keep = false;
                         outcome.removed.push(sources[i].clone());
                     }
                 }
@@ -772,12 +910,38 @@ impl Engine {
                         sys::mkdirat(&d.parent, &d.name, Mode::from_raw_mode(0o755))
                             .map_err(err)?;
                     } else {
-                        new_file(&d.parent, &d.name)?.sync_all().map_err(err)?;
+                        // Ordinary permissions, as the user's umask allows.
+                        File::from(
+                            sys::openat(
+                                &d.parent,
+                                &d.name,
+                                OFlags::WRONLY
+                                    | OFlags::CREATE
+                                    | OFlags::EXCL
+                                    | OFlags::NOFOLLOW
+                                    | OFlags::CLOEXEC,
+                                Mode::from_raw_mode(0o666),
+                            )
+                            .map_err(err)?,
+                        )
+                        .sync_all()
+                        .map_err(err)?;
                     }
                 }
                 Request::Extract { .. } => {
                     let d = dst.remove(0);
-                    let stage = Stage::new(&d.parent)?;
+                    // An existing destination hosts the stage itself, so its
+                    // parent need not be writable; otherwise the parent does.
+                    let existing = exists(&d.parent, &d.name)?;
+                    let dest = if existing {
+                        Some(child_dir(&d.parent, &d.name)?)
+                    } else {
+                        None
+                    };
+                    let stage = match &dest {
+                        Some(dest) => Stage::new(dest, &d.path.join("x"))?,
+                        None => Stage::new(&d.parent, &d.path)?,
+                    };
                     let input = File::from(
                         sys::openat(
                             &src[0].parent,
@@ -794,19 +958,18 @@ impl Engine {
                     if tree(&src[0])? != before[0] {
                         return Err("Archive changed during extraction".into());
                     }
-                    if !exists(&d.parent, &d.name)? {
-                        // The private stage becomes an ordinary new directory.
-                        stage
-                            .dir
-                            .set_permissions(fs::Permissions::from_mode(0o755))
-                            .map_err(err)?;
-                        rename(&stage.parent, &stage.name, &d.parent, &d.name)?;
-                    } else {
-                        let dest = child_dir(&d.parent, &d.name)?;
+                    if exists(&d.parent, &d.name)? != existing {
+                        return Err("Extraction destination changed".into());
+                    }
+                    if let Some(dest) = dest {
                         let names = fs::read_dir(fdpath(&stage.dir))
                             .map_err(err)?
                             .map(|e| e.map(|e| e.file_name()).map_err(err))
                             .collect::<Result<Vec<_>>>()?;
+                        let staged = names
+                            .iter()
+                            .map(|n| identity(&stage.dir, n))
+                            .collect::<Vec<_>>();
                         for name in &names {
                             if exists(&dest, name)? {
                                 return Err(format!(
@@ -815,20 +978,29 @@ impl Engine {
                                 ));
                             }
                         }
-                        let mut done: Vec<OsString> = vec![];
-                        for name in &names {
+                        let mut done: Vec<usize> = vec![];
+                        for (k, name) in names.iter().enumerate() {
                             if let Err(e) = rename(&stage.dir, name, &dest, name) {
                                 let mut rollback = true;
-                                for name in done.iter().rev() {
-                                    rollback &= rename(&dest, name, &stage.dir, name).is_ok();
+                                for &k in done.iter().rev() {
+                                    let name = &names[k];
+                                    rollback &= identity(&dest, name) == staged[k]
+                                        && rename(&dest, name, &stage.dir, name).is_ok();
                                 }
                                 if !rollback {
                                     return Err(format!("{e}; extraction rollback incomplete"));
                                 }
                                 return Err(e);
                             }
-                            done.push(name.clone());
+                            done.push(k);
                         }
+                    } else {
+                        // The private stage becomes an ordinary new directory.
+                        stage
+                            .dir
+                            .set_permissions(fs::Permissions::from_mode(0o755))
+                            .map_err(err)?;
+                        rename(&stage.parent, &stage.name, &d.parent, &d.name)?;
                     }
                 }
             }
@@ -836,6 +1008,64 @@ impl Engine {
         })();
         result.map_err(|e| format!("{e}. Backup: {}", backup.display()))?;
         Ok(outcome)
+    }
+}
+/// Termination signals arriving during an operation are held until it ends,
+/// then delivered with their default action, so no operation stops halfway.
+mod interrupt {
+    use std::sync::{
+        Once,
+        atomic::{AtomicI32, AtomicUsize, Ordering},
+    };
+    static BUSY: AtomicUsize = AtomicUsize::new(0);
+    static PENDING: AtomicI32 = AtomicI32::new(0);
+    extern "C" fn held(signal: libc::c_int) {
+        if BUSY.load(Ordering::SeqCst) > 0 {
+            PENDING.store(signal, Ordering::SeqCst);
+        } else {
+            deliver(signal);
+        }
+    }
+    fn deliver(signal: libc::c_int) {
+        // Async-signal-safe: restore the default action and re-raise.
+        unsafe {
+            libc::signal(signal, libc::SIG_DFL);
+            libc::raise(signal);
+        }
+    }
+    pub struct Deferred;
+    impl Deferred {
+        pub fn new() -> Self {
+            static INSTALL: Once = Once::new();
+            INSTALL.call_once(|| {
+                for signal in [libc::SIGHUP, libc::SIGTERM, libc::SIGINT] {
+                    unsafe {
+                        let mut action: libc::sigaction = std::mem::zeroed();
+                        action.sa_sigaction = held as *const () as usize;
+                        action.sa_flags = libc::SA_RESTART;
+                        libc::sigemptyset(&mut action.sa_mask);
+                        let mut previous: libc::sigaction = std::mem::zeroed();
+                        libc::sigaction(signal, &action, &mut previous);
+                        // A signal the user chose to ignore (nohup) stays ignored.
+                        if previous.sa_sigaction == libc::SIG_IGN {
+                            libc::sigaction(signal, &previous, std::ptr::null_mut());
+                        }
+                    }
+                }
+            });
+            BUSY.fetch_add(1, Ordering::SeqCst);
+            Self
+        }
+    }
+    impl Drop for Deferred {
+        fn drop(&mut self) {
+            if BUSY.fetch_sub(1, Ordering::SeqCst) == 1 {
+                let signal = PENDING.swap(0, Ordering::SeqCst);
+                if signal != 0 {
+                    deliver(signal);
+                }
+            }
+        }
     }
 }
 /// Confirmed overwrite targets, detached into a private stage before
@@ -854,7 +1084,7 @@ impl<'a> Overwrite<'a> {
         if old.is_empty() {
             return Ok(over);
         }
-        let mut stage = Stage::new(&dst[0].parent)?;
+        let mut stage = Stage::new(&dst[0].parent, &dst[0].path)?;
         for (j, o) in old.iter().enumerate() {
             let result = tree(o).and_then(|now| {
                 if now == expected[j] {
@@ -895,33 +1125,70 @@ impl<'a> Overwrite<'a> {
     fn restore(&mut self) -> bool {
         self.restore_first(self.old.len())
     }
+    /// Where detached entries remain when they could not be restored.
+    fn whereabouts(&self) -> String {
+        match &self.stage {
+            Some(stage) if stage.keep => format!("overwritten entries remain in {:?}", stage.path),
+            _ => "entries remain at their destinations".into(),
+        }
+    }
     fn finish(self) -> Result<()> {
         if let Some(mut stage) = self.stage {
             for j in 0..self.old.len() {
-                remove_tree(&stage.dir, OsStr::new(&j.to_string()))?;
+                remove_tree(&stage.dir, OsStr::new(&j.to_string())).map_err(|e| {
+                    format!(
+                        "Published, but removing overwritten entries failed: {e}; \
+                         they remain in {:?}",
+                        stage.path
+                    )
+                })?;
             }
             stage.keep = false;
         }
         Ok(())
     }
 }
+pub const STAGE_PREFIX: &str = ".fff-stage-";
 struct Stage {
     parent: File,
     dir: File,
     name: OsString,
+    /// For messages: the stage beside `sibling`, a path in the same directory.
+    path: PathBuf,
     keep: bool,
 }
 impl Stage {
-    fn new(parent: &File) -> Result<Self> {
-        let name = OsString::from(format!(".fff-stage-{}", unique()));
+    fn new(parent: &File, sibling: &Path) -> Result<Self> {
+        let name = OsString::from(format!("{STAGE_PREFIX}{}", unique()));
         sys::mkdirat(parent, &name, Mode::RUSR | Mode::WUSR | Mode::XUSR).map_err(err)?;
         Ok(Self {
             parent: parent.try_clone().map_err(err)?,
             dir: child_dir(parent, &name)?,
+            path: sibling.with_file_name(&name),
             name,
             keep: false,
         })
     }
+}
+/// Staging directories in `dir` left by an fff process that no longer runs,
+/// such as one killed mid-operation. They may hold user data.
+pub fn stranded(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return vec![];
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let name = e.file_name();
+            let Some(rest) = name.to_str().and_then(|n| n.strip_prefix(STAGE_PREFIX)) else {
+                return false;
+            };
+            // Names start with the creating process id; skip live operations.
+            let pid = rest.split('-').next().unwrap_or_default();
+            !Path::new("/proc").join(pid).exists() || pid.is_empty()
+        })
+        .map(|e| e.path())
+        .collect()
 }
 impl Drop for Stage {
     fn drop(&mut self) {
@@ -932,6 +1199,10 @@ impl Drop for Stage {
 }
 fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
     let m = fs::symlink_metadata(fdpath(parent).join(name)).map_err(err)?;
+    // Recheck while deleting: nothing mounted since validation is entered.
+    if mount_root(parent, name)? {
+        return Err(format!("{name:?} is a mount point"));
+    }
     if m.is_dir() {
         let dir = child_dir(parent, name)?;
         // Copied read-only directories must still be removable on rollback.
@@ -1175,52 +1446,67 @@ pub fn deletion_rows(rows: &[(PathBuf, u64)], capacity: usize) -> Vec<(Listed, u
 #[derive(Clone)]
 pub struct DeletePlan {
     pub rows: Vec<(PathBuf, u64)>,
-    snapshots: Vec<BTreeMap<PathBuf, Stamp>>,
+    snapshots: Vec<Snapshot>,
 }
 impl DeletePlan {
     pub fn new(sources: Vec<PathBuf>) -> Result<Self> {
         if sources.is_empty() {
             return Err("No files selected".into());
         }
-        let snapshots = sources
+        let (snapshots, sizes): (Vec<_>, Vec<_>) = sources
             .iter()
-            .map(|p| Entry::at(p).and_then(|e| tree(&e)))
-            .collect::<Result<Vec<_>>>()?;
-        let rows = sources
+            .map(|p| snapshot(p))
+            .collect::<Result<Vec<_>>>()?
             .into_iter()
-            .map(|p| weight(&p).map(|n| (p, n)))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Self { rows, snapshots })
+            .unzip();
+        Ok(Self {
+            rows: sources.into_iter().zip(sizes).collect(),
+            snapshots,
+        })
     }
     pub fn request(&self) -> Result<Request> {
-        for ((path, _), was) in self.rows.iter().zip(&self.snapshots) {
-            if tree(&Entry::at(path)?)? != *was {
-                return Err("Files changed since confirmation; review deletion again".into());
-            }
-        }
         Ok(Request::Delete {
             sources: self.rows.iter().map(|(p, _)| p.clone()).collect(),
+            confirmed: self.snapshots.clone(),
         })
     }
 }
 
-/// A move or copy into `directory`; `rows` lists existing destinations it
-/// would overwrite, with their sizes, for confirmation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transfer {
+    Move,
+    Copy,
+    Link,
+}
+/// A move, copy or link of the marked paths into `directory`, as confirmed:
+/// the sources with their sizes, and existing destinations a move or copy
+/// would overwrite.
 #[derive(Clone)]
 pub struct TransferPlan {
-    pub copy: bool,
-    pub sources: Vec<PathBuf>,
+    pub kind: Transfer,
     pub directory: PathBuf,
-    pub rows: Vec<(PathBuf, u64)>,
-    snapshots: Vec<BTreeMap<PathBuf, Stamp>>,
+    pub sources: Vec<(PathBuf, u64)>,
+    pub overwrites: Vec<(PathBuf, u64)>,
+    snapshots: Vec<Snapshot>,
 }
 impl TransferPlan {
-    pub fn new(copy: bool, sources: Vec<PathBuf>, directory: PathBuf) -> Result<Self> {
+    pub fn new(kind: Transfer, sources: Vec<PathBuf>, directory: PathBuf) -> Result<Self> {
         if sources.is_empty() {
             return Err("No files selected".into());
         }
-        let mut rows = vec![];
+        let mut names = HashSet::new();
+        let mut listed = vec![];
         let mut snapshots = vec![];
+        for source in &sources {
+            let name = source.file_name().ok_or("Invalid source")?;
+            if !names.insert(name) {
+                return Err(format!("Two selected entries are named {name:?}"));
+            }
+            let (snap, size) = snapshot(source)?;
+            snapshots.push(snap);
+            listed.push((source.clone(), size));
+        }
+        let mut overwrites = vec![];
         for source in &sources {
             let target = directory.join(source.file_name().ok_or("Invalid source")?);
             if fs::symlink_metadata(&target).is_err() {
@@ -1230,37 +1516,44 @@ impl TransferPlan {
             if Entry::at(source)?.path == entry.path {
                 return Err(format!("{:?} is already in this directory", entry.name));
             }
-            snapshots.push(tree(&entry)?);
-            rows.push((target.clone(), weight(&target)?));
+            if kind == Transfer::Link {
+                return Err(format!("Destination already exists: {:?}", entry.path));
+            }
+            let (snap, size) = snapshot(&target)?;
+            snapshots.push(snap);
+            overwrites.push((target, size));
         }
         Ok(Self {
-            copy,
-            sources,
+            kind,
             directory,
-            rows,
+            sources: listed,
+            overwrites,
             snapshots,
         })
     }
     pub fn request(&self) -> Result<Request> {
-        for ((path, _), was) in self.rows.iter().zip(&self.snapshots) {
-            if tree(&Entry::at(path)?)? != *was {
-                return Err("Files changed since confirmation; review again".into());
-            }
-        }
-        let (sources, directory) = (self.sources.clone(), self.directory.clone());
-        let replace = self.rows.iter().map(|(p, _)| p.clone()).collect();
-        Ok(if self.copy {
-            Request::Copy {
+        let sources = self.sources.iter().map(|(p, _)| p.clone()).collect();
+        let directory = self.directory.clone();
+        let replace = self.overwrites.iter().map(|(p, _)| p.clone()).collect();
+        let confirmed = self.snapshots.clone();
+        Ok(match self.kind {
+            Transfer::Move => Request::Move {
                 sources,
                 directory,
                 replace,
-            }
-        } else {
-            Request::Move {
+                confirmed,
+            },
+            Transfer::Copy => Request::Copy {
                 sources,
                 directory,
                 replace,
-            }
+                confirmed,
+            },
+            Transfer::Link => Request::Symlink {
+                sources,
+                directory,
+                confirmed,
+            },
         })
     }
 }

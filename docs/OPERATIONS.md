@@ -7,22 +7,24 @@ its prompt buffers use Ctrl+s to apply and Escape to discard.
 
 | Key | Action |
 | --- | --- |
-| `v` | Move all marked paths into the current directory |
-| `p` | Copy all marked paths into the current directory |
-| `s` | Create absolute symlinks to all marked paths in the current directory |
+| `v` | Move all marked paths into the current directory, after confirmation |
+| `p` | Copy all marked paths into the current directory, after confirmation |
+| `s` | Create absolute symlinks to all marked paths here, after confirmation |
 | `x` | Delete the highlighted path or the marked paths, with confirmation |
 | `r` | Open a batch rename buffer for every currently filtered result |
 | `e` | Extract the highlighted archive into a prompted directory |
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
-fall back to the highlighted path. Target names retain their source basenames.
-For symlinks, existing files, directories and dangling symlinks are collisions
-and never overwritten. Repeated basenames in one selection also stop the
-operation.
+fall back to the highlighted path. Because they are also common Vim keys, each
+opens a **Move here** / **Copy here** / **Link here** window listing the marked
+entries with their sizes; **Enter** proceeds and **Escape** cancels. Target names
+retain their source basenames. For symlinks, existing files, directories and
+dangling symlinks are collisions and never overwritten. Two marked entries with
+the same name are refused before the window opens.
 
-When a move or copy collides, an **Overwrite on move** / **Overwrite on copy**
-window lists the existing destinations with their sizes, like the deletion
+When a move or copy collides, the window becomes **Overwrite on move** /
+**Overwrite on copy** and lists the existing destinations with their sizes, like the deletion
 confirmation. **Escape** cancels the whole operation; **Enter** moves or copies
 everything and overwrites the listed entries. A directory is overwritten as a
 whole, never merged. The listed entries are backed up with the sources,
@@ -44,9 +46,12 @@ Overlapping selections (a directory and one of its descendants) are refused;
 select each tree once. Moving/deleting the browsing directory or its ancestors,
 operating within or above the backup directory, and copying a directory into
 itself are refused. Moves across filesystems are refused; copy first instead.
-Trees containing a mount point (or another filesystem/subvolume, detected by a
-different device number) are refused for every operation, so a mounted share is
-never backed up, copied or deleted through its parent. Sockets, devices and other
+Trees containing a mount point are refused for every operation, so a mounted
+share is never copied or deleted through its parent. Mount points are detected
+with the kernel's mount-root flag, which also catches bind mounts from the same
+filesystem, and by device number for other filesystems and subvolumes. Recursive
+copy and deletion check again at every directory, in case something is mounted
+after validation. Sockets, devices and other
 special files are refused. Symlinks are copied or
 removed as links; recursive operations never follow them.
 
@@ -108,10 +113,11 @@ destination uses the archive's parent directory, even if the highlighted archive
 comes from a deeper search result. Other relative destinations start at the
 browsing directory. The destination must either exist as a real directory or
 have an existing parent; extraction does not follow a destination symlink.
-A new destination directory gets mode 0755.
+A new destination directory gets mode 0755. Extraction into an existing
+directory stages inside it, so its parent need not be writable.
 New file/directory naming buffers start in Insert mode, ready for typing.
 Names must be a single nonempty basename in the current directory; existing
-entries are refused. Rename and extraction buffers start in Normal mode.
+entries are refused. New files get ordinary permissions under your umask. Rename and extraction buffers start in Normal mode.
 
 ## Deletion confirmation
 
@@ -126,9 +132,27 @@ Rows sort by decreasing size, sizes right-aligned and names styled like result
 rows. If they exceed the available height, the final row reports how many more
 entries remain and their summed size. The top border shows the entry count and
 total size. **Enter** confirms and **Escape** cancels.
-Changed trees require a new confirmation; a failed size calculation prevents
-deletion. After confirmation, all roots are backed up and detached into private
-staging directories before recursive deletion starts.
+A failed size calculation prevents deletion. After confirmation, all roots are
+backed up and detached into private staging directories before recursive
+deletion starts. If deleting one root fails, deletion stops: that root (with
+whatever remained of it) and every root not yet deleted are moved back, and the
+message says how many were deleted. Anything that cannot be moved back is named
+with its staging path.
+
+## Confirmations and interruptions
+
+A confirmation applies to the files that were shown, not merely their paths.
+Delete, move, copy and link windows record each listed tree (identity and
+metadata of every entry), and execution refuses any tree that differs, for
+example after an edit or after a symlink in its path was repointed.
+
+Operations run to completion or roll back: a terminal hangup, `SIGTERM` or
+`SIGINT` arriving during an operation is held until it finishes, then takes
+effect. Signals ignored when fff started (such as under `nohup`) stay ignored.
+A kill that cannot be held (`SIGKILL`, power loss) can leave hidden
+`.fff-stage-*` directories holding data; when fff enters a directory with such a
+leftover from a process that no longer runs, the status line names it.
+Rollbacks only move back entries this operation published, verified by identity.
 
 ## Temporary backup guard
 
@@ -170,7 +194,8 @@ currently run synchronously, including backup and size calculation.
 
 ## Archives and system requirements
 
-The Linux operation engine uses `openat2` (Linux 5.6+) and no-replace rename.
+The Linux operation engine uses `openat2`, mount-root detection through `statx`
+(Linux 5.8+) and no-replace rename.
 Building/running requires **libarchive**, including its development linker files
 when building (for example `libarchive-dev` on Debian/Ubuntu). Browsing also links
 to this library. No shell or external extractor is invoked by fff.

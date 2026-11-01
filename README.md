@@ -101,7 +101,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+. | Toggle hidden entries |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions |
-| v / p / s in Normal | Move / copy / symlink all marked paths into the current directory |
+| v / p / s in Normal | Move / copy / symlink all marked paths into the current directory, after confirmation |
 | x in Normal | Choose current/selected deletion, review sizes, then Enter confirms |
 | r in Normal | Batch rename the filtered results in a buffer |
 | e in Normal | Extract the highlighted archive |
@@ -136,7 +136,7 @@ File operations make a mandatory backup under `/tmp/fff/backup` before applying
 changes; only a confirmed move overwrites. Rename and destination/name buffers
 use `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for the backup
 layout, deletion confirmation, archive limits and current boundaries. Building
-requires libarchive development files; the operation engine requires Linux 5.6+.
+requires libarchive development files; the operation engine requires Linux 5.8+.
 
 ## Configuration and responsiveness
 

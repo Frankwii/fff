@@ -62,6 +62,7 @@ fn backup_is_complete_before_mutation_and_keeps_each_version() {
             sources: vec![src.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap();
     assert!(out.backup.join("COMPLETE").exists());
@@ -77,6 +78,7 @@ fn backup_is_complete_before_mutation_and_keeps_each_version() {
             sources: vec![src],
             directory: f.root.join("other"),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap();
     assert_eq!(f.batches().len(), 2);
@@ -96,6 +98,7 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
             sources: vec![dir.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap();
     for root in [f.dest.join("tree"), out.backup.join("0000")] {
@@ -124,6 +127,7 @@ fn move_renames_file_and_directory_and_retains_backup() {
             sources: vec![a.clone(), b.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap();
     assert!(!a.exists() && !b.exists());
@@ -140,6 +144,7 @@ fn symlink_uses_real_absolute_paths_and_keeps_source_unchanged() {
         .execute(Request::Symlink {
             sources: vec![src.clone()],
             directory: f.dest.clone(),
+            confirmed: vec![],
         })
         .unwrap();
     assert_eq!(fs::read_link(f.dest.join("a")).unwrap(), src);
@@ -158,6 +163,7 @@ fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
             sources: vec![src.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap();
     assert_eq!(fs::read(f.dest.join(&name)).unwrap(), b"bytes");
@@ -167,6 +173,7 @@ fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
     f.engine()
         .execute(Request::Delete {
             sources: vec![f.dest.join(&name)],
+            confirmed: vec![],
         })
         .unwrap();
     assert!(!f.dest.join(&name).exists());
@@ -184,12 +191,14 @@ fn all_collisions_are_checked_before_any_copy_or_move() {
                 sources,
                 directory: f.dest.clone(),
                 replace: vec![],
+                confirmed: vec![],
             }
         } else {
             Request::Copy {
                 sources,
                 directory: f.dest.clone(),
                 replace: vec![],
+                confirmed: vec![],
             }
         };
         assert!(
@@ -214,6 +223,7 @@ fn dangling_destination_symlink_is_a_collision() {
                 sources: vec![p],
                 directory: f.dest.clone(),
                 replace: vec![],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -232,6 +242,7 @@ fn rejects_overlapping_sources_and_destination_in_source() {
                 sources: vec![dir.clone(), file],
                 directory: f.dest.clone(),
                 replace: vec![],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -241,6 +252,7 @@ fn rejects_overlapping_sources_and_destination_in_source() {
                 sources: vec![dir.clone()],
                 directory: dir,
                 replace: vec![],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -252,7 +264,8 @@ fn missing_source_and_special_files_abort_everything() {
     assert!(
         f.engine()
             .execute(Request::Delete {
-                sources: vec![p.clone(), f.work.join("missing")]
+                sources: vec![p.clone(), f.work.join("missing")],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -261,7 +274,8 @@ fn missing_source_and_special_files_abort_everything() {
     assert!(
         f.engine()
             .execute(Request::Delete {
-                sources: vec![p.clone(), socket]
+                sources: vec![p.clone(), socket],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -277,18 +291,22 @@ fn backup_failure_is_fail_closed_for_all_mutations() {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         },
         Request::Move {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         },
         Request::Symlink {
             sources: vec![p.clone()],
             directory: f.dest.clone(),
+            confirmed: vec![],
         },
         Request::Delete {
             sources: vec![p.clone()],
+            confirmed: vec![],
         },
         Request::Rename {
             sources: vec![p.clone()],
@@ -326,7 +344,8 @@ fn backup_symlink_or_public_directory_is_refused() {
     assert!(
         f.engine()
             .execute(Request::Delete {
-                sources: vec![p.clone()]
+                sources: vec![p.clone()],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -337,7 +356,8 @@ fn backup_symlink_or_public_directory_is_refused() {
     assert!(
         f.engine()
             .execute(Request::Delete {
-                sources: vec![p.clone()]
+                sources: vec![p.clone()],
+                confirmed: vec![],
             })
             .is_err()
     );
@@ -349,7 +369,8 @@ fn backup_directory_and_ancestors_are_protected() {
     assert!(
         f.engine()
             .execute(Request::Delete {
-                sources: vec![f.root.clone()]
+                sources: vec![f.root.clone()],
+                confirmed: vec![],
             })
             .unwrap_err()
             .contains("backup directory")
@@ -585,6 +606,7 @@ fn copies_and_backups_keep_modification_times() {
             sources: vec![tree.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap();
     for root in [f.dest.join("tree"), out.backup.join("0000")] {
@@ -633,6 +655,7 @@ fn delete_tree_and_links_preserves_external_target_and_backup() {
         .engine()
         .execute(Request::Delete {
             sources: vec![dir.clone()],
+            confirmed: vec![],
         })
         .unwrap();
     assert!(!dir.exists());
@@ -674,8 +697,26 @@ fn confirmation_refuses_a_changed_tree() {
     let p = f.file("a", b"before");
     let plan = DeletePlan::new(vec![p.clone()]).unwrap();
     fs::write(&p, b"after").unwrap();
-    assert!(plan.request().unwrap_err().contains("changed"));
-    assert!(p.exists());
+    let error = f.engine().execute(plan.request().unwrap()).unwrap_err();
+    assert!(error.contains("changed since confirmation"), "{error}");
+    assert_eq!(fs::read(&p).unwrap(), b"after");
+}
+#[test]
+fn confirmation_binds_to_the_confirmed_files_not_their_paths() {
+    // A path whose parent symlink is repointed after confirmation names a
+    // different file; the confirmed snapshot no longer matches it.
+    let f = Fixture::new();
+    for dir in ["one", "two"] {
+        fs::create_dir(f.work.join(dir)).unwrap();
+        fs::write(f.work.join(dir).join("f"), b"same").unwrap();
+    }
+    symlink("one", f.work.join("link")).unwrap();
+    let plan = DeletePlan::new(vec![f.work.join("link/f")]).unwrap();
+    let request = plan.request().unwrap();
+    fs::remove_file(f.work.join("link")).unwrap();
+    symlink("two", f.work.join("link")).unwrap();
+    assert!(f.engine().execute(request).is_err());
+    assert!(f.work.join("one/f").exists() && f.work.join("two/f").exists());
 }
 #[test]
 fn racing_destination_rolls_back_earlier_moves() {
@@ -695,6 +736,7 @@ fn racing_destination_rolls_back_earlier_moves() {
                 sources: vec![a.clone(), b.clone()],
                 directory: f.dest.clone(),
                 replace: vec![],
+                confirmed: vec![],
             })
             .unwrap_err()
             .contains("rolled back")
@@ -717,7 +759,8 @@ fn source_changed_after_backup_never_gets_deleted() {
     assert!(
         engine
             .execute(Request::Delete {
-                sources: vec![p.clone()]
+                sources: vec![p.clone()],
+                confirmed: vec![],
             })
             .unwrap_err()
             .contains("Source changed")
@@ -739,7 +782,8 @@ fn delete_rolls_back_detached_sources_if_next_source_changes() {
     }));
     assert!(
         e.execute(Request::Delete {
-            sources: vec![a.clone(), b.clone()]
+            sources: vec![a.clone(), b.clone()],
+            confirmed: vec![],
         })
         .is_err()
     );
@@ -912,6 +956,7 @@ fn racing_copy_destination_rolls_back_every_published_copy() {
             sources: vec![a.clone(), b.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap_err()
         .contains("rolled back")
@@ -928,6 +973,7 @@ fn unreadable_file_stops_backup_before_deletion() {
     fs::set_permissions(&b, fs::Permissions::from_mode(0o0)).unwrap();
     let result = f.engine().execute(Request::Delete {
         sources: vec![a.clone(), b.clone()],
+        confirmed: vec![],
     });
     fs::set_permissions(&b, fs::Permissions::from_mode(0o600)).unwrap();
     assert!(result.is_err());
@@ -1084,7 +1130,8 @@ fn changes_after_detaching_delete_roots_are_restored_without_removal() {
     }));
     assert!(
         e.execute(Request::Delete {
-            sources: vec![dir.clone()]
+            sources: vec![dir.clone()],
+            confirmed: vec![],
         })
         .unwrap_err()
         .contains("deletion cancelled")
@@ -1112,6 +1159,7 @@ fn failed_move_rollback_never_overwrites_a_new_source_entry() {
             sources: vec![a.clone(), b.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap_err();
     assert!(error.contains("rollback incomplete"));
@@ -1140,6 +1188,7 @@ fn failed_delete_rollback_retains_original_in_private_stage() {
     let error = e
         .execute(Request::Delete {
             sources: vec![a.clone(), b],
+            confirmed: vec![],
         })
         .unwrap_err();
     assert!(error.contains("retained in staging"));
@@ -1170,6 +1219,7 @@ fn readonly_destination_failure_leaves_sources_and_destinations_intact() {
             sources: vec![a.clone()],
             directory: f.dest.clone(),
             replace: vec![],
+            confirmed: vec![],
         })
         .unwrap_err();
     fs::set_permissions(&f.dest, fs::Permissions::from_mode(0o700)).unwrap();
@@ -1190,6 +1240,7 @@ fn cross_filesystem_moves_refuse_before_backup_when_available() {
                     sources: vec![a.clone()],
                     directory: other.into(),
                     replace: vec![],
+                    confirmed: vec![],
                 })
                 .unwrap_err()
                 .contains("across filesystems")
@@ -1269,12 +1320,13 @@ fn move_overwrites_only_confirmed_destinations_and_backs_them_up() {
         sources: sources.clone(),
         directory: f.dest.clone(),
         replace: vec![],
+        confirmed: vec![],
     };
     assert!(f.engine().execute(unconfirmed).is_err());
     assert!(a.exists() && c.exists() && !f.backup.exists());
-    let plan = TransferPlan::new(false, sources, f.dest.clone()).unwrap();
+    let plan = TransferPlan::new(Transfer::Move, sources, f.dest.clone()).unwrap();
     assert_eq!(
-        plan.rows,
+        plan.overwrites,
         vec![(f.dest.join("a"), 5), (f.dest.join("tree"), 8)]
     );
     let out = f.engine().execute(plan.request().unwrap()).unwrap();
@@ -1299,11 +1351,12 @@ fn move_overwrite_refuses_changed_self_and_containing_destinations() {
     let f = Fixture::new();
     let a = f.file("a", b"a");
     fs::write(f.dest.join("a"), b"old").unwrap();
-    let plan = TransferPlan::new(false, vec![a.clone()], f.dest.clone()).unwrap();
+    let plan = TransferPlan::new(Transfer::Move, vec![a.clone()], f.dest.clone()).unwrap();
     fs::write(f.dest.join("a"), b"changed").unwrap();
-    assert!(plan.request().is_err());
+    assert!(f.engine().execute(plan.request().unwrap()).is_err());
+    assert_eq!(fs::read(&a).unwrap(), b"a");
     // Moving a path into its own directory would replace itself.
-    assert!(TransferPlan::new(false, vec![a.clone()], f.work.clone()).is_err());
+    assert!(TransferPlan::new(Transfer::Move, vec![a.clone()], f.work.clone()).is_err());
     // A destination that contains a moved path cannot be replaced.
     let inner = f.work.join("x");
     fs::create_dir(&inner).unwrap();
@@ -1313,6 +1366,7 @@ fn move_overwrite_refuses_changed_self_and_containing_destinations() {
         sources: vec![nested.clone()],
         directory: f.work.clone(),
         replace: vec![inner.clone()],
+        confirmed: vec![],
     };
     assert!(f.engine().execute(request).is_err());
     assert_eq!(fs::read(&nested).unwrap(), b"n");
@@ -1324,7 +1378,8 @@ fn failed_overwriting_move_restores_replaced_entries() {
     let a = f.file("a", b"new a");
     let b = f.file("b", b"new b");
     fs::write(f.dest.join("a"), b"old a").unwrap();
-    let plan = TransferPlan::new(false, vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
+    let plan =
+        TransferPlan::new(Transfer::Move, vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
     let mut e = f.engine();
     let racer = f.dest.join("b");
     e.hook = Some(Box::new(move |phase| {
@@ -1355,11 +1410,12 @@ fn copy_overwrites_only_confirmed_destinations_and_keeps_sources() {
         sources: sources.clone(),
         directory: f.dest.clone(),
         replace: vec![],
+        confirmed: vec![],
     };
     assert!(f.engine().execute(unconfirmed).is_err());
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"old a");
-    let plan = TransferPlan::new(true, sources, f.dest.clone()).unwrap();
-    assert_eq!(plan.rows.len(), 2);
+    let plan = TransferPlan::new(Transfer::Copy, sources, f.dest.clone()).unwrap();
+    assert_eq!(plan.overwrites.len(), 2);
     let out = f.engine().execute(plan.request().unwrap()).unwrap();
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new a");
     assert!(!f.dest.join("tree/old").exists());
@@ -1371,7 +1427,7 @@ fn copy_overwrites_only_confirmed_destinations_and_keeps_sources() {
     assert_eq!(fs::read(out.backup.join("0003/old")).unwrap(), b"old tree");
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
     // Copying into the source's own directory would overwrite the source.
-    assert!(TransferPlan::new(true, vec![a.clone()], f.work.clone()).is_err());
+    assert!(TransferPlan::new(Transfer::Copy, vec![a.clone()], f.work.clone()).is_err());
 }
 #[test]
 fn failed_overwriting_copy_restores_overwritten_entries() {
@@ -1379,7 +1435,8 @@ fn failed_overwriting_copy_restores_overwritten_entries() {
     let a = f.file("a", b"new a");
     let b = f.file("b", b"new b");
     fs::write(f.dest.join("a"), b"old a").unwrap();
-    let plan = TransferPlan::new(true, vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
+    let plan =
+        TransferPlan::new(Transfer::Copy, vec![a.clone(), b.clone()], f.dest.clone()).unwrap();
     let mut e = f.engine();
     let racer = f.dest.join("b");
     e.hook = Some(Box::new(move |phase| {
@@ -1393,4 +1450,219 @@ fn failed_overwriting_copy_restores_overwritten_entries() {
     assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"race");
     assert_eq!(fs::read(&a).unwrap(), b"new a");
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 2);
+}
+/// Runs `test` again as root of a new user and mount namespace, where bind
+/// mounts are allowed; returns false (skip) where namespaces are unavailable.
+fn in_namespace(test: &str) -> bool {
+    if std::env::var_os("FFF_IN_NAMESPACE").is_some() {
+        return false;
+    }
+    let exe = std::env::current_exe().unwrap();
+    let Ok(status) = std::process::Command::new("unshare")
+        .args(["-rm"])
+        .arg(exe)
+        .args(["--exact", test, "--ignored", "--nocapture"])
+        .env("FFF_IN_NAMESPACE", "1")
+        .status()
+    else {
+        eprintln!("unshare unavailable; skipping {test}");
+        return true;
+    };
+    assert!(status.success(), "{test} failed in a namespace");
+    true
+}
+fn bind(from: &Path, to: &Path) {
+    let status = std::process::Command::new("mount")
+        .arg("--bind")
+        .args([from, to])
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+#[test]
+fn same_device_bind_mounts_are_never_deleted_or_copied_through() {
+    if !in_namespace("operations::tests::bind_mounts_in_namespace") {
+        bind_mounts_in_namespace();
+    }
+}
+#[test]
+#[ignore = "runs inside a user and mount namespace"]
+fn bind_mounts_in_namespace() {
+    if std::env::var_os("FFF_IN_NAMESPACE").is_none() {
+        return;
+    }
+    let f = Fixture::new();
+    let outside = f.root.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("precious"), b"keep").unwrap();
+    let a = f.work.join("A");
+    fs::create_dir_all(a.join("m")).unwrap();
+    bind(&outside, &a.join("m"));
+    // Same filesystem, same device number: still refused everywhere.
+    assert!(
+        DeletePlan::new(vec![a.clone()])
+            .err()
+            .unwrap()
+            .contains("mount point")
+    );
+    let delete = Request::Delete {
+        sources: vec![a.clone()],
+        confirmed: vec![],
+    };
+    assert!(f.engine().execute(delete).is_err());
+    let copy = Request::Copy {
+        sources: vec![a.clone()],
+        directory: f.dest.clone(),
+        replace: vec![],
+        confirmed: vec![],
+    };
+    assert!(f.engine().execute(copy).is_err());
+    assert_eq!(fs::read(outside.join("precious")).unwrap(), b"keep");
+    // An alias of a source directory is still that source.
+    let src = f.work.join("src");
+    fs::create_dir_all(src.join("sub")).unwrap();
+    let alias = f.work.join("alias");
+    fs::create_dir(&alias).unwrap();
+    bind(&src, &alias);
+    let into_itself = Request::Copy {
+        sources: vec![src.clone()],
+        directory: alias.join("sub"),
+        replace: vec![],
+        confirmed: vec![],
+    };
+    let error = f.engine().execute(into_itself).unwrap_err();
+    assert!(error.contains("inside a source"), "{error}");
+    // Something mounted after validation stops the deletion; every root not
+    // yet deleted, and what remains of the failing one, is put back.
+    let roots = ["r0", "r1", "r2"].map(|n| f.work.join(n));
+    for root in &roots {
+        fs::create_dir_all(root.join("m")).unwrap();
+        fs::write(root.join("data"), b"data").unwrap();
+    }
+    let mut e = f.engine();
+    let (work, outside2) = (f.work.clone(), outside.clone());
+    e.hook = Some(Box::new(move |phase| {
+        if phase == usize::MAX - 2 {
+            // r1's detached copy lives in the only stage holding "r1" data.
+            let stage = fs::read_dir(&work)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.join("entry/data").exists())
+                .nth(1)
+                .unwrap();
+            bind(&outside2, &stage.join("entry/m"));
+        }
+    }));
+    let plan = DeletePlan::new(roots.to_vec()).unwrap();
+    let error = e.execute(plan.request().unwrap()).unwrap_err();
+    assert!(error.contains("back in place"), "{error}");
+    assert_eq!(fs::read(outside.join("precious")).unwrap(), b"keep");
+    // r0 was deleted; r1 failed partway and is back with whatever remained;
+    // r2 was never touched.
+    assert!(!roots[0].exists() && roots[1].is_dir(), "{error}");
+    assert_eq!(fs::read(roots[2].join("data")).unwrap(), b"data");
+    assert!(stranded(&f.work).is_empty());
+}
+#[test]
+fn termination_signals_wait_for_the_operation_to_finish() {
+    if std::env::var_os("FFF_SIGNAL_CHILD").is_some() {
+        let marker = PathBuf::from(std::env::var_os("FFF_SIGNAL_CHILD").unwrap());
+        let deferred = interrupt::Deferred::new();
+        unsafe {
+            libc::raise(libc::SIGTERM);
+        }
+        // Still running: the operation would finish here.
+        fs::write(&marker, b"finished").unwrap();
+        drop(deferred);
+        unreachable!("SIGTERM is delivered once the operation ends");
+    }
+    let f = Fixture::new();
+    let marker = f.root.join("marker");
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "operations::tests::termination_signals_wait_for_the_operation_to_finish",
+            "--nocapture",
+        ])
+        .env("FFF_SIGNAL_CHILD", &marker)
+        .status()
+        .unwrap();
+    use std::os::unix::process::ExitStatusExt;
+    assert_eq!(status.signal(), Some(libc::SIGTERM));
+    assert_eq!(fs::read(&marker).unwrap(), b"finished");
+}
+#[test]
+fn stranded_stages_of_dead_processes_are_reported() {
+    let f = Fixture::new();
+    fs::create_dir(f.work.join(".fff-stage-4194305-1-0")).unwrap();
+    let live = format!(".fff-stage-{}-1-0", std::process::id());
+    fs::create_dir(f.work.join(&live)).unwrap();
+    assert_eq!(
+        stranded(&f.work),
+        vec![f.work.join(".fff-stage-4194305-1-0")]
+    );
+}
+#[test]
+fn copy_rollback_never_pulls_back_an_entry_it_did_not_publish() {
+    let f = Fixture::new();
+    let a = f.file("a", b"mine");
+    let b = f.file("b", b"mine too");
+    let mut e = f.engine();
+    let dest = f.dest.clone();
+    e.hook = Some(Box::new(move |phase| {
+        if phase == 1 {
+            // Someone replaces the published copy and takes the next name.
+            fs::remove_file(dest.join("a")).unwrap();
+            fs::write(dest.join("a"), b"theirs").unwrap();
+            fs::write(dest.join("b"), b"theirs too").unwrap();
+        }
+    }));
+    let request = Request::Copy {
+        sources: vec![a, b],
+        directory: f.dest.clone(),
+        replace: vec![],
+        confirmed: vec![],
+    };
+    let error = e.execute(request).unwrap_err();
+    assert!(error.contains("rollback incomplete"), "{error}");
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"theirs");
+    assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"theirs too");
+}
+#[test]
+fn extraction_into_an_existing_directory_needs_no_writable_parent() {
+    let f = Fixture::new();
+    let archive = f.work.join("a.tar");
+    tar(&archive, &[("file", b'0', b"contents", "")]);
+    let locked = f.root.join("locked");
+    fs::create_dir_all(locked.join("into")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
+    let result = f.engine().execute(Request::Extract {
+        archive,
+        destination: locked.join("into"),
+    });
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+    result.unwrap();
+    assert_eq!(fs::read(locked.join("into/file")).unwrap(), b"contents");
+    assert_eq!(fs::read_dir(locked.join("into")).unwrap().count(), 1);
+}
+#[test]
+fn new_files_get_ordinary_permissions_and_plans_refuse_repeated_names() {
+    let f = Fixture::new();
+    let reference = f.work.join("reference");
+    fs::File::create(&reference).unwrap();
+    let draft = Draft {
+        kind: EditKind::New(false),
+        cwd: f.work.clone(),
+        text: "made".into(),
+    };
+    f.engine().execute(draft.request().unwrap()).unwrap();
+    let mode = |p: &Path| fs::metadata(p).unwrap().mode() & 0o777;
+    assert_eq!(mode(&f.work.join("made")), mode(&reference));
+    let one = f.work.join("x");
+    fs::create_dir_all(f.dest.join("x")).unwrap();
+    fs::write(&one, b"1").unwrap();
+    let error = TransferPlan::new(Transfer::Copy, vec![one, f.dest.join("x")], f.root.clone())
+        .err()
+        .unwrap();
+    assert!(error.contains("Two selected entries"), "{error}");
 }

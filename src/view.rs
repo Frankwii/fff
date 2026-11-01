@@ -195,7 +195,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::DeleteChoice { current, selected } => {
             delete_choice(frame, main, app, current, selected.len())
         }
-        Focus::OverwriteConfirm(plan) => overwrite_confirmation(frame, main, app, plan),
+        Focus::TransferConfirm(plan) => transfer_confirmation(frame, main, app, plan),
         Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
         Focus::Exclusions(text) => prompt(
             frame,
@@ -1460,18 +1460,20 @@ fn total(rows: &[(PathBuf, u64)]) -> String {
     )
 }
 /// A short explanation above a listing of the affected paths and their sizes.
+#[allow(clippy::too_many_arguments)]
 fn listing(
     frame: &mut Frame,
     main: Rect,
     app: &App,
     title: &str,
+    accent: Color,
     text: &str,
     keys: &[(&str, &str)],
     rows: &[(PathBuf, u64)],
 ) {
     let theme = app.palette;
     let width = main.width.saturating_sub(4) as usize;
-    let body = prose(theme, theme.error, text, width);
+    let body = prose(theme, accent, text, width);
     // Borders, prose, a blank line, then as many rows as fit.
     let height = (body.len() + rows.len() + 3) as u16;
     let inner = sheet(
@@ -1481,7 +1483,7 @@ fn listing(
         height,
         Sheet {
             title: format!(" {title} "),
-            accent: theme.error,
+            accent,
             keys,
             summary: Some(total(rows)),
         },
@@ -1503,6 +1505,7 @@ fn delete_confirmation(frame: &mut Frame, main: Rect, app: &App, rows: &[(PathBu
         main,
         app,
         "Delete permanently",
+        app.palette.error,
         &format!(
             "Press *Enter* to permanently delete {what}, including everything inside \
              directories. Press *Esc* to keep {them}."
@@ -1511,32 +1514,60 @@ fn delete_confirmation(frame: &mut Frame, main: Rect, app: &App, rows: &[(PathBu
         rows,
     );
 }
-fn overwrite_confirmation(
+/// Move, copy and link confirmations list the selection; when existing entries
+/// would be overwritten, the window lists those instead, as a warning.
+fn transfer_confirmation(
     frame: &mut Frame,
     main: Rect,
     app: &App,
     plan: &crate::operations::TransferPlan,
 ) {
-    let (verb, noun, title) = if plan.copy {
-        ("Copying", "copy", "Overwrite on copy")
-    } else {
-        ("Moving", "move", "Overwrite on move")
+    use crate::operations::Transfer;
+    let (verb, noun, label) = match plan.kind {
+        Transfer::Move => ("Moving", "move", "Move"),
+        Transfer::Copy => ("Copying", "copy", "Copy"),
+        Transfer::Link => ("Linking", "link", "Link"),
     };
-    let one = plan.rows.len() == 1;
+    let here = tilde(&app.cwd, app.home.as_deref());
+    let selected = plan.sources.len();
+    let these = if selected == 1 {
+        "this entry".to_string()
+    } else {
+        format!("these {selected} entries")
+    };
+    if plan.overwrites.is_empty() {
+        let action = match plan.kind {
+            Transfer::Link => format!("create links to {these} in {here}"),
+            _ => format!("{noun} {these} into {here}"),
+        };
+        listing(
+            frame,
+            main,
+            app,
+            &format!("{label} here"),
+            app.palette.marked,
+            &format!("Press *Enter* to {action}, or *Esc* to cancel."),
+            &[("Enter", label), ("Esc", "Cancel")],
+            &plan.sources,
+        );
+        return;
+    }
+    let one = plan.overwrites.len() == 1;
     listing(
         frame,
         main,
         app,
-        title,
+        &format!("Overwrite on {noun}"),
+        app.palette.error,
         &format!(
-            "{verb} {} here would overwrite {}. Press *Enter* to {noun} everything and \
-             overwrite {}, or *Esc* to cancel the whole {noun}.",
-            count(plan.sources.len()),
+            "{verb} {} into {here} would overwrite {}. Press *Enter* to {noun} everything \
+             and overwrite {}, or *Esc* to cancel the whole {noun}.",
+            count(selected),
             if one { "this entry" } else { "these entries" },
             if one { "it" } else { "them" },
         ),
         &[("Enter", "Overwrite"), ("Esc", "Cancel")],
-        &plan.rows,
+        &plan.overwrites,
     );
 }
 /// A one-keystroke choice: prose naming each key, keys repeated in the border.

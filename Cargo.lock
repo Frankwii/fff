@@ -357,6 +357,7 @@ dependencies = [
  "color-print",
  "crossterm",
  "globset",
+ "libc",
  "ratatui",
  "rmpv",
  "rustix",

@@ -41,7 +41,7 @@ pub(crate) enum Focus {
         selected: Vec<PathBuf>,
     },
     DeleteConfirm(crate::operations::DeletePlan),
-    OverwriteConfirm(crate::operations::TransferPlan),
+    TransferConfirm(crate::operations::TransferPlan),
     NewChoice,
     Location(String),
     Bookmarks {
@@ -172,6 +172,7 @@ pub fn run(
     discovery.start(&mut app, true);
     let mut editor = start_editor(backend, "nvim", &mut app.status);
     let mut editor_directory = app.cwd.clone();
+    warn_stranded(&mut app);
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     let mut status = StatusTimer::default();
@@ -202,6 +203,7 @@ pub fn run(
         );
         if editor_directory != app.cwd {
             editor_directory = app.cwd.clone();
+            warn_stranded(&mut app);
             // Carry the initiating field's editing mode into the new location.
             if let Some(e) = &mut editor {
                 e.reset_preserving_mode(Field::Query);
@@ -488,28 +490,15 @@ pub fn run(
                     if sources.is_empty() {
                         app.status = "No files selected".into();
                     } else {
-                        let directory = app.cwd.clone();
-                        focus = Focus::Results;
-                        let request = match key.code {
-                            K::Char('s') => {
-                                Ok(crate::operations::Request::Symlink { sources, directory })
-                            }
-                            // Existing destinations need confirmation before overwriting.
-                            _ => {
-                                let copy = key.code == K::Char('p');
-                                match crate::operations::TransferPlan::new(copy, sources, directory)
-                                {
-                                    Ok(plan) if plan.rows.is_empty() => plan.request(),
-                                    Ok(plan) => {
-                                        focus = Focus::OverwriteConfirm(plan);
-                                        continue;
-                                    }
-                                    Err(error) => Err(error),
-                                }
-                            }
+                        use crate::operations::Transfer;
+                        // v/p/s are common Vim keys: every transfer is confirmed.
+                        let kind = match key.code {
+                            K::Char('v') => Transfer::Move,
+                            K::Char('p') => Transfer::Copy,
+                            _ => Transfer::Link,
                         };
-                        match request {
-                            Ok(request) => perform_operation(&mut app, &mut discovery, request),
+                        match crate::operations::TransferPlan::new(kind, sources, app.cwd.clone()) {
+                            Ok(plan) => focus = Focus::TransferConfirm(plan),
                             Err(error) => app.status = error,
                         }
                     }
@@ -829,7 +818,7 @@ pub fn run(
                 K::Esc => focus = Focus::Results,
                 _ => {}
             },
-            Focus::OverwriteConfirm(plan) => match key.code {
+            Focus::TransferConfirm(plan) => match key.code {
                 K::Enter => {
                     let request = plan.request();
                     focus = Focus::Results;
@@ -839,10 +828,10 @@ pub fn run(
                     }
                 }
                 K::Esc => {
-                    app.status = if plan.copy {
-                        "Copy cancelled; nothing changed"
-                    } else {
-                        "Move cancelled; nothing changed"
+                    app.status = match plan.kind {
+                        crate::operations::Transfer::Move => "Move cancelled; nothing changed",
+                        crate::operations::Transfer::Copy => "Copy cancelled; nothing changed",
+                        crate::operations::Transfer::Link => "Link cancelled; nothing changed",
                     }
                     .into();
                     focus = Focus::Results;
@@ -1459,7 +1448,9 @@ fn perform_operation(
         } => sources.iter().chain(replace).collect(),
         // Overwritten entries are removed just like deleted ones.
         Request::Copy { replace, .. } => replace.iter().collect(),
-        Request::Rename { sources, .. } | Request::Delete { sources } => sources.iter().collect(),
+        Request::Rename { sources, .. } | Request::Delete { sources, .. } => {
+            sources.iter().collect()
+        }
         _ => vec![],
     };
     if destructive.iter().any(|p| {
@@ -1467,7 +1458,11 @@ fn perform_operation(
             .parent()
             .and_then(|parent| parent.canonicalize().ok())
             .and_then(|parent| p.file_name().map(|name| parent.join(name)));
-        app.cwd.starts_with(p) || resolved.is_some_and(|path| app.cwd.starts_with(path))
+        // Compare resolved paths too: the browsing path may run through a symlink.
+        let cwd = app.cwd.canonicalize().unwrap_or_else(|_| app.cwd.clone());
+        [&app.cwd, &cwd].iter().any(|cwd| {
+            cwd.starts_with(p) || resolved.as_ref().is_some_and(|path| cwd.starts_with(path))
+        })
     }) {
         app.status = "Cannot change the current directory or its ancestors".into();
         return;
@@ -1513,6 +1508,20 @@ fn perform_operation(
     discovery.force_refresh(app);
     app.status = message;
 }
+/// An fff killed mid-operation can leave user data in hidden staging folders.
+fn warn_stranded(app: &mut App) {
+    let stranded = crate::operations::stranded(&app.cwd);
+    if let Some(first) = stranded.first() {
+        app.status = format!(
+            "An interrupted operation left data in {}{}; move it back or delete it",
+            first.file_name().unwrap_or_default().to_string_lossy(),
+            match stranded.len() {
+                1 => String::new(),
+                n => format!(" and {} more", n - 1),
+            }
+        );
+    }
+}
 /// "README.md" for one entry, "3 entries" for several.
 fn entries<'a>(paths: impl ExactSizeIterator<Item = &'a PathBuf>) -> String {
     let count = paths.len();
@@ -1547,7 +1556,7 @@ fn operation_summary(request: &crate::operations::Request) -> Option<String> {
             done
         }
         Request::Symlink { sources, .. } => format!("Linked {}", entries(sources.iter())),
-        Request::Delete { sources } => format!("Deleted {}", entries(sources.iter())),
+        Request::Delete { sources, .. } => format!("Deleted {}", entries(sources.iter())),
         Request::Create { path, directory } => format!(
             "Created {} {}",
             if *directory { "directory" } else { "file" },
