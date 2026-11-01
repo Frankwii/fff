@@ -95,17 +95,20 @@ impl Palette {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum EditorBackend {
-    #[default]
+    /// Append/Backspace editing without an external engine
     Basic,
+    /// Clean embedded Neovim; falls back to basic when unavailable
+    #[default]
     Nvim,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EditorConfig {
-    pub backend: EditorBackend,
+    /// `None` means the default backend was not explicitly chosen in TOML.
+    pub backend: Option<EditorBackend>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

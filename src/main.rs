@@ -8,7 +8,9 @@ use std::{io, path::PathBuf, process::ExitCode};
     about = "Interactive fuzzy file picker. UI uses /dev/tty; selected paths use stdout."
 )]
 struct Args {
-    /// Experimental text editor backend (also configurable in TOML)
+    /// Text-editing engine for all input fields (also `[editor] backend` in TOML).
+    /// Default: nvim, a clean embedded Neovim; falls back to basic quietly when
+    /// `nvim` is not on PATH or fails to start
     #[arg(long, value_enum)]
     editor: Option<picker::config::EditorBackend>,
     /// Read this TOML configuration instead of the default config file
@@ -108,7 +110,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         keys,
         settings.cache,
         watcher,
-        args.editor.unwrap_or(settings.editor.backend),
+        args.editor.or(settings.editor.backend),
     )? {
         write_paths(
             io::stdout().lock(),

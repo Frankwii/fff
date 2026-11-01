@@ -34,6 +34,6 @@ max_entries = 16       # LRU snapshots of completed discovery scopes; 1..128.
 max_candidates = 4096 # Maximum paths stored per snapshot; 1..100000.
 ttl_seconds = 60      # Snapshot stale age; retained for provisional replay until LRU eviction.
 
-# Opt-in experiment; requires nvim on PATH. See EDITING.md.
+# Default: clean embedded Neovim; quietly falls back to basic without nvim. See EDITING.md.
 [editor]
-backend = "basic" # Change to "nvim" for genuine modal text editing.
+backend = "nvim" # Or "basic" for plain append/Backspace editing.

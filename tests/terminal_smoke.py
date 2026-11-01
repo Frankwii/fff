@@ -23,7 +23,9 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/picker")
 
 
 class Session:
-    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None):
+    # Tests pin basic editing unless they choose --editor or opt out with editor=None
+    # (which exercises the configured/default backend).
+    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, editor="basic"):
         master, slave = pty.openpty()
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
@@ -48,6 +50,8 @@ class Session:
             if environment: os.environ.update(environment)
             if "--config" not in args and "--no-config" not in args and not environment:
                 args=(*args,"--no-config")
+            if editor and "--editor" not in args:
+                args=(*args,"--editor",editor)
             os.execv(BINARY, [BINARY, *([] if implicit_root else [str(root)]), *args])
         os.close(slave)
         os.close(writer)
@@ -432,7 +436,7 @@ class TerminalTests(unittest.TestCase):
             (target / "note").touch()
             config = Path(folder) / "config.toml"
             config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
-            s = self.start("--config", str(config), implicit_root=True)
+            s = self.start("--config", str(config), implicit_root=True, editor=None)
             s.send(b"\x1bg", "INSERT")
             s.send(b"junk " + os.fsencode(target), b"junk")
             s.send(b"\x1b[27u", "NORMAL")
@@ -479,6 +483,26 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         s = self.start("--editor", "nvim", "--no-config", environment={"PATH": ""})
         self.assertIn("Using basic editing", s.screen.text)
+        s.send(b"file", b"Query: file")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_default_editor_is_neovim(self):
+        (self.root / "world.txt").touch()
+        s = self.start(editor=None)
+        self.assertIn("INSERT", s.screen.text)
+        s.send(b"hello world", b"Query: hello world")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"0dw", b"Query: world")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
+
+    def test_default_editor_without_nvim_falls_back_quietly(self):
+        (self.root / "file").touch()
+        s = self.start("--no-config", environment={"PATH": ""}, editor=None)
+        self.assertNotIn("Using basic editing", s.screen.text)
+        self.assertNotIn("INSERT", s.screen.text)
         s.send(b"file", b"Query: file")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))

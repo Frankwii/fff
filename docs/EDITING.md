@@ -1,24 +1,26 @@
-# Experimental Neovim editing
+# Neovim editing
 
-Picker can run a clean Neovim process as the text-editing engine inside its own
-interface. This is **opt-in**; the default `basic` backend retains the original
-append/Backspace editing and Escape behavior.
+Picker runs a clean Neovim process as the text-editing engine inside its own
+interface. This is the **default**. The `basic` backend retains the original
+append/Backspace editing and Escape behavior:
 
 ```sh
-cargo run -- --editor nvim
+cargo run -- --editor basic
 ```
 
-Or enable it in your TOML config:
+Or choose it in your TOML config:
 
 ```toml
 [editor]
-backend = "nvim"
+backend = "basic"
 ```
 
 `--editor basic` / `--editor nvim` overrides the config. Neovim must be available
-as `nvim` on PATH; the implementation was tested with Neovim 0.12.6. If startup or
-RPC fails, picker reports the problem and switches to basic editing, preserving
-the last synchronized text. Palette hot reload does not switch editing backends;
+as `nvim` on PATH; the implementation was tested with Neovim 0.12.6. When no
+backend was chosen explicitly and `nvim` is missing or fails to start, picker
+quietly starts with basic editing. An explicit `nvim` choice reports the startup
+problem in the status line instead. If RPC fails later, picker reports it and
+switches to basic editing, preserving the last synchronized text. Palette hot reload does not switch editing backends;
 restart to change `[editor]` settings.
 
 ## Fields and modes
@@ -109,5 +111,7 @@ RPC has a bounded timeout, and the child is shut down/reaped when picker exits.
 Tests exercise the real installed Neovim: operators, find/replace pending input,
 Unicode, visual selection/yank/paste, undo/redo, substitutions, field switching,
 multiline edits, process failure, and cleanup. Terminal tests verify every field,
-clean-init isolation, fallback, mode/cursor rendering, and exact stdout bytes.
+clean-init isolation, the Neovim default, quiet default fallback without `nvim`
+on PATH, explicit-choice fallback reporting, mode/cursor rendering, and exact
+stdout bytes. Terminal tests about basic editing pin `--editor basic`.
 Neovim-specific tests explicitly skip when `nvim` is not installed.
