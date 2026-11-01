@@ -194,6 +194,7 @@ struct RawConfig {
     cache: CacheConfig,
     performance: PerformanceConfig,
     keys: KeysConfig,
+    open: crate::open::OpenConfig,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -248,6 +249,8 @@ pub struct Settings {
     pub message_timeout: Option<std::time::Duration>,
     /// Start where the last session ended (`[ui] resume`), in the default mode.
     pub resume: bool,
+    /// `[open]`: openers by file type and the terminal for terminal openers.
+    pub open: crate::open::OpenConfig,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
     /// Active bookmark save destination, including a missing default config.
@@ -269,6 +272,7 @@ impl Settings {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());
         }
         let normal_keys = raw.keys.normal.build()?;
+        raw.open.validate()?;
         let key_maps: Vec<String> = raw
             .keys
             .map
@@ -323,6 +327,7 @@ impl Settings {
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
             resume: raw.ui.resume,
+            open: raw.open,
             source: None,
             bookmark_path: None,
         })

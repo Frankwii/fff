@@ -89,6 +89,8 @@ pub(crate) enum Focus {
 pub enum Finish {
     /// Confirmed paths, or the directory of a quit key.
     Paths(Vec<PathBuf>),
+    /// Normal-mode Enter: exit into this folder (printed with --output-paths).
+    Folder(PathBuf),
     /// Ctrl+c.
     Cancelled,
     /// gX: the terminal is restored; the caller replaces fff with the program.
@@ -130,6 +132,7 @@ fn session(
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut terminal = Terminal::enter()?;
     let (wake, waking) = std::sync::mpsc::sync_channel(1);
+    crate::notify::set_waker(wake.clone());
     let mut input = Input::start(wake.clone());
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
@@ -159,6 +162,16 @@ fn session(
     let mut bookmark_targets = Vec::new();
     loop {
         dirty |= status.tick(app);
+        // Pop-up notifications from background work, shown for a while.
+        let now = std::time::Instant::now();
+        for notice in crate::notify::drain() {
+            app.notices.push((notice, now));
+            dirty = true;
+        }
+        let shown = app.notices.len();
+        app.notices
+            .retain(|(_, at)| now.duration_since(*at) < crate::notify::SHOWN_FOR);
+        dirty |= app.notices.len() != shown;
         for update in palettes.updates() {
             dirty = true;
             match update {
@@ -521,6 +534,20 @@ fn session(
                     }
                     Scope::Nothing => app.status = "Nothing to edit".into(),
                 },
+                // The opener takes over this terminal until it ends.
+                K::Char('o') => match scope(&app.marks, current) {
+                    Scope::Ask(current, selected) => {
+                        focus = Focus::ScopeChoice {
+                            current,
+                            selected,
+                            action: ScopedAction::Open,
+                        }
+                    }
+                    Scope::Ready(paths) => {
+                        open_here(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?
+                    }
+                    Scope::Nothing => app.status = "Nothing to open".into(),
+                },
                 K::Char('r') => {
                     let sources = app
                         .rows
@@ -704,11 +731,23 @@ fn session(
         if matches!(focus, Focus::Results)
             && let Some(digit) = alt_numbered_key(key)
         {
+            // Like l on that row: enter a directory, open a file in the background.
             discovery.checkpoint(app);
-            match app.enter_numbered(digit) {
-                EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
-                EnterOutcome::Navigated => discovery.start(app, true),
-                EnterOutcome::Stay => {}
+            if app.rendered.is_empty() {
+                continue;
+            }
+            let path = app.numbered(digit);
+            let Some(target) = app.rows.iter().find(|c| c.path == path).cloned() else {
+                continue;
+            };
+            app.highlight = Some(target.path.clone());
+            if target.directory {
+                if app.ready_path(&target.path) && app.can_navigate() {
+                    app.navigate(target.path, false);
+                    discovery.start(app, true);
+                }
+            } else {
+                open_in_background(app, &target.path);
             }
             continue;
         }
@@ -889,6 +928,11 @@ fn session(
                     ScopedAction::Edit => {
                         focus = Focus::Results;
                         edit_files(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?;
+                        continue;
+                    }
+                    ScopedAction::Open => {
+                        focus = Focus::Results;
+                        open_here(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?;
                         continue;
                     }
                 };
@@ -1286,6 +1330,16 @@ fn session(
                     && let Some(p) = app.confirm(None)
                 {
                     return Ok(Finish::Paths(p));
+                } else if key.code == K::Enter
+                    && let Some(mark) = rows.get(*index)
+                {
+                    // Like Normal-mode Enter in the results: exit into its folder.
+                    let folder = if mark.is_dir() {
+                        mark.clone()
+                    } else {
+                        mark.parent().unwrap_or(&app.cwd).to_owned()
+                    };
+                    return Ok(Finish::Folder(folder));
                 }
             }
             Focus::Results => match (key.code, ctrl, alt) {
@@ -1351,9 +1405,20 @@ fn session(
                         index: 0,
                     }
                 }
+                // Directories are entered; files open in the background.
                 (K::Char('l'), _, true) => {
-                    if app.navigate_highlighted() {
-                        discovery.start(app, true);
+                    let file = app
+                        .rows
+                        .iter()
+                        .find(|c| Some(&c.path) == app.highlight.as_ref() && !c.directory)
+                        .map(|c| c.path.clone());
+                    match file {
+                        Some(path) => open_in_background(app, &path),
+                        None => {
+                            if app.navigate_highlighted() {
+                                discovery.start(app, true);
+                            }
+                        }
                     }
                 }
                 (K::Char('p' | 'P'), _, true) if palette == Some(PaletteKey::Reload) => {
@@ -1425,10 +1490,29 @@ fn session(
                         .iter()
                         .find(|c| Some(&c.path) == app.highlight.as_ref())
                         .cloned();
-                    match app.enter(target) {
-                        EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
-                        EnterOutcome::Navigated => discovery.start(app, true),
-                        EnterOutcome::Stay => {}
+                    // Normal mode: exit into the entry's folder (a directory
+                    // itself), like l then !, but for deep results too.
+                    if app.edit_view.as_ref().is_some_and(|v| v.normal()) {
+                        let folder = match &target {
+                            Some(c) if c.directory => c.path.clone(),
+                            Some(c) => c.path.parent().unwrap_or(&app.cwd).to_owned(),
+                            None => app.cwd.clone(),
+                        };
+                        return Ok(Finish::Folder(folder));
+                    }
+                    match target {
+                        // Typing: a file is revealed in its folder, unless
+                        // fff is picking paths for a script.
+                        Some(file) if !file.directory && !app.output_paths => {
+                            if app.reveal(file.path) {
+                                discovery.start(app, true);
+                            }
+                        }
+                        target => match app.enter(target) {
+                            EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
+                            EnterOutcome::Navigated => discovery.start(app, true),
+                            EnterOutcome::Stay => {}
+                        },
                     }
                 }
                 _ => {

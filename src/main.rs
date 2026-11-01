@@ -287,6 +287,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     // Configured [keys.map] chords first, so --map-key rules override them.
     let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
     if args.check_config {
+        // Openers name programs; report the ones that are not installed.
+        let missing = settings.open.missing(&std::env::current_dir()?);
+        if !missing.is_empty() {
+            return Err(format!("[open] programs not found: {}", missing.join("; ")).into());
+        }
         match &settings.source {
             Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
             None => eprintln!("fff: no configuration file; using built-in settings"),
@@ -330,6 +335,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         App::new(roots, args.depth as usize, policy)
     };
     app.records_location = records_location;
+    app.openers = settings.open.clone();
+    app.output_paths = args.output_paths;
     app.positions = state.positions;
     app.wanted = app.remembered(&app.cwd.clone());
     app.apply_palette(fuzzy_file_finder::reload::PaletteState::from_settings(
@@ -398,6 +405,20 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
                 args.relative,
                 args.null,
             )?;
+            Ok(true)
+        }
+        ui::Finish::Folder(folder) if args.output_paths => {
+            write_paths(
+                io::stdout().lock(),
+                &[folder],
+                &invocation,
+                args.relative,
+                args.null,
+            )?;
+            Ok(true)
+        }
+        ui::Finish::Folder(folder) => {
+            change_to(Some(&folder))?;
             Ok(true)
         }
         ui::Finish::Paths(paths) => {

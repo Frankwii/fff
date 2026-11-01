@@ -10,6 +10,8 @@ pub mod icons;
 pub mod keys;
 pub mod location;
 pub mod normal_keys;
+pub mod notify;
+pub mod open;
 pub mod operations;
 mod palettes;
 mod prefetch;
@@ -295,6 +297,13 @@ pub struct App {
     pub wanted: Option<PathBuf>,
     /// Whether this session's directory is where the next one resumes.
     pub records_location: bool,
+    /// `[open]`: which program opens a file.
+    pub openers: open::OpenConfig,
+    /// `--output-paths`: Insert-mode Enter on a file returns it instead of
+    /// revealing it.
+    pub output_paths: bool,
+    /// Pop-up notifications and when each arrived.
+    pub notices: Vec<(String, std::time::Instant)>,
     /// Ctrl+o / Ctrl+i: directories left this session, and those jumped back from.
     pub back: Vec<PathBuf>,
     pub forward: Vec<PathBuf>,
@@ -353,6 +362,9 @@ impl App {
             positions: Vec::new(),
             wanted: None,
             records_location: false,
+            openers: open::OpenConfig::default(),
+            output_paths: false,
+            notices: Vec::new(),
             back: Vec::new(),
             forward: Vec::new(),
             tab: 0,
@@ -694,6 +706,22 @@ impl App {
         } else {
             false
         }
+    }
+    /// Insert-mode Enter on a file (without --output-paths): show it in its
+    /// folder with the query cleared. Returns whether the directory changed.
+    pub fn reveal(&mut self, file: PathBuf) -> bool {
+        let folder = file.parent().map(Path::to_path_buf);
+        self.query.clear();
+        let moved = match folder {
+            Some(folder) if folder != self.cwd && self.can_navigate() => {
+                self.navigate(folder, false);
+                true
+            }
+            _ => false,
+        };
+        self.wanted = Some(file);
+        self.refresh();
+        moved
     }
     pub fn ready_path(&mut self, path: &Path) -> bool {
         if self.cache_pending && !path.exists() {

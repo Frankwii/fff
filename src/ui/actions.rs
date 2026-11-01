@@ -16,6 +16,68 @@ pub enum ScopedAction {
     Run(bool),
     /// E: $EDITOR.
     Edit,
+    /// o: each file's opener, in this terminal.
+    Open,
+}
+/// l, Alt+l and Alt+number on a file: its opener in the background (a
+/// terminal opener in a new terminal window), while fff keeps the keyboard.
+pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let result = crate::open::background_plan(&app.openers, path, &app.cwd, app.home.as_deref())
+        .and_then(|plan| crate::open::launch(&plan).map(|()| plan));
+    match result {
+        Ok(plan) => {
+            app.status = format!("Opened {name} with {}", plan.name);
+            app.status_success = app.status.clone();
+        }
+        Err(error) => app.status = error,
+    }
+}
+/// o: the openers take over this terminal one after another, grouped so that
+/// files sharing an opener go to one invocation. Directories are refused.
+pub(super) fn open_here(
+    terminal: &mut Terminal,
+    input: &mut Input,
+    wake: &std::sync::mpsc::SyncSender<()>,
+    app: &mut App,
+    discovery: &mut Discovery,
+    paths: Vec<PathBuf>,
+) -> io::Result<()> {
+    if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
+        app.status = format!(
+            "o opens files, not directories like {}; l enters it",
+            dir.file_name().unwrap_or_default().to_string_lossy()
+        );
+        return Ok(());
+    }
+    let mut groups: Vec<(String, Vec<PathBuf>)> = vec![];
+    for path in paths {
+        let line = match app.openers.opener(&path) {
+            Ok(opener) => opener.line,
+            Err(error) => {
+                app.status = error;
+                return Ok(());
+            }
+        };
+        match groups.iter_mut().find(|(l, _)| *l == line) {
+            Some((_, files)) => files.push(path),
+            None => groups.push((line, vec![path])),
+        }
+    }
+    for (line, files) in groups {
+        match crate::open::plan(&line, files, &app.cwd, app.home.as_deref()) {
+            Ok(plan) => run_here(terminal, input, wake, app, discovery, &plan)?,
+            Err(error) => {
+                app.status = error;
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 pub(super) enum Scope {
     Ready(Vec<PathBuf>),

@@ -623,6 +623,7 @@ pub(super) fn scope_choice(
         crate::ui::ScopedAction::Run(false) => ("Run", "run a program on"),
         crate::ui::ScopedAction::Run(true) => ("Run and exit", "run a program on"),
         crate::ui::ScopedAction::Edit => ("Edit", "open in $EDITOR"),
+        crate::ui::ScopedAction::Open => ("Open", "open"),
     };
     choice(
         frame,
