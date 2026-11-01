@@ -94,7 +94,9 @@ pub fn run(
     let mut editor_directory = app.cwd.clone();
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
+    let mut status = StatusTimer::default();
     loop {
+        status.tick(&mut app);
         for update in palettes.updates() {
             match update {
                 Ok(state) => palette_reloaded(&mut app, &mut focus, state),
@@ -236,6 +238,7 @@ pub fn run(
         if key.kind == KeyEventKind::Release {
             continue;
         }
+        status.before_key(&mut app);
         let Some(key) = keys.translate(key) else {
             continue;
         };
@@ -660,6 +663,47 @@ pub fn run(
                     }
                 }
             },
+        }
+    }
+}
+
+/// Clears status messages after `App::status_timeout`. A message set again by a
+/// key, even with the same text, restarts the timer; one that is merely left in
+/// place keeps its original deadline.
+#[derive(Default)]
+pub struct StatusTimer {
+    shown: String,
+    since: Option<std::time::Instant>,
+    previous: Option<String>,
+}
+impl StatusTimer {
+    /// Call before handling a key: the handler starts from an empty status.
+    pub fn before_key(&mut self, app: &mut App) {
+        self.previous = Some(std::mem::take(&mut app.status));
+    }
+    /// Call once per loop iteration, before drawing.
+    pub fn tick(&mut self, app: &mut App) {
+        self.tick_at(app, std::time::Instant::now());
+    }
+    pub fn tick_at(&mut self, app: &mut App, now: std::time::Instant) {
+        if let Some(previous) = self.previous.take() {
+            if app.status.is_empty() {
+                app.status = previous;
+            } else {
+                // Re-reported by the key just handled.
+                self.shown.clear();
+            }
+        }
+        if app.status != self.shown {
+            self.shown = app.status.clone();
+            self.since = Some(now);
+        }
+        if let (Some(timeout), Some(since)) = (app.status_timeout, self.since)
+            && !app.status.is_empty()
+            && now.duration_since(since) >= timeout
+        {
+            app.status.clear();
+            self.shown.clear();
         }
     }
 }

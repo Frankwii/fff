@@ -78,6 +78,8 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
         "[cache]\nmax_entries=0",
         "[cache]\nmax_candidates=100001",
         "[cache]\nttl_seconds=0",
+        "[ui]\nmessage_seconds=3601",
+        "[ui]\nmessage_seconds=-1",
         "[[bookmarks]]\nname=''\npath='/tmp'",
         "[[bookmarks]]\nname='A'\npath=''",
         "[[bookmarks]]\nname='A'\npath='/a'\n[[bookmarks]]\nname='A'\npath='/b'",
@@ -248,4 +250,20 @@ fn normal_mode_list_keys_are_validated() {
     ] {
         assert!(parse(bad).is_err(), "accepted {bad:?}");
     }
+}
+#[test]
+fn message_seconds_defaults_to_four_and_zero_keeps_messages() {
+    use std::time::Duration;
+    assert_eq!(
+        parse("").unwrap().message_timeout,
+        Some(Duration::from_secs(4))
+    );
+    assert_eq!(
+        parse("[ui]\nmessage_seconds=10").unwrap().message_timeout,
+        Some(Duration::from_secs(10))
+    );
+    assert_eq!(
+        parse("[ui]\nmessage_seconds=0").unwrap().message_timeout,
+        None
+    );
 }

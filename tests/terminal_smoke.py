@@ -86,6 +86,16 @@ class Session:
                     return
         raise AssertionError(f"UI did not show {token!r}:\n{self.screen.text}")
 
+    def wait_absent(self, token, timeout=5):
+        deadline = time.monotonic() + timeout
+        while token in self.screen.text and time.monotonic() < deadline:
+            if select.select([self.master], [], [], 0.05)[0]:
+                chunk = os.read(self.master, 65536)
+                self.ui += chunk
+                self.screen.feed(chunk)
+        if token in self.screen.text:
+            raise AssertionError(f"UI still shows {token!r}:\n{self.screen.text}")
+
     def send(self, data, wait=None):
         after = self.screen.frames
         os.write(self.master, data)
@@ -380,6 +390,19 @@ class TerminalTests(unittest.TestCase):
         self.assertNotIn("SELECT AND RETURN", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
+
+    def test_status_messages_fade_after_configured_seconds(self):
+        (self.root / "file").touch()
+        with tempfile.TemporaryDirectory(prefix="picker-status-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\nmessage_seconds=1\n")
+            s = self.start("--no-dir", "--config", str(config))
+            s.send(b"\x1bh", "disabled with --no-dir")
+            started = time.monotonic()
+            s.wait_absent("disabled with --no-dir", timeout=4)
+            self.assertGreaterEqual(time.monotonic() - started, 0.8)
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
 
     def test_no_dir_lists_only_files_and_disables_navigation(self):
         folder = self.root / "folder"

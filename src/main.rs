@@ -267,6 +267,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
     app.no_dir = args.no_dir;
+    app.status_timeout = settings.message_timeout;
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);

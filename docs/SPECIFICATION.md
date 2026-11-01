@@ -786,3 +786,25 @@ specification, `~/.config/picker/config.toml` remains the fallback only when
 `XDG_CONFIG_HOME` is unset, empty, or not absolute. Documentation and `--help` now
 lead with the XDG path, and `--check-config` names the file it validated (or says
 that no file was found and built-in settings apply).
+
+
+## 22. Pinned-root underline, fading messages, more palettes, responsiveness (2026-11-01)
+
+A third set of user requests on 2026-11-01.
+
+### 22.1 Pinned current root underline
+
+When the current directory is also a pinned root, only that root's name is bold
+and underlined; the two-space gap before it is a separate unstyled span (it was
+previously underlined too).
+
+### 22.2 Status messages fade
+
+User request: "make the red notification messages at the bottom disappear after
+a few seconds." Status messages (footer and prompt error lines) clear after
+`[ui] message_seconds` (default 4, range 0..3600, 0 keeps them until replaced).
+Expiry is handled once per event-loop iteration: each key handler starts from an
+empty status, so a message reported again by a key, even with identical text,
+restarts its timer, while a message left untouched keeps its deadline. Messages
+from background work (palette reload, discovery) start their timer when they
+first appear.

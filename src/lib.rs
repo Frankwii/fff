@@ -136,6 +136,8 @@ pub struct App {
     pub no_dir: bool,
     /// Home directory, shown as `~` in the location line (presentation only).
     pub home: Option<PathBuf>,
+    /// Status messages clear after this long; `None` keeps them until replaced.
+    pub status_timeout: Option<std::time::Duration>,
 }
 
 impl App {
@@ -176,6 +178,7 @@ impl App {
             normal_keys: normal_keys::NormalKeys::default(),
             no_dir: false,
             home: None,
+            status_timeout: Some(std::time::Duration::from_secs(4)),
         }
     }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {

@@ -170,12 +170,14 @@ struct KeysConfig {
 struct UiConfig {
     palette: String,
     icons: bool,
+    message_seconds: u64,
 }
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             palette: "midnight".into(),
             icons: true,
+            message_seconds: 4,
         }
     }
 }
@@ -199,6 +201,9 @@ pub struct Settings {
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
     pub icons: bool,
     pub normal_keys: crate::normal_keys::NormalKeys,
+    /// How long status messages stay visible (`[ui] message_seconds`); `None`
+    /// keeps them until replaced.
+    pub message_timeout: Option<std::time::Duration>,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
 }
@@ -211,6 +216,9 @@ impl Settings {
     ) -> Result<Self, String> {
         let raw: RawConfig = toml::from_str(text).map_err(|e| e.to_string())?;
         raw.cache.validate()?;
+        if raw.ui.message_seconds > 3600 {
+            return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());
+        }
         let normal_keys = raw.keys.normal.build()?;
         let mut palettes = BTreeMap::new();
         for (name, values) in &raw.palettes {
@@ -296,6 +304,8 @@ impl Settings {
             cache: raw.cache,
             icons: raw.ui.icons,
             normal_keys,
+            message_timeout: (raw.ui.message_seconds > 0)
+                .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
             source: None,
         })
     }

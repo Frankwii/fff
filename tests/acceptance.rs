@@ -445,3 +445,37 @@ fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
     app.physical_empty = true;
     assert_eq!(app.enter(None), picker::EnterOutcome::Stay);
 }
+#[test]
+fn status_messages_expire_and_restart_when_reported_again() {
+    use picker::ui::StatusTimer;
+    let mut app = app();
+    let mut timer = StatusTimer::default();
+    let start = Instant::now();
+    let at = |ms| start + Duration::from_millis(ms);
+    app.status = "Navigation is disabled".into();
+    timer.tick_at(&mut app, at(0));
+    timer.tick_at(&mut app, at(3_900));
+    assert_eq!(app.status, "Navigation is disabled");
+    // An unrelated key leaves the message and its deadline alone.
+    timer.before_key(&mut app);
+    timer.tick_at(&mut app, at(3_950));
+    assert_eq!(app.status, "Navigation is disabled");
+    timer.tick_at(&mut app, at(4_000));
+    assert!(app.status.is_empty());
+    // The same text reported again by a key restarts the timer.
+    app.status = "Again".into();
+    timer.tick_at(&mut app, at(5_000));
+    timer.before_key(&mut app);
+    app.status = "Again".into();
+    timer.tick_at(&mut app, at(8_000));
+    timer.tick_at(&mut app, at(11_900));
+    assert_eq!(app.status, "Again");
+    timer.tick_at(&mut app, at(12_000));
+    assert!(app.status.is_empty());
+    // Without a timeout, messages stay until replaced.
+    app.status_timeout = None;
+    app.status = "Sticky".into();
+    timer.tick_at(&mut app, at(13_000));
+    timer.tick_at(&mut app, at(99_000));
+    assert_eq!(app.status, "Sticky");
+}

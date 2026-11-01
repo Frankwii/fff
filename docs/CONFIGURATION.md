@@ -139,6 +139,18 @@ icons = false
 or pass `--no-icons` for one invocation. Icons never affect matching, numbering,
 or output paths, and the row layout has the same width either way.
 
+## Status messages
+
+Notices such as "Navigation is disabled with --no-dir" or a failed palette reload
+appear in red on the bottom line, or inside an open prompt. They clear on their
+own after `message_seconds` (default 4). Triggering the same notice again restarts
+the timer; `0` keeps each message until another replaces it.
+
+```toml
+[ui]
+message_seconds = 4   # 0..3600; 0 = never hide automatically
+```
+
 ## Bookmarks
 
 Each `[[bookmarks]]` entry has a unique, nonempty `name`, a nonempty `path`, and
