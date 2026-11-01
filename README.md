@@ -50,10 +50,15 @@ by directories, fuzzy score, root order, and original absolute pathname bytes.
 Result labels, marked paths, and the selected-path footer are relative to the
 current browsing directory. A single `../` is kept; two or more leading parent
 steps collapse to `.../` (for example, `../../papers/report.tex` becomes
-`.../papers/report.tex`). This affects display only. The header identifies the
+`.../papers/report.tex`). This affects display only. The `@` line identifies the
 current directory, and F1 retains exact absolute paths and scope-relative labels.
 Each result shows its depth and scope number; F1 displays full scope paths and
-session details. Discovery runs in a cancellable background worker and incomplete
+session details.
+Explicit root arguments appear as compact `pinned r1 notes · r2 papers` entries
+on (or, when narrow, directly under) the `@` line; their numbers match the `rN`
+scope labels on result rows, and the current directory's own scope number
+follows its path. Depth, discovery progress, and hidden/exclusion/glob policies
+are shown on the filter's bottom border, shortened on narrow terminals. Discovery runs in a cancellable background worker and incomplete
 results are labeled. Query edits filter known results without restarting discovery.
 
 | Key | Action |
@@ -123,8 +128,8 @@ editing); see [the editing guide](docs/EDITING.md). `--editor basic` or
 `[editor] backend = "basic"` selects plain append/Backspace editing, which is
 also used quietly when `nvim` is not installed. No content search or file opener is included.
 
-The Ratatui interface supports configurable palettes, a distinctive current-directory
-banner, rounded pane borders, colored focus
+The Ratatui interface supports configurable palettes, an integrated `@ <current
+directory>` line between the filter and the results, rounded pane borders, colored focus
 and selection, and highlighted fuzzy matches. At 80 columns or wider, marked
 paths appear in a pane to the right of the working list. Narrower terminals stack
 the panes; Alt+Space expands the marked pane for inspection. Long marked labels

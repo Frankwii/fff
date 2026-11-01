@@ -106,8 +106,8 @@ color for that role. Unspecified roles are inherited.
 | `success` | Completed-discovery indicator. |
 | `error` | Missing paths and error messages. |
 | `selection` | Highlighted-row background. |
-| `current_directory` | Current-directory banner background. |
-| `current_directory_text` | Banner foreground; the directory basename is bold and underlined. |
+| `current_directory` | Background of the `@ <current directory>` segment below the filter. |
+| `current_directory_text` | Foreground of that segment; `@` and the basename are bold, the basename underlined. |
 
 `NO_COLOR` is honored. Labels, selection arrows, bold focus borders, and textual
 progress/missing indicators remain useful without color.

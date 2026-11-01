@@ -541,6 +541,39 @@ engine that fails after startup still falls back to basic editing with that stat
 message, preserving the last synchronized text. The section 19 engine boundaries,
 isolation, and tested behavior are otherwise unchanged.
 
+### 20.5 Integrated location line and pinned roots
+
+User request (2026-11-01): “Have the current directory appear somewhere between
+the query prompt and the list of files. Remove the current bar at the top and
+make it into something more integrated. The 'PS1' for this may be simply '@'.
+When there's more than one root, they should appear explicitly as 'pinned roots'
+somewhere there too, but try to make it compact. Remember these are separate
+from the working directory.”
+
+- The top current-directory banner and its separate status row are removed. The
+  filter panel is now the first row group; directly below it a single line reads
+  `@ <absolute current directory>`. The `@`/path segment uses the
+  `current_directory` background and `current_directory_text` foreground; `@`
+  and the basename are bold and the basename underlined, so the line remains
+  distinct under `NO_COLOR`. Long paths elide from the left, keeping the basename.
+- Explicit startup roots are shown as `pinned r1 notes · r2 papers` (basenames,
+  numbered like the `rN` scope labels on result rows), right-aligned on the `@`
+  line when both fit, otherwise on one extra line under it. Entries that do not
+  fit are summarized as `+N (F1)`; F1 lists every scope path and now calls these
+  “pinned root”. When the current directory is a pinned root, that entry is bold
+  and underlined. The `@` line also shows the current directory's own scope
+  number (for example `r3` once navigation leaves every root), keeping the
+  working directory visibly separate from pinned roots. Without explicit roots
+  nothing pinned is shown.
+- Depth, discovery progress (`● complete`, `◌ scanning (incomplete)`, `◌ cached ·
+  refreshing (incomplete)`), hidden/exclusion policies, and an active file glob
+  appear on the filter panel's bottom border. Narrow frames first drop trailing
+  policies (still in F1), then shorten progress to `◌ incomplete`; depth and an
+  explicit incomplete/complete label always remain.
+- This supersedes the banner/header wording of sections 16 and 17. The 36 × 12
+  minimum, numbered-target rules, and stacked narrow layout are unchanged; the
+  freed rows go to the result panes.
+
 ### 20.6 Shell completions and descriptive help
 
 User request (2026-11-01): "Add terminal completions and in general improve the
