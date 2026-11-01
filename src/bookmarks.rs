@@ -107,6 +107,8 @@ pub enum Change {
         bookmark: Bookmark,
     },
     Remove(usize),
+    /// Exchange two entries, e.g. adjacent ones to reorder the list.
+    Swap(usize, usize),
 }
 impl Change {
     pub fn apply(&self, current: &[Bookmark]) -> Result<Vec<Bookmark>, String> {
@@ -125,6 +127,12 @@ impl Change {
                     return Err("Bookmark no longer exists".into());
                 }
                 next.remove(*index);
+            }
+            Self::Swap(a, b) => {
+                if (*a).max(*b) >= next.len() {
+                    return Err("Bookmark no longer exists".into());
+                }
+                next.swap(*a, *b);
             }
         }
         let mut names = std::collections::HashSet::new();
@@ -250,6 +258,19 @@ fn update_document(
             Change::Remove(i) => {
                 tables.remove(*i);
             }
+            Change::Swap(a, b) => {
+                // Entries carry their comments along; the document keeps its
+                // table positions so output order follows the new list order.
+                let (mut first, mut second) = (
+                    tables.get(*a).ok_or("Bookmark table missing")?.clone(),
+                    tables.get(*b).ok_or("Bookmark table missing")?.clone(),
+                );
+                let positions = (first.position(), second.position());
+                first.set_position(positions.1);
+                second.set_position(positions.0);
+                tables.replace(*a, second);
+                tables.replace(*b, first);
+            }
         }
     } else if let Some(array) = item.as_array_mut() {
         match change {
@@ -273,6 +294,16 @@ fn update_document(
             }
             Change::Remove(i) => {
                 array.remove(*i);
+            }
+            Change::Swap(a, b) => {
+                // Values trade places; the surrounding whitespace stays put.
+                let (mut first, mut second) = (
+                    array.get(*a).ok_or("Bookmark table missing")?.clone(),
+                    array.get(*b).ok_or("Bookmark table missing")?.clone(),
+                );
+                std::mem::swap(first.decor_mut(), second.decor_mut());
+                array.replace_formatted(*a, second);
+                array.replace_formatted(*b, first);
             }
         }
     } else {

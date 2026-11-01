@@ -73,7 +73,7 @@ A successful operation reports what it did in the footer with a `✓` in the
 ## Buffer interactions
 
 Rename, extraction destinations, and new names follow the same lifecycle as
-exclusions and bookmark editing: **`ZZ` writes and closes to apply**, or
+exclusions: **`ZZ` writes and closes to apply**, or
 **`ZQ` closes without writing to discard** (`:wq` / `:q!` work too). `:w` records a snapshot but keeps editing;
 a later close applies that snapshot, discarding subsequent unwritten edits.
 Escape and native Neovim commands stay inside the buffer. The command line

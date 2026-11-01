@@ -216,17 +216,20 @@ preselected output paths.
 In the chooser, **Alt+n** adds the current directory, **Alt+e** edits the
 highlighted bookmark, and **Alt+d** asks for confirmation before deleting it.
 Deletion removes only the bookmark record. **Alt+r** reloads bookmarks from disk.
+**Alt+Up** / **Alt+Down** move the highlighted bookmark one place and save the
+new order immediately; while filtering, it moves past its visible neighbour.
+Comments directly above a `[[bookmarks]]` table move with it.
 
-The form edits name, path and icon. Tab/Shift+Tab switches fields; Enter on
-the icon field opens the icon chooser. Basic editing also uses Enter to advance.
-**Alt+i** opens a searchable selection of 37 choices,
+The form opens at the bottom like the file-operation dialogs and edits name,
+path and icon. **Enter** saves and **Escape** cancels, from any editing mode:
+in Neovim, Escape first leaves Insert/Visual mode, and Enter during command-line
+or pending input still goes to Neovim. Neovim's `ZZ` / `:wq` also save and
+`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields. **Alt+i** (or
+Space on the icon row) opens a searchable selection of 37 choices,
 including common Nerd Font glyphs and **Automatic** to clear a custom icon.
 Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
-icons remain intact unless changed. In Neovim, `ZZ` writes and closes to save
-and `ZQ` closes without writing to discard (`:wq` / `:q!` work too). Writing
-records the whole form; closing applies its last written snapshot. Escape stays
-inside Neovim. Basic editing uses Ctrl+s to save and
-Escape to discard.
+icons remain intact unless changed. The form warns when the path is not an
+existing directory; such bookmarks are still saved and shown as unavailable.
 
 Paths entered in the form resolve relative to the current browsing directory;
 `~` uses HOME. New or changed paths are stored as absolute paths. An unchanged
@@ -235,8 +238,8 @@ configured relative path retains its original spelling.
 Saves preserve unrelated TOML settings, comments, existing file permissions and
 valid config symlinks. If another process has changed the bookmark list since
 it was loaded, saving refuses to overwrite it: cancel and use Alt+r to reload.
-Neovim save errors close the form and preserve the current bookmarks; reopen
-to retry. Basic save errors leave the form open. With configuration
+Save errors leave the form open and preserve the current bookmarks. Saving an
+unchanged existing bookmark leaves the file alone. With configuration
 disabled, edits are session-only. No directory or target file is modified.
 
 For navigation and palette bindings, see the [key reference](../README.md#keys).
