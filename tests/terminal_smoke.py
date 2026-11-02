@@ -955,6 +955,16 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_explorer_l_on_a_file_says_how_to_choose_it(self):
+        (self.root / "page.html").touch()
+        s = self.start("explorer", "--save", "page.html", "--depth", "1",
+                       implicit_root=True, output_paths=False)
+        s.send(b"l", "Files do not open here. To save over this one, press Enter on it")
+        s.send(b"\x1b2", "press Enter on it")  # Alt+2: the same
+        s.send(b"q")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_explorer_double_click_is_enter_on_the_row(self):
         (self.root / "alpha").mkdir()
         (self.root / "alpha" / "inside").touch()

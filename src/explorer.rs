@@ -70,6 +70,24 @@ impl Dialog {
             (None, false, false) => "Press Enter on a file to choose it.".into(),
         }
     }
+    /// Why `l` (or Alt+number) on a file does not open it in a dialog, and
+    /// what to do instead.
+    pub fn file_hint(&self) -> &'static str {
+        match (&self.save, self.directory) {
+            (Some(_), _) => {
+                "Files do not open here. To save over this one, press Enter on it \
+                 or Ctrl+number on its row."
+            }
+            (None, true) => {
+                "Files do not open here, and this dialog chooses a folder: press ! \
+                 or Ctrl+s inside it."
+            }
+            (None, false) => {
+                "Files do not open here. To choose this one, press Enter on it or \
+                 Ctrl+number on its row."
+            }
+        }
+    }
     /// The name a save takes: the query, else the suggestion.
     pub fn save_name<'a>(&'a self, query: &'a str) -> Option<&'a str> {
         let typed = query.trim();
