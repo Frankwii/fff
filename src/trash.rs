@@ -355,6 +355,24 @@ fn deletion_date(text: &[u8]) -> Option<SystemTime> {
     if date.next().is_some() || time.next().is_some() {
         return None;
     }
+    // mktime would normalize "2026-13-45" into a real date; an impossible
+    // one is unreadable, and its entry is kept.
+    let year = tm.tm_year + 1900;
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match tm.tm_mon + 1 {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        1..=12 => 31,
+        _ => return None,
+    };
+    if !(1..=days).contains(&tm.tm_mday)
+        || !(0..24).contains(&tm.tm_hour)
+        || !(0..60).contains(&tm.tm_min)
+        || !(0..=60).contains(&tm.tm_sec)
+    {
+        return None;
+    }
     let secs = unsafe { libc::mktime(&mut tm) };
     (secs >= 0).then(|| UNIX_EPOCH + Duration::from_secs(secs as u64))
 }
@@ -414,5 +432,17 @@ mod tests {
         assert_eq!(deletion_date(b"[Trash Info]\nPath=/x\n"), None);
         assert_eq!(deletion_date(b"DeletionDate=2026-13-45"), None);
         assert_eq!(deletion_date(b"DeletionDate=yesterday"), None);
+        // Impossible dates are not normalized into real ones.
+        for text in [
+            "2026-13-01T00:00:00",
+            "2026-02-29T00:00:00",
+            "2026-04-31T00:00:00",
+            "2026-01-01T24:00:00",
+            "2026-01-01T00:60:00",
+        ] {
+            let line = format!("DeletionDate={text}");
+            assert_eq!(deletion_date(line.as_bytes()), None, "{text}");
+        }
+        assert!(deletion_date(b"DeletionDate=2024-02-29T12:00:00").is_some());
     }
 }

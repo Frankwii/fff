@@ -585,10 +585,13 @@ impl Engine {
             } => {
                 let mut targets: Vec<PathBuf> = destination.iter().cloned().collect();
                 if destination.is_none() {
+                    // Beside each archive: its folder itself, even when the
+                    // path to it runs through a symlink.
                     for archive in archives {
                         let parent = archive.parent().ok_or("Archive has no parent")?;
-                        if !targets.iter().any(|t| t == parent) {
-                            targets.push(parent.to_owned());
+                        let parent = parent.canonicalize().map_err(err)?;
+                        if !targets.contains(&parent) {
+                            targets.push(parent);
                         }
                     }
                 }
@@ -986,7 +989,12 @@ impl Engine {
                     self.phase(entries, true);
                     for (k, &i) in permanent.iter().enumerate() {
                         let (dir, name) = held[i].at();
-                        if let Err(e) = remove_counting(dir, name, &|n| self.tick(n)) {
+                        let deleted = std::cell::Cell::new(0);
+                        let tick = |n| {
+                            deleted.set(deleted.get() + n);
+                            self.tick(n)
+                        };
+                        if let Err(e) = remove_counting(dir, name, &tick) {
                             // Put back what remains of this root and every root not
                             // yet deleted, so nothing is left hidden in staging.
                             for &j in &permanent[k..] {
@@ -998,21 +1006,25 @@ impl Engine {
                                 n => format!(", and the {n} entries after it,"),
                             };
                             let left = permanent[k..].iter().map(|&j| &held[j]);
+                            let (what, it) = if deleted.get() > 0 {
+                                ("was only partly deleted", "What remains of it")
+                            } else {
+                                ("was not deleted", "It")
+                            };
                             let back = if left.clone().all(|h| h.stranded().is_none()) {
-                                format!("What remains of it{rest} is back in place.")
+                                format!("{it}{rest} is back in place.")
                             } else {
                                 format!("Could {}.", &unrestored(left)[6..])
                             };
                             outcome.warning = Some(if e == CANCELLED {
                                 format!(
-                                    "Stopped after deleting {k} of {}; {:?} was only partly \
-                                     deleted. {back}",
+                                    "Stopped after deleting {k} of {}; {:?} {what}. {back}",
                                     permanent.len(),
                                     sources[i],
                                 )
                             } else {
                                 format!(
-                                    "Deleted {k} of {}; {:?} was only partly deleted ({e}). {back}",
+                                    "Deleted {k} of {}; {:?} {what} ({e}). {back}",
                                     permanent.len(),
                                     sources[i],
                                 )
@@ -1079,15 +1091,19 @@ impl Engine {
                         };
                         for (i, s) in src.iter().enumerate() {
                             // Without a common destination, each archive goes
-                            // to the target that is its own (as written) parent.
-                            if dst.len() > 1 && sources[i].parent() != Some(&targets[k]) {
+                            // to the target that is its own (resolved) folder.
+                            if dst.len() > 1 && s.path.parent() != Some(d.path.as_path()) {
                                 continue;
                             }
+                            // Non-blocking: a FIFO swapped in cannot hang the job.
                             let input = File::from(
                                 sys::openat(
                                     &s.parent,
                                     &s.name,
-                                    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                                    OFlags::RDONLY
+                                        | OFlags::NOFOLLOW
+                                        | OFlags::NONBLOCK
+                                        | OFlags::CLOEXEC,
                                     Mode::empty(),
                                 )
                                 .map_err(err)?,
@@ -1497,18 +1513,24 @@ fn remove_counting(parent: &File, name: &OsStr, tick: &Tick) -> Result<()> {
             }
             Ok(())
         })();
-        if let Err(e) = emptied {
+        let removed = emptied.and_then(|()| {
+            tick(0)?;
+            sys::unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(err)
+        });
+        if let Err(e) = removed {
             if unlocked {
                 let _ = dir.set_permissions(fs::Permissions::from_mode(original));
             }
             return Err(e);
         }
-        sys::unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(err)?;
-        tick(1)
     } else {
+        tick(0)?;
         sys::unlinkat(parent, name, AtFlags::empty()).map_err(err)?;
-        tick(1)
     }
+    // A stop is heard before an unlink, never after one: an entry that is
+    // gone must not be reported, and put back, as only partly deleted.
+    let _ = tick(1);
+    Ok(())
 }
 /// New names must be safe to see and type: one line of visible text that a
 /// shell will not read as an option or a home directory.

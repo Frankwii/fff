@@ -33,13 +33,12 @@ pub struct Record {
     pub lost: usize,
 }
 impl Record {
-    /// The paths undoing moves away; the current directory and its
-    /// ancestors must not be among them.
-    pub fn moving(&self) -> impl Iterator<Item = &Path> {
-        self.steps.iter().filter_map(|step| match step {
-            Step::Return { now, .. } => Some(now.as_path()),
-            Step::Discard { path, .. } => Some(path.as_path()),
-            Step::Restore { .. } => None,
+    /// The paths undoing moves away, a trashed entry's slot included; the
+    /// current directory and its ancestors must not be among them.
+    pub fn moving(&self) -> impl Iterator<Item = std::borrow::Cow<'_, Path>> {
+        self.steps.iter().map(|step| match step {
+            Step::Return { now: path, .. } | Step::Discard { path, .. } => path.into(),
+            Step::Restore { bin, slot, .. } => bin.join("files").join(slot).into(),
         })
     }
 }

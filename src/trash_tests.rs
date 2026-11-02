@@ -67,6 +67,14 @@ fn trashed_entries_keep_everything_and_undo_puts_them_back() {
     let files = bin(&f).join("files");
     assert_eq!(fs::read(files.join("a")).unwrap(), b"alpha");
     assert_eq!(fs::read(files.join("tree/.hidden")).unwrap(), b"hidden");
+    // Undoing moves the slots out of the trash: browsing inside one refuses.
+    let r = Record {
+        summary: "test".into(),
+        steps: out.undo.clone(),
+        lost: 0,
+    };
+    let moving: Vec<_> = r.moving().map(|p| p.into_owned()).collect();
+    assert!(moving.contains(&files.join("tree")), "{moving:?}");
     assert_eq!(fs::read(files.join("tree/sub/x")).unwrap(), b"x");
     assert_eq!(
         fs::read_link(files.join("tree/broken")).unwrap(),
@@ -708,16 +716,19 @@ fn extractions_and_deletions_stop_safely() {
         .unwrap()
     };
     let warning = out.warning.unwrap();
-    assert!(
-        warning.starts_with("Stopped after deleting 0 of 2")
-            && warning.contains("and the entry after it, is back in place"),
-        "{warning}"
+    // The stop came before anything was unlinked: nothing is.
+    assert_eq!(
+        warning,
+        format!(
+            "Stopped after deleting 0 of 2; {tree:?} was not deleted. It, and the entry after \
+             it, is back in place."
+        )
     );
-    assert_eq!(listing(&tree).len(), 4);
+    assert_eq!(listing(&tree).len(), 5);
     assert_eq!(fs::read(&last).unwrap(), b"last");
     assert!(stranded(&f.work).is_empty());
     assert_eq!(progress.total.load(Ordering::Relaxed), 7);
-    // Uninterrupted, every entry is counted.
+    // Uninterrupted, every entry is counted: the tree, its five, and last.
     let progress = Arc::new(Progress::default());
     Engine::new(None, Some(progress.clone()))
         .execute(Request::Delete {
@@ -726,8 +737,8 @@ fn extractions_and_deletions_stop_safely() {
             trash: vec![],
         })
         .unwrap();
-    assert_eq!(progress.done.load(Ordering::Relaxed), 6);
-    assert_eq!(progress.total.load(Ordering::Relaxed), 6);
+    assert_eq!(progress.done.load(Ordering::Relaxed), 7);
+    assert_eq!(progress.total.load(Ordering::Relaxed), 7);
 }
 #[test]
 fn other_filesystems_get_a_bin_at_their_top() {

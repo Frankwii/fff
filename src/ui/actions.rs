@@ -400,10 +400,11 @@ fn prepare(
     run(app, discovery, focus, job);
 }
 /// Whether moving `paths` away would move the browsing directory.
-fn moves_cwd<'a>(app: &App, mut paths: impl Iterator<Item = &'a std::path::Path>) -> bool {
+fn moves_cwd(app: &App, paths: impl IntoIterator<Item = impl AsRef<std::path::Path>>) -> bool {
     // Compare resolved paths too: the browsing path may run through a symlink.
     let cwd = app.cwd.canonicalize().unwrap_or_else(|_| app.cwd.clone());
-    paths.any(|p| {
+    paths.into_iter().any(|p| {
+        let p = p.as_ref();
         let resolved = p
             .parent()
             .and_then(|parent| parent.canonicalize().ok())
@@ -587,7 +588,7 @@ pub(super) fn perform_operation(
         }
         _ => vec![],
     };
-    if moves_cwd(app, destructive.into_iter().map(PathBuf::as_path)) {
+    if moves_cwd(app, &destructive) {
         app.status = "Cannot change the current directory or its ancestors".into();
         return;
     }

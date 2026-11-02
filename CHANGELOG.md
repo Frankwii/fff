@@ -118,6 +118,18 @@ history.
 - PageDown at the end of the results keeps a full page in view.
 - Ctrl+s in the new-name and extraction prompts keeps them open on a
   validation error, as Enter does.
+- **Stopping a permanent deletion right after an entry went no longer
+  reports that entry as only partly deleted**, keeps its mark or leaves an
+  empty `.fff-stage-*` folder behind. Ctrl+c is heard before an entry is
+  deleted, never after, and a stop before anything of an entry was deleted
+  says it was not deleted.
+- `e` with an empty destination extracts beside the archive in a folder
+  browsed through a symlink; it failed with "Not a directory".
+- `u` refuses to undo a trashing while you browse inside the trashed folder
+  in the trash, as it does for other undos that would move the current
+  directory away.
+- The trash purge keeps entries whose recorded date is impossible (a 13th
+  month, a 31st of April) instead of reading them as a later real date.
 - The remembered-locations and session files are readable only by you; they
   hold your folders, marks and queries.
 - **Lowering the depth after `max_paths` stopped a scan lists the shallower

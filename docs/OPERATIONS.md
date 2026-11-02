@@ -418,6 +418,7 @@ It refuses absolute paths, parent traversal, backslash separators, control
 characters in names (including C1 controls such as U+009B in UTF-8 names), names reserved for fff's staging directories, duplicate
 entries, links, and special files. Colons are allowed. Extracted files keep the
 archive's permission bits, limited by your umask; extracted directories get the
-default mode (0777 limited by your umask). Limits are 10,000 entries, 64 path components,
-2 GiB per file and 4 GiB total extracted bytes. Exceeding a limit discards staging.
+default mode (0777 limited by your umask). Each archive is limited to 10,000 entries, 64
+path components, 2 GiB per file and 4 GiB extracted in all. Exceeding a limit discards
+staging.
 

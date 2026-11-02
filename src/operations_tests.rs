@@ -1772,6 +1772,21 @@ fn several_archives_extract_together_or_not_at_all() {
     assert_eq!(fs::read(f.work.join("two")).unwrap(), b"2");
     assert_eq!(fs::read(elsewhere.join("three")).unwrap(), b"3");
     assert!(!f.work.join("three").exists() && !elsewhere.join("two").exists());
+    // Also in a folder browsed through a symlink, beside one that is not.
+    let link = f.root.join("link");
+    symlink(&elsewhere, &link).unwrap();
+    tar(&elsewhere.join("four.tar"), &[("four", b'0', b"4", "")]);
+    tar(&f.work.join("five.tar"), &[("five", b'0', b"5", "")]);
+    f.engine()
+        .execute(Request::Extract {
+            archives: vec![link.join("four.tar"), f.work.join("five.tar")],
+            destination: None,
+        })
+        .unwrap();
+    assert_eq!(fs::read(elsewhere.join("four")).unwrap(), b"4");
+    assert_eq!(fs::read(f.work.join("five")).unwrap(), b"5");
+    assert!(!f.work.join("four").exists() && !elsewhere.join("five").exists());
+    assert_eq!(fs::read_link(&link).unwrap(), elsewhere);
 }
 #[test]
 fn a_late_extraction_collision_publishes_nothing() {
@@ -1797,3 +1812,32 @@ fn a_late_extraction_collision_publishes_nothing() {
 }
 #[path = "trash_tests.rs"]
 mod trash;
+
+#[test]
+fn a_stop_is_heard_before_an_unlink_never_after_it() {
+    let f = Fixture::new();
+    for name in ["a", "b"] {
+        fs::write(f.work.join(name), b"x").unwrap();
+    }
+    let dir = File::open(&f.work).unwrap();
+    // The stop arrives while "a" is being counted, after its unlink.
+    let stopped = std::cell::Cell::new(false);
+    let tick = |n: u64| {
+        if n > 0 {
+            stopped.set(true);
+        }
+        if stopped.get() {
+            Err(CANCELLED.to_string())
+        } else {
+            Ok(())
+        }
+    };
+    // "a" is gone, so its removal succeeded; "b" is never touched.
+    assert_eq!(remove_counting(&dir, OsStr::new("a"), &tick), Ok(()));
+    assert!(!f.work.join("a").exists());
+    assert_eq!(
+        remove_counting(&dir, OsStr::new("b"), &tick),
+        Err(CANCELLED.to_string())
+    );
+    assert!(f.work.join("b").exists());
+}
