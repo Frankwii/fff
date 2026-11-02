@@ -42,6 +42,12 @@ pub struct Scan {
 }
 /// Most events handled per drain before the frame is drawn again.
 const DRAIN_BUDGET: Duration = Duration::from_millis(8);
+/// How long the first drain after a scan starts waits for it to finish, so
+/// that a small listing is drawn once, complete, rather than first empty or
+/// from the cache and then again: within a frame, it looks immediate.
+const FIRST_FRAME: Duration = Duration::from_millis(12);
+/// While waiting, keys waiting to be read are checked this often.
+const SETTLE_STEP: Duration = Duration::from_millis(1);
 /// Time per drain for merging new paths into the rows while a scan streams in.
 const MERGE_BUDGET: Duration = Duration::from_millis(4);
 /// Unmerged paths at which a drain stops taking events, leaving the walker
@@ -117,7 +123,7 @@ impl Scan {
         };
         // Take events only while the rows keep up: a bounded backlog keeps
         // each merge, and any refresh a key press needs, short.
-        while start.elapsed() < DRAIN_BUDGET
+        while start.elapsed() < DRAIN_BUDGET.max(settle)
             && self.done.is_none()
             && !self.completed
             && app.unmerged() < BACKLOG
@@ -125,14 +131,13 @@ impl Scan {
         {
             let event = match self.events.try_recv() {
                 Ok(event) => event,
-                Err(_) if start.elapsed() < settle => {
-                    let Ok(event) = self
-                        .events
-                        .recv_timeout(settle.saturating_sub(start.elapsed()))
-                    else {
-                        break;
-                    };
-                    event
+                Err(mpsc::TryRecvError::Empty) if start.elapsed() < settle => {
+                    let wait = settle.saturating_sub(start.elapsed()).min(SETTLE_STEP);
+                    match self.events.recv_timeout(wait) {
+                        Ok(event) => event,
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
                 }
                 Err(_) => break,
             };
@@ -217,8 +222,9 @@ pub struct Discovery {
     options: crate::config::CacheConfig,
     key: Option<crate::cache::Key>,
     stored: bool,
-    defer_drain: bool,
-    first_frame: bool,
+    /// A scan started and has not been drained yet: the next drain waits
+    /// up to `FIRST_FRAME` for it to finish.
+    started: bool,
     verified_at: Option<Instant>,
     refresh_at: Option<Instant>,
     wake: Option<SyncSender<()>>,
@@ -237,8 +243,7 @@ impl Discovery {
             options,
             key: None,
             stored: false,
-            defer_drain: false,
-            first_frame: false,
+            started: false,
             verified_at: None,
             refresh_at: None,
             wake: None,
@@ -328,8 +333,7 @@ impl Discovery {
         }
         self.verified_at = None;
         self.refresh_at = None;
-        self.first_frame = !fresh && snapshot.is_none() && reused.is_empty();
-        self.defer_drain = !fresh && (snapshot.is_some() || !reused.is_empty());
+        self.started = !fresh;
         if let Some(snapshot) = snapshot {
             if fresh {
                 self.verified_at = Some(snapshot.verified_at);
@@ -378,10 +382,6 @@ impl Discovery {
         self.drain_at(app, Instant::now())
     }
     pub fn drain_at(&mut self, app: &mut App, now: Instant) -> bool {
-        if self.defer_drain {
-            self.defer_drain = false;
-            return true;
-        }
         if self.refresh_at.is_some_and(|at| now >= at) {
             self.refresh_at = None;
             self.prefetch.cancel();
@@ -396,12 +396,13 @@ impl Discovery {
             self.scan = Some(scan);
             self.stored = false;
             self.verified_at = None;
+            self.started = true;
         }
         let Some(scan) = self.scan.as_mut() else {
             return false;
         };
-        let settle = if std::mem::take(&mut self.first_frame) {
-            Duration::from_millis(4)
+        let settle = if std::mem::take(&mut self.started) {
+            FIRST_FRAME
         } else {
             Duration::ZERO
         };
@@ -438,6 +439,11 @@ impl Discovery {
             });
         self.prefetch
             .tick(app, eligible && !already_cached, now, self.wake.clone());
+    }
+    /// A scan started and was not drained yet: its first drain, which waits
+    /// up to `FIRST_FRAME` for it, belongs before the next frame.
+    pub fn just_started(&self) -> bool {
+        self.started
     }
     pub fn busy(&self, app: &App) -> bool {
         app.scanning || self.scan.as_ref().is_some_and(Scan::pending)

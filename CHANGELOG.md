@@ -59,6 +59,15 @@ responsive while they load and re-rank.
   more stops there and the status line shows `◌ partial`; a lower depth shows
   the rest.
 
+### Fixed
+
+- **Small folders open in one frame, complete.** Entering a folder, going up
+  or starting fff no longer draws the location first empty or from the cache
+  (with `◌ cached · refreshing`) and then again a moment later: a scan that
+  finishes within about a frame is shown only once it has, so the label and
+  the flicker are left to listings that really take a while. Quiet rescans
+  after live updates no longer flash the label either.
+
 ## 0.9.0 — 2026-11-02
 
 A text-only preview pane, `fff --resume`, and a command for each way of using

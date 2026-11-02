@@ -306,7 +306,10 @@ fn session(
                 }
             };
         }
-        if queued.is_none() && !answering {
+        // A key that started a scan is answered with its result when the
+        // scan finishes within a frame, instead of an empty or cached frame
+        // and then another.
+        if queued.is_none() && (!answering || discovery.just_started()) {
             dirty |= discovery.drain(app);
         }
         dirty |= app.poll_ranking();

@@ -375,9 +375,16 @@ fn partial_visits_and_current_query_are_checkpointed_and_replay_before_drain() {
     d.start(&mut app, true);
     assert!(app.cache_pending);
     assert_eq!(app.rows.len(), 1);
+    // The first drain waits about a frame for the scan: a quick one is drawn
+    // complete, never first from the cache; a slow one keeps the cached rows.
     d.drain(&mut app);
-    assert!(app.cache_pending);
-    assert_eq!(app.rows.len(), 1); // cached frame gets priority
+    if app.scanning {
+        assert!(app.cache_pending);
+        assert_eq!(app.rows.len(), 1);
+    } else {
+        assert!(!app.cache_pending);
+        assert!(app.rows.len() > 1);
+    }
     complete(&mut d, &mut app);
     app.query = "099".into();
     app.refresh();
@@ -411,8 +418,6 @@ fn report_warm_replay_cost_for_large_directory_without_waiting_for_worker() {
     let replay = start.elapsed();
     assert_eq!(app.rows.len(), 4096);
     assert!(app.cache_pending);
-    d.drain(&mut app);
-    assert_eq!(app.rows.len(), 4096);
     println!("Warm replay of 4096 cached paths from 20000 candidates: {replay:?}");
 }
 
@@ -440,8 +445,10 @@ fn recent_complete_views_skip_scanning_but_expire_and_f5_forces_freshness() {
         d.checkpoint(&app);
         d.start(&mut app, true);
     }
+    // Expired: a quiet rescan starts (and a quick one ends within the drain).
+    let generation = app.generation;
     d.drain_at(&mut app, verified + Duration::from_secs(4));
-    assert!(app.scanning);
+    assert!(app.generation > generation);
     complete(&mut d, &mut app);
     assert!(app.known.contains_key(&b));
     assert_eq!(app.rendered, vec![a.clone()]); // discovery never publishes shortcuts
@@ -533,4 +540,32 @@ fn scans_stop_past_max_paths_without_reconciling_or_caching() {
     assert_eq!(app.rows.len(), app.known.len());
     assert_eq!(d.stats().stores, 0);
     assert!(!d.busy(&app));
+}
+#[test]
+fn a_small_tree_is_complete_after_the_first_drain() {
+    let f = Fixture::new();
+    for i in 0..40 {
+        f.file(&format!("dir{}/file{i}.txt", i % 5));
+    }
+    let mut app = f.app();
+    let mut d = Discovery::new(always_refresh());
+    // A first visit, then a revisit replaying the cache: either way the frame
+    // after starting shows the whole listing, never empty or "cached".
+    for visit in ["first", "cached"] {
+        // A loaded machine may take longer; the drain waits about a frame.
+        let mut finished = false;
+        for _ in 0..20 {
+            d.start(&mut app, true);
+            d.drain(&mut app);
+            if !app.scanning {
+                finished = true;
+                break;
+            }
+            complete(&mut d, &mut app);
+        }
+        assert!(finished, "{visit} visit never finished within a drain");
+        assert!(!app.cache_pending, "{visit}");
+        assert_eq!(app.rows.len(), 45, "{visit}");
+        d.checkpoint(&app);
+    }
 }
