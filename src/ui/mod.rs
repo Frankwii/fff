@@ -8,8 +8,9 @@ use crate::{
 use crossterm::{
     cursor::{Hide, SetCursorStyle, Show},
     event::{
-        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode as K, KeyEvent,
-        KeyEventKind, KeyModifiers as M, KeyboardEnhancementFlags as Flags,
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode as K, KeyEvent, KeyEventKind, KeyModifiers as M,
+        KeyboardEnhancementFlags as Flags, MouseButton, MouseEvent, MouseEventKind,
         PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
@@ -96,6 +97,9 @@ pub enum Finish {
     /// gX: the terminal is restored; the caller replaces fff with the program.
     Exec(crate::run::Plan),
 }
+/// How long a change to the current directory's listing waits for more
+/// changes before the quiet rescan.
+const RELIST_DELAY: Duration = Duration::from_millis(150);
 /// Runs a session, then remembers where it was for the next one.
 pub fn run(
     mut app: App,
@@ -128,13 +132,18 @@ fn session(
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
     let invocation = std::env::current_dir()?.canonicalize()?;
-    let mut terminal = Terminal::enter()?;
+    let mut terminal = Terminal::enter(app.mouse)?;
     let (wake, waking) = std::sync::mpsc::sync_channel(1);
     crate::notify::set_waker(wake.clone());
     let mut input = Input::start(wake.clone());
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
+    app.details.set_waker(wake.clone());
+    let mut watch = app.watch.then(crate::watch::Watch::new).flatten();
+    // When a change to the current directory's listing is reconciled.
+    let mut relist_at: Option<std::time::Instant> = None;
+    let mut details_generation = app.generation;
     // Starting a scan clears the status; keep a startup notice (resuming).
     let notice = std::mem::take(&mut app.status);
     discovery.start(app, true);
@@ -156,6 +165,8 @@ fn session(
     let mut drawn_at = std::time::Instant::now();
     let mut page = 1;
     let mut bookmark_targets = Vec::new();
+    let mut results_area = ratatui::layout::Rect::default();
+    let mut mouse = Mouse::default();
     loop {
         dirty |= status.tick(app);
         // Pop-up notifications from background work, shown for a while.
@@ -177,7 +188,28 @@ fn session(
                 }
             }
         }
+        if let Some(watch) = &mut watch {
+            watch.follow(&app.cwd);
+            let changes = watch.poll();
+            for path in &changes.touched {
+                app.details.touched(path);
+            }
+            dirty |= !changes.touched.is_empty();
+            // Coalesce bursts (an extraction, a copy) into one quiet rescan.
+            if changes.listing && relist_at.is_none() {
+                relist_at = Some(now + RELIST_DELAY);
+            }
+            if relist_at.is_some_and(|at| now >= at) {
+                relist_at = None;
+                discovery.changed(app);
+            }
+        }
         dirty |= discovery.drain(app);
+        if app.generation != details_generation {
+            details_generation = app.generation;
+            app.details.forget();
+        }
+        dirty |= app.details.drain();
         discovery.idle(
             app,
             matches!(focus, Focus::Results),
@@ -276,6 +308,7 @@ fn session(
             if matches!(focus, Focus::Results) {
                 app.rendered = completed.targets;
             }
+            results_area = completed.results;
             bookmark_targets = completed.bookmark_targets;
             page = completed.page.max(1);
             dirty = false;
@@ -288,6 +321,9 @@ fn session(
         } else {
             250
         };
+        let wait = relist_at
+            .map(|at| at.saturating_duration_since(std::time::Instant::now()))
+            .map_or(wait, |delay| wait.min(delay.as_millis() as u64));
         let wait = preview
             .remaining(std::time::Instant::now())
             .map_or(Duration::from_millis(wait), |delay| {
@@ -409,6 +445,12 @@ fn session(
                     }
                     _ => {}
                 }
+            }
+            continue;
+        }
+        if let Event::Mouse(event) = event {
+            if matches!(focus, Focus::Results) && !app.normal_keys.pending() {
+                mouse_results(app, &mut discovery, event, results_area, &mut mouse);
             }
             continue;
         }
@@ -1394,22 +1436,7 @@ fn session(
                         index: 0,
                     }
                 }
-                // Directories are entered; files open in the background.
-                (K::Char('l'), _, true) => {
-                    let file = app
-                        .rows
-                        .iter()
-                        .find(|c| Some(&c.path) == app.highlight.as_ref() && !c.directory)
-                        .map(|c| c.path.clone());
-                    match file {
-                        Some(path) => open_in_background(app, &path),
-                        None => {
-                            if app.navigate_highlighted() {
-                                discovery.start(app, true);
-                            }
-                        }
-                    }
-                }
+                (K::Char('l'), _, true) => activate_highlighted(app, &mut discovery),
                 (K::Char('p' | 'P'), _, true) if palette == Some(PaletteKey::Reload) => {
                     reload_palette(app, &palettes)
                 }

@@ -4,6 +4,7 @@ pub mod bookmarks;
 mod cache;
 pub mod completion;
 pub mod config;
+pub mod details;
 pub mod discovery;
 pub mod editor;
 pub mod icons;
@@ -20,6 +21,7 @@ pub mod run;
 pub mod state;
 pub mod ui;
 mod view;
+pub mod watch;
 
 use globset::{GlobBuilder, GlobMatcher};
 use std::{
@@ -262,6 +264,9 @@ pub struct App {
     pub marks: Vec<PathBuf>,
     pub rendered: Vec<PathBuf>,
     pub offset: usize,
+    /// The mouse wheel scrolled the results while this was the highlight: the
+    /// view stays put, even past the highlight, until the highlight changes.
+    pub scrolled: Option<Option<PathBuf>>,
     pub generation: u64,
     pub scanning: bool,
     pub status: String,
@@ -311,6 +316,14 @@ pub struct App {
     /// in `tabs` is only refreshed when another tab becomes active.
     pub tab: usize,
     pub tabs: Vec<Tab>,
+    /// `[ui] columns`: details on the right of each result row.
+    pub columns: Vec<details::Column>,
+    /// Visible rows' details, read as they are drawn.
+    pub details: details::Details,
+    /// `[ui] mouse`: clicks and the wheel act on the results.
+    pub mouse: bool,
+    /// `[ui] watch`: follow changes to the current directory as they happen.
+    pub watch: bool,
 }
 
 impl App {
@@ -338,6 +351,7 @@ impl App {
             marks: Vec::new(),
             rendered: Vec::new(),
             offset: 0,
+            scrolled: None,
             generation: 0,
             scanning: true,
             status: String::new(),
@@ -375,6 +389,10 @@ impl App {
                 };
                 TABS
             ],
+            columns: details::DEFAULT_COLUMNS.to_vec(),
+            details: details::Details::default(),
+            mouse: true,
+            watch: true,
         }
     }
     /// Records the current directory's highlight, as most recently used.

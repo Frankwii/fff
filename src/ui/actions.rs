@@ -485,3 +485,113 @@ pub(super) fn palette_reloaded(
         app.apply_palette(state);
     }
 }
+
+/// `l`: enter the highlighted directory, or open the highlighted file in the
+/// background.
+pub(super) fn activate_highlighted(app: &mut App, discovery: &mut Discovery) {
+    let file = app
+        .rows
+        .iter()
+        .find(|c| Some(&c.path) == app.highlight.as_ref() && !c.directory)
+        .map(|c| c.path.clone());
+    match file {
+        Some(path) => open_in_background(app, &path),
+        None => {
+            if app.navigate_highlighted() {
+                discovery.start(app, true);
+            }
+        }
+    }
+}
+/// Two clicks on the same row within this time act like `l`.
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+/// Rows the wheel scrolls per step.
+const WHEEL_ROWS: usize = 3;
+/// The mouse in the results, like a graphical file manager.
+#[derive(Default)]
+pub(super) struct Mouse {
+    /// The last click, for double clicks.
+    click: Option<(PathBuf, std::time::Instant)>,
+    /// Where a held left button went down; dragging marks rows from here.
+    anchor: Option<PathBuf>,
+}
+/// `[ui] mouse` in the results. A click clears the marks and highlights a
+/// row; a second click on it acts like `l`; dragging with the button held
+/// marks every row from the pressed one to the current one. The wheel only
+/// scrolls. `area` holds the rows of the last frame, one per rendered target.
+pub(super) fn mouse_results(
+    app: &mut App,
+    discovery: &mut Discovery,
+    event: MouseEvent,
+    area: ratatui::layout::Rect,
+    mouse: &mut Mouse,
+) {
+    let inside = event.column >= area.x && event.column < area.x + area.width;
+    let row = (inside && event.row >= area.y)
+        .then(|| app.rendered.get(usize::from(event.row - area.y)).cloned())
+        .flatten();
+    match event.kind {
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            let last = app
+                .rows
+                .len()
+                .saturating_sub(usize::from(area.height).max(1));
+            app.offset = if event.kind == MouseEventKind::ScrollDown {
+                (app.offset + WHEEL_ROWS).min(last)
+            } else {
+                app.offset.saturating_sub(WHEEL_ROWS)
+            };
+            app.scrolled = Some(app.highlight.clone());
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let Some(path) = row else {
+                return;
+            };
+            app.marks.clear();
+            let now = std::time::Instant::now();
+            let double = mouse
+                .click
+                .take()
+                .is_some_and(|(p, at)| p == path && now.duration_since(at) < DOUBLE_CLICK);
+            app.highlight = Some(path.clone());
+            app.highlight_top = false;
+            app.wanted = None;
+            if double {
+                mouse.anchor = None;
+                discovery.checkpoint(app);
+                activate_highlighted(app, discovery);
+            } else {
+                mouse.click = Some((path.clone(), now));
+                mouse.anchor = Some(path);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            let Some(anchor) = mouse.anchor.as_ref() else {
+                return;
+            };
+            let Some(from) = app.rendered.iter().position(|p| p == anchor) else {
+                return;
+            };
+            // Past the top or bottom of the rows, the drag reaches the edge.
+            let to = if event.row < area.y {
+                0
+            } else {
+                usize::from(event.row - area.y).min(app.rendered.len().saturating_sub(1))
+            };
+            if to == from && app.marks.is_empty() {
+                return;
+            }
+            let rows: Vec<PathBuf> = if from <= to {
+                app.rendered[from..=to].to_vec()
+            } else {
+                app.rendered[to..=from].iter().rev().cloned().collect()
+            };
+            app.highlight = rows.last().cloned();
+            app.marks = rows;
+            // A drag is not the first half of a double click.
+            mouse.click = None;
+        }
+        MouseEventKind::Up(MouseButton::Left) => mouse.anchor = None,
+        _ => {}
+    }
+}

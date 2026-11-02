@@ -897,6 +897,67 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    def test_watched_directory_updates_without_waiting_for_freshness(self):
+        (self.root / "old").touch()
+        with tempfile.TemporaryDirectory(prefix="fff-watch-") as folder:
+            config = Path(folder) / "config.toml"
+            # Freshness alone would not rescan for a minute.
+            config.write_text("[cache]\nfresh_seconds=60\nttl_seconds=3600\nprefetch=false\n")
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            (self.root / "appeared").touch()
+            s.wait_ui("appeared")
+            (self.root / "old").rename(self.root / "renamed")
+            s.wait_ui("renamed")
+            s.wait_absent(" old")
+            # Writes update the size column in place.
+            (self.root / "renamed").write_bytes(b"x" * 4300)
+            s.wait_ui("4.2K")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    def test_unwatched_directory_waits_for_a_rescan(self):
+        with tempfile.TemporaryDirectory(prefix="fff-watch-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\nwatch=false\n[cache]\nfresh_seconds=60\nttl_seconds=3600\nprefetch=false\n")
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            (self.root / "appeared").touch()
+            time.sleep(1)
+            s.send(b"j")
+            self.assertNotIn("appeared", s.screen.text)
+            s.send(b"\x1b[15~", "appeared")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    def test_mouse_drag_marks_rows_and_double_click_enters(self):
+        (self.root / "alpha").mkdir()
+        (self.root / "alpha" / "inside").touch()
+        (self.root / "beta").touch()
+        (self.root / "gamma").touch()
+        s = self.start("--depth", "1", implicit_root=True)
+        lines = s.screen.text.splitlines()
+        def at(name):
+            row = next(i for i, l in enumerate(lines) if f" {name}" in l and "@" not in l)
+            return lines[row].index(name) + 1, row + 1
+        (x, y), (_, y2) = at("alpha/"), at("gamma")
+        s.send(f"\x1b[<0;{x};{y}M\x1b[<32;{x};{y2}M\x1b[<0;{x};{y2}m".encode(), "Marks (3)")
+        click = f"\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m".encode()
+        s.send(click, "Marks (0)")
+        s.send(click, ("cwd", self.root / "alpha"))
+        s.wait_ui("inside")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    def test_mouse_capture_can_be_turned_off(self):
+        with tempfile.TemporaryDirectory(prefix="fff-mouse-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text("[ui]\nmouse=false\n")
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            self.assertNotIn(b"\x1b[?1000h", s.ui)
+            s.send(b"\x03")
+            s.finish()
+        s = self.start("--depth", "1", implicit_root=True)
+        self.assertIn(b"\x1b[?1000h", s.ui)
+
     def test_palette_live_reload_survives_invalid_edits(self):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="fff-reload-") as folder:

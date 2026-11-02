@@ -247,6 +247,15 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Enter / Esc".into(), "save / cancel bookmark form", true),
             ],
         ),
+        (
+            "Mouse",
+            vec![
+                ("click".into(), "highlight, clearing marks", false),
+                ("double click".into(), "like Alt+l", true),
+                ("drag".into(), "mark the rows it spans", false),
+                ("wheel".into(), "scroll the results", false),
+            ],
+        ),
     ];
     let key_width = 17;
     let column = |section: &GuideSection, width: usize| {

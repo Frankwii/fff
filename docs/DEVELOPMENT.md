@@ -17,11 +17,13 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/mod.rs` | The session: focus states, wakeups and key dispatch. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | Normal-mode list dispatch, text-field editing and paste, status timing, numbered keys. |
-| `src/ui/actions.rs` | Scope choice, file operations, running programs and their messages, bookmark/palette saves. |
+| `src/ui/actions.rs` | Scope choice, file operations, running programs and their messages, bookmark/palette saves, the mouse. |
 | `src/view/mod.rs` | Ratatui frame layout: query, location line, results and tab strip, marks, footer, display paths. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |
+| `src/details.rs` | Visible rows' details (lstat, link targets, owners), background entry counts and their formats. |
+| `src/watch.rs` | inotify on the current directory for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |

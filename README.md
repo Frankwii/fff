@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.6.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.7.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -143,6 +143,16 @@ enforced exclusion rules exist; F1's session details list their globs.
 Symlink directories can be selected or entered; recursive discovery does not
 follow them.
 
+### Details and live updates
+
+Each result row ends with the entry's size (a directory's entry count) and the
+time since it was modified; the footer adds the highlighted entry's exact size,
+date, permissions and owner, and a symbolic link's target. Links show `→ target`
+after their name, broken ones in the error color. When files appear, disappear
+or change in the current directory, the results follow without F5. See
+[result details](docs/CONFIGURATION.md#result-details) for `[ui] columns`,
+`[ui] mouse` and `[ui] watch`.
+
 ## Keys
 
 F1 opens the complete guide, including configured Normal-mode bindings. Its
@@ -192,6 +202,9 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | E in Normal | Open the current or marked paths in `$EDITOR`, then come back |
 | q / ! in Normal | Exit to the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
+| Click / double-click | Highlight a row (clearing the marks) / act like `l` on it |
+| Drag with the button held | Mark every row from where it was pressed to where it is |
+| Mouse wheel | Scroll the results, leaving the highlight and marks alone |
 
 `q` and `!` exit with status 0. With `--output-paths` they print the launch or
 current directory in the usual output format; in the default mode `!` changes

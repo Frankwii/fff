@@ -10,19 +10,13 @@ not implemented features or commitments:
 - Resuming only when the last directory was the current one: a new session
   should restore its remembered location only when started from the
   directory that was being browsed last, instead of always jumping there.
-- A metadata column: the empty right-hand side of each result row shows size
-  and age (`4.2M  3d`, directories their entry count), configurable as size,
-  modified time, permissions or nothing.
-- A richer footer: permissions, owner, exact size, modified time and a
-  symlink's target (`→ target`) next to the highlighted path.
-- Visible symlinks: links in their own color with an `→` marker, broken links
-  in the error color.
-- Live updates: watch the current directory (inotify) so files created,
-  removed or renamed by other programs appear without F5.
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
   cancel safely within the staged-operation guarantees.
-- Mouse support: click to highlight, double-click to act like `l`, wheel to
-  scroll, for sessions started from a desktop entry or a file picker.
+- Mouse-only use, planned for 0.7.0 (below).
+- Follow-ups to 0.7.0: live updates for deeper results and pinned roots
+  (only the current directory is watched today); the mouse in the marked
+  list, choosers and tab strip; dragging past the pane's edge scrolling the
+  results while it marks.
 - Trash with undo, and an AUR package once the project nears 1.0.
 - An optional query field (experimental, undecided): hide the query until `/`
   is pressed (moving the go-to prompt elsewhere), freeing a row and making
@@ -31,6 +25,24 @@ not implemented features or commitments:
 
 There is deliberately no preview pane: see [design
 choices](DEVELOPMENT.md#design-choices).
+
+## Mouse-only use
+
+Planned for 0.7.0, before it is published: everything needed to pick files and
+leave fff with the mouse alone, as when it opens as the desktop's file manager
+or a file picker. fff stays keyboard-first: the buttons are hidden until the
+mouse is used in the session (the first click, drag or wheel step), so
+keyboard-only sessions look exactly as today.
+
+- **Buttons on demand.** Once the mouse has been used, a small row of buttons
+  appears, for example "Go back" (parent directory, or Ctrl+o's history),
+  "Select & Exit" (return the marked or highlighted paths, like Ctrl+w or
+  Enter) and "Cancel", plus whatever else mouse-only use turns out to need
+  (tabs, hidden entries, depth).
+- **Keyboard actions unchanged.** Each button does exactly what its key does,
+  so output, confirmation and directory-change rules stay the same.
+- **Out of the way.** The buttons take a row only while shown; a setting could
+  keep them always on or always off.
 
 ## Desktop file manager
 
@@ -88,8 +100,9 @@ when the work is requested.
 
 File operations shipped in 0.3.0; running programs (gx/gX, E), the shell
 integration and remembered locations in 0.4.0; tabs and plain Normal-mode keys
-in 0.5.0; openers, the Enter rules and Neovim-only editing in 0.6.0. See [the operation
-guide](OPERATIONS.md).
+in 0.5.0; openers, the Enter rules and Neovim-only editing in 0.6.0; result
+details, the richer footer, visible links, live updates and the mouse in 0.7.0.
+See [the operation guide](OPERATIONS.md).
 
-The current release is 0.6.0. Version 1.0 is planned once the remaining roadmap
+The current release is 0.7.0. Version 1.0 is planned once the remaining roadmap
 above is implemented. Earlier versions will not be retroactively renumbered.

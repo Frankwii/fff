@@ -1,12 +1,16 @@
 use super::*;
 
-pub(super) struct Terminal(pub(super) TuiTerminal<CrosstermBackend<std::fs::File>>);
+/// The terminal, and whether fff captures the mouse (`[ui] mouse`).
+pub(super) struct Terminal(
+    pub(super) TuiTerminal<CrosstermBackend<std::fs::File>>,
+    bool,
+);
 impl Terminal {
-    pub(super) fn enter() -> io::Result<Self> {
+    pub(super) fn enter(mouse: bool) -> io::Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
         let tui = TuiTerminal::new(CrosstermBackend::new(file))?;
         terminal::enable_raw_mode()?;
-        let mut guard = Self(tui);
+        let mut guard = Self(tui, mouse);
         execute!(
             guard.0.backend_mut(),
             EnterAlternateScreen,
@@ -16,12 +20,21 @@ impl Terminal {
                 Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
             )
         )?;
+        guard.capture_mouse(true)?;
         Ok(guard)
+    }
+    fn capture_mouse(&mut self, on: bool) -> io::Result<()> {
+        match (self.1, on) {
+            (true, true) => execute!(self.0.backend_mut(), EnableMouseCapture),
+            (true, false) => execute!(self.0.backend_mut(), DisableMouseCapture),
+            _ => Ok(()),
+        }
     }
 }
 impl Terminal {
     /// Hands the terminal to another program: fff's screen and modes are undone.
     pub(super) fn suspend(&mut self) {
+        let _ = self.capture_mouse(false);
         let _ = execute!(
             self.0.backend_mut(),
             EndSynchronizedUpdate,
@@ -46,6 +59,7 @@ impl Terminal {
             ),
             terminal::Clear(terminal::ClearType::All)
         )?;
+        self.capture_mouse(true)?;
         // Forget both frames so the next draw sends every cell. ratatui's own
         // clear() would query the cursor position, which needs a reply.
         self.0.swap_buffers();
@@ -55,6 +69,7 @@ impl Terminal {
 }
 impl Drop for Terminal {
     fn drop(&mut self) {
+        let _ = self.capture_mouse(false);
         let _ = execute!(
             self.0.backend_mut(),
             EndSynchronizedUpdate,
