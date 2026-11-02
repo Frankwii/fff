@@ -466,7 +466,7 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     if !app.policy.filters.is_empty() {
         optional.push(pill("filters on", theme.accent, bg));
     }
-    if app.no_dir {
+    if app.no_dir || app.files_only {
         optional.push(pill("files only", theme.accent, bg));
     }
     if app.policy.hidden {
@@ -699,6 +699,11 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             (
                 "No files here",
                 "Alt+→ searches deeper. Ctrl+c leaves without a selection.",
+            )
+        } else if app.files_only && app.query.is_empty() {
+            (
+                "No files here",
+                "Directories are hidden: Alt+d shows them, Alt+→ searches deeper.",
             )
         } else if app.physical_empty {
             (

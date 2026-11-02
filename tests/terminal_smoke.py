@@ -216,6 +216,27 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, b"child\0"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_directories_hide_and_show_without_stopping_navigation(self):
+        (self.root / "dir").mkdir()
+        (self.root / "dir" / "deep.txt").touch()
+        (self.root / "top.txt").touch()
+        s = self.start("--depth", "2", implicit_root=True)
+        s.wait_ui("Files · 3")
+        s.send(b"zd", "files only")
+        s.wait_ui("Files · 2")
+        self.assertIn("dir/deep.txt", s.screen.text)
+        self.assertNotIn("dir/ ", s.screen.text)
+        # Navigation still works, and the toggle stays on in the parent.
+        s.send(b"\x1bh", ("cwd", self.root.parent))
+        self.assertIn("files only", s.screen.text)
+        # Alt+d shows them again, also while typing.
+        s.send(b"i", "INSERT")
+        s.send(b"\x1bd")
+        s.wait_absent("files only")
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()

@@ -6,6 +6,13 @@ history.
 
 ## Unreleased
 
+### Added
+
+- **Alt+d (`zd` in Normal mode) hides directories**, listing only the files
+  found down to the current depth; press it again to show them. Navigation
+  keeps working, and the status line shows `files only` meanwhile. Rebind it
+  as `directories` in `[keys.normal]`.
+
 ### Changed
 
 - **`--no-dir` is now `fff seek`**, a command of its own like `fff explorer`:

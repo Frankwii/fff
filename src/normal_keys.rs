@@ -50,6 +50,8 @@ pub enum ListAction {
     Bookmarks,
     /// Same as Alt+. in the results: show or hide hidden entries.
     Hidden,
+    /// Same as Alt+d in the results: hide or show directories.
+    Directories,
     /// Same as Alt+g in the results: the go-to prompt.
     GoTo,
     /// Same as Alt+↓ in the results: the previous tab.
@@ -58,7 +60,7 @@ pub enum ListAction {
     NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 30] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -85,6 +87,7 @@ impl ListAction {
         Self::Deeper,
         Self::Bookmarks,
         Self::Hidden,
+        Self::Directories,
         Self::GoTo,
         Self::PrevTab,
         Self::NextTab,
@@ -119,6 +122,7 @@ impl ListAction {
             Self::NextTab => return Some(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)),
             Self::Bookmarks => 'b',
             Self::Hidden => '.',
+            Self::Directories => 'd',
             Self::GoTo => 'g',
             Self::First
             | Self::Last
@@ -295,6 +299,7 @@ pub struct NormalKeysConfig {
     pub deeper: Sequences,
     pub bookmarks: Sequences,
     pub hidden: Sequences,
+    pub directories: Sequences,
     pub go_to: Sequences,
     pub prev_tab: Sequences,
     pub next_tab: Sequences,
@@ -331,6 +336,7 @@ impl Default for NormalKeysConfig {
             deeper: one("<right>"),
             bookmarks: one("b"),
             hidden: one("."),
+            directories: one("zd"),
             go_to: one("/"),
             prev_tab: one("<down>"),
             next_tab: one("<up>"),
@@ -367,6 +373,7 @@ impl NormalKeysConfig {
             ListAction::Deeper => ("deeper", &self.deeper),
             ListAction::Bookmarks => ("bookmarks", &self.bookmarks),
             ListAction::Hidden => ("hidden", &self.hidden),
+            ListAction::Directories => ("directories", &self.directories),
             ListAction::GoTo => ("go_to", &self.go_to),
             ListAction::PrevTab => ("prev_tab", &self.prev_tab),
             ListAction::NextTab => ("next_tab", &self.next_tab),
@@ -495,6 +502,8 @@ mod tests {
         );
         assert_eq!(k.feed(key('b'), all), Step::Action(ListAction::Bookmarks));
         assert_eq!(k.feed(key('.'), all), Step::Action(ListAction::Hidden));
+        assert_eq!(k.feed(key('z'), all), Step::Pending);
+        assert_eq!(k.feed(key('d'), all), Step::Action(ListAction::Directories));
         assert_eq!(k.feed(key('/'), all), Step::Action(ListAction::GoTo));
         let alt = |code| Some(KeyEvent::new(code, KeyModifiers::ALT));
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));

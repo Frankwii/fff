@@ -215,6 +215,7 @@ struct RefreshBasis {
     rules: Vec<String>,
     filters: Vec<String>,
     no_dir: bool,
+    files_only: bool,
 }
 impl RefreshBasis {
     fn of(app: &App) -> Self {
@@ -228,6 +229,7 @@ impl RefreshBasis {
             rules: app.policy.rules.clone(),
             filters: app.policy.filters.clone(),
             no_dir: app.no_dir,
+            files_only: app.files_only,
         }
     }
 }
@@ -302,6 +304,9 @@ pub struct App {
     /// `fff seek`: a static file choice. Directories are never listed, entered,
     /// or returned, and the current directory cannot change.
     pub no_dir: bool,
+    /// Alt+d / `zd`: directories are hidden from the results for now; unlike
+    /// `fff seek`, navigation still works.
+    pub files_only: bool,
     /// `fff seek` row labels for files whose basename another listed file shares
     /// (presentation only); other rows show their bare name.
     pub labels: HashMap<PathBuf, PathBuf>,
@@ -396,6 +401,7 @@ impl App {
                 .collect(),
             normal_keys: normal_keys::NormalKeys::default(),
             no_dir: false,
+            files_only: false,
             labels: HashMap::new(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
@@ -602,7 +608,7 @@ impl App {
     /// file filters, which hide directories whenever any is set.
     fn listed(&self, c: &Candidate) -> bool {
         self.eligible(c)
-            && !(self.no_dir && c.directory)
+            && !((self.no_dir || self.files_only) && c.directory)
             && (self.policy.globs.is_empty()
                 || !c.directory
                     && c.path.file_name().is_some_and(|name| {

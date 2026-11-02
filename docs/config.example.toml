@@ -111,6 +111,7 @@ shallower = "<left>" # Results only: same as Alt+Left / Alt+Right (depth),
 deeper = "<right>"
 bookmarks = "b"  # Alt+b (bookmark chooser),
 hidden = "."     # Alt+. (hidden entries),
+directories = "zd" # Alt+d (hide / show directories),
 go_to = "/"      # Alt+g (go-to prompt),
 next_tab = "<up>"   # and Alt+Up / Alt+Down (next / previous tab).
 prev_tab = "<down>"

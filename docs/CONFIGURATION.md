@@ -588,15 +588,15 @@ shallower = "<left>" # Search one level shallower, like Alt+Left (results)
 deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
 hidden = "."         # Show/hide hidden entries, like Alt+. (results)
+directories = "zd"   # Hide/show directories, like Alt+d (results)
 go_to = "/"          # Go-to prompt, like Alt+g (results)
 next_tab = "<up>"     # Next tab, like Alt+Up (results)
 prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
-`shallower`, `deeper`, `bookmarks`, `hidden`, `go_to`, the tab actions and the
-depth digits work
-only in Normal-mode results; the Alt chords keep working in every mode. With
+`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `go_to`, the tab
+actions and the depth digits work only in Normal-mode results; the Alt chords keep working in every mode. With
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.
 

@@ -1650,6 +1650,14 @@ fn session(
                     app.policy.hidden = !app.policy.hidden;
                     discovery.start(app, false);
                 }
+                (K::Char('d'), _, true) if app.no_dir => {
+                    app.status = "fff seek lists only files".into();
+                }
+                (K::Char('d'), _, true) => {
+                    app.files_only = !app.files_only;
+                    app.offset = 0;
+                    app.refresh();
+                }
                 (K::Char('H'), _, true) => {
                     app.policy.ignore = !app.policy.ignore;
                     discovery.start(app, false);
