@@ -832,15 +832,17 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
             (path, n % 7 == 0, depth)
         })
         .collect();
-    for (query, no_dir) in [
-        ("", false),
-        ("n1", false),
-        ("4", false),
-        ("", true),
-        ("x1", true),
+    for (query, no_dir, short_labels) in [
+        ("", false, false),
+        ("n1", false, false),
+        ("4", false, false),
+        ("", true, false),
+        ("x1", true, false),
+        ("", false, true),
     ] {
         let mut merged = app();
         merged.no_dir = no_dir;
+        merged.short_labels = short_labels;
         merged.query = query.into();
         merged.refresh();
         // Batches outgrow a round, so later ones arrive while some wait.
@@ -855,11 +857,12 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
         for (name, dir, depth) in names.iter().step_by(11) {
             merged.insert(0, candidate(name, !dir, *depth));
         }
-        while merged.unmerged() > 0 {
+        while !merged.settled() {
             merged.refresh_within(Some(Duration::ZERO));
         }
         let mut ranked = app();
         ranked.no_dir = no_dir;
+        ranked.short_labels = short_labels;
         ranked.query = query.into();
         for (i, (name, dir, depth)) in names.iter().enumerate() {
             ranked.insert(0, candidate(name, *dir != (i % 11 == 0), *depth));
@@ -873,8 +876,8 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
         };
         assert_eq!(paths(&merged), paths(&ranked), "query {query:?}");
         assert!(!merged.rows.is_empty());
-        // `fff seek` labels files that share a basename.
+        // `fff pick` and `fff seek` label entries that share a basename.
         assert_eq!(merged.labels, ranked.labels, "query {query:?}");
-        assert_eq!(!merged.labels.is_empty(), no_dir);
+        assert_eq!(!merged.labels.is_empty(), no_dir || short_labels);
     }
 }

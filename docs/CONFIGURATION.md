@@ -499,7 +499,8 @@ A rough estimate of 100–150 bytes per path gives about 8 MiB at defaults; long
 paths can cost considerably more. This is a count limit, not an exact byte cap.
 The current view's index, result rows and BFS queue are separate and scale with
 the tree being browsed, up to `[performance] max_paths` (about 450 bytes per
-path, so roughly 450 MB at the default); lowering depth reduces that working set. Prefetch has its
+path, more in `fff pick` and `fff seek`, which keep labels: roughly 450–550 MB
+at the default); lowering depth reduces that working set. Prefetch has its
 own small allocation budgets and cannot evict visited snapshots.
 
 ### Bounded child prefetch
@@ -545,8 +546,8 @@ classification reads `/proc/self/mountinfo`.
 | `max_paths` | `1000000` | 1000–100000000 | Most paths the current view holds. A scan that finds more stops there: the status line shows `◌ partial`, the listing is neither reconciled nor kept as complete, and a lower depth shows the rest. It bounds the memory browsing a huge tree can take. |
 
 Workers batch up to 256 paths or 10 ms of discoveries. The UI reads waiting
-input before any discovery work, then takes discoveries for up to 8 ms and
-merges them into the ranked results for about 4 ms per iteration: new paths
+input before any discovery work, which also stops as soon as a key arrives;
+otherwise it takes discoveries for up to 8 ms and merges them into the ranked results for about 4 ms per iteration: new paths
 are ranked among themselves and inserted, never re-sorting every known path.
 Once 8,192 paths wait to be merged, the UI stops taking more and the worker
 waits, so a scan of a huge tree takes longer instead of delaying keys; it
@@ -554,7 +555,8 @@ completes only after its last paths are merged. The index of known paths is
 sharded so it grows without rehashing everything at once, a scan marks the
 paths it delivers instead of keeping a separate reconciliation set, and large
 listings are freed on another thread. `fff pick` and `fff seek` relabel only
-basenames that changed. ASCII scoring avoids allocation, narrower queries re-score current
+basenames that changed, with the time left over, so a scan completes once its
+labels catch up. ASCII scoring avoids allocation, narrower queries re-score current
 matches, shorter ones restore kept results (`cached_queries`), and unchanged
 refreshes skip work. Changing depth, hidden files, exclusions, filters or
 directories-hidden still ranks every known path once. Non-ASCII paths and

@@ -291,6 +291,7 @@ pub(super) fn run_here(
     discovery: &mut Discovery,
     plan: &crate::run::Plan,
 ) -> io::Result<()> {
+    let waiting = input.waiting.clone();
     drop(std::mem::replace(input, Input::idle()));
     terminal.suspend();
     let status = plan.wait();
@@ -300,7 +301,7 @@ pub(super) fn run_here(
         crate::run::pause_after_failure(&plan.line, *status);
     }
     terminal.resume()?;
-    *input = Input::start(wake.clone());
+    *input = Input::start(wake.clone(), waiting);
     let message = match status {
         Ok(status) if status.success() => {
             let done = format!("{} finished", plan.name);

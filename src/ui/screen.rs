@@ -233,12 +233,25 @@ impl Drop for Tty {
 /// Crossterm has one reader. Input and discovery notify the same sleeping UI;
 /// the bounded input queue preserves order and applies backpressure on pastes.
 pub(super) struct Input {
-    pub(super) events: std::sync::mpsc::Receiver<io::Result<Event>>,
+    events: std::sync::mpsc::Receiver<io::Result<Event>>,
+    /// Events sent and not yet taken, so background work can yield to them.
+    pub(super) waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Input {
-    pub(super) fn start(wake: std::sync::mpsc::SyncSender<()>) -> Self {
+    /// The next event, if one is waiting.
+    pub(super) fn try_take(&self) -> Result<io::Result<Event>, std::sync::mpsc::TryRecvError> {
+        let event = self.events.try_recv()?;
+        self.waiting
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(event)
+    }
+    /// `waiting` counts the events read and not yet taken.
+    pub(super) fn start(
+        wake: std::sync::mpsc::SyncSender<()>,
+        waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    ) -> Self {
         use std::sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -247,6 +260,7 @@ impl Input {
         let (tx, events) = mpsc::sync_channel(64);
         let cancel = Arc::new(AtomicBool::new(false));
         let stopped = cancel.clone();
+        let sending = waiting.clone();
         let thread = std::thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
                 let event = match event::poll(Duration::from_millis(20)) {
@@ -255,6 +269,8 @@ impl Input {
                     Err(error) => Err(error),
                 };
                 let failed = event.is_err();
+                // Counted first, so taking it never sees the count below zero.
+                sending.fetch_add(1, Ordering::Relaxed);
                 if tx.send(event).is_err() {
                     break;
                 }
@@ -266,6 +282,7 @@ impl Input {
         });
         Self {
             events,
+            waiting,
             cancel,
             thread: Some(thread),
         }
@@ -276,6 +293,7 @@ impl Input {
     pub(super) fn idle() -> Self {
         Self {
             events: std::sync::mpsc::sync_channel(1).1,
+            waiting: Default::default(),
             cancel: Default::default(),
             thread: None,
         }
@@ -291,5 +309,7 @@ impl Drop for Input {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+        // The events left unread are gone with the queue.
+        self.waiting.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }

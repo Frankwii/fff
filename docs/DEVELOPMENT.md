@@ -62,8 +62,8 @@ listed separately in the [roadmap](ROADMAP.md).
 - Sort by depth, directories before files, fuzzy score, root order, then original
   absolute pathname bytes. Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget; the input thread never
-  re-sorts every known path while a scan streams in, and reads keys before
-  discovery work.
+  re-sorts every known path while a scan streams in, and discovery work
+  yields to keys waiting to be read.
 - Marks are unique, ordered and independent of navigation, policies and filters.
   Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
   the last fully rendered visible labels.

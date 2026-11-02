@@ -137,9 +137,11 @@ fn session(
     let mut terminal = Terminal::enter(app.mouse)?;
     let (wake, waking) = std::sync::mpsc::sync_channel(1);
     crate::notify::set_waker(wake.clone());
-    let mut input = Input::start(wake.clone());
+    let waiting = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut input = Input::start(wake.clone(), waiting.clone());
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
+    discovery.yield_to(waiting);
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
     discovery.max_paths = performance.max_paths;
     app.cached_queries = performance.cached_queries;
@@ -215,7 +217,7 @@ fn session(
         }
         // Input goes first: with a key waiting, discovery waits a pass.
         if queued.is_none() {
-            queued = match input.events.try_recv() {
+            queued = match input.try_take() {
                 Ok(event) => Some(event),
                 Err(std::sync::mpsc::TryRecvError::Empty) => None,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -380,7 +382,7 @@ fn session(
             .preview
             .remaining(std::time::Instant::now())
             .map_or(wait, |delay| delay.min(wait));
-        let event = match queued.take().map_or_else(|| input.events.try_recv(), Ok) {
+        let event = match queued.take().map_or_else(|| input.try_take(), Ok) {
             Ok(event) => event?,
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 let _ = waking.recv_timeout(wait);

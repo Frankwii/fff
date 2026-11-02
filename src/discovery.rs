@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
     thread,
@@ -32,6 +32,8 @@ pub struct Scan {
     done: Option<bool>,
     /// `[performance] max_paths`: the scan stops once more paths are known.
     pub max_paths: usize,
+    /// Input events waiting: taking discoveries and merging stop for them.
+    input: Option<Arc<AtomicUsize>>,
     /// Minimum time between re-sorts while results stream in (zero: every drain).
     pub refresh_every: Duration,
     last_refresh: Option<Instant>,
@@ -80,6 +82,7 @@ impl Scan {
             completed: false,
             done: None,
             max_paths: usize::MAX,
+            input: None,
             refresh_every: Duration::ZERO,
             last_refresh: None,
             pending: false,
@@ -107,12 +110,18 @@ impl Scan {
     fn drain_for(&mut self, app: &mut App, settle: Duration) -> bool {
         let start = Instant::now();
         let mut changed = false;
+        let input = |scan: &Self| {
+            scan.input
+                .as_ref()
+                .is_some_and(|waiting| waiting.load(Ordering::Relaxed) > 0)
+        };
         // Take events only while the rows keep up: a bounded backlog keeps
         // each merge, and any refresh a key press needs, short.
         while start.elapsed() < DRAIN_BUDGET
             && self.done.is_none()
             && !self.completed
             && app.unmerged() < BACKLOG
+            && !input(self)
         {
             let event = match self.events.try_recv() {
                 Ok(event) => event,
@@ -157,14 +166,17 @@ impl Scan {
             .last_refresh
             .is_none_or(|t| t.elapsed() >= self.refresh_every);
         let finishing = self.done.is_some() || self.completed;
-        if (self.pending || app.unmerged() > 0) && (finishing || due || app.unmerged() >= BACKLOG) {
+        if (self.pending || !app.settled())
+            && (finishing || due || app.unmerged() >= BACKLOG)
+            && !input(self)
+        {
             app.refresh_within(Some(MERGE_BUDGET));
-            self.pending = app.unmerged() > 0;
+            self.pending = !app.settled();
             self.last_refresh = Some(Instant::now());
             changed = true;
         }
         if let Some(empty) = self.done
-            && app.unmerged() == 0
+            && app.settled()
         {
             self.done = None;
             app.scanning = false;
@@ -215,6 +227,7 @@ pub struct Discovery {
     pub refresh_every: Duration,
     /// `[performance] max_paths` for every scan this controller starts.
     pub max_paths: usize,
+    input: Option<Arc<AtomicUsize>>,
 }
 impl Discovery {
     pub fn new(options: crate::config::CacheConfig) -> Self {
@@ -232,7 +245,12 @@ impl Discovery {
             prefetch: crate::prefetch::Prefetch::default(),
             refresh_every: Duration::ZERO,
             max_paths: usize::MAX,
+            input: None,
         }
+    }
+    /// Input waiting to be read, which scans yield to.
+    pub fn yield_to(&mut self, waiting: Arc<AtomicUsize>) {
+        self.input = Some(waiting);
     }
     /// Coalesced notifications shared with terminal input. Never blocks a worker.
     pub fn set_waker(&mut self, wake: SyncSender<()>) {
@@ -305,6 +323,7 @@ impl Discovery {
             let mut scan = Scan::start_waking(app, clear, self.wake.clone());
             scan.refresh_every = self.refresh_every;
             scan.max_paths = self.max_paths;
+            scan.input = self.input.clone();
             self.scan = Some(scan);
         }
         self.verified_at = None;
@@ -370,6 +389,7 @@ impl Discovery {
             app.status = status;
             scan.refresh_every = self.refresh_every;
             scan.max_paths = self.max_paths;
+            scan.input = self.input.clone();
             app.cache_pending = true;
             self.scan = Some(scan);
             self.stored = false;
@@ -423,7 +443,7 @@ impl Discovery {
     /// The rows are behind what was found and the next drain merges more,
     /// whatever `refresh_ms` says.
     pub fn catching_up(&self, app: &App) -> bool {
-        app.unmerged() > 0
+        !app.settled()
             && self
                 .scan
                 .as_ref()
@@ -557,6 +577,7 @@ mod tests {
             completed: false,
             done: None,
             max_paths: usize::MAX,
+            input: None,
             refresh_every: Duration::ZERO,
             last_refresh: None,
             pending: false,

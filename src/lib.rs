@@ -345,6 +345,10 @@ pub struct App {
     /// With labels shown: listed entries by basename. Labels only depend on the
     /// entries sharing a basename, so a change relabels just the groups it touches.
     names: HashMap<OsString, Vec<Arc<Candidate>>>,
+    /// Basenames whose groups changed and wait to be relabelled, in order
+    /// and as a set, so a group changed again meanwhile is queued once.
+    relabel: Vec<OsString>,
+    relabelling: HashSet<OsString>,
     /// Home directory, shown as `~` in the location line (presentation only).
     pub home: Option<PathBuf>,
     /// Status messages clear after this long; `None` keeps them until replaced.
@@ -445,6 +449,8 @@ impl App {
             short_labels: false,
             labels: HashMap::new(),
             names: HashMap::new(),
+            relabel: Vec::new(),
+            relabelling: HashSet::new(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
             positions: Vec::new(),
@@ -769,7 +775,8 @@ impl App {
     pub fn refresh_within(&mut self, budget: Option<Duration>) {
         let basis = RefreshBasis::of(self);
         let folded = self.filter().to_lowercase();
-        let listing_changed = !self.added.is_empty() || !self.outdated.is_empty();
+        let listing_changed =
+            !self.added.is_empty() || !self.outdated.is_empty() || !self.relabel.is_empty();
         // Labels depend on the whole listing, not the query, so they stay put
         // while typing; merges relabel what they change.
         if self
@@ -788,6 +795,8 @@ impl App {
                     }
                 }
             }
+            self.relabel.clear();
+            self.relabelling.clear();
             let old = std::mem::replace(&mut self.names, names);
             let len = old.values().map(Vec::len).sum();
             known::discard(old, len);
@@ -894,7 +903,6 @@ impl App {
         // Candidates replaced or forgotten; `outdated` keeps their addresses
         // unique until the rows are rid of them.
         let stale: HashSet<_> = self.outdated.iter().map(Arc::as_ptr).collect();
-        let mut relabel = HashSet::new();
         if !stale.is_empty() {
             self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
             if self.no_dir || self.short_labels {
@@ -904,7 +912,9 @@ impl App {
                     {
                         group.retain(|g| !Arc::ptr_eq(g, c));
                         self.labels.remove(&c.path);
-                        relabel.insert(name.to_os_string());
+                        if self.relabelling.insert(name.to_os_string()) {
+                            self.relabel.push(name.to_os_string());
+                        }
                     }
                 }
             }
@@ -930,7 +940,9 @@ impl App {
                     if let Some(name) = c.path.file_name() {
                         let group = self.names.entry(name.to_os_string()).or_default();
                         group.push(Arc::clone(c));
-                        relabel.insert(name.to_os_string());
+                        if self.relabelling.insert(name.to_os_string()) {
+                            self.relabel.push(name.to_os_string());
+                        }
                     }
                 }
             }
@@ -955,24 +967,33 @@ impl App {
                 break;
             }
         }
-        for name in relabel {
-            let Some(group) = self.names.get(&name) else {
-                continue;
-            };
-            for c in group {
-                self.labels.remove(&c.path);
+        // Relabel with what is left of the budget, at least one group per
+        // call.
+        while let Some(name) = self.relabel.pop() {
+            self.relabelling.remove(&name);
+            if let Some(group) = self.names.get(&name) {
+                for c in group {
+                    self.labels.remove(&c.path);
+                }
+                if group.is_empty() {
+                    self.names.remove(&name);
+                } else if group.len() > 1 {
+                    self.labels
+                        .extend(disambiguate(group.iter().map(|c| c.path.as_path())));
+                }
             }
-            if group.is_empty() {
-                self.names.remove(&name);
-            } else if group.len() > 1 {
-                self.labels
-                    .extend(disambiguate(group.iter().map(|c| c.path.as_path())));
+            if budget.is_some_and(|b| start.elapsed() >= b) {
+                break;
             }
         }
     }
     /// Inserted candidates the rows do not reflect yet.
     pub fn unmerged(&self) -> usize {
         self.added.len()
+    }
+    /// The rows and their labels reflect every known path.
+    pub fn settled(&self) -> bool {
+        self.added.is_empty() && self.relabel.is_empty()
     }
     fn keep_highlight(&mut self) {
         // Rows share the known candidates: look for the wanted one's address.
