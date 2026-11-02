@@ -70,6 +70,9 @@ listed separately in the [roadmap](ROADMAP.md).
 - Marks are unique, ordered and independent of navigation, policies and filters.
   Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
   the last fully rendered visible labels.
+- The input reader hands every handler a shifted letter as legacy terminals
+  send it, uppercase with Shift, whatever the kitty protocol reported, so
+  typing, `[keys.map]` chords and `[keys.normal]` sequences agree everywhere.
 - Escape preserves the session. In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
 - Generation checks and cancellation prevent obsolete work from changing the view.
