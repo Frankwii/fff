@@ -239,7 +239,7 @@ video's duration, streams and tags. It is text only, reads in the background
 once the highlight rests, and never holds up the list. PDFs use poppler's
 `pdfinfo` and `pdftotext`, audio and video FFmpeg's `ffprobe`, when installed.
 `[ui] preview = true` starts with it shown; see [preview
-pane](docs/CONFIGURATION.md#preview-pane). `fff seek` has no preview pane.
+pane](docs/CONFIGURATION.md#preview-pane).
 
 ### Details and live updates
 
@@ -291,7 +291,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+. / . in Normal | Toggle hidden entries |
 | Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d, D and P reach Neovim there) |
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
-| Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) (not in `fff seek`) |
+| Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
 | Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |

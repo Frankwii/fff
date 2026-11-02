@@ -284,9 +284,6 @@ and any other terminal.
 preview = false   # true: start with the preview pane shown
 ```
 
-`fff seek` has no preview pane: Alt+v only says so there, and `P` reaches
-Neovim.
-
 It takes the bottom half of the panes. In wide terminals it spans the full
 width under the results and the marks, which keep their side-by-side split
 and give up half their height: the marked list is empty most of the time, and

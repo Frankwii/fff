@@ -109,13 +109,7 @@ impl Location {
         });
     }
     fn typed(&self, cwd: &Path, home: Option<&Path>) -> PathBuf {
-        let text = self.text.trim();
-        match (text.strip_prefix('~'), home) {
-            (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
-                home.join(rest.trim_start_matches('/'))
-            }
-            _ => cwd.join(text),
-        }
+        resolve(&self.text, cwd, home)
     }
     /// Enter: the chosen suggestion, else the typed directory if it exists,
     /// else the best suggestion.
@@ -135,19 +129,17 @@ impl Location {
     }
     /// Tab: complete the typed path's last component among directories.
     pub fn complete(&mut self, cwd: &Path, home: Option<&Path>) {
-        let typed = self.typed(cwd, home);
-        let (dir, prefix) = if self.text.is_empty() || self.text.ends_with('/') {
-            (typed.clone(), String::new())
-        } else {
-            let Some(parent) = typed.parent() else {
-                return;
-            };
-            let prefix = typed
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            (parent.to_owned(), prefix)
+        // Split the text as typed: completing replaces what follows the last
+        // `/`. A lone `~` or a `..` names a folder to complete inside.
+        let (mut head, mut prefix) = match self.text.rfind('/') {
+            Some(i) => (self.text[..=i].to_owned(), self.text[i + 1..].to_owned()),
+            None => (String::new(), self.text.clone()),
         };
+        if (head.is_empty() && prefix == "~") || prefix == ".." {
+            head = format!("{}/", self.text);
+            prefix.clear();
+        }
+        let dir = resolve(&head, cwd, home);
         let Ok(entries) = std::fs::read_dir(&dir) else {
             return;
         };
@@ -170,14 +162,19 @@ impl Location {
                     .collect()
             }),
         };
-        // Path drops a trailing `/.`, so the name is not always what the text
-        // ends with; then complete after the text as typed.
-        let kept = self
-            .text
-            .strip_suffix(prefix.as_str())
-            .unwrap_or(&self.text);
-        self.text = format!("{kept}{completion}");
+        self.text = format!("{head}{completion}");
         self.selected = None;
+    }
+}
+
+/// A typed path: `~` is the home folder, a relative one is below `cwd`.
+fn resolve(text: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
+    let text = text.trim();
+    match (text.strip_prefix('~'), home) {
+        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
+            home.join(rest.trim_start_matches('/'))
+        }
+        _ => cwd.join(text),
     }
 }
 
@@ -224,5 +221,27 @@ mod tests {
         l.text = "zzz".into();
         assert!(l.target(&home, Some(&home)).is_err());
         std::fs::remove_dir_all(&home).unwrap();
+    }
+    #[test]
+    fn tab_completes_after_the_text_as_typed() {
+        let root = std::env::temp_dir().join(format!("fff-tab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (home, cwd) = (root.join("héme"), root.join("work"));
+        std::fs::create_dir_all(home.join("notes")).unwrap();
+        std::fs::create_dir_all(cwd.join("only/.hid")).unwrap();
+        let mut l = Location::new(&[], vec![], &cwd);
+        for (typed, completed) in [
+            ("~", "~/notes/"),
+            // `..` holds héme and work: no common prefix to add.
+            ("..", "../"),
+            ("only/.", "only/.hid/"),
+            ("on", "only/"),
+            ("on ", "on "),
+        ] {
+            l.text = typed.into();
+            l.complete(&cwd, Some(&home));
+            assert_eq!(l.text, completed, "{typed:?}");
+        }
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -1838,9 +1838,6 @@ fn session(
                     app.policy.hidden = !app.policy.hidden;
                     discovery.start(app, false);
                 }
-                (K::Char('v'), _, true) if app.no_dir => {
-                    app.status = "fff seek has no preview pane".into();
-                }
                 (K::Char('v'), _, true) => app.preview.shown = !app.preview.shown,
                 (K::Char('d' | 'D'), _, true) if app.no_dir => {
                     app.status = "fff seek lists only files".into();

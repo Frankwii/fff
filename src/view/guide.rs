@@ -122,7 +122,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+.".into(), "show / hide hidden entries", false),
                 ("Alt+d".into(), "hide / show directories", true),
                 ("Alt+D".into(), "hide / show files", true),
-                ("Alt+v".into(), "show / hide the preview pane", true),
+                ("Alt+v".into(), "show / hide the preview pane", false),
                 (
                     [Move, Copy, Link].map(normal).join(" / "),
                     "move / copy / symlink selected (Normal)",

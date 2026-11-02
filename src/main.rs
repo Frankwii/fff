@@ -625,8 +625,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.mouse = settings.mouse;
     app.buttons = settings.buttons;
     app.watch = settings.watch;
-    // fff seek has no preview pane, like it has no tabs.
-    app.preview.shown = settings.preview && !mode.no_dir;
+    app.preview.shown = settings.preview;
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
