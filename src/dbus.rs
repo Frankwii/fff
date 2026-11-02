@@ -193,7 +193,6 @@ fn launch(launcher: &Path, path: &Path) {
 /// The local path of a `file://` URI (percent-decoded), or an absolute path
 /// given as is; `None` for anything else.
 pub fn file_path(uri: &str) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
     if uri.starts_with('/') {
         return Some(PathBuf::from(uri));
     }
@@ -208,6 +207,13 @@ pub fn file_path(uri: &str) -> Option<PathBuf> {
     if !host.is_empty() && host != "localhost" {
         return None;
     }
+    Some(decode_path(path))
+}
+
+/// A URI's percent-decoded path. Escapes that are not two hex digits stay as
+/// they are, and the bytes need not be UTF-8.
+pub fn decode_path(path: &str) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
     let bytes = path.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -226,7 +232,7 @@ pub fn file_path(uri: &str) -> Option<PathBuf> {
             i += 1;
         }
     }
-    Some(PathBuf::from(std::ffi::OsString::from_vec(decoded)))
+    PathBuf::from(std::ffi::OsString::from_vec(decoded))
 }
 
 /// The session bus's socket address: `DBUS_SESSION_BUS_ADDRESS`'s first

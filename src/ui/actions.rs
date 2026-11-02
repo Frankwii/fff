@@ -1466,7 +1466,7 @@ pub(super) fn dropped_paths(text: &str, home: Option<&std::path::Path>) -> Optio
     for word in words {
         let path = match word.strip_prefix("file://") {
             // A host, if any, comes before the path: file://host/path.
-            Some(uri) => uri_path(&uri[uri.find('/')?..])?,
+            Some(uri) => crate::dbus::decode_path(&uri[uri.find('/')?..]),
             None => PathBuf::from(word),
         };
         if !path.is_absolute() || std::fs::symlink_metadata(&path).is_err() {
@@ -1477,22 +1477,4 @@ pub(super) fn dropped_paths(text: &str, home: Option<&std::path::Path>) -> Optio
         }
     }
     (!paths.is_empty()).then_some(paths)
-}
-/// A URI's percent-encoded path as raw path bytes.
-fn uri_path(encoded: &str) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
-    let bytes = encoded.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-            decoded.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
-        } else {
-            decoded.push(bytes[i]);
-            i += 1;
-        }
-    }
-    Some(std::ffi::OsString::from_vec(decoded).into())
 }

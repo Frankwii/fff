@@ -530,7 +530,7 @@ fn drops_are_existing_absolute_paths_in_shell_or_uri_form() {
     let root = std::env::temp_dir().join(format!("fff-drop-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    for name in ["a b", "c", "ü%", "x (1)"] {
+    for name in ["a b", "c", "ü%", "x (1)", "%+5", "%zz", "\u{5}"] {
         std::fs::write(root.join(name), "").unwrap();
     }
     let r = root.display();
@@ -550,6 +550,15 @@ fn drops_are_existing_absolute_paths_in_shell_or_uri_form() {
             None
         ),
         Some(vec![ab.clone(), root.join("ü%")])
+    );
+    // Escapes are two hex digits, without a sign; others stay as they are.
+    assert_eq!(
+        dropped_paths(&format!("file://{r}/%+5\nfile://{r}/%zz"), None),
+        Some(vec![root.join("%+5"), root.join("%zz")])
+    );
+    assert_eq!(
+        dropped_paths(&format!("file://{r}/%05"), None),
+        Some(vec![root.join("\u{5}")])
     );
     // st's drag-n-drop patch: backslash escapes, a space after each path.
     assert_eq!(
