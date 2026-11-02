@@ -165,7 +165,8 @@ fn session(
     let mut cursor_shape = SetCursorStyle::DefaultUserShape;
     let mut focus = Focus::Results;
     let mut status = StatusTimer::default();
-    let mut preview = PalettePreview::default();
+    let mut palette_preview = PalettePreview::default();
+    app.preview.set_waker(wake.clone());
     // Frames are drawn after input or a visible change, and at least once a
     // second so external changes (e.g. a deleted mark) still appear.
     let mut dirty = true;
@@ -286,7 +287,27 @@ fn session(
             // Show a partial list-key sequence like Neovim's own pending input.
             view.blocking = true;
         }
-        dirty |= preview.tick(app, &focus, std::time::Instant::now());
+        dirty |= palette_preview.tick(app, &focus, std::time::Instant::now());
+        // The preview follows the highlighted row or mark; sheets and
+        // choosers over the panes leave it where it was.
+        let followed = match &focus {
+            Focus::Results => Some(app.highlight.clone()),
+            Focus::Marks { rows, index } => Some(rows.get(*index).cloned()),
+            _ => None,
+        };
+        let followed = match followed {
+            Some(path) => path.map(|path| {
+                let info = app.details.info(&path);
+                crate::preview::Key {
+                    size: info.as_ref().map_or(0, |i| i.size),
+                    modified: info.and_then(|i| i.modified),
+                    hidden: app.policy.hidden,
+                    path,
+                }
+            }),
+            None => app.preview.followed().cloned(),
+        };
+        dirty |= app.preview.tick(followed, std::time::Instant::now());
         let desired = app
             .edit_view
             .as_ref()
@@ -335,11 +356,15 @@ fn session(
         let wait = relist_at
             .map(|at| at.saturating_duration_since(std::time::Instant::now()))
             .map_or(wait, |delay| wait.min(delay.as_millis() as u64));
-        let wait = preview
+        let wait = palette_preview
             .remaining(std::time::Instant::now())
             .map_or(Duration::from_millis(wait), |delay| {
                 delay.min(Duration::from_millis(wait))
             });
+        let wait = app
+            .preview
+            .remaining(std::time::Instant::now())
+            .map_or(wait, |delay| delay.min(wait));
         let event = match input.events.try_recv() {
             Ok(event) => event?,
             Err(std::sync::mpsc::TryRecvError::Empty) => {
@@ -1650,6 +1675,7 @@ fn session(
                     app.policy.hidden = !app.policy.hidden;
                     discovery.start(app, false);
                 }
+                (K::Char('v'), _, true) => app.preview.shown = !app.preview.shown,
                 (K::Char('d'), _, true) if app.no_dir => {
                     app.status = "fff seek lists only files".into();
                 }

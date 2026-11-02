@@ -193,28 +193,49 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     query(frame, layout[0], app, matches!(focus, Focus::Results));
     frame.render_widget(Paragraph::new(location), layout[1]);
     let main = layout[2];
-    let (results, marks) = if area.width >= 78 {
+    let wide = area.width >= 78;
+    let marks_focused = matches!(focus, Focus::Marks { .. });
+    // The preview takes the bottom half: the full width under the results and
+    // marks, or between them when they are stacked. Focused marks in a
+    // compact terminal take its room.
+    let preview_height = if app.preview.shown && main.height >= 14 && (wide || !marks_focused) {
+        main.height / 2
+    } else {
+        0
+    };
+    let (results, marks, preview) = if wide {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(preview_height)])
+            .split(main);
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
             .spacing(1)
-            .split(main);
-        (columns[0], columns[1])
+            .split(rows[0]);
+        (columns[0], columns[1], rows[1])
     } else {
         // Compact terminals stack panes; focusing marks gives that pane more room.
-        let marks_height = if matches!(focus, Focus::Marks { .. }) {
+        let marks_height = if marks_focused {
             main.height.saturating_sub(3)
         } else {
-            4.min(main.height.saturating_sub(3))
+            4.min(main.height.saturating_sub(3 + preview_height))
         };
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(marks_height)])
+            .constraints([
+                Constraint::Min(3),
+                Constraint::Length(preview_height),
+                Constraint::Length(marks_height),
+            ])
             .split(main);
-        (rows[0], rows[1])
+        (rows[0], rows[2], rows[1])
     };
     let mut result = results_pane(frame, results, app, matches!(focus, Focus::Results));
     marks_pane(frame, marks, app, focus);
+    if preview.height > 0 {
+        preview_pane(frame, preview, app);
+    }
     if bar > 0 {
         result.buttons = button_bar(frame, layout[3], app, focus);
     }
@@ -1049,6 +1070,58 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         inner,
         &mut state,
     );
+}
+/// The preview pane: what the followed entry is in the title, its facts, then
+/// its first lines or entries, each cut to the pane's width.
+fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
+    use crate::preview::Tone;
+    let theme = app.palette;
+    let current = app.preview.current();
+    let title = match current {
+        Some(p) if !p.kind.is_empty() => format!(" Preview · {} ", safe(&p.kind)),
+        _ => " Preview ".into(),
+    };
+    let block = panel(theme, title, false, theme.accent).padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let width = inner.width as usize;
+    let mut lines = Vec::new();
+    match current {
+        None if app.preview.followed().is_none() => {
+            lines.push(Line::from(styled("Nothing highlighted.", theme.muted)))
+        }
+        // Still reading: nothing rather than the previous entry's content.
+        None => {}
+        Some(preview) => {
+            let label_width = preview
+                .facts
+                .iter()
+                .map(|(l, _)| l.width())
+                .max()
+                .unwrap_or(0);
+            for (label, value) in &preview.facts {
+                let label = format!("{label:<label_width$}  ");
+                let room = width.saturating_sub(label.width());
+                lines.push(Line::from(vec![
+                    styled(label, theme.muted),
+                    styled(truncate(value, room), theme.text),
+                ]));
+            }
+            if !preview.facts.is_empty() && !preview.lines.is_empty() {
+                lines.push(Line::from(""));
+            }
+            let room = (inner.height as usize).saturating_sub(lines.len());
+            for (text, tone) in preview.lines.iter().take(room) {
+                let color = match tone {
+                    Tone::Text => theme.text,
+                    Tone::Muted => theme.muted,
+                    Tone::Directory => theme.accent,
+                };
+                lines.push(Line::from(styled(truncate(text, width), color)));
+            }
+        }
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 /// One line: the selected path (or a status message) and the F1 pointer.
 fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {

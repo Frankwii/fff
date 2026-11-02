@@ -18,6 +18,7 @@ pub mod open;
 pub mod operations;
 mod palettes;
 mod prefetch;
+pub mod preview;
 pub mod reload;
 pub mod run;
 pub mod setup;
@@ -344,6 +345,8 @@ pub struct App {
     /// `[ui] buttons`, and whether the mouse has been used this session.
     pub buttons: config::Buttons,
     pub mouse_used: bool,
+    /// The preview pane (Alt+v, `zp`) and what it shows.
+    pub preview: preview::Pane,
     /// `[ui] watch`: follow changes to the current directory as they happen.
     pub watch: bool,
     /// `fff explorer`: the file dialog being answered. Enter chooses files in
@@ -427,6 +430,7 @@ impl App {
             buttons: config::Buttons::Off,
             mouse_used: false,
             watch: true,
+            preview: preview::Pane::default(),
             window: false,
             dialog: None,
         }

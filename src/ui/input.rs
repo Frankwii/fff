@@ -159,6 +159,7 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             Bookmarks,
             Hidden,
             Directories,
+            Preview,
             GoTo,
             PrevTab,
             NextTab,

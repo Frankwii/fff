@@ -191,6 +191,17 @@ bare file names; when listed files share a name, each gains the fewest trailing
 parent directories that tell it apart (`folder1/main.pdf`, `folder2/main.pdf`),
 independently of the query. The footer still shows the highlighted file's path.
 
+### Preview pane
+
+Alt+v (`zp` in Normal mode) shows the highlighted entry in the bottom half of
+the screen: a text file's first lines, a folder's entries, an archive's
+contents, a PDF's facts and first pages' text, an image's size, a song's or a
+video's duration, streams and tags. It is text only, reads in the background
+once the highlight rests, and never holds up the list. PDFs use poppler's
+`pdfinfo` and `pdftotext`, audio and video FFmpeg's `ffprobe`, when installed.
+`[ui] preview = true` starts with it shown; see [preview
+pane](docs/CONFIGURATION.md#preview-pane).
+
 ### Details and live updates
 
 Each result row ends with the entry's size (a directory's entry count) and the
@@ -240,6 +251,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |
 | Alt+d / zd in Normal | Hide directories, listing only files; again to show them |
+| Alt+v / zp in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
 | Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |

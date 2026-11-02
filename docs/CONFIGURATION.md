@@ -249,6 +249,58 @@ pinned roots, which still follow the [freshness](#discovery-cache-and-performanc
 rules and F5. Where inotify is unavailable or a directory cannot be watched,
 fff works as with `watch = false`.
 
+## Preview pane
+
+Alt+v (`zp` in Normal mode, the key ranger uses) shows or hides a pane with
+the highlighted entry, or the highlighted mark in the marked list. It is text
+only: no images or terminal graphics protocols, so it looks the same in st
+and any other terminal.
+
+```toml
+[ui]
+preview = false   # true: start with the preview pane shown
+```
+
+It takes the bottom half of the panes. In wide terminals it spans the full
+width under the results and the marks, which keep their side-by-side split
+and give up half their height: the marked list is empty most of the time, and
+a full-width pane leaves long lines of code and PDF text whole. In compact
+terminals (under 78 columns) it sits between the results and the marks; when
+the marked list is focused there, it gives that list its room. Below 14 rows
+of panes it is left out, since half of them would leave too few results.
+
+What it shows depends on what the entry is, from its first bytes rather than
+its name:
+
+| Entry | Pane |
+| --- | --- |
+| Text (any name; no NUL bytes, mostly valid UTF-8) | The first 300 lines of the first 64 KiB; tabs expanded to every 4th column, control characters shown as their Unicode pictures (`␛`), long lines cut at the pane's edge. The title counts the lines when the whole file was read. |
+| Directory | Its entries, folders first, then by name; dot entries only while hidden entries are shown. |
+| PDF | Title, author, subject, pages, page size, creator, producer and encryption from `pdfinfo`, then the text of the first three pages from `pdftotext`, page breaks marked. |
+| PNG, JPEG, GIF, WebP, BMP | Width × height (and, for PNG, color type and depth), read from the file's header. TIFF, AVIF, HEIF and icons ask `ffprobe`. |
+| Audio and video (MP3, FLAC, Ogg, WAV, AIFF, MP4, MOV, Matroska, WebM, AVI, ...) | Duration, title, artist, album and date tags, each video stream's codec, size and frame rate, each audio stream's codec, sample rate and channels, subtitle tracks, cover art size and bit rate, from `ffprobe`. |
+| Archives (zip, tar, gzip, xz, zstd, bzip2, 7-Zip, RAR, ar/deb, cpio, ISO 9660) and zip-based documents (EPUB, docx, odt, ...) | The first 300 entries through libarchive, without extracting anything, and the unpacked size when they were all listed. A compressed file that is not a tar only says what it is. |
+| ELF binaries | Executable, shared library, object or core dump; 32 or 64 bit; machine. |
+| SQLite databases | The page count. |
+| Anything else | What it is when the first bytes say (fonts, Windows executables, WebAssembly, Parquet, ...), else `binary data`. Pipes, sockets and devices are named and never opened. |
+
+Size, dates, permissions, owner and a link's target are not repeated: the
+footer right below shows them for the same entry.
+
+The helper programs are optional. Without poppler (`pdfinfo`, `pdftotext`) or
+FFmpeg's `ffprobe`, the pane names the file's type and says which package
+would show more. They run without a shell, with no terminal, on the file's own
+path (`ffprobe` reads it as `file:PATH`, so a name cannot select another
+protocol), and only the first 64 KiB of their output is kept.
+
+The pane never slows the list. Reading starts once the highlight has rested
+for 100 ms, on a thread of its own, bounded in bytes and lines; a helper
+program gets 3 seconds. Moving on cancels it and kills the helper, and a
+reply for an entry no longer highlighted is dropped. Until the preview
+arrives the pane stays empty rather than showing the previous entry. The last
+32 previews are kept, so going back to an entry shows it at once, until its
+size or modification time changes.
+
 ## Status messages
 
 Notices such as "Navigation is disabled in fff seek" or a failed palette reload
@@ -589,13 +641,14 @@ deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
 hidden = "."         # Show/hide hidden entries, like Alt+. (results)
 directories = "zd"   # Hide/show directories, like Alt+d (results)
+preview = "zp"       # Show/hide the preview pane, like Alt+v (results)
 go_to = "/"          # Go-to prompt, like Alt+g (results)
 next_tab = "<up>"     # Next tab, like Alt+Up (results)
 prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
-`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `go_to`, the tab
+`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `preview`, `go_to`, the tab
 actions and the depth digits work only in Normal-mode results; the Alt chords keep working in every mode. With
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.

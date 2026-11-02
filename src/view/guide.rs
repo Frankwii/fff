@@ -121,6 +121,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+← Alt+→".into(), "search shallower / deeper", false),
                 ("Alt+.".into(), "show / hide hidden entries", false),
                 ("Alt+d".into(), "hide / show directories", false),
+                ("Alt+v".into(), "show / hide the preview pane", false),
                 (
                     [Move, Copy, Link].map(normal).join(" / "),
                     "move / copy / symlink selected (Normal)",
@@ -195,6 +196,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 (normal(Hidden), "show / hide hidden entries", false),
                 (normal(Directories), "hide / show directories", false),
+                (normal(Preview), "show / hide the preview pane", false),
                 (normal(GoTo), "go to a path, bookmark or zoxide", true),
                 (normal(Bookmarks), "open a bookmark", true),
                 (

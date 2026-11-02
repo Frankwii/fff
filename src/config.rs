@@ -217,6 +217,7 @@ struct UiConfig {
     mouse: bool,
     buttons: Buttons,
     watch: bool,
+    preview: bool,
 }
 /// `[ui] buttons`: when the button bar is shown (opt-in).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -239,6 +240,7 @@ impl Default for UiConfig {
             mouse: true,
             buttons: Buttons::Off,
             watch: true,
+            preview: false,
         }
     }
 }
@@ -276,6 +278,8 @@ pub struct Settings {
     /// `[ui] buttons`.
     pub buttons: Buttons,
     pub watch: bool,
+    /// `[ui] preview`: start with the preview pane shown.
+    pub preview: bool,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
     /// The file that was read; `None` without a config file.
@@ -364,6 +368,7 @@ impl Settings {
             mouse: raw.ui.mouse,
             buttons: raw.ui.buttons,
             watch: raw.ui.watch,
+            preview: raw.ui.preview,
             open: raw.open,
             source: None,
             bookmark_path: None,

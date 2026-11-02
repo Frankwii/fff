@@ -70,6 +70,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
+  <cyan>Alt+v</cyan> (<cyan>zp</cyan>) preview pane; <cyan>Alt+d</cyan> (<cyan>zd</cyan>) hide directories.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
   <cyan>E</cyan> open current/marked paths in $EDITOR. Each folder remembers its cursor.
   <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.
@@ -77,7 +78,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
   config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
-  file icons ([ui] icons), row details ([ui] columns), the mouse and buttons
+  file icons ([ui] icons), row details ([ui] columns), the preview pane
+  ([ui] preview), the mouse and buttons
   ([ui] mouse, buttons), live updates ([ui] watch), Normal-mode list keys
   ([keys.normal]) and chord remapping ([keys.map], applied before --map-key).
   <cyan>fff --check-config</cyan> validates it and prints which file was read.
@@ -519,6 +521,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.mouse = settings.mouse;
     app.buttons = settings.buttons;
     app.watch = settings.watch;
+    app.preview.shown = settings.preview;
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);

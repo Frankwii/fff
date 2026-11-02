@@ -54,7 +54,10 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
 #[test]
 fn seek_is_a_command_and_no_dir_points_to_it() {
     let help = stdout(&fff(&["seek", "--help"], None));
-    assert!(help.contains("Usage: fff seek [OPTIONS] [ROOTS]..."), "{help}");
+    assert!(
+        help.contains("Usage: fff seek [OPTIONS] [ROOTS]..."),
+        "{help}"
+    );
     for text in ["--output-paths", "--glob", "--depth"] {
         assert!(help.contains(text), "missing {text:?}");
     }

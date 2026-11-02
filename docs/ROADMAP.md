@@ -5,7 +5,6 @@ not implemented features or commitments:
 
 - Content search with alternating filtering (below).
 - Path-aware matching (below).
-- A text-only preview pane (below).
 - Option completion in the gx/gX prompt for programs with neither a man page
   nor `--help` (Tab already completes options from those two).
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
@@ -24,10 +23,16 @@ not implemented features or commitments:
   Cheap on local disks, but a slow network or FUSE mount stalls the frame;
   these should read from the details cache, refreshed in the background.
 - Mouse-only use beyond the opt-in buttons (below).
-- Desktop follow-ups to `--setup` (see [desktop integration](DESKTOP.md)):
+- A desktop follow-up to `--setup` (see [desktop integration](DESKTOP.md)):
   answering `org.freedesktop.FileManager1` over D-Bus, so "Show in folder"
-  highlights the file instead of only opening its folder, and a hint in the
-  file chooser saying which keys choose.
+  highlights the file instead of only opening its folder.
+- Preview pane follow-ups: scrolling it without moving the highlight, and
+  previewing the marked list's rows from the results.
+- More commands for distinct modes, as `fff seek` and `fff explorer` are:
+  `fff pick` for the `--output-paths` picker (with `--relative` and `--null`
+  only there), and `fff setup`, `fff init`, `fff completions` and
+  `fff check-config` in place of the flags that print or change something and
+  exit.
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
   list and choosers; dragging past the pane's edge scrolling the
@@ -38,8 +43,8 @@ not implemented features or commitments:
   more Normal-mode keys available; a flag or setting would start with the
   query visible.
 
-There will be no image previews: see [design
-choices](DEVELOPMENT.md#design-choices).
+The preview pane stays text only; there will be no image previews: see
+[design choices](DEVELOPMENT.md#design-choices).
 
 ## Mouse-only use
 
@@ -73,26 +78,6 @@ apart by reading their labels. Path-aware matching would let `pde/stab` match
 - **Same narrowing.** Appending letters still only narrows, so the incremental
   re-score keeps working.
 
-## Text-only preview pane
-
-An optional pane beside the results showing the highlighted entry. **Text
-only**: no images, sixel, kitty graphics or other terminal image protocols, so
-it works the same in st and any other plain terminal.
-
-- **What it shows.** The first lines of a text file (tabs expanded, control
-  characters made safe, long lines cut), PDF text through `pdftotext` when it
-  is installed, a directory's first entries, and for anything else (binary
-  files, images, archives) a short metadata summary: type, size, modification
-  time, permissions, link target.
-- **Never slows the list.** Reading happens in a worker, bounded by bytes and
-  lines, and starts only once the highlight has rested briefly (like the
-  palette preview's wait); moving again cancels it. The frame never waits for a
-  preview, and stale previews are dropped.
-- **Off by default.** A key toggles it and a setting can start with it shown;
-  on narrow terminals it stacks below the results, as the marks do.
-- **With content search.** A content match could preview the lines around it
-  and E would open `$EDITOR` there.
-
 ## Content search with alternating filtering
 
 Today the query filters names. Content search would add a second query that
@@ -125,6 +110,10 @@ TODO without leaving the browser.
 - **Visible mode.** The query box title and a pill in its border say which
   query is being edited and whether the content filter is active; Escape
   clears the content query before the name query.
+- **In the preview pane.** For a content match, the [preview
+  pane](CONFIGURATION.md#preview-pane) would show the lines around the match
+  (or the PDF page it is on) instead of the file's first lines, with the
+  match highlighted, and E would open `$EDITOR` there.
 
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.

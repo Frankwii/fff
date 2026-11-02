@@ -270,6 +270,64 @@ fn split_panes_colors_and_rendered_numbers() {
     export_preview(buffer);
 }
 #[test]
+fn the_preview_takes_the_bottom_half_below_or_between_the_panes() {
+    use crate::preview::{Key, Preview, Tone};
+    let mut app = fixture();
+    let path = app.cwd.join("todo.txt");
+    app.preview.set(
+        Key {
+            path,
+            size: 9,
+            modified: None,
+            hidden: false,
+        },
+        Preview {
+            kind: "text · 2 lines".into(),
+            facts: vec![("Pages".into(), "12".into())],
+            lines: vec![
+                ("first line".into(), Tone::Text),
+                ("x".repeat(300), Tone::Text),
+            ],
+        },
+    );
+    let frame = |app: &mut App, width, height| {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let mut page = 0;
+        terminal
+            .draw(|frame| page = render(frame, app, &mut Focus::Results).page)
+            .unwrap();
+        (text(terminal.backend().buffer()), page)
+    };
+    let row = |screen: &str, token: &str| screen.lines().position(|l| l.contains(token));
+    // Wide: results and marks side by side on top, the preview full width below.
+    let (screen, page) = frame(&mut app, 120, 40);
+    let preview = row(&screen, "Preview · text · 2 lines").unwrap();
+    assert!(row(&screen, "Files ·").unwrap() < preview);
+    assert_eq!(row(&screen, "Files ·"), row(&screen, "Marks (2)"));
+    let title = screen.lines().nth(preview).unwrap();
+    assert!(title.starts_with(" ╭ Preview") && title.trim_end().ends_with('╮'));
+    assert!(title.chars().count() >= 118);
+    assert!(row(&screen, "Pages  12").unwrap() > preview);
+    assert!(row(&screen, "first line").unwrap() > row(&screen, "Pages").unwrap());
+    // Long lines are cut to the pane.
+    assert!(screen.lines().any(|l| l.contains("xxx…")));
+    assert!(page <= 17, "results keep the top half: {page}");
+    // Narrow: results, then the preview, then the marks.
+    let (screen, _) = frame(&mut app, 60, 40);
+    let (files, preview, marks) = (
+        row(&screen, "Files ·").unwrap(),
+        row(&screen, "Preview ·").unwrap(),
+        row(&screen, "Marks (2)").unwrap(),
+    );
+    assert!(files < preview && preview < marks);
+    // Too short for half of it to help: no preview.
+    let (screen, _) = frame(&mut app, 120, 16);
+    assert!(!screen.contains("Preview"));
+    app.preview.shown = false;
+    let (screen, page) = frame(&mut app, 120, 40);
+    assert!(!screen.contains("Preview") && page > 25);
+}
+#[test]
 fn narrow_tiny_unicode_and_resize_frames_have_only_visible_targets() {
     let mut app = fixture();
     app.insert(
@@ -1043,7 +1101,7 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
         offset: 0,
         keys: true,
     };
-    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(120, 38)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();

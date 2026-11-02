@@ -23,6 +23,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |
+| `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/details.rs` | Visible rows' details (lstat, link targets, owners), background entry counts and their formats. |
 | `src/watch.rs` | inotify on the current directory for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
@@ -42,10 +43,12 @@ listed separately in the [roadmap](ROADMAP.md).
 ## Design choices
 
 - **No image previews.** fff targets plain terminals such as st, where image
-  protocols (kitty, sixel) are unavailable or poor. There is no preview pane
-  today; use `l` (background opener) or `o` to look at a file. A text-only pane
-  is on the [roadmap](ROADMAP.md#text-only-preview-pane): its speed is
-  non-negotiable, so reads must never block a frame or a highlight change.
+  protocols (kitty, sixel) are unavailable or poor. The [preview
+  pane](CONFIGURATION.md#preview-pane) is text only: an image shows its size,
+  and `l` (background opener) or `o` show the image itself. Its speed is
+  non-negotiable: reads never block a frame or a highlight change, happen on
+  their own threads after the highlight rests, and are cancelled when it
+  moves.
 
 ## Behavior to preserve
 

@@ -24,6 +24,8 @@ mouse = true
 buttons = "off"
 # Follow files created, removed or changed in the current directory.
 watch = true
+# Start with the preview pane shown (Alt+v or zp toggles it).
+preview = false
 
 [palettes.ember]
 # Custom palettes inherit a built-in; unspecified roles keep its values.
@@ -112,6 +114,7 @@ deeper = "<right>"
 bookmarks = "b"  # Alt+b (bookmark chooser),
 hidden = "."     # Alt+. (hidden entries),
 directories = "zd" # Alt+d (hide / show directories),
+preview = "zp"   # Alt+v (preview pane),
 go_to = "/"      # Alt+g (go-to prompt),
 next_tab = "<up>"   # and Alt+Up / Alt+Down (next / previous tab).
 prev_tab = "<down>"

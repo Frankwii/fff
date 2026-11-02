@@ -96,9 +96,50 @@ pub fn extract(input: File, stage: &File) -> Result<()> {
 pub fn validate(input: File) -> Result<()> {
     scan(input, None)
 }
-/// Validation and extraction share entry checks and read every payload, including
-/// integrity checks, without writing anything when no staging directory is given.
-fn scan(input: File, stage: Option<&File>) -> Result<()> {
+/// An archive entry's name, whether it is a directory, and its size.
+pub type Entry = (PathBuf, bool, u64);
+/// The first `limit` entries' names, whether each is a directory, and their
+/// sizes, for the preview pane; true when more follow. Nothing is extracted or
+/// validated, and `stop` is checked between entries.
+pub fn list(input: File, limit: usize, stop: &dyn Fn() -> bool) -> Result<(Vec<Entry>, bool)> {
+    let a = open(&input)?;
+    let mut entries = Vec::new();
+    loop {
+        if stop() {
+            return Err("Stopped".into());
+        }
+        let mut entry = ptr::null_mut();
+        let code = unsafe { archive_read_next_header(a.0, &mut entry) };
+        if code == 1 {
+            return Ok((entries, false));
+        }
+        if code != 0 || entry.is_null() {
+            // A damaged tail still lists what came before it.
+            return if entries.is_empty() {
+                Err(a.error())
+            } else {
+                Ok((entries, true))
+            };
+        }
+        if entries.len() == limit {
+            return Ok((entries, true));
+        }
+        let (path, kind, size) = unsafe {
+            let p = archive_entry_pathname(entry);
+            if p.is_null() {
+                continue;
+            }
+            (
+                PathBuf::from(OsString::from_vec(CStr::from_ptr(p).to_bytes().to_vec())),
+                archive_entry_filetype(entry),
+                archive_entry_size(entry),
+            )
+        };
+        entries.push((path, kind == 0o040000, size.max(0) as u64));
+    }
+}
+/// A reader for `input` with the built-in filters and every format.
+fn open(input: &File) -> Result<Reader> {
     let a = Reader(unsafe { archive_read_new() });
     if a.0.is_null() {
         return Err("Cannot allocate archive reader".into());
@@ -121,6 +162,12 @@ fn scan(input: File, stage: Option<&File>) -> Result<()> {
             return Err(a.error());
         }
     }
+    Ok(a)
+}
+/// Validation and extraction share entry checks and read every payload, including
+/// integrity checks, without writing anything when no staging directory is given.
+fn scan(input: File, stage: Option<&File>) -> Result<()> {
+    let a = open(&input)?;
     let root = stage.map(|stage| PathBuf::from(format!("/proc/self/fd/{}", stage.as_raw_fd())));
     let mut names = HashSet::new();
     let mut types = HashMap::new();

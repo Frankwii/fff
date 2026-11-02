@@ -8,6 +8,14 @@ history.
 
 ### Added
 
+- **A text-only preview pane.** Alt+v (`zp` in Normal mode) shows the
+  highlighted entry in the bottom half of the screen: a text file's first
+  lines, a folder's entries, an archive's or EPUB's contents, a PDF's title,
+  author, pages and first pages' text (with poppler), an image's dimensions,
+  and audio and video duration, streams and tags (with `ffprobe`). Reading
+  happens in the background after the highlight rests and never holds up the
+  list. `[ui] preview = true` starts with it shown; rebind it as `preview` in
+  `[keys.normal]`.
 - **Alt+d (`zd` in Normal mode) hides directories**, listing only the files
   found down to the current depth; press it again to show them. Navigation
   keeps working, and the status line shows `files only` meanwhile. Rebind it

@@ -237,6 +237,28 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_preview_pane_follows_the_highlight(self):
+        (self.root / "a.txt").write_text("first\tline\nsecond line\n")
+        (self.root / "b").mkdir()
+        (self.root / "b" / "inside.md").touch()
+        (self.root / "c.bin").write_bytes(b"\x00\x01\x02")
+        s = self.start("--depth", "1", implicit_root=True, size=(40, 120))
+        s.wait_ui("Files · 3")
+        s.send(b"zp", "Preview")
+        # Folders come first: b's entries show once the highlight rests.
+        s.wait_ui("Preview · directory · 1 entry")
+        self.assertIn("inside.md", s.screen.text)
+        s.send(b"j", "Preview · text · 2 lines")
+        self.assertIn("first   line", s.screen.text)
+        s.send(b"j", "Preview · binary data")
+        # Alt+v hides it again, also while typing.
+        s.send(b"i", "INSERT")
+        s.send(b"\x1bv")
+        s.wait_absent("Preview")
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()
