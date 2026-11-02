@@ -1,8 +1,8 @@
 # Desktop integration
 
 fff can be the machine's file manager, not only a launcher from the shell:
-directories opened by other programs (`xdg-open`, a launcher, a browser's
-"Show in folder") open in fff, and Firefox and other applications that use the
+directories opened by other programs (`xdg-open`, a launcher) open in fff, a
+browser's "Show in folder" opens fff with the file highlighted, and Firefox and other applications that use the
 desktop portal pick files with it. `fff setup` installs each part:
 
 ```sh
@@ -63,7 +63,10 @@ time, keeping everything else.
    splits it at spaces and does not understand quotes.
 3. Refreshes the desktop database with `update-desktop-database` when it is
    installed.
-4. Makes it the default for directories with
+4. Writes `$XDG_DATA_HOME/dbus-1/services/org.freedesktop.FileManager1.service`,
+   so that the session bus starts fff to answer "Show in folder" (see
+   [below](#show-in-folder)), and asks the bus to reload its configuration.
+5. Makes it the default for directories with
    `xdg-mime default fff.desktop inode/directory`, checks that it took effect,
    and names the previous default and how to restore it. Without `xdg-mime`,
    it prints that command instead.
@@ -100,10 +103,37 @@ and `!` this way in such a window.
 Launchers written by `fff --setup desktop` before 0.8.1 lack `--window`; run
 setup again to add it.
 
-Firefox's "Show in folder" asks a file manager over D-Bus
-(`org.freedesktop.FileManager1`) and, when none answers, opens the containing
-directory, which then opens in fff. The downloaded file is not highlighted in
-that case, since only the directory is passed.
+## Show in folder
+
+Firefox's "Show in folder" (and other programs' "Open containing folder")
+asks a file manager over D-Bus, through `org.freedesktop.FileManager1`. The
+service file setup writes lets the session bus start
+`fff dbus-file-manager LAUNCHER` on the first such call; it runs the
+`open-folder` launcher on each item, so fff opens in a new window in the
+item's folder with the item highlighted. Folders asked for with
+`ShowFolders` open themselves; several items in one folder open one window,
+highlighting the first. The service exits after ten minutes without calls,
+and the bus starts it again when needed.
+
+When another file manager is already running and owns the name (Nautilus,
+Dolphin), it answers instead, and fff is not asked. A service file in your
+own `$XDG_DATA_HOME` takes precedence over those installed system-wide, so
+fff is started when no file manager is running. Remove the service file to
+stop answering; without it, programs fall back to opening the containing
+directory, which opens in fff without the highlight.
+
+The bus starts the service with its own environment, which must include
+`DISPLAY` (or `WAYLAND_DISPLAY`) for the terminal to open a window. Desktop
+environments arrange this; with a bare window manager started from
+`startx` and a systemd user bus, add
+`dbus-update-activation-environment --systemd DISPLAY XAUTHORITY` (or
+`WAYLAND_DISPLAY`) to its startup. Check it with:
+
+```sh
+gdbus call --session --dest org.freedesktop.FileManager1 \
+  --object-path /org/freedesktop/FileManager1 \
+  --method org.freedesktop.FileManager1.ShowItems "['file://$HOME/.bashrc']" ""
+```
 
 ## Picking files in Firefox
 

@@ -13,7 +13,6 @@ history.
   current directory) or in a pinned root appear and disappear without F5, and
   a folder's entry count follows. Up to 4096 folders are watched, shallowest
   first.
-
 - **Browsing stays responsive while huge trees load.** Moving the highlight
   during a scan of hundreds of thousands of paths (say `$HOME` with hidden
   files at depth 9) no longer stalls for a second at a time: keys are handled
@@ -33,6 +32,11 @@ history.
 
 ### Added
 
+- **"Show in folder" highlights the file.** `fff setup --desktop` also
+  installs a D-Bus service for `org.freedesktop.FileManager1`, so Firefox's
+  "Show in folder" (and other programs' "Open containing folder") opens fff in
+  the file's folder with the file highlighted, instead of only the folder.
+  Run `fff setup --desktop` again to add it.
 - **The mouse in the marked list and the choosers.** A click on a mark
   focuses the marked list there and a double click acts like `l` on it; in
   the bookmark, icon and palette choosers and the Alt+g suggestions, a click

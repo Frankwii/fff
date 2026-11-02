@@ -251,6 +251,23 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
         )),
         "{script}"
     );
+    // "Show in folder" starts fff over D-Bus, with the same launcher.
+    let service = std::fs::read_to_string(
+        root.join("data/dbus-1/services/org.freedesktop.FileManager1.service"),
+    )
+    .unwrap();
+    assert!(
+        service.contains("\nName=org.freedesktop.FileManager1\n"),
+        "{service}"
+    );
+    assert!(
+        service.contains(&format!(
+            "\nExec='{}' dbus-file-manager '{}'\n",
+            exe.display(),
+            launcher.display()
+        )),
+        "{service}"
+    );
     assert!(
         String::from_utf8(run().stderr)
             .unwrap()

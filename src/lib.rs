@@ -4,6 +4,7 @@ pub mod bookmarks;
 mod cache;
 pub mod completion;
 pub mod config;
+pub mod dbus;
 pub mod details;
 pub mod discovery;
 pub mod editor;

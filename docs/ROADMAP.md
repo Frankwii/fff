@@ -22,15 +22,8 @@ not implemented features or commitments:
   Cheap on local disks, but a slow network or FUSE mount stalls the frame;
   these should read from the details cache, refreshed in the background.
 - Mouse-only use beyond the opt-in buttons (below).
-- A desktop follow-up to `--setup` (see [desktop integration](DESKTOP.md)):
-  answering `org.freedesktop.FileManager1` over D-Bus, so "Show in folder"
-  highlights the file instead of only opening its folder.
 - Preview pane follow-ups: scrolling it without moving the highlight, and
   previewing the marked list's rows from the results.
-- Follow-ups to 0.7.0: live updates for deeper results and pinned roots
-  (only the current directory is watched today); the mouse in the marked
-  list and choosers; dragging past the pane's edge scrolling the
-  results while it marks.
 - Trash with undo, and an AUR package once the project nears 1.0.
 - An optional query field (experimental, undecided): hide the query until `/`
   is pressed (moving the go-to prompt elsewhere), freeing a row and making

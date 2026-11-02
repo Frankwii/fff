@@ -104,6 +104,24 @@ fn desktop(dirs: &Dirs, fff: &str, terminal: &[String], out: &mut dyn Write) -> 
     let entry = applications.join(DESKTOP_ID);
     let written = generate(&entry, &desktop_entry(launcher), 0o644)?;
     report(out, &entry, written)?;
+    // "Show in folder" asks a file manager over D-Bus; the bus starts fff to
+    // answer, which highlights the file.
+    let service = dirs
+        .data_home
+        .join("dbus-1/services")
+        .join(format!("{}.service", crate::dbus::NAME));
+    let written = generate(&service, &dbus_service(fff, launcher), 0o644)?;
+    report(out, &service, written)?;
+    // A bus started before the directory existed reads it on reloading.
+    let _ = Command::new("dbus-send")
+        .args([
+            "--session",
+            "--type=method_call",
+            "--dest=org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus.ReloadConfig",
+        ])
+        .output();
     // Refreshes mimeinfo.cache; launchers read the entry without it too.
     let _ = Command::new("update-desktop-database")
         .arg(&applications)
@@ -169,6 +187,20 @@ pub fn launcher_script(fff: &str, terminal: &[String]) -> String {
     )
 }
 
+/// The D-Bus service file for `org.freedesktop.FileManager1`: the session bus
+/// runs its Exec line (split like a shell would) on the first call.
+pub fn dbus_service(fff: &str, launcher: &str) -> String {
+    format!(
+        "# {MARKER} --desktop; running it again regenerates this file.\n\
+         # Answers \"Show in folder\" with fff, highlighting the file.\n\
+         [D-BUS Service]\n\
+         Name={}\n\
+         Exec={} dbus-file-manager {}\n",
+        crate::dbus::NAME,
+        shell_quote(fff),
+        shell_quote(launcher)
+    )
+}
 /// The desktop entry, running the launcher script.
 pub fn desktop_entry(launcher: &str) -> String {
     format!(

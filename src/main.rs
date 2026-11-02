@@ -320,6 +320,19 @@ enum Command {
     ///
     /// Does one of these and exits.
     Setup(SetupArgs),
+    /// Answer org.freedesktop.FileManager1 ("Show in folder"), run by D-Bus
+    ///
+    /// The session bus starts it from the service file fff setup --desktop
+    /// writes; each folder or file it is asked to show opens with LAUNCHER.
+    /// It exits after ten minutes without calls.
+    #[command(name = "dbus-file-manager", hide = true)]
+    DbusFileManager(DbusArgs),
+}
+#[derive(clap::Args)]
+struct DbusArgs {
+    /// The open-folder launcher fff setup --desktop wrote
+    #[arg(value_hint = clap::ValueHint::FilePath)]
+    launcher: PathBuf,
 }
 #[derive(clap::Args)]
 struct PickArgs {
@@ -370,7 +383,8 @@ struct SetupArgs {
     /// Open folders from other programs in fff
     ///
     /// Writes an fff.desktop entry, run in [open] fff_terminal, and makes it
-    /// the default for directories (xdg-open, "Show in folder"). Files fff
+    /// the default for directories (xdg-open), and a D-Bus service that
+    /// answers "Show in folder" with the file highlighted. Files fff
     /// generated before are replaced; other files are never overwritten.
     #[arg(long)]
     desktop: bool,
@@ -482,6 +496,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             ..Mode::default()
         },
         Some(Command::Setup(setup)) => return run_setup(setup, args),
+        Some(Command::DbusFileManager(dbus)) => {
+            fuzzy_file_finder::dbus::serve(None, &dbus.launcher, fuzzy_file_finder::dbus::IDLE)?;
+            return Ok(true);
+        }
     };
     if mode.resume && !mode.roots.is_empty() {
         conflict("--resume continues the last session's own roots; give no ROOTS");
