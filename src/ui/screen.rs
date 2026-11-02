@@ -1,27 +1,50 @@
 use super::*;
 
-/// The terminal, and whether fff captures the mouse (`[ui] mouse`).
+/// The terminal, whether fff captures the mouse (`[ui] mouse`), and what the
+/// terminal supports.
 pub(super) struct Terminal(
-    pub(super) TuiTerminal<CrosstermBackend<std::fs::File>>,
+    pub(super) TuiTerminal<CrosstermBackend<Tty>>,
     bool,
+    pub(super) Support,
 );
 impl Terminal {
     pub(super) fn enter(mouse: bool) -> io::Result<Self> {
-        let file = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
-        let tui = TuiTerminal::new(CrosstermBackend::new(file))?;
+        let mut file = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
         terminal::enable_raw_mode()?;
-        let mut guard = Self(tui, mouse);
+        let support = Support::probe(&mut file);
+        let tui = TuiTerminal::new(CrosstermBackend::new(Tty::new(file)))?;
+        let mut guard = Self(tui, mouse, support);
+        guard.keyboard(true)?;
         execute!(
             guard.0.backend_mut(),
             EnterAlternateScreen,
             Hide,
             EnableBracketedPaste,
-            PushKeyboardEnhancementFlags(
-                Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
-            )
         )?;
         guard.capture_mouse(true)?;
         Ok(guard)
+    }
+    /// Kitty keyboard flags, where supported: Escape and modified keys arrive
+    /// unambiguously.
+    fn keyboard(&mut self, on: bool) -> io::Result<()> {
+        match (self.2.keyboard, on) {
+            (true, true) => execute!(
+                self.0.backend_mut(),
+                PushKeyboardEnhancementFlags(
+                    Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                )
+            ),
+            (true, false) => execute!(self.0.backend_mut(), PopKeyboardEnhancementFlags),
+            _ => Ok(()),
+        }
+    }
+    /// Brackets a frame so the terminal shows it at once, where supported.
+    pub(super) fn synchronize(&mut self, begin: bool) -> io::Result<()> {
+        match (self.2.synchronized, begin) {
+            (true, true) => execute!(self.0.backend_mut(), BeginSynchronizedUpdate),
+            (true, false) => execute!(self.0.backend_mut(), EndSynchronizedUpdate),
+            _ => Ok(()),
+        }
     }
     fn capture_mouse(&mut self, on: bool) -> io::Result<()> {
         match (self.1, on) {
@@ -35,10 +58,10 @@ impl Terminal {
     /// Hands the terminal to another program: fff's screen and modes are undone.
     pub(super) fn suspend(&mut self) {
         let _ = self.capture_mouse(false);
+        let _ = self.synchronize(false);
+        let _ = self.keyboard(false);
         let _ = execute!(
             self.0.backend_mut(),
-            EndSynchronizedUpdate,
-            PopKeyboardEnhancementFlags,
             Show,
             DisableBracketedPaste,
             SetCursorStyle::DefaultUserShape,
@@ -54,11 +77,9 @@ impl Terminal {
             EnterAlternateScreen,
             Hide,
             EnableBracketedPaste,
-            PushKeyboardEnhancementFlags(
-                Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
-            ),
             terminal::Clear(terminal::ClearType::All)
         )?;
+        self.keyboard(true)?;
         self.capture_mouse(true)?;
         // Forget both frames so the next draw sends every cell. ratatui's own
         // clear() would query the cursor position, which needs a reply.
@@ -70,16 +91,142 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         let _ = self.capture_mouse(false);
+        let _ = self.synchronize(false);
+        let _ = self.keyboard(false);
         let _ = execute!(
             self.0.backend_mut(),
-            EndSynchronizedUpdate,
-            PopKeyboardEnhancementFlags,
             Show,
             DisableBracketedPaste,
             SetCursorStyle::DefaultUserShape,
             LeaveAlternateScreen
         );
         let _ = terminal::disable_raw_mode();
+    }
+}
+
+/// What the terminal supports beyond the basics, asked once at startup.
+/// Terminals may log sequences they do not know (st does, on every frame), so
+/// fff sends only those confirmed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Support {
+    /// The kitty keyboard protocol.
+    pub(super) keyboard: bool,
+    /// Synchronized output (mode 2026).
+    pub(super) synchronized: bool,
+}
+impl Support {
+    /// Assumed when the terminal answers nothing at all.
+    const ASSUMED: Self = Self {
+        keyboard: true,
+        synchronized: true,
+    };
+    /// Asks for the keyboard flags (`CSI ? u`) and mode 2026 (DECRQM), then
+    /// for the primary device attributes, which every terminal answers: the
+    /// replies before that one say what is supported. Raw mode must be on.
+    /// Keys typed during the round trip are lost.
+    fn probe(tty: &mut std::fs::File) -> Self {
+        use std::io::{Read, Write};
+        use std::os::fd::AsRawFd;
+        if tty
+            .write_all(b"\x1b[?u\x1b[?2026$p\x1b[c")
+            .and_then(|()| tty.flush())
+            .is_err()
+        {
+            return Self::ASSUMED;
+        }
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        let mut replies = Vec::new();
+        loop {
+            if let Some(support) = Self::parse(&replies) {
+                return support;
+            }
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let mut fd = libc::pollfd {
+                fd: tty.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: one valid pollfd for the duration of the call.
+            if left.is_zero() || unsafe { libc::poll(&mut fd, 1, left.as_millis() as i32) } <= 0 {
+                return Self::ASSUMED;
+            }
+            let mut chunk = [0; 256];
+            match tty.read(&mut chunk) {
+                Ok(0) | Err(_) => return Self::ASSUMED,
+                Ok(n) => replies.extend_from_slice(&chunk[..n]),
+            }
+        }
+    }
+    /// The support the replies show, once the device attributes have arrived.
+    pub(super) fn parse(replies: &[u8]) -> Option<Self> {
+        let mut support = Self {
+            keyboard: false,
+            synchronized: false,
+        };
+        let mut rest = replies;
+        while let Some(at) = rest.windows(3).position(|w| w == b"\x1b[?") {
+            rest = &rest[at + 3..];
+            let end = rest
+                .iter()
+                .position(|b| !(b.is_ascii_digit() || matches!(b, b';' | b'$')))?;
+            let params = &rest[..end];
+            match rest[end] {
+                b'c' => return Some(support),
+                b'u' => support.keyboard = true,
+                // Mode 2026 set (1), reset (2) or permanently set (3).
+                b'y' => {
+                    if let Some(state) = params.strip_prefix(b"2026;") {
+                        support.synchronized |= matches!(state, b"1$" | b"2$" | b"3$");
+                    }
+                }
+                _ => {}
+            }
+            rest = &rest[end + 1..];
+        }
+        None
+    }
+}
+
+/// The terminal device, written a frame at a time. Drops the underline color
+/// resets ratatui sends after every frame: fff never sets an underline color,
+/// and terminals without them log each reset (st).
+pub(super) struct Tty {
+    file: std::fs::File,
+    pending: Vec<u8>,
+}
+impl Tty {
+    pub(super) fn new(file: std::fs::File) -> Self {
+        Self {
+            file,
+            pending: Vec::new(),
+        }
+    }
+}
+const UNDERLINE_RESET: &[u8] = b"\x1b[59m";
+impl io::Write for Tty {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.pending.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        let mut out = Vec::with_capacity(self.pending.len());
+        let mut rest = &self.pending[..];
+        while let Some(at) = rest
+            .windows(UNDERLINE_RESET.len())
+            .position(|w| w == UNDERLINE_RESET)
+        {
+            out.extend_from_slice(&rest[..at]);
+            rest = &rest[at + UNDERLINE_RESET.len()..];
+        }
+        out.extend_from_slice(rest);
+        self.pending.clear();
+        self.file.write_all(&out)?;
+        self.file.flush()
+    }
+}
+impl Drop for Tty {
+    fn drop(&mut self) {
+        let _ = io::Write::flush(self);
     }
 }
 

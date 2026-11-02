@@ -331,3 +331,42 @@ fn drops_are_existing_absolute_paths_in_shell_or_uri_form() {
     assert_eq!(dropped_paths(&format!("{r}/c (draft)"), None), None);
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn terminal_support_comes_from_replies_before_the_device_attributes() {
+    let parse = |replies: &[u8]| Support::parse(replies);
+    let support = |keyboard, synchronized| {
+        Some(Support {
+            keyboard,
+            synchronized,
+        })
+    };
+    // st: only the device attributes.
+    assert_eq!(parse(b"\x1b[?6c"), support(false, false));
+    assert_eq!(
+        parse(b"\x1b[?0u\x1b[?2026;2$y\x1b[?62;22c"),
+        support(true, true)
+    );
+    // Mode 2026 not recognized (0) or permanently reset (4).
+    assert_eq!(parse(b"\x1b[?2026;0$y\x1b[?62c"), support(false, false));
+    assert_eq!(parse(b"\x1b[?2026;4$y\x1b[?62c"), support(false, false));
+    // Incomplete: keep reading.
+    assert_eq!(parse(b"\x1b[?1u\x1b[?62"), None);
+    assert_eq!(parse(b""), None);
+}
+
+#[test]
+fn the_tty_writes_whole_frames_without_underline_resets() {
+    use std::io::Write;
+    let path = std::env::temp_dir().join(format!("fff-tty-{}", std::process::id()));
+    let file = std::fs::File::create(&path).unwrap();
+    let mut tty = Tty::new(file);
+    // crossterm writes the reset in pieces.
+    for piece in [&b"a\x1b[39m\x1b["[..], b"59", b"m\x1b[0mb"] {
+        tty.write_all(piece).unwrap();
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), b"");
+    tty.flush().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"a\x1b[39m\x1b[0mb");
+    std::fs::remove_file(path).unwrap();
+}

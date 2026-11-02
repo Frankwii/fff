@@ -299,12 +299,12 @@ fn session(
         }
         if dirty || drawn_at.elapsed() >= Duration::from_secs(1) {
             let mut completed = None;
-            execute!(terminal.0.backend_mut(), BeginSynchronizedUpdate)?;
+            terminal.synchronize(true)?;
             let drawn = terminal
                 .0
                 .draw(|frame| completed = Some(crate::view::render(frame, app, &mut focus)))
                 .map(|_| ());
-            let ended = execute!(terminal.0.backend_mut(), EndSynchronizedUpdate);
+            let ended = terminal.synchronize(false);
             drawn?;
             ended?;
             let completed = completed.expect("terminal draw callback completes");

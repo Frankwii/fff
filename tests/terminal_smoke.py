@@ -89,8 +89,7 @@ class Session:
                     if e.errno == errno.EIO:
                         break
                     raise
-                self.ui += chunk
-                self.screen.feed(chunk)
+                self.take(chunk)
                 if matches() and (after is None or self.screen.frames > after):
                     return
         raise AssertionError(f"UI did not show {token!r}:\n{self.screen.text}")
@@ -100,8 +99,7 @@ class Session:
         while token in self.screen.text and time.monotonic() < deadline:
             if select.select([self.master], [], [], 0.05)[0]:
                 chunk = os.read(self.master, 65536)
-                self.ui += chunk
-                self.screen.feed(chunk)
+                self.take(chunk)
         if token in self.screen.text:
             raise AssertionError(f"UI still shows {token!r}:\n{self.screen.text}")
 
@@ -115,8 +113,7 @@ class Session:
         while not committed() and time.monotonic() < deadline:
             if select.select([self.master], [], [], 0.02)[0]:
                 chunk = os.read(self.master, 65536)
-                self.ui += chunk
-                self.screen.feed(chunk)
+                self.take(chunk)
         if not committed():
             raise AssertionError(f"UI did not emit {token!r} in a completed frame")
 
@@ -126,10 +123,18 @@ class Session:
         while token not in self.ui and time.monotonic() < deadline:
             if select.select([self.master], [], [], 0.05)[0]:
                 chunk = os.read(self.master, 65536)
-                self.ui += chunk
-                self.screen.feed(chunk)
+                self.take(chunk)
         if token not in self.ui:
             raise AssertionError(f"terminal did not show {token!r}")
+
+    def take(self, chunk):
+        self.ui += chunk
+        self.screen.feed(chunk)
+        # fff asks what the terminal supports, ending with a device attributes
+        # request: answer as one with the kitty keyboard protocol and
+        # synchronized output, which the frame tracking relies on.
+        if b"\x1b[c" in chunk:
+            os.write(self.master, b"\x1b[?0u\x1b[?2026;2$y\x1b[?62;22c")
 
     def send(self, data, wait=None):
         after = self.screen.frames
@@ -148,8 +153,7 @@ class Session:
             if select.select([self.master], [], [], 0.02)[0]:
                 try:
                     chunk = os.read(self.master, 65536)
-                    self.ui += chunk
-                    self.screen.feed(chunk)
+                    self.take(chunk)
                 except OSError:
                     pass
         if self.status is None:
@@ -1792,8 +1796,7 @@ class TerminalTests(unittest.TestCase):
         while name not in self.highlighted(s) and time.monotonic() < deadline:
             if select.select([s.master], [], [], 0.05)[0]:
                 chunk = os.read(s.master, 65536)
-                s.ui += chunk
-                s.screen.feed(chunk)
+                s.take(chunk)
         self.assertIn(name, self.highlighted(s), s.screen.text)
 
     def test_normal_enter_prints_the_folder_of_a_file_deep_result_or_directory(self):
