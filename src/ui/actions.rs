@@ -88,6 +88,37 @@ pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, Str
         None => Finish::Folder(folder),
     })
 }
+/// Normal-mode Enter on `target` (or on nothing): a directory is left into;
+/// a file opens and fff leaves (default mode), is printed (`--output-paths`)
+/// or is left into its folder (`--no-dir`); nothing leaves into the browsing
+/// directory. Marks are ignored. `None` (with the reason in the status line)
+/// when the file cannot open.
+pub(super) fn finish_with(app: &mut App, target: Option<&crate::Candidate>) -> Option<Finish> {
+    match target {
+        Some(file) if !file.directory && app.ready_path(&file.path) => {
+            if app.output_paths {
+                return Some(Finish::Paths(vec![file.path.clone()]));
+            }
+            if !app.no_dir {
+                return match open_and_leave(app, std::slice::from_ref(&file.path)) {
+                    Ok(finish) => Some(finish),
+                    Err(error) => {
+                        app.status = error;
+                        None
+                    }
+                };
+            }
+            Some(Finish::Folder(
+                file.path.parent().unwrap_or(&app.cwd).to_owned(),
+            ))
+        }
+        Some(file) if !file.directory => Some(Finish::Folder(
+            file.path.parent().unwrap_or(&app.cwd).to_owned(),
+        )),
+        Some(dir) => Some(Finish::Folder(dir.path.clone())),
+        None => Some(Finish::Folder(app.cwd.clone())),
+    }
+}
 /// Ctrl+w: the marks are returned, except in the default mode, where they open
 /// and fff leaves. `None` (with the reason in the status line) when they
 /// cannot open.
@@ -704,7 +735,7 @@ pub(crate) enum Button {
     Hidden,
     /// Ctrl+c.
     Cancel,
-    /// Ctrl+w with marks, else Ctrl+number on the highlighted row.
+    /// Ctrl+w with marks, else Normal-mode Enter on the highlighted row.
     Select,
     /// Esc in a confirmation.
     Dismiss,
@@ -802,10 +833,14 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
                 let marks = app.confirm(None)?;
                 return leave_with_marks(app, marks);
             }
-            let target = app.highlight.clone()?;
-            if app.ready_path(&target) {
-                return Some(Finish::Paths(vec![target]));
+            // In a dialog, the answer is taken from the row's path.
+            if app.dialog.is_some() {
+                let target = app.highlight.clone()?;
+                return app.ready_path(&target).then(|| Finish::Paths(vec![target]));
             }
+            // Otherwise like Normal-mode Enter, which always leaves.
+            let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
+            return finish_with(app, target.as_ref());
         }
     }
     None

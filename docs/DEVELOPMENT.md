@@ -58,8 +58,8 @@ listed separately in the [roadmap](ROADMAP.md).
 - Sort by depth, directories before files, fuzzy score, root order, then original
   absolute pathname bytes. Query edits do not restart discovery.
 - Marks are unique, ordered and independent of navigation, policies and filters.
-  Ctrl+number returns one target; Alt+number follows Enter and includes marks for
-  file confirmation. Both address the last fully rendered visible labels.
+  Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
+  the last fully rendered visible labels.
 - Escape preserves the session. In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
 - Generation checks and cancellation prevent obsolete work from changing the view.

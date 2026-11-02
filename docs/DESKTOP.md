@@ -238,7 +238,8 @@ differs:
 | `q` (Normal mode) | Cancels (a normal session returns the launch directory). |
 | Ctrl+c | Cancels. |
 | Ctrl+w | Chooses the marks. |
-| Ctrl+number, Alt+number | Choose that row, as in a normal session. |
+| Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving. |
+| Alt+number | `l` on that row, as in a normal session. |
 | `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |
 
 File operations (move, copy, delete, rename, new file or folder, extract)
@@ -295,10 +296,10 @@ The paths a key returned become the answer as follows:
   file Enter was pressed on, or the last mark.
 - **Folder:** files are dropped. Without `--multiple`, only the last folder is
   kept.
-- **Save:** the path [saving](#saving) settled on. Keys that return paths
-  directly (Ctrl+w, Ctrl+number) count with their last path: a folder means
-  saving into it under the suggested name, numbered when taken, without
-  asking; a file means replacing it.
+- **Save:** the path [saving](#saving) settled on. Ctrl+w, which returns the
+  marks directly, counts with its last path: a folder means saving into it
+  under the suggested name, numbered when taken, without asking; a file means
+  replacing it.
 
 Paths containing a newline are left out of open and folder answers, since the
 answer has one path per line.

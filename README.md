@@ -35,8 +35,7 @@ fff has two modes:
   takes you to the directory you were browsing, Normal-mode Enter on a directory
   takes you into it, and on a file opens it and leaves you in its folder;
   Ctrl+w does the same with the marked files, leaving you in the last one's
-  folder (Ctrl+number: its target's folder, or the target itself for a
-  directory).
+  folder. Ctrl+number is Enter on that row.
 - **`--output-paths`: print the selection.** The picker behavior for scripts and
   command substitution, described under [returning paths](#browsing-and-returning-paths):
   `nvim "$(fff --output-paths)"`, `fff --output-paths -0 | xargs -0 ls -ld`.
@@ -88,10 +87,10 @@ Enter depends on the editing mode:
   a terminal opener (an editor, a pager) takes over this terminal in fff's place,
   like `gX`, and any other opener starts detached, like `l`; the shell then
   changes to the file's folder (also for deep results: `notes/more/a.pdf` leaves
-  you in `notes/more`). With `--output-paths` or `--no-dir`, Enter on a file
-  exits into its folder instead, printing it. With nothing listed, Enter exits
-  into the browsing directory. Marks are ignored. In the marked list Enter does
-  the same for the highlighted mark.
+  you in `notes/more`). With `--output-paths`, Enter on a file prints the file;
+  with `--no-dir` (and no `--output-paths`) it exits into its folder. With
+  nothing listed, Enter exits into the browsing directory. Marks are ignored.
+  In the marked list Enter does the same for the highlighted mark.
 - **While typing (Insert mode):** Enter opens a directory. On a file, with
   `--output-paths` it returns the marked paths in insertion order plus that file
   once; in the default mode it *reveals* the file: fff moves to its folder,
@@ -140,12 +139,16 @@ it again with an empty query; a tab whose directory vanished falls back to the
 nearest existing parent. F1's session details list every tab's directory; tabs
 are unavailable with `--no-dir`.
 
-Ctrl+number immediately returns one visible target, ignoring marks. Alt+number
-acts like `l` on the same target: it enters a directory or opens a file in the
-background. Labels refer to the last fully rendered page: 1–9 select that
-position, out-of-range digits clamp to the last row, and 0 selects the last row.
-With no visible results, Ctrl+number returns the current directory and
-Alt+number does nothing.
+Ctrl+number is Enter on a visible row, exactly as if that row were highlighted
+and Enter pressed, in the current editing mode: in Normal mode it finishes with
+the row (opens a file and leaves, prints it with `--output-paths`, leaves into
+a directory); while typing it enters a directory, and on a file returns the
+marks plus that file (`--output-paths`) or reveals it. Alt+number acts like `l`
+on the same row: it enters a directory or opens a file in the background.
+Labels refer to the last fully rendered page: 1–9 select that position,
+out-of-range digits clamp to the last row, and 0 selects the last row. With no
+visible rows, Ctrl+number is Enter with nothing highlighted (in Normal mode,
+the current directory; with `--no-dir`, nothing) and Alt+number does nothing.
 
 `--no-dir` provides static file selection: it hides directories, disables location
 changes, and never returns the current directory as an empty-results fallback.
@@ -194,7 +197,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Enter in Normal | Exit into a highlighted directory; open a highlighted file and leave (default mode) or exit into its folder (`--output-paths`, `--no-dir`) |
+| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (default mode), print it (`--output-paths`) or exit into its folder (`--no-dir`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`--output-paths`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |
@@ -216,7 +219,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Finish with the marks, from results or the marked list: open the marked files and leave (default mode) or return them (`--output-paths`) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
-| Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
+| Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |

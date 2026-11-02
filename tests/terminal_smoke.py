@@ -296,10 +296,14 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\0"))
 
-    def test_no_matches_numbered_falls_back_to_current_directory(self):
+    def test_no_matches_numbered_acts_like_enter(self):
         (self.root / "file").touch()
         s = self.start("--null")
         s.send(b"izzzz", b"No matching results")
+        # While typing, Enter with no matches stays open; so does Ctrl+9.
+        s.send(b"\x1b[57;5u")
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        # In Normal mode, Enter with nothing listed takes the current directory.
         s.send(b"\x1b[57;5u")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\0"))
 
@@ -1880,24 +1884,26 @@ class TerminalTests(unittest.TestCase):
                 s.take(chunk)
         self.assertIn(name, self.highlighted(s), s.screen.text)
 
-    def test_normal_enter_prints_the_folder_of_a_file_deep_result_or_directory(self):
+    def test_normal_enter_prints_a_file_or_directory_and_ctrl_digit_matches_it(self):
         more = self.deep_tree()
         for query, args, expected in [
-            (b"top.txt", (), os.fsencode(self.root) + b"\n"),
-            (b"a.pdf", (), os.fsencode(more) + b"\n"),
-            (b"a.pdf", ("--relative", "--null"), b"sub/more\0"),
+            (b"top.txt", (), os.fsencode(self.root / "top.txt") + b"\n"),
+            (b"a.pdf", (), os.fsencode(more / "a.pdf") + b"\n"),
+            (b"a.pdf", ("--relative", "--null"), b"sub/more/a.pdf\0"),
             (b"folder", (), os.fsencode(self.root / "folder") + b"\n"),
             (b"zzzz", (), os.fsencode(self.root) + b"\n"),  # nothing listed
         ]:
-            with self.subTest(query=query, args=args):
-                s = self.start("--depth", "3", *args, implicit_root=True)
-                s.send(b"\t", "Marks (1)")  # marks are ignored
-                s.send(b"i" + query, "❯ " + query.decode())
-                s.send(b"\x1b[27u", "Query · NORMAL")
-                s.send(b"\r")
-                self.assertEqual(s.finish(), (0, expected))
-                s.close()
-                self.session = None
+            # Ctrl+1 is Enter on the first row.
+            for key in [b"\r", b"\x1b[49;5u"]:
+                with self.subTest(query=query, args=args, key=key):
+                    s = self.start("--depth", "3", *args, implicit_root=True)
+                    s.send(b"\t", "Marks (1)")  # marks are ignored
+                    s.send(b"i" + query, "❯ " + query.decode())
+                    s.send(b"\x1b[27u", "Query · NORMAL")
+                    s.send(key)
+                    self.assertEqual(s.finish(), (0, expected))
+                    s.close()
+                    self.session = None
 
     def test_normal_enter_in_default_mode_opens_a_file_and_leaves(self):
         more = self.deep_tree()
@@ -1989,9 +1995,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_marked_list_enter_exits_into_the_highlighted_marks_folder(self):
+    def test_marked_list_enter_prints_the_highlighted_mark(self):
         more = self.deep_tree()
-        for steps, expected in [(b"", more), (b"\x1b[B", self.root / "folder")]:
+        for steps, expected in [(b"", more / "a.pdf"), (b"\x1b[B", self.root / "folder")]:
             with self.subTest(steps=steps):
                 s = self.start("--depth", "3", implicit_root=True)
                 s.send(b"ia.pdf", "❯ a.pdf")
@@ -2226,9 +2232,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0dw", "❯ world")
-        # Normal-mode Enter exits into the highlighted file's folder.
+        # Normal-mode Enter prints the highlighted file.
         s.send(b"\r")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
 
     def test_remapped_numbered_choice(self):
         (self.root / "file").touch()

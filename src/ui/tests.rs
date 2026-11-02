@@ -250,11 +250,11 @@ fn buttons_do_what_their_keys_do() {
         press(&mut app, &mut discovery, Button::Select),
         Some(Finish::Paths(p)) if p == [root.join("file")]
     ));
-    // Without, the highlighted entry, like Ctrl+number.
+    // Without, Normal-mode Enter on the highlighted entry: into a directory.
     app.marks.clear();
     assert!(matches!(
         press(&mut app, &mut discovery, Button::Select),
-        Some(Finish::Paths(p)) if p == [root.join("dir")]
+        Some(Finish::Folder(p)) if p == root.join("dir")
     ));
     assert!(matches!(
         press(&mut app, &mut discovery, Button::Cancel),

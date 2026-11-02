@@ -104,11 +104,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+Space".into(), "focus the marked list", false),
                 ("Ctrl+w".into(), "open / return the marked paths", false),
                 ("Alt+1…9 Alt+0".into(), "like Alt+l on row n", false),
-                (
-                    "Ctrl+1…9 Ctrl+0".into(),
-                    "return row n now, ignoring marks",
-                    false,
-                ),
+                ("Ctrl+1…9 Ctrl+0".into(), "like Enter on row n", false),
                 (String::new(), "0 is the last visible row", false),
                 ("Ctrl+c".into(), "quit without returning anything", false),
             ],

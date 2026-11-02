@@ -166,9 +166,10 @@ struct Args {
     /// Print the selected paths to stdout instead of changing directory
     ///
     /// The picker behavior for scripts and command substitution: Enter on a
-    /// file prints the marks and that file, Ctrl+w the marks, q the launch
-    /// directory and ! the browsing directory. Without it, fff chooses a
-    /// directory to change into (see --init).
+    /// file prints it (while typing, the marks and it), Ctrl+number does the
+    /// same for its row, Ctrl+w prints the marks, q the launch directory and !
+    /// the browsing directory. Without it, fff chooses a directory to change
+    /// into (see --init).
     #[arg(long, help_heading = "Output")]
     output_paths: bool,
     /// Print paths relative to the invocation directory instead of absolute

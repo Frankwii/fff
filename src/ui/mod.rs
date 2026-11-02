@@ -828,21 +828,29 @@ fn session(
             }
             continue;
         }
-        let ctrl = key.modifiers.contains(M::CONTROL);
-        let alt = key.modifiers.contains(M::ALT);
-        if matches!(focus, Focus::Results)
+        // Ctrl+number: Enter on that row, as if it were highlighted first
+        // (with no visible rows, Enter with nothing highlighted).
+        let mut unnumbered = false;
+        let key = if matches!(focus, Focus::Results)
             && let Some(digit) = numbered_key(key)
         {
-            // Static (--no-dir) sessions never fall back to the current directory.
-            if app.no_dir && app.rendered.is_empty() {
+            if !app.rendered.is_empty() {
+                app.highlight = Some(app.numbered(digit));
+                app.highlight_top = false;
+                app.wanted = None;
+            } else if app.no_dir {
+                // Static (--no-dir) sessions never fall back to the current
+                // directory.
                 continue;
+            } else {
+                unnumbered = true;
             }
-            let target = app.numbered(digit);
-            if app.ready_path(&target) {
-                return Ok(Finish::Paths(vec![target]));
-            }
-            continue;
-        }
+            KeyEvent::new(K::Enter, M::NONE)
+        } else {
+            key
+        };
+        let ctrl = key.modifiers.contains(M::CONTROL);
+        let alt = key.modifiers.contains(M::ALT);
         if matches!(focus, Focus::Results)
             && let Some(digit) = alt_numbered_key(key)
         {
@@ -1467,7 +1475,10 @@ fn session(
                         return Ok(Finish::Paths(vec![mark.clone()]));
                     }
                     // Like Normal-mode Enter in the results: a file opens and
-                    // fff leaves, a directory is left into.
+                    // fff leaves (or is printed), a directory is left into.
+                    if app.output_paths && !mark.is_dir() {
+                        return Ok(Finish::Paths(vec![mark.clone()]));
+                    }
                     if !app.output_paths && !app.no_dir && !mark.is_dir() {
                         match open_and_leave(app, std::slice::from_ref(mark)) {
                             Ok(finish) => return Ok(finish),
@@ -1626,7 +1637,10 @@ fn session(
                     }
                 }
                 (K::Enter, _, _) => {
-                    let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
+                    let target = app
+                        .highlighted_row()
+                        .filter(|_| !unnumbered)
+                        .map(|c| crate::Candidate::clone(c));
                     let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
                     // Typing a name to save under: Enter saves it, as in any
                     // name field.
@@ -1642,26 +1656,10 @@ fn session(
                     // results. A dialog chooses files and enters folders
                     // instead.
                     if app.dialog.is_none() && normal {
-                        if let Some(file) = &target
-                            && !file.directory
-                            && !app.output_paths
-                            && !app.no_dir
-                            && app.ready_path(&file.path)
-                        {
-                            match open_and_leave(app, std::slice::from_ref(&file.path)) {
-                                Ok(finish) => return Ok(finish),
-                                Err(error) => {
-                                    app.status = error;
-                                    continue;
-                                }
-                            }
+                        if let Some(finish) = finish_with(app, target.as_ref()) {
+                            return Ok(finish);
                         }
-                        let folder = match &target {
-                            Some(c) if c.directory => c.path.clone(),
-                            Some(c) => c.path.parent().unwrap_or(&app.cwd).to_owned(),
-                            None => app.cwd.clone(),
-                        };
-                        return Ok(Finish::Folder(folder));
+                        continue;
                     }
                     match target {
                         // Typing: a file is revealed in its folder, unless
