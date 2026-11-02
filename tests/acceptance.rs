@@ -519,7 +519,7 @@ fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
     assert!(!app.navigate_highlighted());
     assert_eq!(app.cwd, Path::new("/fixture"));
     // An empty directory never returns itself.
-    app.rows.clear();
+    app.rows = Default::default();
     app.scanning = false;
     app.physical_empty = true;
     assert_eq!(app.enter(None), fuzzy_file_finder::EnterOutcome::Stay);
@@ -924,4 +924,71 @@ fn partial_merges_list_the_shallowest_paths_first() {
         deepest = shown;
     }
     assert_eq!(app.rows.len(), 4500);
+}
+#[test]
+fn large_rankings_run_in_the_background_and_match_ranking_in_place() {
+    let names: Vec<_> = (0..40_000u64)
+        .map(|i| {
+            let n = i.wrapping_mul(2_654_435_761) % 40_000;
+            let depth = 1 + (n % 3) as usize;
+            let path = match depth {
+                1 => format!("n{n:05}"),
+                2 => format!("a{}/x{:03}", n / 1000, n % 1000),
+                _ => format!("a{}/b/x{:03}", n / 1000, n % 1000),
+            };
+            (path, n % 7 == 0, depth)
+        })
+        .collect();
+    let filled = |short_labels| {
+        let mut app = app();
+        app.short_labels = short_labels;
+        for (name, dir, depth) in &names {
+            app.insert(0, candidate(name, *dir, *depth));
+        }
+        app
+    };
+    let rows = |app: &App| app.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+    for short_labels in [false, true] {
+        let (wake, woken) = std::sync::mpsc::sync_channel(1);
+        let mut background = filled(short_labels);
+        background.set_waker(wake);
+        let mut here = filled(short_labels);
+        for query in ["", "x1", "x12", "n", "x1"] {
+            background.query = query.into();
+            background.refresh();
+            here.query = query.into();
+            here.refresh();
+            if background.ranking_pending() {
+                woken.recv_timeout(Duration::from_secs(10)).unwrap();
+                assert!(background.poll_ranking());
+            }
+            assert_eq!(rows(&background), rows(&here), "query {query:?}");
+            assert_eq!(background.labels, here.labels, "query {query:?}");
+        }
+        // A newer query supersedes a running ranking; waiting gives its rows.
+        background.query.clear();
+        background.refresh();
+        background.query = "n1".into();
+        background.refresh();
+        background.finish_ranking();
+        here.query = "n1".into();
+        here.refresh();
+        assert_eq!(rows(&background), rows(&here));
+        // Paths found meanwhile join the rows once the ranking is installed.
+        background.query.clear();
+        background.files_only = true;
+        background.refresh();
+        assert!(background.ranking_pending());
+        background.insert(0, candidate("late", false, 1));
+        background.refresh();
+        assert!(!background.settled());
+        background.finish_ranking();
+        background.refresh();
+        here.query.clear();
+        here.files_only = true;
+        here.insert(0, candidate("late", false, 1));
+        here.refresh();
+        assert_eq!(rows(&background), rows(&here));
+        assert!(background.settled());
+    }
 }

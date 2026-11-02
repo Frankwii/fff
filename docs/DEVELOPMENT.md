@@ -12,6 +12,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/lib.rs` | Session state, navigation, tabs, policies, matching, ordering, marks and path output. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
+| `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
@@ -62,8 +63,9 @@ listed separately in the [roadmap](ROADMAP.md).
 - Sort by depth, directories before files, fuzzy score, root order, then original
   absolute pathname bytes. Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget; the input thread never
-  re-sorts every known path while a scan streams in, and discovery work
-  yields to keys waiting to be read.
+  re-sorts every known path, and discovery work yields to keys waiting to be
+  read. Large re-rankings run on another thread; every key except typing into
+  the query waits for a pending one, so no action uses stale rows.
 - Marks are unique, ordered and independent of navigation, policies and filters.
   Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
   the last fully rendered visible labels.

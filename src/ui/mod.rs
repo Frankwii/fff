@@ -103,6 +103,33 @@ pub enum Finish {
 /// How long a change to the current directory's listing waits for more
 /// changes before the quiet rescan.
 const RELIST_DELAY: Duration = Duration::from_millis(150);
+/// Whether `event` only edits the query being typed in Insert mode, which
+/// needs no current rows.
+fn types_query(app: &App, focus: &Focus, event: &Event) -> bool {
+    let typing = matches!(focus, Focus::Results)
+        && app
+            .edit_view
+            .as_ref()
+            .is_some_and(|v| v.field == Field::Query && v.mode.starts_with('i'));
+    typing
+        && match event {
+            Event::Paste(_) | Event::Resize(..) => true,
+            Event::Key(key) => {
+                !key.modifiers.intersects(M::CONTROL | M::ALT)
+                    && matches!(
+                        key.code,
+                        K::Char(_)
+                            | K::Backspace
+                            | K::Delete
+                            | K::Left
+                            | K::Right
+                            | K::Home
+                            | K::End
+                    )
+            }
+            _ => false,
+        }
+}
 /// Runs a session, then remembers where it was for the next one.
 pub fn run(
     mut app: App,
@@ -141,7 +168,9 @@ fn session(
     let mut input = Input::start(wake.clone(), waiting.clone());
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
-    discovery.yield_to(waiting);
+    discovery.yield_to(waiting.clone());
+    app.yield_to(waiting);
+    app.set_waker(wake.clone());
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
     discovery.max_paths = performance.max_paths;
     app.cached_queries = performance.cached_queries;
@@ -178,6 +207,8 @@ fn session(
     let mut tab_areas = Vec::new();
     // Input read early, before this pass's discovery work.
     let mut queued = None;
+    // Input was handled and its frame is not drawn yet: discovery waits.
+    let mut answering = false;
     loop {
         dirty |= status.tick(app);
         // Pop-up notifications from background work, shown for a while.
@@ -225,9 +256,10 @@ fn session(
                 }
             };
         }
-        if queued.is_none() {
+        if queued.is_none() && !answering {
             dirty |= discovery.drain(app);
         }
+        dirty |= app.poll_ranking();
         if app.generation != details_generation {
             details_generation = app.generation;
             app.details.forget();
@@ -357,6 +389,7 @@ fn session(
             bookmark_targets = completed.bookmark_targets;
             page = completed.page.max(1);
             dirty = false;
+            answering = false;
             drawn_at = std::time::Instant::now();
         }
         // Both input and discovery wake this wait immediately. The timeout only
@@ -393,6 +426,12 @@ fn session(
             }
         };
         dirty = true;
+        answering = true;
+        // Typing a query may run ahead of rows being ranked on another
+        // thread; anything else may act on rows, so it waits for them.
+        if app.ranking_pending() && !types_query(app, &focus, &event) {
+            app.finish_ranking();
+        }
         if let Event::Paste(text) = event {
             // A held-back Normal-mode prefix reaches Neovim before the paste.
             for pending in app.normal_keys.take_pending() {

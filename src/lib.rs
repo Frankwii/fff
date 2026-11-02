@@ -20,6 +20,7 @@ pub mod operations;
 mod palettes;
 mod prefetch;
 pub mod preview;
+mod ranking;
 pub mod reload;
 pub mod run;
 pub mod setup;
@@ -34,7 +35,11 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 
@@ -207,8 +212,54 @@ impl Matcher {
     }
 }
 
+/// A ranking running on another thread, for this basis and query.
+struct Pending {
+    basis: RefreshBasis,
+    query: String,
+    result: mpsc::Receiver<ranking::Ranked>,
+    cancel: Arc<AtomicBool>,
+}
+
+/// Whether `c` is within `depth` of its root, allowed by `policy`, and not `cwd`.
+fn eligible(depth: usize, scope: &[PathBuf], cwd: &Path, policy: &Policy, c: &Candidate) -> bool {
+    if c.depth > depth {
+        return false;
+    }
+    let Some(root) = scope.get(c.root) else {
+        return false;
+    };
+    if let Some(allowed) = policy.allows_below(root, &c.path) {
+        return allowed && c.path.as_os_str() != cwd.as_os_str();
+    }
+    c.path != cwd && c.path.strip_prefix(root).is_ok_and(|p| policy.allows(p))
+}
+/// Whether an eligible `c` passes `fff seek` (files only) and the file
+/// filters, which hide directories whenever any is set.
+fn shown(hide_directories: bool, policy: &Policy, c: &Candidate) -> bool {
+    !(hide_directories && c.directory)
+        && (policy.globs.is_empty()
+            || !c.directory
+                && c.path
+                    .file_name()
+                    .is_some_and(|name| policy.admits(Path::new(name.to_string_lossy().as_ref()))))
+}
+/// `App::listed` with its own copy of what it depends on.
+struct Listing {
+    depth: usize,
+    scope: Vec<PathBuf>,
+    cwd: PathBuf,
+    policy: Policy,
+    hide_directories: bool,
+}
+impl Listing {
+    fn listed(&self, c: &Candidate) -> bool {
+        eligible(self.depth, &self.scope, &self.cwd, &self.policy, c)
+            && shown(self.hide_directories, &self.policy, c)
+    }
+}
+
 /// Insertions merged into the rows per budgeted round.
-const MERGE_ROUND: usize = 1024;
+const MERGE_ROUND: usize = 512;
 
 /// Result order: depth, directories first, best score, root order, then
 /// pathname bytes, which break every tie.
@@ -293,10 +344,15 @@ pub struct App {
     refreshed: Option<(RefreshBasis, String)>,
     /// Rows of shorter queries the current one extends, shortest first, kept so
     /// that deleting letters restores them; they share candidates with `rows`.
-    earlier: Vec<(String, Vec<Arc<Candidate>>)>,
+    earlier: Vec<(String, ranking::Rows)>,
+    /// Rows being ranked on another thread, and what wakes the UI when done.
+    ranking: Option<Pending>,
+    waker: Option<mpsc::SyncSender<()>>,
+    /// Input events waiting to be read: budgeted merges stop early for them.
+    input: Option<Arc<AtomicUsize>>,
     /// `[performance] cached_queries`: most entries kept in `earlier`.
     pub cached_queries: usize,
-    pub rows: Vec<Arc<Candidate>>,
+    pub rows: ranking::Rows,
     pub highlight: Option<PathBuf>,
     /// Where `highlight` was last found in `rows`. Anything may change either,
     /// so it is checked before use; moving and drawing then skip the search.
@@ -418,8 +474,11 @@ impl App {
             outdated: Vec::new(),
             refreshed: None,
             earlier: Vec::new(),
+            ranking: None,
+            waker: None,
+            input: None,
             cached_queries: config::PerformanceConfig::default().cached_queries,
-            rows: Vec::new(),
+            rows: Arc::default(),
             highlight: None,
             highlight_top: false,
             highlight_hint: Cell::new(0),
@@ -678,19 +737,7 @@ impl App {
             .or_else(|| self.remembered(&self.cwd));
     }
     pub fn eligible(&self, c: &Candidate) -> bool {
-        if c.depth > self.depth {
-            return false;
-        }
-        let Some(root) = self.scope.get(c.root) else {
-            return false;
-        };
-        if let Some(allowed) = self.policy.allows_below(root, &c.path) {
-            return allowed && c.path.as_os_str() != self.cwd.as_os_str();
-        }
-        c.path != self.cwd
-            && c.path
-                .strip_prefix(root)
-                .is_ok_and(|p| self.policy.allows(p))
+        eligible(self.depth, &self.scope, &self.cwd, &self.policy, c)
     }
     /// A path the scan of `generation` delivered.
     pub fn insert(&mut self, generation: u64, candidate: Candidate) {
@@ -751,14 +798,17 @@ impl App {
     /// Rows an empty query would list: eligible, and passing `fff seek` (files only) and the
     /// file filters, which hide directories whenever any is set.
     fn listed(&self, c: &Candidate) -> bool {
-        self.eligible(c)
-            && !((self.no_dir || self.files_only) && c.directory)
-            && (self.policy.globs.is_empty()
-                || !c.directory
-                    && c.path.file_name().is_some_and(|name| {
-                        self.policy
-                            .admits(Path::new(name.to_string_lossy().as_ref()))
-                    }))
+        self.eligible(c) && shown(self.no_dir || self.files_only, &self.policy, c)
+    }
+    /// What decides which known paths are listed, for ranking elsewhere.
+    fn listing(&self) -> Listing {
+        Listing {
+            depth: self.depth,
+            scope: self.scope.clone(),
+            cwd: self.cwd.clone(),
+            policy: self.policy.clone(),
+            hide_directories: self.no_dir || self.files_only,
+        }
     }
     /// The query rows are filtered by. A save dialog's query is the file
     /// name being typed: matches are only highlighted, nothing is hidden.
@@ -773,52 +823,50 @@ impl App {
     }
     /// Like `refresh`, but merge insertions only for about `budget` when the
     /// query and everything else the rows depend on are unchanged; the rest
-    /// wait for the next refresh (see `unmerged`).
+    /// wait for the next refresh (see `unmerged`). With a waker set, ranking a
+    /// large listing again happens on its own thread: the previous rows stay
+    /// until it is done (see `ranking_pending` and `finish_ranking`).
     pub fn refresh_within(&mut self, budget: Option<Duration>) {
         let basis = RefreshBasis::of(self);
         let folded = self.filter().to_lowercase();
-        let listing_changed =
-            !self.added.is_empty() || !self.outdated.is_empty() || !self.relabel.is_empty();
-        // Labels depend on the whole listing, not the query, so they stay put
-        // while typing; merges relabel what they change.
-        if self
-            .refreshed
-            .as_ref()
-            .is_none_or(|(previous, _)| *previous != basis)
-        {
-            let mut names: HashMap<_, Vec<_>> = HashMap::new();
-            if self.no_dir || self.short_labels {
-                for c in self.known.values().filter(|c| self.listed(c)) {
-                    if let Some(name) = c.path.file_name() {
-                        names
-                            .entry(name.to_os_string())
-                            .or_default()
-                            .push(Arc::clone(c));
+        if let Some(pending) = &self.ranking {
+            if pending.basis == basis && pending.query == folded {
+                match pending.result.try_recv() {
+                    Ok(ranked) => {
+                        let pending = self.ranking.take().expect("checked");
+                        self.install(ranked, pending.basis, pending.query);
+                    }
+                    Err(mpsc::TryRecvError::Empty) => return,
+                    // The ranking thread failed: rank here instead.
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.ranking = None;
+                        self.refreshed = None;
+                        let waker = self.waker.take();
+                        self.refresh_within(budget);
+                        self.waker = waker;
+                        return;
                     }
                 }
+            } else {
+                self.cancel_ranking();
             }
-            self.relabel.clear();
-            self.relabelling.clear();
-            let old = std::mem::replace(&mut self.names, names);
-            let len = old.values().map(Vec::len).sum();
-            known::discard(old, len);
-            self.labels = disambiguate(self.names.values().flatten().map(|c| c.path.as_path()));
         }
+        let listing_changed =
+            !self.added.is_empty() || !self.outdated.is_empty() || !self.relabel.is_empty();
         // Rows already match the previous query under the same basis. A query
         // that only appends letters (after lowercasing, as `score` does) can only
         // remove matches, so re-score those rows instead of every known path.
         // Deleting letters returns to a shorter query's kept rows, or narrows
         // from the longest kept query the new one still extends.
-        let mut base = None;
-        match self.refreshed.take() {
+        let base = match self.refreshed.take() {
             Some((previous, query)) if previous == basis => {
                 if listing_changed {
                     // Kept queries' rows predate the change; only the current
                     // ones are brought up to date.
-                    let budget = budget.filter(|_| query == folded);
-                    self.merge(&query, budget);
                     let kept = self.earlier.iter().map(|(_, rows)| rows.len()).sum();
                     known::discard(std::mem::take(&mut self.earlier), kept);
+                    let budget = budget.filter(|_| query == folded);
+                    self.merge(&query, budget);
                 }
                 if query == folded {
                     self.refreshed = Some((previous, query));
@@ -827,12 +875,12 @@ impl App {
                 }
                 if folded.starts_with(query.as_str()) {
                     if self.cached_queries > 0 {
-                        self.earlier.push((query, self.rows.clone()));
+                        self.earlier.push((query, Arc::clone(&self.rows)));
                         if self.earlier.len() > self.cached_queries {
                             self.earlier.remove(0);
                         }
                     }
-                    base = Some(std::mem::take(&mut self.rows));
+                    Some(Arc::clone(&self.rows))
                 } else {
                     while self
                         .earlier
@@ -841,60 +889,156 @@ impl App {
                     {
                         self.earlier.pop();
                     }
-                    if let Some((q, _)) = self.earlier.last() {
-                        if *q == folded {
-                            self.rows = self.earlier.pop().expect("checked").1;
-                            self.refreshed = Some((basis, folded));
-                            self.keep_highlight();
-                            return;
-                        }
-                        base = self.earlier.last().map(|(_, rows)| rows.clone());
+                    if let Some((q, _)) = self.earlier.last()
+                        && *q == folded
+                    {
+                        self.rows = self.earlier.pop().expect("checked").1;
+                        self.refreshed = Some((basis, folded));
+                        self.keep_highlight();
+                        return;
                     }
+                    self.earlier.last().map(|(_, rows)| Arc::clone(rows))
                 }
             }
             _ => {
-                // Ranking every known path covers what was added or forgotten.
+                // Ranking every known path covers what was added or forgotten,
+                // and relabels it all.
                 let kept = self.earlier.iter().map(|(_, rows)| rows.len()).sum();
                 known::discard(std::mem::take(&mut self.earlier), kept);
                 let added = self.added.len();
                 known::discard(std::mem::take(&mut self.added), added);
                 let outdated = self.outdated.len();
                 known::discard(std::mem::take(&mut self.outdated), outdated);
+                self.relabel.clear();
+                self.relabelling.clear();
+                let job = ranking::Job {
+                    base: Arc::new(self.known.values().cloned().collect()),
+                    listing: Some(self.listing()),
+                    query: folded.clone(),
+                    labels: Some(self.no_dir || self.short_labels),
+                };
+                self.start_ranking(job, basis, folded);
+                return;
             }
+        };
+        let job = match base {
+            Some(base) => ranking::Job {
+                base,
+                listing: None,
+                query: folded.clone(),
+                labels: None,
+            },
+            None => ranking::Job {
+                base: Arc::new(self.known.values().cloned().collect()),
+                listing: Some(self.listing()),
+                query: folded.clone(),
+                labels: None,
+            },
+        };
+        self.start_ranking(job, basis, folded);
+    }
+    /// Run `job` here when it is small (or nothing can be woken when it is
+    /// done), otherwise on its own thread.
+    fn start_ranking(&mut self, job: ranking::Job, basis: RefreshBasis, query: String) {
+        if job.base.len() >= ranking::BACKGROUND_AT
+            && let Some(waker) = self.waker.clone()
+        {
+            let cancel = Arc::new(AtomicBool::new(false));
+            let cancelled = Arc::clone(&cancel);
+            let (sender, result) = mpsc::channel();
+            let spawned = std::thread::Builder::new().spawn(move || {
+                if let Some(ranked) = job.run(&cancelled) {
+                    let _ = sender.send(ranked);
+                    let _ = waker.try_send(());
+                }
+            });
+            if spawned.is_ok() {
+                self.ranking = Some(Pending {
+                    basis,
+                    query,
+                    result,
+                    cancel,
+                });
+                return;
+            }
+            // Without a thread, rank here after all.
+            self.refreshed = None;
+            let waker = self.waker.take();
+            self.refresh();
+            self.waker = waker;
+            return;
         }
-        let order = |(a, sa): &(&Arc<Candidate>, i64), (b, sb): &(&Arc<Candidate>, i64)| {
-            rank(a, *sa, b, *sb)
-        };
-        let matcher = Matcher::new(self.filter());
-        let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
-        // Pathnames break every tie, so an unstable sort yields the same order.
-        let rows = if let Some(base) = base {
-            // Move the surviving rows rather than cloning them.
-            let mut ranked: Vec<_> = base
-                .into_iter()
-                .filter_map(|c| {
-                    let score = score_of(&c)?;
-                    Some((c, score))
-                })
-                .collect();
-            ranked.sort_unstable_by(|(a, sa), (b, sb)| order(&(a, *sa), &(b, *sb)));
-            ranked.into_iter().map(|(c, _)| c).collect()
-        } else {
-            // Sort references and share only the result.
-            let mut ranked: Vec<_> = self
-                .known
-                .values()
-                .filter(|c| self.listed(c))
-                .filter_map(|c| Some((c, score_of(c)?)))
-                .collect();
-            ranked.sort_unstable_by(order);
-            ranked.into_iter().map(|(c, _)| Arc::clone(c)).collect()
-        };
-        let old = std::mem::replace(&mut self.rows, rows);
+        let ranked = job
+            .run(&AtomicBool::new(false))
+            .expect("an uncancelled ranking completes");
+        self.install(ranked, basis, query);
+    }
+    /// Show the rows (and labels) a ranking produced.
+    fn install(&mut self, ranked: ranking::Ranked, basis: RefreshBasis, query: String) {
+        let old = std::mem::replace(&mut self.rows, Arc::new(ranked.rows));
         let len = old.len();
         known::discard(old, len);
-        self.refreshed = Some((basis, folded));
+        if let Some((names, labels)) = ranked.labels {
+            let old = std::mem::replace(&mut self.names, names);
+            let len = old.values().map(Vec::len).sum();
+            known::discard(old, len);
+            let old = std::mem::replace(&mut self.labels, labels);
+            let len = old.len();
+            known::discard(old, len);
+        }
+        self.refreshed = Some((basis, query));
         self.keep_highlight();
+    }
+    fn cancel_ranking(&mut self) {
+        if let Some(pending) = self.ranking.take() {
+            pending.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+    /// The rows are being ranked again on another thread; meanwhile they are
+    /// those of the previous query or settings.
+    pub fn ranking_pending(&self) -> bool {
+        self.ranking.is_some()
+    }
+    /// Wait for a pending ranking, so that what acts on rows sees current ones.
+    pub fn finish_ranking(&mut self) {
+        let Some(pending) = self.ranking.take() else {
+            return;
+        };
+        match pending.result.recv() {
+            Ok(ranked) => self.install(ranked, pending.basis, pending.query),
+            Err(_) => {
+                self.refreshed = None;
+                let waker = self.waker.take();
+                self.refresh();
+                self.waker = waker;
+            }
+        }
+    }
+    /// Install a ranking that is done; whether it was.
+    pub fn poll_ranking(&mut self) -> bool {
+        if self.ranking.is_none() {
+            return false;
+        }
+        self.refresh_within(Some(Duration::from_millis(4)));
+        self.ranking.is_none()
+    }
+    /// Budgeted merges stop early while `waiting` counts unread input.
+    pub fn yield_to(&mut self, waiting: Arc<AtomicUsize>) {
+        self.input = Some(waiting);
+    }
+    /// A budgeted merge should stop: its time is up or input waits.
+    fn yield_now(&self, budget: Option<Duration>, start: Instant) -> bool {
+        budget.is_some_and(|b| {
+            start.elapsed() >= b
+                || self
+                    .input
+                    .as_ref()
+                    .is_some_and(|waiting| waiting.load(Ordering::Relaxed) > 0)
+        })
+    }
+    /// Wake `waker` when a ranking on another thread is done.
+    pub fn set_waker(&mut self, waker: mpsc::SyncSender<()>) {
+        self.waker = Some(waker);
     }
     /// Bring the rows ranked for `query` up to date with the candidates
     /// forgotten and, within `budget`, those inserted since: work in proportion
@@ -906,7 +1050,7 @@ impl App {
         // unique until the rows are rid of them.
         let stale: HashSet<_> = self.outdated.iter().map(Arc::as_ptr).collect();
         if !stale.is_empty() {
-            self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
+            Arc::make_mut(&mut self.rows).retain(|c| !stale.contains(&Arc::as_ptr(c)));
             if self.no_dir || self.short_labels {
                 for c in &self.outdated {
                     if let Some(name) = c.path.file_name()
@@ -956,7 +1100,10 @@ impl App {
                 .collect();
             added.sort_unstable_by(|(sa, a), (sb, b)| rank(a, *sa, b, *sb));
             let mut rows = Vec::with_capacity(self.rows.len() + added.len());
-            let mut old = std::mem::take(&mut self.rows).into_iter();
+            let old = std::mem::take(&mut self.rows);
+            let mut old = Arc::try_unwrap(old)
+                .unwrap_or_else(|shared| Vec::clone(&shared))
+                .into_iter();
             for (score, c) in added {
                 // Rows all match the query; rank them by their own scores.
                 let before = old.as_slice().partition_point(|r| {
@@ -966,8 +1113,8 @@ impl App {
                 rows.push(c);
             }
             rows.extend(old);
-            self.rows = rows;
-            if budget.is_some_and(|b| start.elapsed() >= b) {
+            self.rows = Arc::new(rows);
+            if self.yield_now(budget, start) {
                 break;
             }
         }
@@ -986,7 +1133,7 @@ impl App {
                         .extend(disambiguate(group.iter().map(|c| c.path.as_path())));
                 }
             }
-            if budget.is_some_and(|b| start.elapsed() >= b) {
+            if self.yield_now(budget, start) {
                 break;
             }
         }
@@ -997,7 +1144,7 @@ impl App {
     }
     /// The rows and their labels reflect every known path.
     pub fn settled(&self) -> bool {
-        self.added.is_empty() && self.relabel.is_empty()
+        self.added.is_empty() && self.relabel.is_empty() && self.ranking.is_none()
     }
     fn keep_highlight(&mut self) {
         // Rows share the known candidates: look for the wanted one's address.

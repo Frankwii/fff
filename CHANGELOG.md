@@ -17,6 +17,11 @@ history.
 - **The highlight stays on the first row while a location loads**, instead of
   following whichever row was first when the scan began, until you move it
   (or a remembered row, such as the folder you came up from, is listed).
+- **Re-ranking a large listing no longer freezes the screen.** Changing
+  depth, hidden files, exclusions, filters or Alt+d, and typing a query, rank
+  big listings on other threads in parallel; the previous results stay up,
+  with `◌ sorting` on the status line, until the new ones are ready. Typing
+  never waits for them; keys that act on rows do.
 - `fff pick` and `fff seek` update their labels for shared names only where
   they changed, so a large tree no longer slows them down as it fills.
 

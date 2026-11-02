@@ -546,24 +546,33 @@ classification reads `/proc/self/mountinfo`.
 | `cached_queries` | `5` | 0–64 | Results of this many shorter queries are kept while you type, so deleting letters restores them instead of ranking every path again; an edited query narrows from the longest kept query it still starts with. Each kept query costs about 8 bytes per matching row (rows share their paths). Zero keeps none. Discovery or a policy change discards them. |
 | `max_paths` | `1000000` | 1000–100000000 | Most paths the current view holds. A scan that finds more stops there: the status line shows `◌ partial`, the listing is neither reconciled nor kept as complete, and a lower depth shows the rest. It bounds the memory browsing a huge tree can take. |
 
-Workers batch up to 256 paths or 10 ms of discoveries. The UI reads waiting
-input before any discovery work, which also stops as soon as a key arrives;
-otherwise it takes discoveries for up to 8 ms and merges them into the ranked results for about 4 ms per iteration: new paths
-are ranked among themselves and inserted, never re-sorting every known path.
-Once 8,192 paths wait to be merged, the UI stops taking more and the worker
-waits, so a scan of a huge tree takes longer instead of delaying keys; it
-completes only after its last paths are merged. The index of known paths is
-sharded so it grows without rehashing everything at once, a scan marks the
-paths it delivers instead of keeping a separate reconciliation set, and large
-listings are freed on another thread. `fff pick` and `fff seek` relabel only
-basenames that changed, with the time left over, so a scan completes once its
-labels catch up. ASCII scoring avoids allocation, narrower queries re-score current
-matches, shorter ones restore kept results (`cached_queries`), and unchanged
-refreshes skip work. Changing depth, hidden files, exclusions, filters or
-directories-hidden still ranks every known path once. Non-ASCII paths and
-exclusions retain the general code paths. The UI redraws after visible changes
-and at least once a second, with a single bounded terminal-input reader waking
-it immediately alongside discovery.
+Workers batch up to 256 paths or 10 ms of discoveries, breadth first, so the
+results fill in shallowest first. The UI reads waiting input before any
+discovery work, draws the frame answering it before resuming, and stops taking
+or merging discoveries as soon as a key arrives. Otherwise it takes
+discoveries for up to 8 ms and merges them into the ranked results, oldest
+first, for about 4 ms per iteration: new paths are ranked among themselves and
+inserted, never re-sorting every known path. Once 8,192 paths wait to be
+merged, the UI stops taking more and the worker waits, so a scan of a huge
+tree takes longer instead of delaying keys; it completes only after its last
+paths are merged. The index of known paths is sharded so it grows without
+rehashing everything at once, a scan marks the paths it delivers instead of
+keeping a separate reconciliation set, and large listings are freed on another
+thread. `fff pick` and `fff seek` relabel only basenames that changed, with
+the time left over, so a scan completes once its labels catch up.
+
+Ranking every known path again (changing depth, hidden files, exclusions,
+filters or directories-hidden, or a query that no kept result narrows) and
+narrowing large results happen on another thread, in parallel pieces, once
+16,384 or more paths are involved. The previous results stay on screen
+meanwhile, with `◌ sorting` on the status line; a newer change cancels an
+older ranking. Typing into the query never waits for one, but any other key
+does, so moving, marking or choosing always acts on current results. ASCII
+scoring avoids allocation, narrower queries re-score current matches, shorter
+ones restore kept results (`cached_queries`), and unchanged refreshes skip
+work. Non-ASCII paths and exclusions retain the general code paths. The UI
+redraws after visible changes and at least once a second, with a single
+bounded terminal-input reader waking it immediately alongside discovery.
 
 Navigation performance can be measured with the manual PTY benchmark; see
 [development verification](DEVELOPMENT.md#verification). Measurements depend on

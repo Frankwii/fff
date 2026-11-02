@@ -359,7 +359,9 @@ impl Discovery {
     }
     /// Preserve the verification age: navigation/query changes do not renew it.
     pub fn checkpoint(&mut self, app: &App) {
+        // Rows being ranked again may be those of other settings.
         if let Some(key) = &self.key
+            && !app.ranking_pending()
             && key == &crate::cache::Key::of(app)
             && self.scan.as_ref().is_none_or(|s| !s.failed)
         {
