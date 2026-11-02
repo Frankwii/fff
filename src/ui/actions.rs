@@ -1123,7 +1123,7 @@ pub(super) struct ListAreas {
     pub choices: Vec<(ratatui::layout::Rect, usize)>,
 }
 /// The row a wheel step moves to from `current` among `count`.
-fn wheel_step(current: Option<usize>, count: usize, forward: bool) -> Option<usize> {
+pub(super) fn wheel_step(current: Option<usize>, count: usize, forward: bool) -> Option<usize> {
     let last = count.checked_sub(1)?;
     match current {
         None => forward.then_some(0),

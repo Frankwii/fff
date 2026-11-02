@@ -1481,3 +1481,90 @@ fn chosen_go_to_suggestion_stays_visible_on_short_terminals() {
         assert!(screen.contains("place5"), "{height} rows:\n{screen}");
     }
 }
+#[test]
+fn elision_keeps_the_end_and_truncation_the_start_measured_in_columns() {
+    assert_eq!(elide("notes/report.tex", 16), "notes/report.tex");
+    assert_eq!(elide("notes/report.tex", 11), "…report.tex");
+    // Wide characters take two columns, the ellipsis one; none is split.
+    assert_eq!(elide("日本語.txt", 7), "…語.txt");
+    assert_eq!(elide("日本語.txt", 6), "….txt");
+    assert_eq!(elide("abc", 0), "");
+    assert_eq!(truncate("Moved 2 entries", 15), "Moved 2 entries");
+    assert_eq!(truncate("Moved 2 entries", 8), "Moved 2…");
+    assert_eq!(truncate("日本語", 4), "日…");
+    assert_eq!(truncate("abc", 1), "…");
+    assert_eq!(truncate("abc", 0), "");
+}
+#[test]
+fn detail_columns_give_way_from_the_left_to_names() {
+    use Column::*;
+    let all = [Permissions, Size, Modified];
+    // Each column takes its width and two spaces; names keep 20 columns
+    // after the row prefix's 10.
+    assert_eq!(fitting_columns(&all, 55), all);
+    assert_eq!(fitting_columns(&all, 54), [Size, Modified]);
+    assert_eq!(fitting_columns(&all, 43), [Size, Modified]);
+    assert_eq!(fitting_columns(&all, 42), [Modified]);
+    assert_eq!(fitting_columns(&all, 36), [Modified]);
+    assert!(fitting_columns(&all, 35).is_empty());
+    assert!(fitting_columns(&[], 200).is_empty());
+}
+#[test]
+fn pinned_roots_that_do_not_fit_are_counted() {
+    let spans = |names: &[&str]| {
+        let mut spans = vec![Span::raw("pinned")];
+        for name in names {
+            spans.extend([Span::raw("  "), Span::raw(name.to_string())]);
+        }
+        spans
+    };
+    let text =
+        |spans: Vec<Span<'static>>| spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+    let roots = ["notes", "papers", "books"];
+    assert_eq!(
+        text(fit_spans(spans(&roots), 28)),
+        "pinned  notes  papers  books"
+    );
+    assert_eq!(text(fit_spans(spans(&roots), 27)), "pinned  notes  +2 (F1)");
+    assert_eq!(text(fit_spans(spans(&roots), 15)), "pinned  +3 (F1)");
+    // Too narrow even for the count: it is elided, never wider.
+    assert!(text(fit_spans(spans(&roots), 10)).width() <= 10);
+}
+#[test]
+fn status_pills_drop_from_the_end_before_the_label_shortens() {
+    let mut app = fixture();
+    app.scanning = true;
+    app.policy.set_filters(vec!["*.tex".into()]).unwrap();
+    app.policy.hidden = true;
+    let text = |width| {
+        status_line(&app, width)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
+    };
+    let full = text(200);
+    for pill in [
+        "◌ scanning · incomplete",
+        "depth 3",
+        "filters on",
+        "hidden shown",
+    ] {
+        assert!(full.contains(pill), "{pill:?} in {full:?}");
+    }
+    let shortest = text(0);
+    assert_eq!(shortest.trim(), "◌ incomplete   depth 3");
+    for width in 0..200 {
+        let shown = text(width);
+        assert!(
+            shown.width() <= width || shown == shortest,
+            "{width}: {shown:?}"
+        );
+        // Later pills go first, and the label shortens only once they are gone.
+        assert!(!shown.contains("hidden shown") || shown.contains("filters on"));
+        assert!(
+            shown.contains("scanning") || !shown.contains("filters on"),
+            "{shown:?}"
+        );
+    }
+}

@@ -620,3 +620,18 @@ fn stopped_messages_keep_the_names_in_a_title() {
     );
     assert_eq!(lowercase_first(""), "");
 }
+
+#[test]
+fn single_steps_wrap_and_wheel_steps_stop_at_the_ends() {
+    assert_eq!((cycle(2, 3, true), cycle(0, 3, false)), (0, 2));
+    assert_eq!((cycle(1, 3, true), cycle(1, 3, false)), (2, 0));
+    assert_eq!((cycle(0, 0, true), cycle(0, 0, false)), (0, 0));
+    // A stale index past a shrunken list lands on its last row going back.
+    assert_eq!(cycle(9, 3, false), 2);
+    assert_eq!(wheel_step(Some(2), 3, true), Some(2));
+    assert_eq!(wheel_step(Some(0), 3, false), Some(0));
+    assert_eq!(wheel_step(Some(9), 3, false), Some(2));
+    assert_eq!(wheel_step(None, 3, true), Some(0));
+    assert_eq!(wheel_step(None, 3, false), None);
+    assert_eq!(wheel_step(Some(0), 0, true), None);
+}

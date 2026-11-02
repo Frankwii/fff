@@ -460,6 +460,16 @@ fn narrows(shorter: &str, longer: &str) -> bool {
         .strip_prefix(shorter)
         .is_some_and(|added| !added.contains('/'))
 }
+#[cfg(test)]
+#[test]
+fn appended_letters_narrow_but_a_slash_does_not() {
+    assert!(narrows("rep", "repo") && narrows("", "a") && narrows("rep", "rep"));
+    assert!(!narrows("repo", "rep") && !narrows("abc", "xbc"));
+    // A slash turns the basename query into a path query, or the last part
+    // into a folder; letters after one narrow again.
+    assert!(!narrows("rep", "rep/") && !narrows("pde", "pde/stab") && !narrows("", "/s"));
+    assert!(narrows("pde/", "pde/stab"));
+}
 
 /// Insertions merged into the rows per budgeted round.
 const MERGE_ROUND: usize = 512;
