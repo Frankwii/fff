@@ -641,16 +641,18 @@ pub(super) struct Mouse {
     anchor: Option<PathBuf>,
 }
 /// `[ui] mouse` in the results. A click clears the marks and highlights a
-/// row; a second click on it acts like `l`; dragging with the button held
-/// marks every row from the pressed one to the current one. The wheel only
-/// scrolls. `area` holds the rows of the last frame, one per rendered target.
+/// row; a second click on it acts like `l`, or in a dialog (fff explorer)
+/// returns true for the caller to deliver Enter on it; dragging with the
+/// button held marks every row from the pressed one to the current one. The
+/// wheel only scrolls. `area` holds the rows of the last frame, one per
+/// rendered target.
 pub(super) fn mouse_results(
     app: &mut App,
     discovery: &mut Discovery,
     event: MouseEvent,
     area: ratatui::layout::Rect,
     mouse: &mut Mouse,
-) {
+) -> bool {
     let inside = event.column >= area.x && event.column < area.x + area.width;
     let row = (inside && event.row >= area.y)
         .then(|| app.rendered.get(usize::from(event.row - area.y)).cloned())
@@ -670,7 +672,7 @@ pub(super) fn mouse_results(
         }
         MouseEventKind::Down(MouseButton::Left) => {
             let Some(path) = row else {
-                return;
+                return false;
             };
             app.marks.clear();
             let now = std::time::Instant::now();
@@ -683,6 +685,9 @@ pub(super) fn mouse_results(
             app.wanted = None;
             if double {
                 mouse.anchor = None;
+                if app.dialog.is_some() {
+                    return true;
+                }
                 discovery.checkpoint(app);
                 activate_highlighted(app, discovery);
             } else {
@@ -692,10 +697,10 @@ pub(super) fn mouse_results(
         }
         MouseEventKind::Drag(MouseButton::Left) => {
             let Some(anchor) = mouse.anchor.as_ref() else {
-                return;
+                return false;
             };
             let Some(from) = app.rendered.iter().position(|p| p == anchor) else {
-                return;
+                return false;
             };
             // Past the top or bottom of the rows, the drag reaches the edge.
             let to = if event.row < area.y {
@@ -704,7 +709,7 @@ pub(super) fn mouse_results(
                 usize::from(event.row - area.y).min(app.rendered.len().saturating_sub(1))
             };
             if to == from && app.marks.is_empty() {
-                return;
+                return false;
             }
             let rows: Vec<PathBuf> = if from <= to {
                 app.rendered[from..=to].to_vec()
@@ -719,6 +724,7 @@ pub(super) fn mouse_results(
         MouseEventKind::Up(MouseButton::Left) => mouse.anchor = None,
         _ => {}
     }
+    false
 }
 /// The button bar (`[ui] buttons`): each button does what its key does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

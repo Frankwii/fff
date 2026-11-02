@@ -179,7 +179,8 @@ a graphical file manager:
 
 - A click highlights a row and clears the marks.
 - A double click acts like `l`: it enters a directory or opens a file in the
-  background.
+  background. In [`fff explorer`](DESKTOP.md#fff-explorer) it is Enter on the
+  row instead: it enters a folder or chooses a file.
 - Dragging with the button held clears the marks, then marks every row from
   where it was pressed to where it is; the highlight follows the drag.
 - The wheel scrolls the results and does nothing else; the highlight may leave

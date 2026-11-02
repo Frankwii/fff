@@ -123,7 +123,8 @@ file: files sharing an opener go to one invocation (three PDFs, one zathura),
 GUI openers start detached, and one terminal opener may take over this
 terminal. Marked directories, or files needing two different terminal programs,
 are refused with a message and fff stays; `o` opens those one after another. Insert-mode Enter in a verified physically empty directory returns marks
-plus that directory; a no-match query in a nonempty directory stays open.
+plus that directory; a no-match query in a nonempty directory stays open, and
+a short status message says nothing matches (Ctrl+number likewise).
 Missing marks block confirmation until unmarked.
 
 ### Tabs
@@ -237,7 +238,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | E in Normal | Open the current or marked paths in `$EDITOR`, then come back |
 | q / ! in Normal | Exit to the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
-| Click / double-click | Highlight a row (clearing the marks) / act like `l` on it |
+| Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |
 | Drag with the button held | Mark every row from where it was pressed to where it is |
 | Mouse wheel | Scroll the results, leaving the highlight and marks alone |
 | Click a tab number | Switch to that [tab](#tabs), keeping the marks |

@@ -955,6 +955,35 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
+    def test_explorer_double_click_is_enter_on_the_row(self):
+        (self.root / "alpha").mkdir()
+        (self.root / "alpha" / "inside").touch()
+        s = self.start("explorer", "--depth", "1", implicit_root=True, output_paths=False)
+        def double_click(name):
+            lines = s.screen.text.splitlines()
+            row = next(i for i, l in enumerate(lines) if f" {name}" in l and "@" not in l)
+            x, y = lines[row].index(name) + 1, row + 1
+            click = f"\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m".encode()
+            s.send(click)
+            s.send(click)
+        # A folder is entered (in a normal session too), a file chosen.
+        double_click("alpha/")
+        s.wait_ui(("cwd", self.root / "alpha"))
+        s.wait_ui("inside")
+        double_click("inside")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "alpha" / "inside") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_enter_with_no_matches_says_so(self):
+        (self.root / "file").touch()
+        s = self.start()
+        s.send(b"izzzz", b"No matching results")
+        s.send(b"\r", 'Nothing matches "zzzz"; Esc clears the query')
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"i\x1b[57;5u", 'Nothing matches "zzzz"')  # Ctrl+9 while typing
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_buttons_appear_once_the_mouse_is_used_and_select_exits(self):
         (self.root / "only").touch()
         with tempfile.TemporaryDirectory(prefix="fff-buttons-") as folder:

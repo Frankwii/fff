@@ -239,6 +239,7 @@ differs:
 | Ctrl+c | Cancels. |
 | Ctrl+w | Chooses the marks. |
 | Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving. |
+| Double click | Enter on that row, as Ctrl+number (a normal session acts like `l`). |
 | Alt+number | `l` on that row, as in a normal session. |
 | `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |
 

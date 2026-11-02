@@ -512,10 +512,14 @@ fn session(
                         }
                     },
                     None => {
-                        if matches!(focus, Focus::Results) {
-                            mouse_results(app, &mut discovery, event, results_area, &mut mouse);
+                        // In a dialog a double click is Enter on the row.
+                        if matches!(focus, Focus::Results)
+                            && mouse_results(app, &mut discovery, event, results_area, &mut mouse)
+                        {
+                            Event::Key(KeyEvent::new(K::Enter, M::NONE))
+                        } else {
+                            continue;
                         }
-                        continue;
                     }
                 }
             }
@@ -841,6 +845,7 @@ fn session(
             } else if app.no_dir {
                 // Static (--no-dir) sessions never fall back to the current
                 // directory.
+                app.nothing_to_enter();
                 continue;
             } else {
                 unnumbered = true;

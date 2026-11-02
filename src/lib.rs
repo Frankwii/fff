@@ -921,8 +921,19 @@ impl App {
                 .map(EnterOutcome::Selected)
                 .unwrap_or(EnterOutcome::Stay)
         } else {
+            self.nothing_to_enter();
             EnterOutcome::Stay
         }
+    }
+    /// Says why Enter (or Ctrl+number) with no row did nothing.
+    pub fn nothing_to_enter(&mut self) {
+        self.status = if self.scanning {
+            "Nothing listed yet; still searching".into()
+        } else if !self.filter().is_empty() {
+            format!("Nothing matches {:?}; Esc clears the query", self.query)
+        } else {
+            "Nothing listed here".into()
+        };
     }
     pub fn enter_numbered(&mut self, digit: u32) -> EnterOutcome {
         if self.rendered.is_empty() {
