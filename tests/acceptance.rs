@@ -737,9 +737,10 @@ fn fast_scoring_matches_the_reference_definition() {
         if query.is_empty() {
             return Some(0);
         }
-        let name: Vec<char> = name.to_lowercase().chars().collect();
+        // Either sigma matches: ς folds to σ.
+        let name: Vec<char> = name.to_lowercase().replace('ς', "σ").chars().collect();
         let (mut position, mut previous, mut score) = (0, None, 0);
-        for letter in query.to_lowercase().chars() {
+        for letter in query.to_lowercase().replace('ς', "σ").chars() {
             let found = (position..name.len()).find(|&i| name[i] == letter)?;
             score += 20 - found as i64;
             if previous == Some(found.wrapping_sub(1)) {
@@ -1085,5 +1086,13 @@ fn large_rankings_run_in_the_background_and_match_ranking_in_place() {
         here.refresh();
         assert_eq!(rows(&background), rows(&here));
         assert!(background.settled());
+    }
+}
+#[test]
+fn either_sigma_matches_a_word_final_capital_sigma() {
+    for query in ["Σ", "σ", "ς", "οσ"] {
+        for name in ["ΟΔΟΣ", "ΟΔΟΣ_1", "ΟΔΟΣ.txt"] {
+            assert!(score(name, query).is_some(), "{query:?} in {name:?}");
+        }
     }
 }

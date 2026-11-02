@@ -441,10 +441,11 @@ pub(super) fn location_sheet(
         &location.text,
         Rect::new(inner.x + 2, row, inner.width.saturating_sub(2), 1),
     );
-    // Keep the chosen suggestion visible.
-    let first = location
-        .selected
-        .map_or(0, |i| i.saturating_sub(shown.saturating_sub(1)));
+    // Keep the chosen suggestion visible, also when a short terminal leaves
+    // fewer rows than there are suggestions to show.
+    let rows = inner.bottom().saturating_sub(row + 2) as usize;
+    let shown = shown.min(rows).max(1);
+    let first = location.selected.map_or(0, |i| i.saturating_sub(shown - 1));
     let lines = matches
         .iter()
         .enumerate()

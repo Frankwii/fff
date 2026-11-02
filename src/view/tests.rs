@@ -1330,3 +1330,19 @@ fn long_names_elided_to_fit_still_highlight_without_panicking() {
         }
     }
 }
+#[test]
+fn chosen_go_to_suggestion_stays_visible_on_short_terminals() {
+    let mut app = fixture();
+    let places: Vec<PathBuf> = (0..10).map(|i| format!("/place{i}").into()).collect();
+    let mut location = crate::location::Location::new(&[], places, Path::new("/"));
+    location.selected = Some(5);
+    let mut focus = Focus::Location(location);
+    for height in [14, 16, 18, 26] {
+        let mut terminal = Terminal::new(TestBackend::new(80, height)).unwrap();
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(screen.contains("place5"), "{height} rows:\n{screen}");
+    }
+}

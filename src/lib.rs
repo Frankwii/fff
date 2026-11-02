@@ -163,9 +163,14 @@ pub struct Matcher {
     /// the last matches the basename.
     path: Option<(Vec<Matcher>, Box<Matcher>)>,
 }
+/// Lowercase for matching. Whole-string lowercasing turns a word-final Σ
+/// into ς but a lone one into σ: both become σ, so either spelling matches.
+pub(crate) fn fold(text: &str) -> String {
+    text.to_lowercase().replace('ς', "σ")
+}
 impl Matcher {
     pub fn new(query: &str) -> Self {
-        let folded = query.to_lowercase();
+        let folded = fold(query);
         let plain = |part: &str| Matcher {
             letters: part.chars().collect(),
             path: None,
@@ -196,7 +201,7 @@ impl Matcher {
             return self.score_ascii(name.as_bytes());
         }
         // Whole-string lowercasing is context-sensitive (e.g. final sigma).
-        let name: Vec<char> = name.to_lowercase().chars().collect();
+        let name: Vec<char> = fold(name).chars().collect();
         self.score_chars(&name)
     }
     /// Score a result: its basename, or with a `/` in the query, its path
@@ -291,7 +296,7 @@ impl Matcher {
                     .zip(&self.letters)
                     .all(|(b, &l)| b.to_ascii_lowercase() as u32 == l as u32)
         } else {
-            name.to_lowercase().chars().eq(self.letters.iter().copied())
+            fold(name).chars().eq(self.letters.iter().copied())
         };
         if same && !self.letters.is_empty() {
             WHOLE
@@ -428,9 +433,10 @@ pub(crate) fn greedy(letters: &[char], name: &str) -> Vec<usize> {
     name.chars()
         .enumerate()
         .filter(|(_, c)| {
-            let matched = wanted
-                .peek()
-                .is_some_and(|&&q| c.to_lowercase().any(|lower| lower == q));
+            let matched = wanted.peek().is_some_and(|&&q| {
+                c.to_lowercase()
+                    .any(|lower| lower == q || (lower == 'ς' && q == 'σ'))
+            });
             if matched {
                 wanted.next();
             }
@@ -438,6 +444,12 @@ pub(crate) fn greedy(letters: &[char], name: &str) -> Vec<usize> {
         })
         .map(|(i, _)| i)
         .collect()
+}
+#[cfg(test)]
+#[test]
+fn final_sigma_is_highlighted_for_either_sigma() {
+    assert_eq!(greedy(&['σ'], "ΟΔΟΣ"), [3]);
+    assert_eq!(greedy(&['ο', 'σ'], "οδος"), [0, 3]);
 }
 /// Whether every match of the (lowercased) query `longer` is among those of
 /// `shorter`: it appends letters, but no `/`, which turns the part before it

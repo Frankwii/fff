@@ -542,6 +542,27 @@ fn scans_stop_past_max_paths_without_reconciling_or_caching() {
     assert!(!d.busy(&app));
 }
 #[test]
+fn a_shallower_depth_after_truncation_lists_completely() {
+    let f = Fixture::new();
+    for i in 0..300 {
+        f.file(&format!("dir{}/file{i:03}", i % 3));
+    }
+    let mut app = f.app();
+    app.depth = 2;
+    let mut d = Discovery::new(always_refresh());
+    d.max_paths = 100;
+    d.start(&mut app, true);
+    complete(&mut d, &mut app);
+    assert!(app.truncated);
+    // Depth 1 holds three folders: the paths left from the deeper scan do not
+    // count against the limit.
+    app.depth = 1;
+    d.start(&mut app, false);
+    complete(&mut d, &mut app);
+    assert!(!app.truncated, "{}", app.status);
+    assert_eq!(app.rows.len(), 3);
+}
+#[test]
 fn a_small_tree_is_complete_after_the_first_drain() {
     let f = Fixture::new();
     for i in 0..40 {

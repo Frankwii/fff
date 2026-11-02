@@ -25,13 +25,15 @@ impl Terminal {
         Ok(guard)
     }
     /// Kitty keyboard flags, where supported: Escape and modified keys arrive
-    /// unambiguously.
+    /// unambiguously, and shifted keys as the character they type.
     fn keyboard(&mut self, on: bool) -> io::Result<()> {
         match (self.2.keyboard, on) {
             (true, true) => execute!(
                 self.0.backend_mut(),
                 PushKeyboardEnhancementFlags(
-                    Flags::DISAMBIGUATE_ESCAPE_CODES | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                    Flags::DISAMBIGUATE_ESCAPE_CODES
+                        | Flags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                        | Flags::REPORT_ALTERNATE_KEYS
                 )
             ),
             (true, false) => execute!(self.0.backend_mut(), PopKeyboardEnhancementFlags),
@@ -265,7 +267,7 @@ impl Input {
             while !stopped.load(Ordering::Relaxed) {
                 let event = match event::poll(Duration::from_millis(20)) {
                     Ok(false) => continue,
-                    Ok(true) => event::read(),
+                    Ok(true) => event::read().map(shifted),
                     Err(error) => Err(error),
                 };
                 let failed = event.is_err();
@@ -312,4 +314,37 @@ impl Drop for Input {
         // The events left unread are gone with the queue.
         self.waiting.store(0, std::sync::atomic::Ordering::Relaxed);
     }
+}
+
+/// Without alternate keys, the kitty protocol reports Shift+a as `a` with
+/// Shift: make it the `A` other terminals send, so it types and binds alike.
+fn shifted(event: Event) -> Event {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    match event {
+        Event::Key(mut key) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            if let KeyCode::Char(c) = key.code {
+                key.code = KeyCode::Char(c.to_ascii_uppercase());
+            }
+            Event::Key(key)
+        }
+        event => event,
+    }
+}
+#[cfg(test)]
+#[test]
+fn shift_with_a_lowercase_letter_types_it_uppercase() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let key = |c, m| Event::Key(KeyEvent::new(KeyCode::Char(c), m));
+    assert_eq!(
+        shifted(key('a', KeyModifiers::SHIFT)),
+        key('A', KeyModifiers::SHIFT)
+    );
+    assert_eq!(
+        shifted(key('a', KeyModifiers::NONE)),
+        key('a', KeyModifiers::NONE)
+    );
+    assert_eq!(
+        shifted(key('é', KeyModifiers::SHIFT)),
+        key('é', KeyModifiers::SHIFT)
+    );
 }

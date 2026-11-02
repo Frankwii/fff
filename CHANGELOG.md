@@ -30,6 +30,20 @@ history.
 
 ### Fixed
 
+- **Capitals and shifted symbols type correctly in kitty, foot, ghostty and
+  WezTerm.** With the kitty keyboard protocol, Shift+a reached every text
+  field as `a` (and `:` as `;`), so names, commands and `ZZ` could not be
+  typed.
+- **Pasting into the gx/gX command prompt works**; the text was dropped.
+- **Lowering the depth after `max_paths` stopped a scan lists the shallower
+  results completely**, instead of stopping again at once and showing
+  deleted files until F5.
+- A change on disk noticed just as you left a folder no longer lets fff show
+  the old listing as current when you come back.
+- The chosen Alt+g suggestion stays visible on short terminals, and editing
+  the typed path from Neovim's command line clears the choice, so Enter
+  never goes to a row you cannot see.
+- Greek queries with Σ, σ or ς match names ending in a capital Σ.
 - **The first "Show in folder" of a session works.** When the desktop started
   fff to answer it, that call was lost and the asking program waited 25
   seconds for nothing; only later calls opened fff.
@@ -38,6 +52,13 @@ history.
 - Tab after a bare `~` in the gx/gX prompt completes inside the home folder
   instead of turning it into a relative path.
 - A `file://` URI with `%+5`-style escapes is no longer decoded as a byte.
+- **Read-only folders can be copied, deleted and overwritten.** A folder
+  without write permission for its owner (mode 555, say) failed with
+  "Permission denied" where `cp -r` and `rm -r` succeed; the copy keeps the
+  folder's mode.
+- Extraction refuses archive entry names containing C1 control characters
+  such as U+009B, which a terminal reads like Escape, as it already did for
+  other control characters.
 - **Renaming many entries no longer quits fff.** Saving a rename list larger
   than about 64 KiB (thousands of rows, as in a deep `fff pick` or
   `fff seek`) ended the session with "Neovim stopped: Neovim RPC

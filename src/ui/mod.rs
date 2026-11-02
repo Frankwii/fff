@@ -538,6 +538,14 @@ fn session(
                         app.offset = 0;
                         app.refresh();
                     }
+                    Focus::Command(prompt) => paste(
+                        &mut prompt.text,
+                        &text,
+                        field,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    ),
                     Focus::Operation(draft) => paste(
                         &mut draft.text,
                         &text,
@@ -944,15 +952,21 @@ fn session(
                         &mut app.status,
                     )
                 }
-                Focus::Location(location) => edit(
-                    &mut location.text,
-                    key,
-                    false,
-                    Field::Location,
-                    &mut editor,
-                    &mut app.edit_view,
-                    &mut app.status,
-                ),
+                Focus::Location(location) => {
+                    let before = location.text.clone();
+                    edit(
+                        &mut location.text,
+                        key,
+                        false,
+                        Field::Location,
+                        &mut editor,
+                        &mut app.edit_view,
+                        &mut app.status,
+                    );
+                    if location.text != before {
+                        location.selected = None;
+                    }
+                }
                 Focus::Bookmarks { query, index } => {
                     edit(
                         query,

@@ -30,8 +30,11 @@ pub struct Scan {
     /// The walker finished (with whether the directory is empty); applied
     /// once the rows reflect everything it delivered.
     done: Option<bool>,
-    /// `[performance] max_paths`: the scan stops once more paths are known.
+    /// `[performance] max_paths`: the scan stops once it found more paths.
     pub max_paths: usize,
+    /// Paths this scan delivered. Known paths left from an earlier scan, say
+    /// a truncated deeper one, do not count against `max_paths`.
+    found: usize,
     /// Input events waiting: taking discoveries and merging stop for them.
     input: Option<Arc<AtomicUsize>>,
     /// Minimum time between re-sorts while results stream in (zero: every drain).
@@ -88,6 +91,7 @@ impl Scan {
             completed: false,
             done: None,
             max_paths: usize::MAX,
+            found: 0,
             input: None,
             refresh_every: Duration::ZERO,
             last_refresh: None,
@@ -144,10 +148,12 @@ impl Scan {
             changed = true;
             match event {
                 Event::Found(g, c) if g == app.generation => {
+                    self.found += 1;
                     app.insert(g, c);
                     self.pending = true;
                 }
                 Event::Batch(g, batch) if g == app.generation => {
+                    self.found += batch.len();
                     for c in batch {
                         app.insert(g, c);
                     }
@@ -163,7 +169,7 @@ impl Scan {
                 }
                 _ => {}
             }
-            if app.known.len() > self.max_paths {
+            if self.found > self.max_paths {
                 self.truncate(app);
             }
         }
@@ -359,6 +365,8 @@ impl Discovery {
         let key = crate::cache::Key::of(app);
         self.cache.invalidate(&key);
         self.prefetch.invalidate(&key);
+        // A checkpoint before the rescan must not store the old rows as verified.
+        self.verified_at = None;
         self.refresh_at = Some(Instant::now());
     }
     /// Preserve the verification age: navigation/query changes do not renew it.
@@ -585,6 +593,7 @@ mod tests {
             completed: false,
             done: None,
             max_paths: usize::MAX,
+            found: 0,
             input: None,
             refresh_every: Duration::ZERO,
             last_refresh: None,
