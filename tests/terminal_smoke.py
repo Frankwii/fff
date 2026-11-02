@@ -964,6 +964,13 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b2", "press Enter on it")  # Alt+2: the same
         s.send(b"q")
         self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        # An open (attach) dialog says the same, with "choose".
+        s = self.session = Session(self.root, "explorer", "--depth", "1",
+                                   implicit_root=True, output_paths=False)
+        s.send(b"l", "Files do not open here. To choose this one, press Enter on it")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (130, b""))
 
     def test_explorer_double_click_is_enter_on_the_row(self):
         (self.root / "alpha").mkdir()

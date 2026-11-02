@@ -22,9 +22,9 @@ pub enum ScopedAction {
 /// l, Alt+l and Alt+number on a file: its opener in the background (a
 /// terminal opener in a new terminal window), while fff keeps the keyboard.
 pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
-    // A dialog chooses files rather than opening them.
-    if let Some(dialog) = &app.dialog {
-        app.status = dialog.file_hint().into();
+    // Open and save dialogs choose files rather than opening them.
+    if let Some(hint) = app.dialog.as_ref().and_then(|d| d.file_hint()) {
+        app.status = hint.into();
         return;
     }
     let name = path

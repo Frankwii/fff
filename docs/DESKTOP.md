@@ -240,7 +240,7 @@ differs:
 | Ctrl+w | Chooses the marks. |
 | Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving. |
 | Double click | Enter on that row, as Ctrl+number (a normal session acts like `l`). |
-| `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. On a file they open nothing (a dialog chooses files): the status line says to press Enter on it or Ctrl+number on its row (to choose it, or when saving to replace it), or in a folder dialog to press `!` or Ctrl+s. |
+| `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says to press Enter on it or Ctrl+number on its row, to choose it or, when saving, to replace it. In folder dialogs a file opens in the background, as in a normal session. |
 | `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |
 
 File operations (move, copy, delete, rename, new file or folder, extract)
