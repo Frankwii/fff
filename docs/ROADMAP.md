@@ -12,6 +12,7 @@ not implemented features or commitments:
   directory that was being browsed last, instead of always jumping there.
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
   cancel safely within the staged-operation guarantees.
+- Mouse-only use, planned for 0.7.0 (below).
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
   list, choosers and tab strip; dragging past the pane's edge scrolling the
@@ -24,6 +25,24 @@ not implemented features or commitments:
 
 There is deliberately no preview pane: see [design
 choices](DEVELOPMENT.md#design-choices).
+
+## Mouse-only use
+
+Planned for 0.7.0, before it is published: everything needed to pick files and
+leave fff with the mouse alone, as when it opens as the desktop's file manager
+or a file picker. fff stays keyboard-first: the buttons are hidden until the
+mouse is used in the session (the first click, drag or wheel step), so
+keyboard-only sessions look exactly as today.
+
+- **Buttons on demand.** Once the mouse has been used, a small row of buttons
+  appears, for example "Go back" (parent directory, or Ctrl+o's history),
+  "Select & Exit" (return the marked or highlighted paths, like Ctrl+w or
+  Enter) and "Cancel", plus whatever else mouse-only use turns out to need
+  (tabs, hidden entries, depth).
+- **Keyboard actions unchanged.** Each button does exactly what its key does,
+  so output, confirmation and directory-change rules stay the same.
+- **Out of the way.** The buttons take a row only while shown; a setting could
+  keep them always on or always off.
 
 ## Desktop file manager
 
