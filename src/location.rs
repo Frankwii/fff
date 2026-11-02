@@ -170,8 +170,13 @@ impl Location {
                     .collect()
             }),
         };
-        let kept = self.text.len() - prefix.len().min(self.text.len());
-        self.text = format!("{}{completion}", &self.text[..kept]);
+        // Path drops a trailing `/.`, so the name is not always what the text
+        // ends with; then complete after the text as typed.
+        let kept = self
+            .text
+            .strip_suffix(prefix.as_str())
+            .unwrap_or(&self.text);
+        self.text = format!("{kept}{completion}");
         self.selected = None;
     }
 }

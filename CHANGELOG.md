@@ -67,6 +67,8 @@ responsive while they load and re-rank.
   finishes within about a frame is shown only once it has, so the label and
   the flicker are left to listings that really take a while. Quiet rescans
   after live updates no longer flash the label either.
+- Tab in the Alt+g prompt no longer crashes on a path ending in `/.` after
+  a name with accented letters.
 
 ## 0.9.0 — 2026-11-02
 

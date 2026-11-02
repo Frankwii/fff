@@ -1036,7 +1036,9 @@ fn matched_letters(
     if matcher.score(&basename).is_none() {
         return HashSet::new();
     }
-    let first = label[..start.min(label.len())].chars().count();
+    // `start` is a byte offset that may fall inside the `…` of an elided
+    // label: count the characters before it rather than slicing there.
+    let first = label.char_indices().take_while(|&(i, _)| i < start).count();
     let letters: Vec<char> = query.to_lowercase().chars().collect();
     let name: String = label.chars().skip(first).collect();
     crate::greedy(&letters, &name)

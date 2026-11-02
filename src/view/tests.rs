@@ -1306,3 +1306,27 @@ fn marks_and_chooser_rows_record_where_they_were_drawn() {
         assert!(line.contains(&app.palettes[*i].0), "{line}");
     }
 }
+#[test]
+fn long_names_elided_to_fit_still_highlight_without_panicking() {
+    let mut app = App::browse("/fixture".into(), 2, crate::Policy::default());
+    let name = "deps/libfuzzy_file_finder-0123456789abcdef0123456789abcdef.rlib";
+    app.insert(
+        0,
+        Candidate {
+            path: app.cwd.join(name),
+            directory: false,
+            depth: 2,
+            root: 0,
+        },
+    );
+    app.scanning = false;
+    // Any width that cuts into the name, with and without a query.
+    for query in ["", "rlib", "deps/rlib"] {
+        app.query = query.into();
+        app.refresh();
+        for width in 40..200 {
+            let (screen, targets) = draw(&mut app, width, 12);
+            assert_eq!(targets.len(), 1, "{query:?} at {width}:\n{screen}");
+        }
+    }
+}
