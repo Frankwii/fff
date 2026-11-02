@@ -316,14 +316,20 @@ impl Drop for Input {
     }
 }
 
-/// Without alternate keys, the kitty protocol reports Shift+a as `a` with
-/// Shift: make it the `A` other terminals send, so it types and binds alike.
+/// Shifted letters arrive as legacy terminals send them, an uppercase
+/// letter with Shift, so they type and bind alike: without alternate keys the
+/// kitty protocol reports Shift+a as `a` with Shift, and with them as `A`
+/// without it.
 fn shifted(event: Event) -> Event {
     use crossterm::event::{KeyCode, KeyModifiers};
     match event {
-        Event::Key(mut key) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+        Event::Key(mut key) => {
             if let KeyCode::Char(c) = key.code {
-                key.code = KeyCode::Char(c.to_ascii_uppercase());
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    key.code = KeyCode::Char(c.to_ascii_uppercase());
+                } else if c.is_uppercase() {
+                    key.modifiers |= KeyModifiers::SHIFT;
+                }
             }
             Event::Key(key)
         }
@@ -332,19 +338,17 @@ fn shifted(event: Event) -> Event {
 }
 #[cfg(test)]
 #[test]
-fn shift_with_a_lowercase_letter_types_it_uppercase() {
+fn shifted_letters_arrive_uppercase_with_shift() {
     use crossterm::event::{KeyCode, KeyModifiers};
     let key = |c, m| Event::Key(KeyEvent::new(KeyCode::Char(c), m));
+    let shift = KeyModifiers::SHIFT;
+    assert_eq!(shifted(key('a', shift)), key('A', shift));
+    assert_eq!(shifted(key('A', KeyModifiers::NONE)), key('A', shift));
     assert_eq!(
-        shifted(key('a', KeyModifiers::SHIFT)),
-        key('A', KeyModifiers::SHIFT)
+        shifted(key('P', KeyModifiers::ALT)),
+        key('P', KeyModifiers::ALT | shift)
     );
-    assert_eq!(
-        shifted(key('a', KeyModifiers::NONE)),
-        key('a', KeyModifiers::NONE)
-    );
-    assert_eq!(
-        shifted(key('é', KeyModifiers::SHIFT)),
-        key('é', KeyModifiers::SHIFT)
-    );
+    let plain = KeyModifiers::NONE;
+    assert_eq!(shifted(key('a', plain)), key('a', plain));
+    assert_eq!(shifted(key('!', plain)), key('!', plain));
 }
