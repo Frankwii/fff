@@ -23,7 +23,7 @@ pub enum ListAction {
     MarkAll,
     /// Toggle the mark of every listed row.
     InvertMarks,
-    /// Return the invocation directory and exit.
+    /// Exit choosing nothing: no output, no directory change.
     Quit,
     /// Return the current browsing directory and exit.
     QuitCurrent,

@@ -364,9 +364,6 @@ fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
     Span::styled(format!(" {} ", text.into()), Style::default().fg(fg).bg(bg))
 }
 
-/// `1 2 3` in the results' top-right corner. The active tab wears the "@"
-/// badge's colors: it is the tab showing the current directory. None
-/// in `fff seek`, which cannot change directory.
 /// Each tab number's cell in the strip `tab_strip` draws right-aligned in the
 /// top border of `area`: a space, three-column numbers, a space, the corner.
 fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
@@ -379,6 +376,9 @@ fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
         .map(|i| (Rect::new(start + 3 * i as u16, area.y, 3, 1), i))
         .collect()
 }
+/// `1 2 3` in the results' top-right corner. The active tab wears the "@"
+/// badge's colors: it is the tab showing the current directory. None
+/// in `fff seek`, which cannot change directory.
 fn tab_strip(app: &App) -> Line<'static> {
     let theme = app.palette;
     if app.no_dir {

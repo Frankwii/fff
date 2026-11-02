@@ -2,7 +2,7 @@ use crate::{
     App, EnterOutcome,
     bookmarks::{Change as BookmarkChange, Draft as BookmarkDraft, EditField as BookmarkField},
     discovery::Discovery,
-    editor::{EditView, Field, Nvim},
+    editor::{Field, Nvim},
     normal_keys::{ListAction, Step},
 };
 use crossterm::{
@@ -348,10 +348,7 @@ fn session(
             editor_directory = app.cwd.clone();
             warn_stranded(app);
             // Carry the initiating field's editing mode into the new location.
-            {
-                let e = &mut editor;
-                e.reset_preserving_mode(Field::Query);
-            }
+            editor.reset_preserving_mode(Field::Query);
         }
         if let Some(view) = app.edit_view.as_ref()
             && view.closed
@@ -391,13 +388,10 @@ fn session(
         if let Some(error) = editor.broken() {
             return Err(io::Error::other(format!("Neovim stopped: {error}")));
         }
-        if let Some((field, text)) = text_field(app, &focus) {
-            {
-                let e = &mut editor;
-                match e.activate(field, &text) {
-                    Ok(view) => app.edit_view = Some(view),
-                    Err(error) => e.break_with(error),
-                }
+        if let Some((field, text)) = text_field(app, &mut focus) {
+            match editor.activate(field, &text) {
+                Ok(view) => app.edit_view = Some(view),
+                Err(error) => editor.break_with(error),
             }
         } else {
             app.edit_view = None;
@@ -554,115 +548,7 @@ fn session(
                 transfer(app, &mut discovery, &mut focus, copy, paths, true);
                 continue;
             }
-            let field = text_field(app, &focus).map(|(field, _)| field);
-            if let Some(field) = field {
-                let text = if matches!(field, Field::Exclusions | Field::Filters | Field::Operation)
-                {
-                    text
-                } else {
-                    text.replace(['\r', '\n'], " ")
-                };
-                match &mut focus {
-                    Focus::Results => {
-                        paste(
-                            &mut app.query,
-                            &text,
-                            field,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        app.offset = 0;
-                        app.refresh();
-                    }
-                    Focus::Command(prompt) => paste(
-                        &mut prompt.text,
-                        &text,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    ),
-                    Focus::Operation(draft) => paste(
-                        &mut draft.text,
-                        &text,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    ),
-                    Focus::Location(location) => {
-                        location.selected = None;
-                        paste(
-                            &mut location.text,
-                            &text,
-                            field,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        )
-                    }
-                    Focus::Exclusions(value) | Focus::Filters(value) => paste(
-                        value,
-                        &text,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    ),
-                    Focus::Bookmarks { query, index } => {
-                        paste(
-                            query,
-                            &text,
-                            field,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        *index = 0;
-                    }
-                    Focus::BookmarkEdit(draft) => {
-                        if let Some(field) = draft.field.editor() {
-                            let value = if draft.field == BookmarkField::Name {
-                                &mut draft.name
-                            } else {
-                                &mut draft.path
-                            };
-                            paste(
-                                value,
-                                &text,
-                                field,
-                                &mut editor,
-                                &mut app.edit_view,
-                                &mut app.status,
-                            );
-                        }
-                    }
-                    Focus::BookmarkIcons { query, index, .. } => {
-                        paste(
-                            query,
-                            &text,
-                            Field::BookmarkIcons,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        *index = 0;
-                    }
-                    Focus::Palettes { query, index, .. } => {
-                        paste(
-                            query,
-                            &text,
-                            field,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        *index = 0;
-                    }
-                    _ => {}
-                }
-            }
+            paste_text(app, &mut focus, &mut editor, &text);
             continue;
         }
         // Enter on a row the user pointed at (a double click, Ctrl+number),
@@ -916,10 +802,7 @@ fn session(
                                     .iter()
                                     .position(|p| Some(p) == app.highlight.as_ref())
                                     .unwrap_or(0);
-                                {
-                                    let e = &mut editor;
-                                    e.reset_at_row(Field::Operation, row);
-                                }
+                                editor.reset_at_row(Field::Operation, row);
                                 focus = Focus::Operation(crate::operations::Draft {
                                     kind: crate::operations::EditKind::Rename(sources),
                                     cwd: app.cwd.clone(),
@@ -950,126 +833,7 @@ fn session(
                 || (v.command() && !key.modifiers.intersects(M::ALT | M::CONTROL))
         });
         if capture {
-            match &mut focus {
-                Focus::Results => {
-                    edit(
-                        &mut app.query,
-                        key,
-                        false,
-                        Field::Query,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    app.refresh();
-                }
-                Focus::Exclusions(value) => edit(
-                    value,
-                    key,
-                    true,
-                    Field::Exclusions,
-                    &mut editor,
-                    &mut app.edit_view,
-                    &mut app.status,
-                ),
-                Focus::Filters(value) => edit(
-                    value,
-                    key,
-                    true,
-                    Field::Filters,
-                    &mut editor,
-                    &mut app.edit_view,
-                    &mut app.status,
-                ),
-                Focus::Operation(draft) => {
-                    let (field, multiline) = (draft.field(), draft.multiline());
-                    edit(
-                        &mut draft.text,
-                        key,
-                        multiline,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    )
-                }
-                Focus::Location(location) => {
-                    let before = location.text.clone();
-                    edit(
-                        &mut location.text,
-                        key,
-                        false,
-                        Field::Location,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    if location.text != before {
-                        location.selected = None;
-                    }
-                }
-                Focus::Bookmarks { query, index } => {
-                    edit(
-                        query,
-                        key,
-                        false,
-                        Field::Bookmarks,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    *index = 0;
-                }
-                Focus::BookmarkEdit(draft) => {
-                    if let Some(field) = draft.field.editor() {
-                        let text = if draft.field == BookmarkField::Name {
-                            &mut draft.name
-                        } else {
-                            &mut draft.path
-                        };
-                        edit(
-                            text,
-                            key,
-                            false,
-                            field,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                    }
-                }
-                Focus::BookmarkIcons { query, index, .. } => {
-                    let before = query.clone();
-                    edit(
-                        query,
-                        key,
-                        false,
-                        Field::BookmarkIcons,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    if *query != before {
-                        *index = 0;
-                    }
-                }
-                Focus::Palettes { query, index, .. } => {
-                    let before = query.clone();
-                    edit(
-                        query,
-                        key,
-                        false,
-                        Field::Palettes,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    if *query != before {
-                        *index = 0;
-                    }
-                }
-                _ => {}
-            }
+            deliver(app, &mut focus, &mut editor, key);
             continue;
         }
         // Ctrl+number: Enter on that row, as if it were highlighted first
@@ -1166,11 +930,8 @@ fn session(
             if let Some(next) = next {
                 match next {
                     Ok(draft) => {
-                        {
-                            let e = &mut editor;
-                            e.reset(Field::BookmarkName);
-                            e.reset(Field::BookmarkPath);
-                        }
+                        editor.reset(Field::BookmarkName);
+                        editor.reset(Field::BookmarkPath);
                         focus = Focus::BookmarkEdit(draft);
                     }
                     Err(error) => app.status = error,
@@ -1218,10 +979,7 @@ fn session(
                 match app.bookmark_store.reload() {
                     Ok(bookmarks) => {
                         app.bookmarks = bookmarks;
-                        {
-                            let e = &mut editor;
-                            e.reset(Field::Bookmarks);
-                        }
+                        editor.reset(Field::Bookmarks);
                         focus = Focus::Bookmarks {
                             query: String::new(),
                             index: 0,
@@ -1244,11 +1002,6 @@ fn session(
             discovery.checkpoint(app);
         }
         let palette = palette_key(key);
-        let glob_field = if matches!(focus, Focus::Filters(_)) {
-            Field::Filters
-        } else {
-            Field::Exclusions
-        };
         match &mut focus {
             Focus::Replace(target) => match key.code {
                 K::Enter => return Ok(Finish::Paths(vec![target.clone()])),
@@ -1263,10 +1016,7 @@ fn session(
             },
             Focus::NewChoice => match key.code {
                 K::Char('f' | 'd') => {
-                    {
-                        let e = &mut editor;
-                        e.reset_insert(Field::FileName);
-                    }
+                    editor.reset_insert(Field::FileName);
                     focus = Focus::Operation(crate::operations::Draft {
                         kind: crate::operations::EditKind::New(key.code == K::Char('d')),
                         cwd: app.cwd.clone(),
@@ -1393,16 +1143,7 @@ fn session(
                         Err(e) => app.status = e,
                     }
                 } else {
-                    let (field, multiline) = (draft.field(), draft.multiline());
-                    edit(
-                        &mut draft.text,
-                        key,
-                        multiline,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
+                    deliver(app, &mut focus, &mut editor, key);
                 }
             }
             Focus::Palettes {
@@ -1446,17 +1187,8 @@ fn session(
                     K::PageDown => (*index + page).min(last),
                     K::PageUp => index.saturating_sub(page),
                     _ => {
-                        let before = query.clone();
-                        edit(
-                            query,
-                            key,
-                            false,
-                            Field::Palettes,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        if *query == before { *index } else { 0 }
+                        deliver(app, &mut focus, &mut editor, key);
+                        continue;
                     }
                 };
                 *index = moved;
@@ -1479,21 +1211,7 @@ fn session(
                             focus = Focus::Results;
                         }
                     }
-                    _ => {
-                        let before = query.clone();
-                        edit(
-                            query,
-                            key,
-                            false,
-                            Field::Bookmarks,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        if *query != before {
-                            *index = 0;
-                        }
-                    }
+                    _ => deliver(app, &mut focus, &mut editor, key),
                 }
             }
             Focus::BookmarkEdit(draft) => {
@@ -1515,30 +1233,14 @@ fn session(
                         .iter()
                         .position(|(_, glyph)| glyph.map(|g| g.to_string()) == draft.icon)
                         .unwrap_or(0);
-                    {
-                        let e = &mut editor;
-                        e.reset(Field::BookmarkIcons);
-                    }
+                    editor.reset(Field::BookmarkIcons);
                     focus = Focus::BookmarkIcons {
                         draft: draft.clone(),
                         query: String::new(),
                         index,
                     };
-                } else if let Some(field) = draft.field.editor() {
-                    let text = if draft.field == BookmarkField::Name {
-                        &mut draft.name
-                    } else {
-                        &mut draft.path
-                    };
-                    edit(
-                        text,
-                        key,
-                        false,
-                        field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
+                } else {
+                    deliver(app, &mut focus, &mut editor, key);
                 }
             }
             Focus::BookmarkIcons {
@@ -1563,21 +1265,7 @@ fn session(
                     }
                     K::PageDown => *index = (*index + page).min(matches.len().saturating_sub(1)),
                     K::PageUp => *index = index.saturating_sub(page),
-                    _ => {
-                        let before = query.clone();
-                        edit(
-                            query,
-                            key,
-                            false,
-                            Field::BookmarkIcons,
-                            &mut editor,
-                            &mut app.edit_view,
-                            &mut app.status,
-                        );
-                        if *query != before {
-                            *index = 0;
-                        }
-                    }
+                    _ => deliver(app, &mut focus, &mut editor, key),
                 }
             }
             Focus::BookmarkDelete {
@@ -1619,19 +1307,11 @@ fn session(
                 K::PageUp => *offset = offset.saturating_sub(page),
                 _ => {}
             },
-            Focus::Exclusions(text) | Focus::Filters(text) => {
+            Focus::Exclusions(_) | Focus::Filters(_) => {
                 if key.code == K::Esc {
                     focus = Focus::Results;
                 } else {
-                    edit(
-                        text,
-                        key,
-                        true,
-                        glob_field,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
+                    deliver(app, &mut focus, &mut editor, key);
                 }
             }
             Focus::Command(prompt) => {
@@ -1649,20 +1329,9 @@ fn session(
                 } else if key.code == K::Tab {
                     prompt.complete(&app.cwd, app.home.as_deref());
                     // Hand the completed line back to Neovim, still typing.
-                    {
-                        let e = &mut editor;
-                        e.reset_preserving_mode(Field::Command);
-                    }
+                    editor.reset_preserving_mode(Field::Command);
                 } else {
-                    edit(
-                        &mut prompt.text,
-                        key,
-                        false,
-                        Field::Command,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
+                    deliver(app, &mut focus, &mut editor, key);
                 }
             }
             Focus::RunConfirm(plan) => match key.code {
@@ -1698,24 +1367,9 @@ fn session(
                     location.choose(key.code == K::Down);
                 } else if key.code == K::Tab {
                     location.complete(&app.cwd, app.home.as_deref());
-                    {
-                        let e = &mut editor;
-                        e.reset_preserving_mode(Field::Location);
-                    }
+                    editor.reset_preserving_mode(Field::Location);
                 } else {
-                    let before = location.text.clone();
-                    edit(
-                        &mut location.text,
-                        key,
-                        false,
-                        Field::Location,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    if location.text != before {
-                        location.selected = None;
-                    }
+                    deliver(app, &mut focus, &mut editor, key);
                 }
             }
             Focus::Marks { rows, index } => {
@@ -1839,10 +1493,7 @@ fn session(
                         .collect::<Vec<_>>();
                     let frequent = crate::location::zoxide(&app.cwd);
                     // It exists for typing, like the run prompt.
-                    {
-                        let e = &mut editor;
-                        e.reset_insert(Field::Location);
-                    }
+                    editor.reset_insert(Field::Location);
                     focus = Focus::Location(crate::location::Location::new(
                         &bookmarks, frequent, &app.cwd,
                     ));
@@ -2004,22 +1655,7 @@ fn session(
                         },
                     }
                 }
-                _ => {
-                    let before = app.query.clone();
-                    edit(
-                        &mut app.query,
-                        key,
-                        false,
-                        Field::Query,
-                        &mut editor,
-                        &mut app.edit_view,
-                        &mut app.status,
-                    );
-                    if app.query != before {
-                        app.offset = 0;
-                        app.refresh();
-                    }
-                }
+                _ => deliver(app, &mut focus, &mut editor, key),
             },
         }
     }

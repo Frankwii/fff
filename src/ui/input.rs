@@ -126,7 +126,7 @@ impl PalettePreview {
 }
 /// Opt-in hook for Normal-mode list keys: the actions a list view supports.
 /// Unsupported actions behave as unbound, so their keys still reach Neovim.
-/// Each list view has an arm here, in `jump_to_end` and in `deliver`;
+/// Each list view has an arm here, in `jump_to_end` and in `focused_text`;
 /// actions with an `alt_key` are replayed as the view's own chord handling.
 pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
     use ListAction::*;
@@ -305,69 +305,91 @@ pub(super) fn normal_list_key(
         }
     }
 }
-/// Replay an unmatched sequence prefix into its original text field.
-pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: KeyEvent) {
-    let (text, field) = match focus {
-        Focus::Results => (&mut app.query, Field::Query),
-        Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
-        Focus::Palettes { query, .. } => (query, Field::Palettes),
+/// The text `focus` edits in Neovim, and its field; `query` is the results'
+/// query, which lives outside the focus. `None` where nothing is typed.
+fn focused_text<'a>(
+    focus: &'a mut Focus,
+    query: &'a mut String,
+) -> Option<(&'a mut String, Field)> {
+    Some(match focus {
+        Focus::Results => (query, Field::Query),
+        Focus::Location(location) => (&mut location.text, Field::Location),
+        Focus::Command(prompt) => (&mut prompt.text, Field::Command),
         Focus::Exclusions(text) => (text, Field::Exclusions),
         Focus::Filters(text) => (text, Field::Filters),
         Focus::Operation(draft) => {
             let field = draft.field();
             (&mut draft.text, field)
         }
+        Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
         Focus::BookmarkIcons { query, .. } => (query, Field::BookmarkIcons),
         Focus::BookmarkEdit(draft) => match draft.field {
             BookmarkField::Name => (&mut draft.name, Field::BookmarkName),
             BookmarkField::Path => (&mut draft.path, Field::BookmarkPath),
-            BookmarkField::Icon => return,
+            BookmarkField::Icon => return None,
         },
-        _ => return,
-    };
-    let before = text.clone();
-    edit(
-        text,
-        key,
-        matches!(field, Field::Exclusions | Field::Filters | Field::Operation),
-        field,
-        editor,
-        &mut app.edit_view,
-        &mut app.status,
-    );
-    if *text != before {
-        match focus {
-            Focus::Bookmarks { index, .. } => *index = 0,
-            Focus::Palettes { index, .. } => *index = 0,
-            Focus::BookmarkIcons { index, .. } => *index = 0,
-            Focus::BookmarkEdit(_)
-            | Focus::Exclusions(_)
-            | Focus::Filters(_)
-            | Focus::Operation(_) => {}
-            _ => {
-                app.offset = 0;
-                app.refresh();
-            }
+        Focus::Palettes { query, .. } => (query, Field::Palettes),
+        _ => return None,
+    })
+}
+/// The focused field and a copy of its text, for activating it in Neovim.
+pub(super) fn text_field(app: &mut App, focus: &mut Focus) -> Option<(Field, String)> {
+    focused_text(focus, &mut app.query).map(|(text, field)| (field, text.clone()))
+}
+/// The focused text changed: filtered lists go back to their first row, the
+/// go-to prompt's chosen suggestion is dropped, and the results follow the query.
+fn text_changed(app: &mut App, focus: &mut Focus) {
+    match focus {
+        Focus::Results => {
+            app.offset = 0;
+            app.refresh();
         }
+        Focus::Bookmarks { index, .. }
+        | Focus::BookmarkIcons { index, .. }
+        | Focus::Palettes { index, .. } => *index = 0,
+        Focus::Location(location) => location.selected = None,
+        _ => {}
     }
 }
-pub(super) fn text_field(app: &App, focus: &Focus) -> Option<(Field, String)> {
-    match focus {
-        Focus::Results => Some((Field::Query, app.query.clone())),
-        Focus::Location(location) => Some((Field::Location, location.text.clone())),
-        Focus::Command(prompt) => Some((Field::Command, prompt.text.clone())),
-        Focus::Exclusions(text) => Some((Field::Exclusions, text.clone())),
-        Focus::Filters(text) => Some((Field::Filters, text.clone())),
-        Focus::Operation(draft) => Some((draft.field(), draft.text.clone())),
-        Focus::Bookmarks { query, .. } => Some((Field::Bookmarks, query.clone())),
-        Focus::BookmarkIcons { query, .. } => Some((Field::BookmarkIcons, query.clone())),
-        Focus::BookmarkEdit(draft) => match draft.field {
-            BookmarkField::Name => Some((Field::BookmarkName, draft.name.clone())),
-            BookmarkField::Path => Some((Field::BookmarkPath, draft.path.clone())),
-            BookmarkField::Icon => None,
-        },
-        Focus::Palettes { query, .. } => Some((Field::Palettes, query.clone())),
-        _ => None,
+/// Type `key` into the focused text field (also to replay an unmatched
+/// sequence prefix there).
+pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: KeyEvent) {
+    let Some((text, field)) = focused_text(focus, &mut app.query) else {
+        return;
+    };
+    let before = text.clone();
+    match editor.input(field, key) {
+        Ok((updated, state)) => {
+            *text = updated;
+            app.edit_view = Some(state);
+        }
+        Err(error) => editor.break_with(error),
+    }
+    if *text != before {
+        text_changed(app, focus);
+    }
+}
+/// Paste into the focused text field. Single-line fields take line breaks
+/// as spaces.
+pub(super) fn paste_text(app: &mut App, focus: &mut Focus, editor: &mut Nvim, pasted: &str) {
+    let Some((text, field)) = focused_text(focus, &mut app.query) else {
+        return;
+    };
+    let pasted = if matches!(field, Field::Exclusions | Field::Filters | Field::Operation) {
+        pasted.to_owned()
+    } else {
+        pasted.replace(['\r', '\n'], " ")
+    };
+    let before = text.clone();
+    match editor.paste(field, &pasted) {
+        Ok((updated, state)) => {
+            *text = updated;
+            app.edit_view = Some(state);
+        }
+        Err(error) => editor.break_with(error),
+    }
+    if *text != before {
+        text_changed(app, focus);
     }
 }
 /// Starts the embedded Neovim every text field uses; fff needs it.
@@ -377,37 +399,4 @@ pub fn start_editor(program: &str) -> io::Result<Nvim> {
             "fff needs Neovim ({program}) for its text fields: {error}"
         ))
     })
-}
-pub(super) fn edit(
-    text: &mut String,
-    key: KeyEvent,
-    _multiline: bool,
-    field: Field,
-    editor: &mut Nvim,
-    view: &mut Option<EditView>,
-    _status: &mut String,
-) {
-    match editor.input(field, key) {
-        Ok((updated, state)) => {
-            *text = updated;
-            *view = Some(state);
-        }
-        Err(error) => editor.break_with(error),
-    }
-}
-pub(super) fn paste(
-    text: &mut String,
-    value: &str,
-    field: Field,
-    editor: &mut Nvim,
-    view: &mut Option<EditView>,
-    _status: &mut String,
-) {
-    match editor.paste(field, value) {
-        Ok((updated, state)) => {
-            *text = updated;
-            *view = Some(state);
-        }
-        Err(error) => editor.break_with(error),
-    }
 }

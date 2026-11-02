@@ -81,6 +81,10 @@ history.
   field as `a` (and `:` as `;`), so names, commands and `ZZ` could not be
   typed.
 - **Pasting into the gx/gX command prompt works**; the text was dropped.
+- **Escape leaves Insert mode in the gx/gX command prompt**, and Escape again
+  cancels it. Escape was swallowed there, so it could not cancel the prompt.
+- Escape leaving Insert mode in the bookmark chooser keeps the highlighted
+  bookmark instead of jumping to the first one.
 - **Lowering the depth after `max_paths` stopped a scan lists the shallower
   results completely**, instead of stopping again at once and showing
   deleted files until F5.

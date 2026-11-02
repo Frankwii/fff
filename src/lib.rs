@@ -369,8 +369,6 @@ fn eligible(depth: usize, scope: &[PathBuf], cwd: &Path, policy: &Policy, c: &Ca
     }
     c.path != cwd && c.path.strip_prefix(root).is_ok_and(|p| policy.allows(p))
 }
-/// Whether an eligible `c` passes `fff seek` (files only) and the file
-/// filters, which hide directories whenever any is set.
 /// Which kinds of entry the results list.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kinds {
@@ -387,6 +385,8 @@ impl Kinds {
         if self == only { Kinds::All } else { only }
     }
 }
+/// Whether an eligible `c` is of the listed `kinds` and passes the file
+/// filters, which hide directories whenever any is set.
 fn shown(kinds: Kinds, policy: &Policy, c: &Candidate) -> bool {
     match kinds {
         Kinds::Directories => c.directory,
@@ -1004,8 +1004,7 @@ impl App {
         let forgotten = self.known.keep_stamped(generation);
         self.outdated.extend(forgotten);
     }
-    /// Rows an empty query would list: eligible, and passing `fff seek` (files only) and the
-    /// file filters, which hide directories whenever any is set.
+    /// Rows an empty query would list: eligible and `shown`.
     fn listed(&self, c: &Candidate) -> bool {
         self.eligible(c) && shown(self.listed_kinds(), &self.policy, c)
     }

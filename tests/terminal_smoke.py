@@ -2668,6 +2668,18 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_escape_leaves_insert_then_cancels_the_run_prompt(self):
+        (self.root / "alpha").write_text("a")
+        s = self.start("--no-config", implicit_root=True)
+        s.send(b"gx", "Run · INSERT")
+        s.send(b"echo\x1b[27u", "Run · NORMAL")
+        self.assertIn("❯ echo", s.screen.text)
+        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.wait_absent("Run · ")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_gX_replaces_fff_with_the_program_and_records_the_directory(self):
         sub = self.root / "sub"
         sub.mkdir()
