@@ -195,7 +195,9 @@ or change in the current directory, the results follow without F5. See
 ## Keys
 
 F1 opens the complete guide, including configured Normal-mode bindings. Its
-Session tab shows exact paths, scopes, depth, policies, palette and marks.
+Session tab shows exact paths, scopes, depth, policies, palette and marks. The
+footer's right end points to it and says how to leave: `F1 keys  q quit`
+(`Ctrl+c quit` while typing, where `q` is text).
 
 | Key | Action |
 | --- | --- |

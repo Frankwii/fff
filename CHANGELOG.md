@@ -4,6 +4,13 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Every session's footer says how to leave**: `q quit` (`Ctrl+c quit` while
+  typing) beside `F1 keys`, not only in `fff explorer`.
+
 ## 0.8.1 — 2026-11-02
 
 Folders opened from the desktop now behave like a file manager window.

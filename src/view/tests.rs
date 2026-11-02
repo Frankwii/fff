@@ -262,8 +262,9 @@ fn split_panes_colors_and_rendered_numbers() {
     );
     assert!(buffer.content().iter().any(|c| c.bg == theme.selection));
     assert!(buffer.content().iter().any(|c| c.fg == theme.accent));
-    // Keys live in the F1 guide; the footer only points to it.
-    assert!(screen.contains("F1 keys"));
+    // Keys live in the F1 guide; the footer only points to it and says how
+    // to leave, in every kind of session.
+    assert!(screen.contains("F1 keys  q quit"));
     assert!(!screen.contains("Alt+#"));
     assert!(screen.contains("[MISSING]"));
     export_preview(buffer);

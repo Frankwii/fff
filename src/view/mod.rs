@@ -1053,17 +1053,16 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     } else {
         app.highlight.as_ref()
     };
-    let mut help = vec![bold("F1", theme.accent), styled(" keys ", theme.muted)];
-    // A dialog says how to leave without choosing; q is text while typing.
-    if app.dialog.is_some() {
-        let typing = app.edit_view.as_ref().is_some_and(|v| !v.normal());
-        let quit = if typing { "Ctrl+c" } else { "q" };
-        help.extend([
-            Span::raw(" "),
-            bold(quit, theme.accent),
-            styled(" quit ", theme.muted),
-        ]);
-    }
+    // How to leave; q is text while typing.
+    let typing = app.edit_view.as_ref().is_some_and(|v| !v.normal());
+    let quit = if typing { "Ctrl+c" } else { "q" };
+    let help = vec![
+        bold("F1", theme.accent),
+        styled(" keys ", theme.muted),
+        Span::raw(" "),
+        bold(quit, theme.accent),
+        styled(" quit ", theme.muted),
+    ];
     let help_width = help.iter().map(|s| s.width()).sum::<usize>();
     let available = (area.width as usize).saturating_sub(help_width + 2);
     let mut spans = if app.status.is_empty() {
