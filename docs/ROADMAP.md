@@ -6,13 +6,30 @@ not implemented features or commitments:
 - Content search with alternating filtering (below).
 - Tab completion of program options in the gx/gX prompt for programs without a
   man page or `--help`.
-- Launching a program in the background while browsing continues, for GUI
-  programs that should not pause fff.
+- Becoming the desktop's file manager (below).
 - Resuming only when the last directory was the current one: a new session
   should restore its remembered location only when started from the
   directory that was being browsed last, instead of always jumping there.
 - A preview pane, trash with undo, and an AUR package
   once the project nears 1.0.
+
+## Desktop file manager
+
+The aim is for fff to be the machine's main file explorer, not only a launcher
+from the shell.
+
+- **A desktop entry.** Install an `fff.desktop` (`Terminal=true`,
+  `MimeType=inode/directory`) so `xdg-mime default fff.desktop inode/directory`
+  makes `xdg-open`, application launchers and "Show in folder" actions open
+  fff in a terminal at that directory.
+- **Firefox and other file pickers.** Browsers that use the
+  xdg-desktop-portal FileChooser (Firefox with
+  `widget.use-xdg-desktop-portal.file-picker = 1`) could use fff through
+  [xdg-desktop-portal-termfilechooser](https://github.com/GermainZ/xdg-desktop-portal-termfilechooser),
+  which runs a wrapper script in a terminal. fff would need a wrapper that maps
+  the portal's open, open-multiple, directory and save requests onto
+  `--output-paths` (marks for multiple files) and a save-name prompt, and
+  writes the chosen paths where the portal reads them.
 
 ## Content search with alternating filtering
 
