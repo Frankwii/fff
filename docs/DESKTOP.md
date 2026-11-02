@@ -263,8 +263,8 @@ PATH is a folder, it is `untitled`.
 
 The keys keep their meaning from a normal session (see the
 [README](../README.md#browsing-and-returning-paths)): Enter acts on the
-highlighted entry, `!` on the folder you are in, Ctrl+w on the marks. What
-differs:
+highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (with
+`--multiple` only). What differs:
 
 | Key | In `fff explorer` |
 | --- | --- |
@@ -277,7 +277,7 @@ differs:
 | Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
 | `q` (Normal mode) | Cancels, as everywhere: nothing is chosen. |
 | Ctrl+c | Cancels. |
-| Ctrl+w | Chooses the marks. |
+| Ctrl+w | Chooses the marks, with `--multiple`. Other dialogs have one answer, which Ctrl+w does nothing for but say so. |
 | Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving, also while typing a name to save under. |
 | Double click | Enter on that row, as Ctrl+number (a normal session acts like `l`). |
 | `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says to press Enter on it or Ctrl+number on its row, to choose it or, when saving, to replace it. In folder dialogs a file opens in the background, as in a normal session. |
@@ -337,10 +337,7 @@ The paths a key returned become the answer as follows:
   file Enter was pressed on, or the last mark.
 - **Folder:** files are dropped. Without `--multiple`, only the last folder is
   kept.
-- **Save:** the path [saving](#saving) settled on. Ctrl+w, which returns the
-  marks directly, counts with its last path: a folder means saving into it
-  under the suggested name, numbered when taken, without asking; a file means
-  replacing it.
+- **Save:** the path [saving](#saving) settled on.
 
 Paths containing a newline are left out of open and folder answers, since the
 answer has one path per line.

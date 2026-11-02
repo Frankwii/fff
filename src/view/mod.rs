@@ -1077,7 +1077,14 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) -> Vec<(R
                 Line::from(styled("Collect paths as you browse.", theme.muted)),
                 Line::from(styled("Tab marks the highlighted entry.", theme.muted)),
                 Line::from(""),
-                Line::from(styled("Ctrl+w returns your marks.", theme.muted)),
+                Line::from(styled(
+                    if app.returns_marks() {
+                        "Ctrl+w returns your marks."
+                    } else {
+                        "File operations act on them."
+                    },
+                    theme.muted,
+                )),
             ])
             .wrap(Wrap { trim: false })
             .alignment(ratatui::layout::Alignment::Center),

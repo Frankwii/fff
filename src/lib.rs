@@ -1608,6 +1608,15 @@ impl App {
             EnterOutcome::Stay
         }
     }
+    /// Whether Ctrl+w may finish with the marks: only where the answer can be
+    /// several paths, `fff pick` and `fff explorer --multiple` (not saving).
+    pub fn returns_marks(&self) -> bool {
+        self.output_paths
+            && self
+                .dialog
+                .as_ref()
+                .is_none_or(|d| d.multiple && d.save.is_none())
+    }
     pub fn confirm(&mut self, target: Option<PathBuf>) -> Option<Vec<PathBuf>> {
         if self.marks.iter().any(|p| !p.exists()) {
             self.status =

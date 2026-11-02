@@ -1729,11 +1729,8 @@ fn session(
                     *index = cycle(*index, rows.len(), true);
                 } else if key.code == K::Up || (alt && key.code == K::Char('k')) {
                     *index = cycle(*index, rows.len(), false);
-                } else if ctrl
-                    && key.code == K::Char('w')
-                    && let Some(p) = app.confirm(None)
-                {
-                    if let Some(finish) = leave_with_marks(app, p) {
+                } else if ctrl && key.code == K::Char('w') {
+                    if let Some(finish) = leave_with_marks(app) {
                         return Ok(finish);
                     }
                 } else if key.code == K::Enter
@@ -1790,9 +1787,7 @@ fn session(
                     }
                 }
                 (K::Char('w'), true, _) => {
-                    if let Some(p) = app.confirm(None)
-                        && let Some(finish) = leave_with_marks(app, p)
-                    {
+                    if let Some(finish) = leave_with_marks(app) {
                         return Ok(finish);
                     }
                 }

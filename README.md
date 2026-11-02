@@ -46,8 +46,8 @@ with every command, before or after its name.
 `fff roam`, the default, changes directory on exit: `q` leaves you where you
 started, `!` takes you to the directory you were browsing, Normal-mode Enter
 on a directory takes you into it, and on a file opens it and leaves you in its
-folder; Ctrl+w does the same with the marked files, leaving you in the last
-one's folder. Ctrl+number is Enter on that row.
+folder. Ctrl+number is Enter on that row. To open several files at once, `o`
+opens the marked ones in this terminal and comes back.
 
 `fff pick` prints the selection instead, for scripts and command substitution,
 as described under [returning paths](#browsing-and-returning-paths):
@@ -143,24 +143,22 @@ The keys that open or finish fit together:
 | `o` | The current or marked files, opened in this terminal | fff comes back |
 | Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
 | `!` | The folder you are browsing | fff leaves into it |
-| Ctrl+w | The marks: opens the marked files (`fff roam`) or returns them (`fff pick`) | fff leaves |
+| Ctrl+w | The marks, returned (`fff pick` only) | fff leaves |
 | `q` | Nothing | fff leaves where you started |
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
 dialogs, keeps these meanings: Enter chooses a file and enters a folder, `!`
-takes the folder you are in, Ctrl+w the marks, and Ctrl+s saves. A folder
+takes the folder you are in, Ctrl+w the marks (in dialogs for several files),
+and Ctrl+s saves. A folder
 opened from the desktop (`--window`) has no shell to leave into: Enter enters a
 folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
 Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
-with the marks only. In `fff pick` it returns them, in `fff seek` it leaves
-into the last one's folder; in
-`fff roam` it **opens them and leaves**, like Normal-mode Enter on a
-file: files sharing an opener go to one invocation (three PDFs, one zathura),
-GUI openers start detached, and one terminal opener may take over this
-terminal. Marked directories, or files needing two different terminal programs,
-are refused with a message and fff stays; `o` opens those one after another. Insert-mode Enter in a verified physically empty directory returns marks
+with the marks only, and only where the answer can be several paths: `fff
+pick` returns them (as does `fff explorer --multiple`). Elsewhere (`fff roam`,
+`fff seek`, other dialogs) it does nothing but say so; there the marks are for
+file operations, `o`, `E` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
 plus that directory; a no-match query in a nonempty directory stays open, and
 a short status message says nothing matches (Ctrl+number likewise).
 Missing marks block confirmation until unmarked.
@@ -284,7 +282,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Tab / Space in Normal | Toggle mark; advance in results |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
-| Ctrl+w | Finish with the marks, from results or the marked list: open the marked files and leave (`fff roam`) or return them (`fff pick`) |
+| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer --multiple`; nothing elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |

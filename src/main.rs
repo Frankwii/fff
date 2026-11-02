@@ -68,7 +68,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
   <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
-  <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> open/return marks
+  <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> return marks (pick)
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
   results take <cyan>←/→</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>/</cyan> location, <cyan>b</cyan> bookmarks,
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
@@ -303,9 +303,8 @@ enum Command {
     /// A static file choice: only files are listed, from every folder down to
     /// --depth; the current directory cannot change, and the query starts in
     /// Insert mode, ready to type. Rows show bare names; files sharing a name
-    /// gain the shortest distinguishing parents. Mark files with Tab; Enter
-    /// leaves into the chosen file's folder, Ctrl+w into the last mark's. q
-    /// and ! leave without choosing anything. To print files, use fff pick:
+    /// gain the shortest distinguishing parents. Enter leaves into the chosen
+    /// file's folder. q and ! leave without choosing anything. To print files, use fff pick:
     /// with --glob it too lists only matching files.
     Seek(SeekArgs),
     /// Answer a file dialog: choose files or a folder, or where to save

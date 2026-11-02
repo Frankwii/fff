@@ -43,12 +43,12 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         Err(error) => app.status = error,
     }
 }
-/// Normal-mode Enter on a file, or Ctrl+w on the marks, in the default mode:
-/// their openers, and fff leaves. Files sharing an opener go to one
-/// invocation, as with o. GUI openers start detached, as with l; one terminal
-/// opener may replace fff in this terminal (like gX), and more than one is
-/// refused, since only one can. Every program is resolved before any starts.
-/// The shell then changes to the last file's folder.
+/// Normal-mode Enter on a file in the default mode: its opener, and fff
+/// leaves. Files sharing an opener go to one invocation, as with o. GUI
+/// openers start detached, as with l; one terminal opener may replace fff in
+/// this terminal (like gX), and more than one is refused, since only one can.
+/// Every program is resolved before any starts. The shell then changes to the
+/// last file's folder.
 pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, String> {
     let last = paths.last().ok_or("Nothing to open")?;
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
@@ -141,20 +141,17 @@ pub(super) fn finish_with(
         None => Some(Finish::Folder(app.cwd.clone())),
     }
 }
-/// Ctrl+w: the marks are returned, except in the default mode, where they open
-/// and fff leaves. `None` (with the reason in the status line) when they
-/// cannot open.
-pub(super) fn leave_with_marks(app: &mut App, marks: Vec<PathBuf>) -> Option<Finish> {
-    if app.output_paths || app.no_dir || app.dialog.is_some() {
-        return Some(Finish::Paths(marks));
+/// Ctrl+w: the marks are returned where the answer can be several paths
+/// (`App::returns_marks`); elsewhere nothing happens and the status line says
+/// why. `None` when fff stays.
+pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
+    if !app.returns_marks() {
+        app.status = "Ctrl+w returns the marks only where several paths can be chosen, as in \
+                      fff pick"
+            .into();
+        return None;
     }
-    match open_and_leave(app, &marks) {
-        Ok(finish) => Some(finish),
-        Err(error) => {
-            app.status = error;
-            None
-        }
-    }
+    app.confirm(None).map(Finish::Paths)
 }
 /// fff explorer --save, Ctrl+s or !: saves under the typed name (else the
 /// suggested one) in the folder being browsed.
@@ -1340,7 +1337,8 @@ pub(crate) enum Button {
     Hidden,
     /// Ctrl+c.
     Cancel,
-    /// Ctrl+w with marks, else Normal-mode Enter on the highlighted row.
+    /// Ctrl+w with marks where they are returned, else Normal-mode Enter on
+    /// the highlighted row.
     Select,
     /// Esc in a confirmation.
     Dismiss,
@@ -1434,9 +1432,8 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
         // Delivered as their keys by the session.
         Button::Dismiss | Button::Confirm => {}
         Button::Select => {
-            if !app.marks.is_empty() {
-                let marks = app.confirm(None)?;
-                return leave_with_marks(app, marks);
+            if !app.marks.is_empty() && app.returns_marks() {
+                return leave_with_marks(app);
             }
             // In a dialog, the answer is taken from the row's path.
             if app.dialog.is_some() {

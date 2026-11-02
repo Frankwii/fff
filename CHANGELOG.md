@@ -53,6 +53,16 @@ history.
   it lists only files, `d` and `D` are not bound there either and reach
   Neovim; `P` shows the preview pane as elsewhere.
 
+### Removed
+
+- **Ctrl+w only returns marks where several paths can be the answer**:
+  `fff pick` and `fff explorer --multiple`. In `fff roam` it no longer opens
+  the marked files and leaves (`o` opens them here and comes back), in `fff
+  seek` it no longer leaves into the last mark's folder, and in other dialogs
+  it no longer answers with a mark: in a save dialog that replaced a marked
+  file without asking. There it now only says so. The Select & Exit button
+  follows suit.
+
 ### Fixed
 
 - **Enter while typing in `fff seek` chooses the file**, leaving into its

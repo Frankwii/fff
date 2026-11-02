@@ -682,9 +682,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[49;5u")  # CSI-u: Ctrl+1
         s.send(b"\x7f\x7f\x7f\x7f", b"top.txt")
         s.send(b"\t", b"Marks (1)")
-        # Ctrl+w leaves into the last mark's folder: here, so nothing to print.
-        s.send(b"\x17")
-        self.assertEqual(s.finish(), (0, b""))
+        # Ctrl+w returns marks only in fff pick; seek stays.
+        s.send(b"\x17", b"Ctrl+w returns the marks only where")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_seek_enter_while_typing_leaves_into_the_files_folder(self):
@@ -2430,37 +2431,44 @@ class TerminalTests(unittest.TestCase):
         s.close()
         self.session = None
 
-    def test_ctrl_w_in_default_mode_opens_the_marks_and_leaves(self):
-        more = self.deep_tree()
-        (more / "b.pdf").touch()
-        cd_file = self.root / "cd"
-        edited = Path(self.tmp.name + "-edited.log")
-        self.addCleanup(lambda: edited.unlink(missing_ok=True))
-        env, config, log = self.opener_setup(rules=(
-            "[[open.rules]]\ncommand = 'viewer'\nextensions = ['pdf']\n"
-            "[[open.rules]]\ncommand = 'texted'\nextensions = ['txt']\nterminal = true\n"))
-        env = {**env, **self.run_environment(
-            "texted", f'printf "%s\\n" "$@" > "{edited}"; exit 7\n')}
-        def start(*args):
-            return self.start("--depth", "1", "--cd-file", str(cd_file), "--config", str(config),
-                              *args, implicit_root=True, output_paths=False, environment=env)
-        # Both PDFs go to one detached viewer; the text file's terminal opener
-        # takes over this terminal; the shell lands in the last mark's folder.
-        s = start("--browse", str(more))
-        s.wait_ui(("cwd", more))
-        s.send(b"m", "Marks (3)")
-        s.send(b"\x17")
-        self.assertEqual(s.finish(), (7, b""))
-        self.wait_file(log, [str(more / "a.pdf"), str(more / "b.pdf")])
-        self.assertEqual(edited.read_text().splitlines(), [str(more / "0first.txt")])
-        self.assertEqual(cd_file.read_bytes(), os.fsencode(more))
-        s.close()
-        # Marked folders do not open: fff says so and stays.
-        s = self.session = start("--here")
-        s.send(b"m", "Marks (4)")
-        s.send(b"\x17", "Only files open this way")
-        s.send(b"\x03")
-        self.assertEqual(s.finish()[0], 130)
+    def test_ctrl_w_returns_marks_only_where_several_paths_can_be_chosen(self):
+        (self.root / "a.pdf").write_text("a")
+        (self.root / "b.pdf").write_text("b")
+        refused = "Ctrl+w returns the marks only where several paths can be chosen"
+        # fff roam, fff seek, a one-file dialog and a save dialog: nothing
+        # happens but the message, and the marks stay.
+        for args, kwargs in [
+            ((), {"output_paths": False}),
+            (("seek",), {}),
+            (("explorer",), {"output_paths": False}),
+            (("explorer", "--save", str(self.root / "c.pdf")), {"output_paths": False}),
+        ]:
+            s = self.session = Session(self.root, *args, implicit_root=True, **kwargs)
+            s.send(b"\x1b[27u", "NORMAL")
+            s.send(b"m", "Marks (2)")
+            self.assertNotIn("Ctrl+w returns your marks", s.screen.text)
+            s.send(b"\x17", refused)
+            self.assertIn("Marks (2)", s.screen.text)
+            # From the marked list too.
+            s.send(b"\x1b ", "Marks (2)")
+            s.send(b"\x17", refused)
+            s.send(b"\x03")
+            self.assertEqual(s.finish()[0], 130, args)
+            s.close()
+        self.session = None
+        # fff pick returns them, as does a dialog for several files.
+        for args in [(), ("explorer", "--multiple")]:
+            s = self.session = Session(self.root, *args, implicit_root=True,
+                                       output_paths=not args)
+            s.send(b"\x1b[27u", "NORMAL")
+            if not args:
+                self.assertIn("Ctrl+w returns your marks", s.screen.text)
+            s.send(b"m", "Marks (2)")
+            s.send(b"\x17")
+            self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a.pdf") + b"\n"
+                                          + os.fsencode(self.root / "b.pdf") + b"\n"))
+            s.close()
+        self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_window_enters_folders_and_bang_starts_a_shell_there(self):
