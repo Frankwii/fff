@@ -141,6 +141,7 @@ fn session(
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
+    discovery.max_paths = performance.max_paths;
     app.cached_queries = performance.cached_queries;
     app.details.set_waker(wake.clone());
     let mut watch = app.watch.then(crate::watch::Watch::new).flatten();
@@ -173,6 +174,8 @@ fn session(
     let mut mouse = Mouse::default();
     let mut buttons = Vec::new();
     let mut tab_areas = Vec::new();
+    // Input read early, before this pass's discovery work.
+    let mut queued = None;
     loop {
         dirty |= status.tick(app);
         // Pop-up notifications from background work, shown for a while.
@@ -210,7 +213,19 @@ fn session(
                 discovery.changed(app);
             }
         }
-        dirty |= discovery.drain(app);
+        // Input goes first: with a key waiting, discovery waits a pass.
+        if queued.is_none() {
+            queued = match input.events.try_recv() {
+                Ok(event) => Some(event),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err(io::Error::other("terminal input reader stopped"));
+                }
+            };
+        }
+        if queued.is_none() {
+            dirty |= discovery.drain(app);
+        }
         if app.generation != details_generation {
             details_generation = app.generation;
             app.details.forget();
@@ -344,7 +359,11 @@ fn session(
         }
         // Both input and discovery wake this wait immediately. The timeout only
         // services due re-sorts, status expiry, palette reload and idle prefetch.
-        let wait = if discovery.busy(app) || app.normal_keys.pending() {
+        // Rows still catching up with found paths merge on the next pass;
+        // input is read between passes, so it is never kept waiting.
+        let wait = if discovery.catching_up(app) {
+            0
+        } else if discovery.busy(app) || app.normal_keys.pending() {
             30
         } else {
             250
@@ -361,7 +380,7 @@ fn session(
             .preview
             .remaining(std::time::Instant::now())
             .map_or(wait, |delay| delay.min(wait));
-        let event = match input.events.try_recv() {
+        let event = match queued.take().map_or_else(|| input.events.try_recv(), Ok) {
             Ok(event) => event?,
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 let _ = waking.recv_timeout(wait);

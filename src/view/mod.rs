@@ -479,6 +479,8 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
         (["◌ cached · refreshing", "◌ incomplete"], theme.marked)
     } else if app.scanning {
         (["◌ scanning · incomplete", "◌ incomplete"], theme.marked)
+    } else if app.truncated {
+        (["◌ partial · max paths", "◌ partial"], theme.marked)
     } else {
         (["● complete"; 2], theme.success)
     };

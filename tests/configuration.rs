@@ -81,6 +81,8 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
         "[ui]\nmessage_seconds=3601",
         "[performance]\nrefresh_ms=1001",
         "[performance]\ncached_queries=65",
+        "[performance]\nmax_paths=999",
+        "[performance]\nmax_paths=100000001",
         "[performance]\nrefresh=50",
         "[ui]\nmessage_seconds=-1",
         "[[bookmarks]]\nname=''\npath='/tmp'",
@@ -401,6 +403,12 @@ fn performance_cached_queries_default_to_five_and_accept_zero() {
     assert_eq!(parse("").unwrap().performance.cached_queries, 5);
     let config = parse("[performance]\ncached_queries=0").unwrap();
     assert_eq!(config.performance.cached_queries, 0);
+}
+#[test]
+fn performance_max_paths_defaults_to_a_million() {
+    assert_eq!(parse("").unwrap().performance.max_paths, 1_000_000);
+    let config = parse("[performance]\nmax_paths=1000").unwrap();
+    assert_eq!(config.performance.max_paths, 1000);
 }
 
 #[test]

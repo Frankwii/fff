@@ -515,3 +515,22 @@ fn worker_notifies_ui_without_keyboard_input() {
     complete(&mut d, &mut app);
     assert_eq!(app.rows.len(), 1);
 }
+#[test]
+fn scans_stop_past_max_paths_without_reconciling_or_caching() {
+    let f = Fixture::new();
+    for i in 0..300 {
+        f.file(&format!("file{i:03}"));
+    }
+    let mut app = f.app();
+    let mut d = Discovery::new(always_refresh());
+    d.max_paths = 10;
+    d.start(&mut app, true);
+    complete(&mut d, &mut app);
+    // At most one batch beyond the limit is ever held.
+    assert!(app.known.len() > 10 && app.known.len() < 300);
+    assert!(app.status.contains("max_paths"), "{}", app.status);
+    assert!(app.truncated);
+    assert_eq!(app.rows.len(), app.known.len());
+    assert_eq!(d.stats().stores, 0);
+    assert!(!d.busy(&app));
+}

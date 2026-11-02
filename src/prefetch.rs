@@ -75,7 +75,7 @@ impl Prefetch {
             app.highlight
                 .as_ref()
                 .filter(|p| p.parent() == Some(app.cwd.as_path()))
-                .filter(|p| app.known.get(*p).is_some_and(|c| c.directory))
+                .filter(|p| app.known.get(p).is_some_and(|c| c.directory))
                 .cloned()
         } else {
             None

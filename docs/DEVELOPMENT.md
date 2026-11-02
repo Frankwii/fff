@@ -11,7 +11,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
 | `src/lib.rs` | Session state, navigation, tabs, policies, matching, ordering, marks and path output. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
-| `src/discovery.rs` | Cancellable breadth-first traversal, batches, freshness and scan reconciliation. |
+| `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
+| `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
@@ -59,7 +60,10 @@ listed separately in the [roadmap](ROADMAP.md).
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes. Query edits do not restart discovery.
+  absolute pathname bytes. Query edits do not restart discovery. Scans merge
+  new paths into the ranked rows within a time budget; the input thread never
+  re-sorts every known path while a scan streams in, and reads keys before
+  discovery work.
 - Marks are unique, ordered and independent of navigation, policies and filters.
   Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
   the last fully rendered visible labels.

@@ -1,7 +1,7 @@
 //! Bounded background traversal. Replacing a scan cancels its predecessor.
 use crate::{App, Candidate, Policy};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     fs,
     path::PathBuf,
     sync::{
@@ -25,9 +25,13 @@ pub enum Event {
 pub struct Scan {
     pub events: Receiver<Event>,
     cancel: Arc<AtomicBool>,
-    seen: HashSet<PathBuf>,
     failed: bool,
     completed: bool,
+    /// The walker finished (with whether the directory is empty); applied
+    /// once the rows reflect everything it delivered.
+    done: Option<bool>,
+    /// `[performance] max_paths`: the scan stops once more paths are known.
+    pub max_paths: usize,
     /// Minimum time between re-sorts while results stream in (zero: every drain).
     pub refresh_every: Duration,
     last_refresh: Option<Instant>,
@@ -36,6 +40,11 @@ pub struct Scan {
 }
 /// Most events handled per drain before the frame is drawn again.
 const DRAIN_BUDGET: Duration = Duration::from_millis(8);
+/// Time per drain for merging new paths into the rows while a scan streams in.
+const MERGE_BUDGET: Duration = Duration::from_millis(4);
+/// Unmerged paths at which a drain stops taking events, leaving the walker
+/// waiting until the rows catch up.
+const BACKLOG: usize = 8192;
 /// The walker sends a batch at this size, or sooner once it is this old.
 const BATCH_SIZE: usize = 256;
 const BATCH_AGE: Duration = Duration::from_millis(10);
@@ -67,9 +76,10 @@ impl Scan {
         Self {
             events,
             cancel,
-            seen: HashSet::new(),
             failed: false,
             completed: false,
+            done: None,
+            max_paths: usize::MAX,
             refresh_every: Duration::ZERO,
             last_refresh: None,
             pending: false,
@@ -79,6 +89,7 @@ impl Scan {
         app.generation += 1;
         app.scanning = true;
         app.physical_empty = false;
+        app.truncated = false;
         app.cache_pending = false;
         app.status.clear();
         if clear {
@@ -96,11 +107,16 @@ impl Scan {
     fn drain_for(&mut self, app: &mut App, settle: Duration) -> bool {
         let start = Instant::now();
         let mut changed = false;
-        let mut finished = false;
-        while start.elapsed() < DRAIN_BUDGET {
+        // Take events only while the rows keep up: a bounded backlog keeps
+        // each merge, and any refresh a key press needs, short.
+        while start.elapsed() < DRAIN_BUDGET
+            && self.done.is_none()
+            && !self.completed
+            && app.unmerged() < BACKLOG
+        {
             let event = match self.events.try_recv() {
                 Ok(event) => event,
-                Err(_) if !finished && start.elapsed() < settle => {
+                Err(_) if start.elapsed() < settle => {
                     let Ok(event) = self
                         .events
                         .recv_timeout(settle.saturating_sub(start.elapsed()))
@@ -114,13 +130,11 @@ impl Scan {
             changed = true;
             match event {
                 Event::Found(g, c) if g == app.generation => {
-                    self.seen.insert(c.path.clone());
                     app.insert(g, c);
                     self.pending = true;
                 }
                 Event::Batch(g, batch) if g == app.generation => {
                     for c in batch {
-                        self.seen.insert(c.path.clone());
                         app.insert(g, c);
                     }
                     self.pending = true;
@@ -130,34 +144,58 @@ impl Scan {
                     app.status = s;
                 }
                 Event::Done(g, empty) if g == app.generation => {
-                    app.scanning = false;
-                    app.cache_pending = false;
-                    app.physical_empty = empty;
-                    app.known.retain(|path, _| self.seen.contains(path));
-                    app.known_version += 1;
-                    // Only needed to reconcile; release it for the idle session.
-                    self.seen = HashSet::new();
-                    self.completed = true;
+                    self.done = Some(empty);
                     self.pending = true;
-                    finished = true;
                 }
                 _ => {}
+            }
+            if app.known.len() > self.max_paths {
+                self.truncate(app);
             }
         }
         let due = self
             .last_refresh
             .is_none_or(|t| t.elapsed() >= self.refresh_every);
-        if self.pending && (finished || due) {
-            app.refresh();
-            self.pending = false;
+        let finishing = self.done.is_some() || self.completed;
+        if (self.pending || app.unmerged() > 0) && (finishing || due || app.unmerged() >= BACKLOG) {
+            app.refresh_within(Some(MERGE_BUDGET));
+            self.pending = app.unmerged() > 0;
             self.last_refresh = Some(Instant::now());
+            changed = true;
+        }
+        if let Some(empty) = self.done
+            && app.unmerged() == 0
+        {
+            self.done = None;
+            app.scanning = false;
+            app.cache_pending = false;
+            app.physical_empty = empty;
+            app.reconcile(app.generation);
+            app.refresh();
+            self.completed = true;
             changed = true;
         }
         changed
     }
-    /// A re-sort is waiting for `refresh_every` to pass.
+    /// More paths are known than `max_paths` allows: stop here. The listing
+    /// is partial, so it is neither reconciled nor kept as complete.
+    fn truncate(&mut self, app: &mut App) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.failed = true;
+        self.completed = true;
+        self.pending = true;
+        app.scanning = false;
+        app.cache_pending = false;
+        app.truncated = true;
+        app.status = format!(
+            "Stopped listing at {} paths ([performance] max_paths); lower the depth to see the rest",
+            self.max_paths
+        );
+    }
+    /// A re-sort is waiting for `refresh_every` to pass, or the rows are
+    /// catching up with what was found.
     pub fn pending(&self) -> bool {
-        self.pending
+        self.pending || self.done.is_some()
     }
 }
 /// Session discovery controller: recent exhaustive snapshots avoid redundant scans.
@@ -175,6 +213,8 @@ pub struct Discovery {
     prefetch: crate::prefetch::Prefetch,
     /// `[performance] refresh_ms` for every scan this controller starts.
     pub refresh_every: Duration,
+    /// `[performance] max_paths` for every scan this controller starts.
+    pub max_paths: usize,
 }
 impl Discovery {
     pub fn new(options: crate::config::CacheConfig) -> Self {
@@ -191,6 +231,7 @@ impl Discovery {
             wake: None,
             prefetch: crate::prefetch::Prefetch::default(),
             refresh_every: Duration::ZERO,
+            max_paths: usize::MAX,
         }
     }
     /// Coalesced notifications shared with terminal input. Never blocks a worker.
@@ -263,6 +304,7 @@ impl Discovery {
         } else {
             let mut scan = Scan::start_waking(app, clear, self.wake.clone());
             scan.refresh_every = self.refresh_every;
+            scan.max_paths = self.max_paths;
             self.scan = Some(scan);
         }
         self.verified_at = None;
@@ -275,12 +317,12 @@ impl Discovery {
                 self.refresh_at = Some(snapshot.verified_at + self.interval(app));
             }
             for candidate in snapshot.candidates.iter() {
-                app.insert(app.generation, candidate.clone());
+                app.replay(candidate.clone());
             }
             app.cache_pending = true; // Returned paths/kinds still need validation.
         } else if !reused.is_empty() {
             for candidate in reused {
-                app.insert(app.generation, candidate);
+                app.replay(candidate);
             }
             app.cache_pending = !app.known.is_empty();
         }
@@ -327,6 +369,7 @@ impl Discovery {
             let mut scan = Scan::start_waking(app, false, self.wake.clone());
             app.status = status;
             scan.refresh_every = self.refresh_every;
+            scan.max_paths = self.max_paths;
             app.cache_pending = true;
             self.scan = Some(scan);
             self.stored = false;
@@ -376,6 +419,15 @@ impl Discovery {
     }
     pub fn busy(&self, app: &App) -> bool {
         app.scanning || self.scan.as_ref().is_some_and(Scan::pending)
+    }
+    /// The rows are behind what was found and the next drain merges more,
+    /// whatever `refresh_ms` says.
+    pub fn catching_up(&self, app: &App) -> bool {
+        app.unmerged() > 0
+            && self
+                .scan
+                .as_ref()
+                .is_some_and(|s| s.done.is_some() || s.completed || app.unmerged() >= BACKLOG)
     }
     pub fn stats(&self) -> crate::cache::Stats {
         self.cache.stats
@@ -501,9 +553,10 @@ mod tests {
         let scan = Scan {
             events,
             cancel: Arc::new(AtomicBool::new(false)),
-            seen: HashSet::new(),
             failed: false,
             completed: false,
+            done: None,
+            max_paths: usize::MAX,
             refresh_every: Duration::ZERO,
             last_refresh: None,
             pending: false,

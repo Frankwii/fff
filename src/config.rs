@@ -170,12 +170,16 @@ pub struct PerformanceConfig {
     /// Shorter queries whose results are kept while typing, so deleting
     /// letters restores them without ranking every path again; 0 disables.
     pub cached_queries: usize,
+    /// Most paths a view keeps: a scan stops once it knows more, so even a
+    /// huge tree cannot exhaust memory.
+    pub max_paths: usize,
 }
 impl Default for PerformanceConfig {
     fn default() -> Self {
         Self {
             refresh_ms: 50,
             cached_queries: 5,
+            max_paths: 1_000_000,
         }
     }
 }
@@ -302,6 +306,9 @@ impl Settings {
         }
         if raw.performance.cached_queries > 64 {
             return Err("performance.cached_queries must be 0..64".into());
+        }
+        if !(1_000..=100_000_000).contains(&raw.performance.max_paths) {
+            return Err("performance.max_paths must be 1000..100000000".into());
         }
         if raw.ui.message_seconds > 3600 {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());

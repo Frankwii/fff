@@ -4,6 +4,26 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Browsing stays responsive while huge trees load.** Moving the highlight
+  during a scan of hundreds of thousands of paths (say `$HOME` with hidden
+  files at depth 9) no longer stalls for a second at a time: keys are handled
+  before discovery work, and new paths are merged into the results a little
+  at a time instead of re-sorting everything. Such scans also finish several
+  times faster and take less memory.
+- `fff pick` and `fff seek` update their labels for shared names only where
+  they changed, so a large tree no longer slows them down as it fills.
+
+### Added
+
+- **`[performance] max_paths`** (default 1,000,000) bounds the paths a view
+  holds, so browsing a huge tree cannot exhaust memory. A scan that finds
+  more stops there and the status line shows `◌ partial`; a lower depth shows
+  the rest.
+
 ## 0.9.0 — 2026-11-02
 
 A text-only preview pane, `fff --resume`, and a command for each way of using

@@ -816,3 +816,65 @@ fn a_saved_session_resumes_as_it_ended() {
     assert_eq!(resumed.session().tabs[1].cwd, root.join("b"));
     fs::remove_dir_all(&root).unwrap();
 }
+#[test]
+fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
+    // A deterministic shuffle of names that tie on depth, kind and score,
+    // with deeper basenames shared across folders.
+    let names: Vec<_> = (0..5000u64)
+        .map(|i| {
+            let n = i.wrapping_mul(2_654_435_761) % 5000;
+            let depth = 1 + (n % 3) as usize;
+            let path = match depth {
+                1 => format!("n{n:04}"),
+                2 => format!("a{}/x{:03}", n / 1000, n % 1000),
+                _ => format!("a{}/b/x{:03}", n / 1000, n % 1000),
+            };
+            (path, n % 7 == 0, depth)
+        })
+        .collect();
+    for (query, no_dir) in [
+        ("", false),
+        ("n1", false),
+        ("4", false),
+        ("", true),
+        ("x1", true),
+    ] {
+        let mut merged = app();
+        merged.no_dir = no_dir;
+        merged.query = query.into();
+        merged.refresh();
+        // Batches outgrow a round, so later ones arrive while some wait.
+        for chunk in names.chunks(2500) {
+            for (name, dir, depth) in chunk {
+                merged.insert(0, candidate(name, *dir, *depth));
+            }
+            merged.refresh_within(Some(Duration::ZERO));
+            assert!(merged.unmerged() > 0);
+        }
+        // Directories that become files (and back) replace their rows.
+        for (name, dir, depth) in names.iter().step_by(11) {
+            merged.insert(0, candidate(name, !dir, *depth));
+        }
+        while merged.unmerged() > 0 {
+            merged.refresh_within(Some(Duration::ZERO));
+        }
+        let mut ranked = app();
+        ranked.no_dir = no_dir;
+        ranked.query = query.into();
+        for (i, (name, dir, depth)) in names.iter().enumerate() {
+            ranked.insert(0, candidate(name, *dir != (i % 11 == 0), *depth));
+        }
+        ranked.refresh();
+        let paths = |app: &App| {
+            app.rows
+                .iter()
+                .map(|c| (c.path.clone(), c.directory))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(&merged), paths(&ranked), "query {query:?}");
+        assert!(!merged.rows.is_empty());
+        // `fff seek` labels files that share a basename.
+        assert_eq!(merged.labels, ranked.labels, "query {query:?}");
+        assert_eq!(!merged.labels.is_empty(), no_dir);
+    }
+}

@@ -10,6 +10,7 @@ pub mod editor;
 pub mod explorer;
 pub mod icons;
 pub mod keys;
+pub mod known;
 pub mod location;
 pub mod marks;
 pub mod normal_keys;
@@ -31,8 +32,10 @@ use globset::{GlobBuilder, GlobMatcher};
 use std::{
     cell::Cell,
     collections::{HashMap, HashSet},
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -204,6 +207,20 @@ impl Matcher {
     }
 }
 
+/// Insertions merged into the rows per budgeted round.
+const MERGE_ROUND: usize = 1024;
+
+/// Result order: depth, directories first, best score, root order, then
+/// pathname bytes, which break every tie.
+fn rank(a: &Candidate, score_a: i64, b: &Candidate, score_b: i64) -> std::cmp::Ordering {
+    a.depth
+        .cmp(&b.depth)
+        .then(b.directory.cmp(&a.directory))
+        .then(score_b.cmp(&score_a))
+        .then(a.root.cmp(&b.root))
+        .then(a.path.as_os_str().cmp(b.path.as_os_str()))
+}
+
 /// Everything except the query that decides which known paths become rows.
 #[derive(Clone, PartialEq)]
 struct RefreshBasis {
@@ -262,9 +279,16 @@ pub struct App {
     pub query: String,
     pub policy: Policy,
     /// Every discovered path; rows share these candidates.
-    pub known: HashMap<PathBuf, Arc<Candidate>>,
-    /// Bumped whenever `known` changes; part of the refresh shortcut's basis.
+    pub known: known::Known,
+    /// Bumped when `known` is replaced wholesale; part of the refresh
+    /// shortcut's basis. Insertions and forgotten paths are merged instead.
     pub(crate) known_version: u64,
+    /// Candidates inserted since the last refresh, which merges them into the
+    /// ranked rows instead of ranking every known path again.
+    added: Vec<Arc<Candidate>>,
+    /// Candidates `known` replaced or forgot since the last refresh, whose
+    /// rows it drops; holding them keeps their addresses from being reused.
+    outdated: Vec<Arc<Candidate>>,
     /// What the current rows were computed from, and the lowercased query.
     refreshed: Option<(RefreshBasis, String)>,
     /// Rows of shorter queries the current one extends, shortest first, kept so
@@ -293,6 +317,8 @@ pub struct App {
     /// `status` still equals it, so any later message reverts to an error.
     pub status_success: String,
     pub physical_empty: bool,
+    /// The scan stopped at `[performance] max_paths`: the rows are partial.
+    pub truncated: bool,
     pub cache_pending: bool,
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
@@ -316,6 +342,9 @@ pub struct App {
     /// Short row labels for entries whose basename another listed entry shares
     /// (presentation only); other rows show their bare name.
     pub labels: HashMap<PathBuf, PathBuf>,
+    /// With labels shown: listed entries by basename. Labels only depend on the
+    /// entries sharing a basename, so a change relabels just the groups it touches.
+    names: HashMap<OsString, Vec<Arc<Candidate>>>,
     /// Home directory, shown as `~` in the location line (presentation only).
     pub home: Option<PathBuf>,
     /// Status messages clear after this long; `None` keeps them until replaced.
@@ -378,8 +407,10 @@ impl App {
             depth,
             policy,
             query: String::new(),
-            known: HashMap::new(),
+            known: known::Known::default(),
             known_version: 0,
+            added: Vec::new(),
+            outdated: Vec::new(),
             refreshed: None,
             earlier: Vec::new(),
             cached_queries: config::PerformanceConfig::default().cached_queries,
@@ -396,6 +427,7 @@ impl App {
             status: String::new(),
             status_success: String::new(),
             physical_empty: false,
+            truncated: false,
             cache_pending: false,
             edit_view: None,
             palette: config::Palette::default(),
@@ -412,6 +444,7 @@ impl App {
             files_only: false,
             short_labels: false,
             labels: HashMap::new(),
+            names: HashMap::new(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
             positions: Vec::new(),
@@ -651,8 +684,18 @@ impl App {
                 .strip_prefix(root)
                 .is_ok_and(|p| self.policy.allows(p))
     }
-    pub fn insert(&mut self, generation: u64, mut candidate: Candidate) {
-        if generation != self.generation || candidate.path == self.cwd {
+    /// A path the scan of `generation` delivered.
+    pub fn insert(&mut self, generation: u64, candidate: Candidate) {
+        if generation == self.generation {
+            self.place(candidate, Some(generation));
+        }
+    }
+    /// A path replayed from earlier results, until a scan delivers it again.
+    pub(crate) fn replay(&mut self, candidate: Candidate) {
+        self.place(candidate, None);
+    }
+    fn place(&mut self, mut candidate: Candidate, delivered: Option<u64>) {
+        if candidate.path == self.cwd {
             return;
         }
         // Attribute immediately across every scope, even if another root's
@@ -671,10 +714,31 @@ impl App {
         if let Some((depth, root)) = best {
             candidate.depth = depth;
             candidate.root = root;
-            self.known
-                .insert(candidate.path.clone(), Arc::new(candidate));
-            self.known_version += 1;
+            // Rescans deliver mostly what is already known: keep those rows.
+            if self
+                .known
+                .get(&candidate.path)
+                .is_some_and(|c| **c == candidate)
+            {
+                if let Some(generation) = delivered {
+                    self.known.confirm(&candidate.path, generation);
+                }
+                return;
+            }
+            let candidate = Arc::new(candidate);
+            // Replays are unconfirmed: no scan has generation 0.
+            let stamp = delivered.unwrap_or(0);
+            if let Some(old) = self.known.insert(Arc::clone(&candidate), stamp) {
+                self.outdated.push(old);
+            }
+            self.added.push(candidate);
         }
+    }
+    /// The scan of `generation` completed: forget the paths it did not
+    /// deliver. The next refresh drops their rows.
+    pub(crate) fn reconcile(&mut self, generation: u64) {
+        let forgotten = self.known.keep_stamped(generation);
+        self.outdated.extend(forgotten);
     }
     /// Rows an empty query would list: eligible, and passing `fff seek` (files only) and the
     /// file filters, which hide directories whenever any is set.
@@ -697,25 +761,37 @@ impl App {
         }
     }
     pub fn refresh(&mut self) {
+        self.refresh_within(None);
+    }
+    /// Like `refresh`, but merge insertions only for about `budget` when the
+    /// query and everything else the rows depend on are unchanged; the rest
+    /// wait for the next refresh (see `unmerged`).
+    pub fn refresh_within(&mut self, budget: Option<Duration>) {
         let basis = RefreshBasis::of(self);
         let folded = self.filter().to_lowercase();
+        let listing_changed = !self.added.is_empty() || !self.outdated.is_empty();
         // Labels depend on the whole listing, not the query, so they stay put
-        // while typing.
+        // while typing; merges relabel what they change.
         if self
             .refreshed
             .as_ref()
             .is_none_or(|(previous, _)| *previous != basis)
         {
-            self.labels = if self.no_dir || self.short_labels {
-                disambiguate(
-                    self.known
-                        .values()
-                        .filter(|c| self.listed(c))
-                        .map(|c| c.path.as_path()),
-                )
-            } else {
-                HashMap::new()
-            };
+            let mut names: HashMap<_, Vec<_>> = HashMap::new();
+            if self.no_dir || self.short_labels {
+                for c in self.known.values().filter(|c| self.listed(c)) {
+                    if let Some(name) = c.path.file_name() {
+                        names
+                            .entry(name.to_os_string())
+                            .or_default()
+                            .push(Arc::clone(c));
+                    }
+                }
+            }
+            let old = std::mem::replace(&mut self.names, names);
+            let len = old.values().map(Vec::len).sum();
+            known::discard(old, len);
+            self.labels = disambiguate(self.names.values().flatten().map(|c| c.path.as_path()));
         }
         // Rows already match the previous query under the same basis. A query
         // that only appends letters (after lowercasing, as `score` does) can only
@@ -725,6 +801,14 @@ impl App {
         let mut base = None;
         match self.refreshed.take() {
             Some((previous, query)) if previous == basis => {
+                if listing_changed {
+                    // Kept queries' rows predate the change; only the current
+                    // ones are brought up to date.
+                    let budget = budget.filter(|_| query == folded);
+                    self.merge(&query, budget);
+                    let kept = self.earlier.iter().map(|(_, rows)| rows.len()).sum();
+                    known::discard(std::mem::take(&mut self.earlier), kept);
+                }
                 if query == folded {
                     self.refreshed = Some((previous, query));
                     self.keep_highlight();
@@ -757,15 +841,18 @@ impl App {
                     }
                 }
             }
-            _ => self.earlier.clear(),
+            _ => {
+                // Ranking every known path covers what was added or forgotten.
+                let kept = self.earlier.iter().map(|(_, rows)| rows.len()).sum();
+                known::discard(std::mem::take(&mut self.earlier), kept);
+                let added = self.added.len();
+                known::discard(std::mem::take(&mut self.added), added);
+                let outdated = self.outdated.len();
+                known::discard(std::mem::take(&mut self.outdated), outdated);
+            }
         }
         let order = |(a, sa): &(&Arc<Candidate>, i64), (b, sb): &(&Arc<Candidate>, i64)| {
-            a.depth
-                .cmp(&b.depth)
-                .then(b.directory.cmp(&a.directory))
-                .then(sb.cmp(sa))
-                .then(a.root.cmp(&b.root))
-                .then(a.path.as_os_str().cmp(b.path.as_os_str()))
+            rank(a, *sa, b, *sb)
         };
         let matcher = Matcher::new(self.filter());
         let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
@@ -792,14 +879,106 @@ impl App {
             ranked.sort_unstable_by(order);
             ranked.into_iter().map(|(c, _)| Arc::clone(c)).collect()
         };
-        self.rows = rows;
+        let old = std::mem::replace(&mut self.rows, rows);
+        let len = old.len();
+        known::discard(old, len);
         self.refreshed = Some((basis, folded));
         self.keep_highlight();
     }
+    /// Bring the rows ranked for `query` up to date with the candidates
+    /// forgotten and, within `budget`, those inserted since: work in proportion
+    /// to the change plus one pass over the row pointers, rather than ranking
+    /// every known path. Insertions left over wait for the next refresh.
+    fn merge(&mut self, query: &str, budget: Option<Duration>) {
+        let start = Instant::now();
+        // Candidates replaced or forgotten; `outdated` keeps their addresses
+        // unique until the rows are rid of them.
+        let stale: HashSet<_> = self.outdated.iter().map(Arc::as_ptr).collect();
+        let mut relabel = HashSet::new();
+        if !stale.is_empty() {
+            self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
+            if self.no_dir || self.short_labels {
+                for c in &self.outdated {
+                    if let Some(name) = c.path.file_name()
+                        && let Some(group) = self.names.get_mut(name)
+                    {
+                        group.retain(|g| !Arc::ptr_eq(g, c));
+                        self.labels.remove(&c.path);
+                        relabel.insert(name.to_os_string());
+                    }
+                }
+            }
+        }
+        // Only the latest candidate inserted for a path is still known.
+        self.added.retain(|c| !stale.contains(&Arc::as_ptr(c)));
+        let stale = std::mem::take(&mut self.outdated);
+        let len = stale.len();
+        known::discard(stale, len);
+        let matcher = Matcher::new(query);
+        let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
+        // In budgeted rounds, each about a millisecond, at least one per call.
+        while !self.added.is_empty() {
+            let take = if budget.is_some() {
+                self.added.len().min(MERGE_ROUND)
+            } else {
+                self.added.len()
+            };
+            let round = self.added.split_off(self.added.len() - take);
+            let listed: Vec<_> = round.into_iter().filter(|c| self.listed(c)).collect();
+            if self.no_dir || self.short_labels {
+                for c in &listed {
+                    if let Some(name) = c.path.file_name() {
+                        let group = self.names.entry(name.to_os_string()).or_default();
+                        group.push(Arc::clone(c));
+                        relabel.insert(name.to_os_string());
+                    }
+                }
+            }
+            let mut added: Vec<_> = listed
+                .into_iter()
+                .filter_map(|c| Some((score_of(&c)?, c)))
+                .collect();
+            added.sort_unstable_by(|(sa, a), (sb, b)| rank(a, *sa, b, *sb));
+            let mut rows = Vec::with_capacity(self.rows.len() + added.len());
+            let mut old = std::mem::take(&mut self.rows).into_iter();
+            for (score, c) in added {
+                // Rows all match the query; rank them by their own scores.
+                let before = old.as_slice().partition_point(|r| {
+                    rank(r, score_of(r).unwrap_or_default(), &c, score).is_lt()
+                });
+                rows.extend(old.by_ref().take(before));
+                rows.push(c);
+            }
+            rows.extend(old);
+            self.rows = rows;
+            if budget.is_some_and(|b| start.elapsed() >= b) {
+                break;
+            }
+        }
+        for name in relabel {
+            let Some(group) = self.names.get(&name) else {
+                continue;
+            };
+            for c in group {
+                self.labels.remove(&c.path);
+            }
+            if group.is_empty() {
+                self.names.remove(&name);
+            } else if group.len() > 1 {
+                self.labels
+                    .extend(disambiguate(group.iter().map(|c| c.path.as_path())));
+            }
+        }
+    }
+    /// Inserted candidates the rows do not reflect yet.
+    pub fn unmerged(&self) -> usize {
+        self.added.len()
+    }
     fn keep_highlight(&mut self) {
-        if let Some(wanted) = &self.wanted
+        // Rows share the known candidates: look for the wanted one's address.
+        if let Some(wanted) = self.wanted.as_ref().and_then(|w| self.known.get(w))
             && !self.highlight_top
-            && self.rows.iter().any(|c| &c.path == wanted)
+            && self.rows.iter().any(|c| Arc::ptr_eq(c, wanted))
         {
             self.highlight = self.wanted.take();
             return;
@@ -827,7 +1006,12 @@ impl App {
         if self.rows.get(hint).is_some_and(|c| &c.path == path) {
             return Some(hint);
         }
-        let i = self.rows.iter().position(|c| &c.path == path)?;
+        // Comparing addresses avoids reading every row's path.
+        let i = match self.known.get(path) {
+            Some(known) => self.rows.iter().position(|c| Arc::ptr_eq(c, known)),
+            None => None,
+        }
+        .or_else(|| self.rows.iter().position(|c| &c.path == path))?;
         self.highlight_hint.set(i);
         Some(i)
     }
