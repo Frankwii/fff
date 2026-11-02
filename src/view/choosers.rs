@@ -6,7 +6,7 @@ pub(super) fn bookmarks(
     app: &App,
     query: &str,
     index: usize,
-) -> Vec<usize> {
+) -> (Vec<usize>, Vec<(Rect, usize)>) {
     let theme = app.palette;
     let width = area.width.saturating_sub(4).min(90);
     let height = area.height.saturating_sub(4).min(22);
@@ -68,6 +68,7 @@ pub(super) fn bookmarks(
     let page = list.height as usize / 3;
     let start = index.saturating_sub(page.saturating_sub(1));
     let visible: Vec<_> = matches.iter().skip(start).take(page).copied().collect();
+    let mut choices = Vec::new();
     if matches.is_empty() {
         let text = if app.bookmarks.is_empty() {
             format!("No bookmarks yet. {alt}n adds the current directory.")
@@ -141,6 +142,12 @@ pub(super) fn bookmarks(
             list,
             &mut state,
         );
+        let shown = state.offset();
+        choices = item_areas(
+            list,
+            start + shown,
+            std::iter::repeat_n(3, visible.len().saturating_sub(shown)),
+        );
     }
     let hint = if app.status.is_empty() {
         format!("{alt}n new · {alt}e edit · {alt}d delete · {alt}r reload · ↑↓ reorder")
@@ -158,7 +165,7 @@ pub(super) fn bookmarks(
         )),
         Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
     );
-    visible
+    (visible, choices)
 }
 /// Modal frame for the bookmark icon chooser.
 pub(super) fn bookmark_dialog(
@@ -321,7 +328,13 @@ pub(super) fn bookmark_form(
         );
     }
 }
-pub(super) fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
+pub(super) fn bookmark_icons(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    query: &str,
+    index: usize,
+) -> Vec<(Rect, usize)> {
     let inner = bookmark_dialog(
         frame,
         area,
@@ -362,6 +375,7 @@ pub(super) fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &s
         inner.height.saturating_sub(3),
     );
     let matches = crate::icons::matching_bookmark_icons(query);
+    let mut choices = Vec::new();
     if matches.is_empty() {
         frame.render_widget(
             Paragraph::new(styled("No matching icons", theme.muted)),
@@ -386,6 +400,8 @@ pub(super) fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &s
             list,
             &mut state,
         );
+        let shown = state.offset();
+        choices = item_areas(list, shown, std::iter::repeat_n(1, matches.len() - shown));
     }
     frame.render_widget(
         Paragraph::new(styled(
@@ -394,6 +410,7 @@ pub(super) fn bookmark_icons(frame: &mut Frame, area: Rect, app: &App, query: &s
         )),
         Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
     );
+    choices
 }
 /// Bookmark deletion uses the operation sheet in the deletion accent, listing
 /// the one entry like a chooser row.
@@ -468,7 +485,13 @@ pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: u
     }
 }
 /// Alt+p chooser. The whole frame already uses the highlighted (previewed) palette.
-pub(super) fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, index: usize) {
+pub(super) fn palettes(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    query: &str,
+    index: usize,
+) -> Vec<(Rect, usize)> {
     let theme = app.palette;
     let width = area.width.saturating_sub(4).min(64);
     let height = area.height.saturating_sub(4).min(22);
@@ -520,6 +543,7 @@ pub(super) fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, in
         inner.height.saturating_sub(3),
     );
     let matches = app.matching_palettes(query);
+    let mut choices = Vec::new();
     if matches.is_empty() {
         frame.render_widget(
             Paragraph::new(styled("No matching palettes", theme.muted)),
@@ -566,6 +590,8 @@ pub(super) fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, in
             list,
             &mut state,
         );
+        let shown = state.offset();
+        choices = item_areas(list, shown, std::iter::repeat_n(1, matches.len() - shown));
     }
     if !app.status.is_empty() {
         frame.render_widget(
@@ -573,4 +599,5 @@ pub(super) fn palettes(frame: &mut Frame, area: Rect, app: &App, query: &str, in
             Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
         );
     }
+    choices
 }

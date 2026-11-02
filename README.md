@@ -306,8 +306,9 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | q / ! in Normal | Exit to the launch / current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |
-| Drag with the button held | Mark every row from where it was pressed to where it is |
-| Mouse wheel | Scroll the results, leaving the highlight and marks alone |
+| Drag with the button held | Mark every row from where it was pressed to where it is; past the top or bottom edge, keep scrolling and marking |
+| Mouse wheel | Scroll the results, leaving the highlight and marks alone (over the marked list or a chooser, move through it) |
+| Click / double-click a mark or chooser row | Select it / act on it (`l` on a mark, Enter in a chooser) |
 | Click a tab number | Switch to that [tab](#tabs), keeping the marks |
 | Drop files on the terminal | Copy them into the current directory, after confirmation |
 

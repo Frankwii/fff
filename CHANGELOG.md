@@ -33,6 +33,12 @@ history.
 
 ### Added
 
+- **The mouse in the marked list and the choosers.** A click on a mark
+  focuses the marked list there and a double click acts like `l` on it; in
+  the bookmark, icon and palette choosers and the Alt+g suggestions, a click
+  selects a row and a double click chooses it. The wheel moves through them.
+- **Dragging past the results' edge scrolls them**, marking rows as it goes,
+  for as long as the button is held there.
 - **Path-aware matching.** A query containing `/` matches the path below
   each result's root instead of its name: `pde/stab` finds
   `pde/notes/stability.tex` but not `notes/stability.tex`, and `pde/` lists

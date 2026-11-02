@@ -215,6 +215,221 @@ fn clicks_highlight_drags_mark_double_clicks_enter_and_the_wheel_only_scrolls() 
 }
 
 #[test]
+fn a_drag_held_past_an_edge_scrolls_and_marks_on() {
+    let root = PathBuf::from("/fixture");
+    let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+    let names = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    for name in names {
+        app.insert(
+            0,
+            crate::Candidate {
+                path: root.join(name),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    // Four rows on screen from y = 5; drawing follows the highlight.
+    let area = ratatui::layout::Rect::new(2, 5, 40, 4);
+    let draw = |app: &mut App| {
+        let i = app.highlighted().unwrap_or(0);
+        if app.scrolled.is_none() {
+            app.offset = app.offset.min(i).max((i + 1).saturating_sub(4));
+        }
+        app.rendered = app.rows[app.offset..(app.offset + 4).min(app.rows.len())]
+            .iter()
+            .map(|c| c.path.clone())
+            .collect();
+    };
+    draw(&mut app);
+    let mut discovery = Discovery::new(Default::default());
+    let mut state = Mouse::default();
+    let event = |kind, row| MouseEvent {
+        kind,
+        column: 10,
+        row,
+        modifiers: M::NONE,
+    };
+    let path = |name: &str| root.join(name);
+    let names_marked = |app: &App| {
+        app.marks
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+            .join("")
+    };
+    mouse_results(
+        &mut app,
+        &mut discovery,
+        event(MouseEventKind::Down(MouseButton::Left), 6),
+        area,
+        &mut state,
+    );
+    assert_eq!(app.highlight, Some(path("b")));
+    // Below the bottom edge: the row beyond the visible ones.
+    mouse_results(
+        &mut app,
+        &mut discovery,
+        event(MouseEventKind::Drag(MouseButton::Left), 12),
+        area,
+        &mut state,
+    );
+    assert_eq!(names_marked(&app), "bcde");
+    draw(&mut app);
+    assert_eq!(app.offset, 1);
+    // Held there, it scrolls on each step, not before.
+    let due = state.edge_due().unwrap();
+    assert!(!drag_at_edge(
+        &mut app,
+        area,
+        &mut state,
+        due - EDGE_STEP / 2
+    ));
+    for (step, marked) in [(1, "bcdef"), (2, "bcdefg")] {
+        assert!(drag_at_edge(
+            &mut app,
+            area,
+            &mut state,
+            due + EDGE_STEP * step
+        ));
+        assert_eq!(names_marked(&app), marked);
+        draw(&mut app);
+    }
+    // Back inside, it stops; past the top it scrolls up, in drag order.
+    mouse_results(
+        &mut app,
+        &mut discovery,
+        event(MouseEventKind::Drag(MouseButton::Left), 6),
+        area,
+        &mut state,
+    );
+    assert_eq!(state.edge_due(), None);
+    draw(&mut app);
+    let offset = app.offset;
+    mouse_results(
+        &mut app,
+        &mut discovery,
+        event(MouseEventKind::Drag(MouseButton::Left), 1),
+        area,
+        &mut state,
+    );
+    assert_eq!(app.highlight, Some(path(names[offset - 1])));
+    draw(&mut app);
+    let due = state.edge_due().unwrap();
+    while app.offset > 0 {
+        assert!(drag_at_edge(
+            &mut app,
+            area,
+            &mut state,
+            due + EDGE_STEP * 10
+        ));
+        draw(&mut app);
+        state.edge = state.edge.map(|(e, _)| (e, due));
+    }
+    assert_eq!(names_marked(&app), "ba");
+    // Releasing the button ends it.
+    mouse_results(
+        &mut app,
+        &mut discovery,
+        event(MouseEventKind::Up(MouseButton::Left), 1),
+        area,
+        &mut state,
+    );
+    assert_eq!(state.edge_due(), None);
+}
+
+#[test]
+fn the_mouse_selects_and_opens_marks_and_chooser_rows() {
+    use ratatui::layout::Rect;
+    let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+    let marks: Vec<PathBuf> = ["/m/a", "/m/b", "/m/c"].map(PathBuf::from).into();
+    app.marks = marks.clone().into();
+    let areas = ListAreas {
+        marks_pane: Rect::new(50, 5, 20, 12),
+        marks: vec![(Rect::new(50, 5, 20, 3), 0), (Rect::new(50, 8, 20, 3), 1)],
+        choices: vec![(Rect::new(10, 10, 30, 1), 0), (Rect::new(10, 11, 30, 1), 1)],
+    };
+    let mut mouse = Mouse::default();
+    let event = |kind, column, row| MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: M::NONE,
+    };
+    let click = MouseEventKind::Down(MouseButton::Left);
+    let mut focus = Focus::Results;
+    // A click on a mark focuses the marked list there; a second opens it.
+    let mut act = |focus: &mut Focus, kind, column, row| {
+        mouse_lists(&app, focus, event(kind, column, row), &areas, &mut mouse)
+    };
+    assert_eq!(act(&mut focus, click, 55, 9), ListMouse::Done);
+    assert!(matches!(&focus, Focus::Marks { rows, index: 1 } if *rows == marks));
+    assert_eq!(
+        act(&mut focus, click, 55, 10),
+        ListMouse::Open("/m/b".into())
+    );
+    // The wheel over the pane moves through the marks, stopping at the end.
+    for _ in 0..3 {
+        assert_eq!(
+            act(&mut focus, MouseEventKind::ScrollDown, 60, 16),
+            ListMouse::Done
+        );
+    }
+    assert!(matches!(focus, Focus::Marks { index: 2, .. }));
+    // The wheel elsewhere and the pane's empty part do nothing.
+    assert_eq!(
+        act(&mut focus, MouseEventKind::ScrollUp, 5, 5),
+        ListMouse::Done
+    );
+    assert_eq!(act(&mut focus, click, 60, 15), ListMouse::Done);
+    assert!(matches!(focus, Focus::Marks { index: 2, .. }));
+    // A click outside returns to the results, which take it.
+    assert_eq!(act(&mut focus, click, 5, 6), ListMouse::Pass);
+    assert!(matches!(focus, Focus::Results));
+    // The wheel over the pane from the results focuses the first mark.
+    assert_eq!(
+        act(&mut focus, MouseEventKind::ScrollDown, 60, 6),
+        ListMouse::Done
+    );
+    assert!(matches!(focus, Focus::Marks { index: 0, .. }));
+    // In a chooser: a click selects, a second chooses, the wheel moves, and
+    // nothing else reaches the results.
+    let mut focus = Focus::Palettes {
+        query: String::new(),
+        index: 0,
+        original: Palette::default(),
+    };
+    assert_eq!(act(&mut focus, click, 12, 11), ListMouse::Done);
+    assert!(matches!(focus, Focus::Palettes { index: 1, .. }));
+    assert_eq!(act(&mut focus, click, 12, 11), ListMouse::Enter);
+    assert_eq!(
+        act(&mut focus, MouseEventKind::ScrollUp, 0, 0),
+        ListMouse::Done
+    );
+    assert!(matches!(focus, Focus::Palettes { index: 0, .. }));
+    assert_eq!(act(&mut focus, click, 5, 6), ListMouse::Done);
+    assert!(matches!(focus, Focus::Palettes { index: 0, .. }));
+    // Go-to suggestions start unselected.
+    let mut focus = Focus::Location(crate::location::Location::new(
+        &[("one".into(), "/tmp".into())],
+        vec![],
+        std::path::Path::new("/"),
+    ));
+    assert_eq!(
+        act(&mut focus, MouseEventKind::ScrollUp, 0, 0),
+        ListMouse::Done
+    );
+    assert!(matches!(&focus, Focus::Location(l) if l.selected.is_none()));
+    assert_eq!(
+        act(&mut focus, MouseEventKind::ScrollDown, 0, 0),
+        ListMouse::Done
+    );
+    assert!(matches!(&focus, Focus::Location(l) if l.selected == Some(0)));
+}
+
+#[test]
 fn buttons_do_what_their_keys_do() {
     let root = std::env::temp_dir().join(format!("fff-buttons-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

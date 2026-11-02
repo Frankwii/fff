@@ -1263,3 +1263,46 @@ fn path_queries_highlight_letters_along_the_whole_label() {
         .collect();
     assert_eq!(underlined, "pdestab");
 }
+#[test]
+fn marks_and_chooser_rows_record_where_they_were_drawn() {
+    let mut app = fixture();
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    let mut focus = Focus::Results;
+    let mut rendered = None;
+    terminal
+        .draw(|f| rendered = Some(render(f, &mut app, &mut focus)))
+        .unwrap();
+    let rendered = rendered.unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    // One area per mark, inside the pane, each starting at its title.
+    assert_eq!(
+        rendered.marks.iter().map(|(_, i)| *i).collect::<Vec<_>>(),
+        [0, 1]
+    );
+    for (area, i) in &rendered.marks {
+        assert!(rendered.marks_pane.contains(area.as_position()));
+        let line: String = (area.x..area.right())
+            .map(|x| buffer[(x, area.y)].symbol())
+            .collect();
+        let name = ["Turing 1952.pdf", "report.tex"][*i];
+        assert!(line.contains(name), "{line}");
+    }
+    let mut focus = Focus::Palettes {
+        query: String::new(),
+        index: 0,
+        original: app.palette,
+    };
+    let mut rendered = None;
+    terminal
+        .draw(|f| rendered = Some(render(f, &mut app, &mut focus)))
+        .unwrap();
+    let rendered = rendered.unwrap();
+    let buffer = terminal.backend().buffer();
+    assert!(rendered.choices.len() > 3);
+    for (area, i) in &rendered.choices {
+        let line: String = (area.x..area.right())
+            .map(|x| buffer[(x, area.y)].symbol())
+            .collect();
+        assert!(line.contains(&app.palettes[*i].0), "{line}");
+    }
+}

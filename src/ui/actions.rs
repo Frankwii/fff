@@ -654,6 +654,9 @@ pub(super) fn activate_highlighted(app: &mut App, discovery: &mut Discovery) {
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 /// Rows the wheel scrolls per step.
 const WHEEL_ROWS: usize = 3;
+/// While a drag is held past the results' top or bottom edge, they scroll a
+/// row this often, marking as they go.
+pub(super) const EDGE_STEP: Duration = Duration::from_millis(50);
 /// The mouse in the results, like a graphical file manager.
 #[derive(Default)]
 pub(super) struct Mouse {
@@ -661,13 +664,38 @@ pub(super) struct Mouse {
     click: Option<(PathBuf, std::time::Instant)>,
     /// Where a held left button went down; dragging marks rows from here.
     anchor: Option<PathBuf>,
+    /// Where `anchor` was last found in the rows.
+    anchor_at: usize,
+    /// A drag held past the top or bottom edge, and when it next scrolls.
+    pub(super) edge: Option<(MouseEvent, std::time::Instant)>,
+    /// The last click on a mark or a chooser row, for double clicks.
+    item: Option<(usize, std::time::Instant)>,
+}
+impl Mouse {
+    /// A click on list item `index`: true when it is the second on it.
+    fn again(&mut self, index: usize) -> bool {
+        let now = std::time::Instant::now();
+        let again = self
+            .item
+            .take()
+            .is_some_and(|(i, at)| i == index && now.duration_since(at) < DOUBLE_CLICK);
+        if !again {
+            self.item = Some((index, now));
+        }
+        again
+    }
+    /// When a drag held past an edge scrolls next.
+    pub(super) fn edge_due(&self) -> Option<std::time::Instant> {
+        self.edge.map(|(_, at)| at)
+    }
 }
 /// `[ui] mouse` in the results. A click clears the marks and highlights a
 /// row; a second click on it acts like `l`, or in a dialog (fff explorer)
 /// returns true for the caller to deliver Enter on it; dragging with the
-/// button held marks every row from the pressed one to the current one. The
-/// wheel only scrolls. `area` holds the rows of the last frame, one per
-/// rendered target.
+/// button held marks every row from the pressed one to the current one, and
+/// past the top or bottom edge scrolls on (see `drag_at_edge`). The wheel
+/// only scrolls. `area` holds the rows of the last frame, one per rendered
+/// target.
 pub(super) fn mouse_results(
     app: &mut App,
     discovery: &mut Discovery,
@@ -693,6 +721,7 @@ pub(super) fn mouse_results(
             app.scrolled = Some(app.highlight.clone());
         }
         MouseEventKind::Down(MouseButton::Left) => {
+            mouse.edge = None;
             let Some(path) = row else {
                 return false;
             };
@@ -718,37 +747,238 @@ pub(super) fn mouse_results(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
-            let Some(anchor) = mouse.anchor.as_ref() else {
-                return false;
-            };
-            let Some(from) = app.rendered.iter().position(|p| p == anchor) else {
-                return false;
-            };
-            // Past the top or bottom of the rows, the drag reaches the edge.
-            let to = if event.row < area.y {
-                0
-            } else {
-                usize::from(event.row - area.y).min(app.rendered.len().saturating_sub(1))
-            };
-            if to == from && app.marks.is_empty() {
-                return false;
-            }
-            let rows: Vec<PathBuf> = if from <= to {
-                app.rendered[from..=to].to_vec()
-            } else {
-                app.rendered[to..=from].iter().rev().cloned().collect()
-            };
-            app.highlight = rows.last().cloned();
-            app.highlight_top = false;
-            app.wanted = None;
-            app.marks = rows.into();
-            // A drag is not the first half of a double click.
-            mouse.click = None;
+            let past = event.row < area.y || event.row >= area.y + area.height;
+            mouse.edge = (past && mouse.anchor.is_some())
+                .then(|| (event, std::time::Instant::now() + EDGE_STEP));
+            drag(app, event, area, mouse);
         }
-        MouseEventKind::Up(MouseButton::Left) => mouse.anchor = None,
+        MouseEventKind::Up(MouseButton::Left) => {
+            mouse.anchor = None;
+            mouse.edge = None;
+        }
         _ => {}
     }
     false
+}
+/// What the mouse did in the marked list or a chooser.
+#[derive(Debug, PartialEq)]
+pub(super) enum ListMouse {
+    /// Neither was under it: the results take it.
+    Pass,
+    /// Handled (or ignored) there.
+    Done,
+    /// A second click on a chooser row: Enter chooses it.
+    Enter,
+    /// A second click on a mark: `l` on it, or Enter in a dialog.
+    Open(PathBuf),
+}
+/// Where the last frame drew the marked list and the open chooser's rows
+/// (see `view::Rendered`).
+#[derive(Default)]
+pub(super) struct ListAreas {
+    pub marks_pane: ratatui::layout::Rect,
+    pub marks: Vec<(ratatui::layout::Rect, usize)>,
+    pub choices: Vec<(ratatui::layout::Rect, usize)>,
+}
+/// The row a wheel step moves to from `current` among `count`.
+fn wheel_step(current: Option<usize>, count: usize, forward: bool) -> Option<usize> {
+    let last = count.checked_sub(1)?;
+    match current {
+        None => forward.then_some(0),
+        Some(i) if forward => Some((i + 1).min(last)),
+        Some(i) => Some(i.saturating_sub(1).min(last)),
+    }
+}
+/// `[ui] mouse` in the marked list and the choosers (bookmarks, their icons,
+/// palettes, go-to suggestions). A click on a row selects it (a mark focuses
+/// the marked list) and a second click on it acts on it; the wheel over
+/// them moves the selection. A click outside the marked list returns to the
+/// results. While a chooser is open, the mouse does nothing else.
+pub(super) fn mouse_lists(
+    app: &App,
+    focus: &mut Focus,
+    event: MouseEvent,
+    areas: &ListAreas,
+    mouse: &mut Mouse,
+) -> ListMouse {
+    let position = ratatui::layout::Position::new(event.column, event.row);
+    let hit = |list: &[(ratatui::layout::Rect, usize)]| {
+        list.iter()
+            .find(|(area, _)| area.contains(position))
+            .map(|&(_, i)| i)
+    };
+    let down = event.kind == MouseEventKind::Down(MouseButton::Left);
+    let wheel = match event.kind {
+        MouseEventKind::ScrollDown => Some(true),
+        MouseEventKind::ScrollUp => Some(false),
+        _ => None,
+    };
+    let chooser = match &*focus {
+        Focus::Bookmarks { query, index } => {
+            Some((Some(*index), app.matching_bookmarks(query).len()))
+        }
+        Focus::BookmarkIcons { query, index, .. } => Some((
+            Some(*index),
+            crate::icons::matching_bookmark_icons(query).len(),
+        )),
+        Focus::Palettes { query, index, .. } => {
+            Some((Some(*index), app.matching_palettes(query).len()))
+        }
+        Focus::Location(location) => Some((location.selected, location.matches().len())),
+        _ => None,
+    };
+    if let Some((current, count)) = chooser {
+        let target = match wheel {
+            Some(forward) => wheel_step(current, count, forward),
+            None if down => hit(&areas.choices),
+            None => None,
+        };
+        let Some(target) = target else {
+            return ListMouse::Done;
+        };
+        let again = down && mouse.again(target);
+        match focus {
+            Focus::Bookmarks { index, .. }
+            | Focus::BookmarkIcons { index, .. }
+            | Focus::Palettes { index, .. } => *index = target,
+            Focus::Location(location) => location.selected = Some(target),
+            _ => {}
+        }
+        return if again {
+            ListMouse::Enter
+        } else {
+            ListMouse::Done
+        };
+    }
+    if !matches!(focus, Focus::Results | Focus::Marks { .. }) {
+        return ListMouse::Pass;
+    }
+    let over_marks = areas.marks_pane.contains(position);
+    let select = |focus: &mut Focus, target: usize| match focus {
+        Focus::Marks { index, .. } => *index = target,
+        _ => {
+            *focus = Focus::Marks {
+                rows: app.marks.to_vec(),
+                index: target,
+            }
+        }
+    };
+    if down {
+        if let Some(target) = hit(&areas.marks) {
+            let again = mouse.again(target);
+            select(focus, target);
+            if again && let Focus::Marks { rows, index } = focus {
+                return rows
+                    .get(*index)
+                    .cloned()
+                    .map_or(ListMouse::Done, ListMouse::Open);
+            }
+            return ListMouse::Done;
+        }
+        if over_marks {
+            return ListMouse::Done;
+        }
+        mouse.item = None;
+        if matches!(focus, Focus::Marks { .. }) {
+            *focus = Focus::Results;
+        }
+        return ListMouse::Pass;
+    }
+    if let Some(forward) = wheel
+        && over_marks
+    {
+        let (count, current) = match focus {
+            Focus::Marks { rows, index } => (rows.len(), Some(*index)),
+            _ => (app.marks.len(), None),
+        };
+        if let Some(target) = wheel_step(current, count, forward) {
+            select(focus, target);
+        }
+        return ListMouse::Done;
+    }
+    if matches!(focus, Focus::Marks { .. }) {
+        return ListMouse::Done;
+    }
+    ListMouse::Pass
+}
+/// A drag held past the results' edge without moving: scroll a row further
+/// and mark it, as the drag would. True when it did.
+pub(super) fn drag_at_edge(
+    app: &mut App,
+    area: ratatui::layout::Rect,
+    mouse: &mut Mouse,
+    now: std::time::Instant,
+) -> bool {
+    let Some((event, at)) = mouse.edge else {
+        return false;
+    };
+    if now < at {
+        return false;
+    }
+    mouse.edge = Some((event, now + EDGE_STEP));
+    drag(app, event, area, mouse)
+}
+/// Mark the rows from the anchor to the one under `event`; past the top or
+/// bottom edge, to the row beyond the visible ones, which the highlight then
+/// scrolls into view. True when the marks changed.
+fn drag(app: &mut App, event: MouseEvent, area: ratatui::layout::Rect, mouse: &mut Mouse) -> bool {
+    let Some(anchor) = mouse.anchor.as_ref() else {
+        return false;
+    };
+    let Some(last) = app.rows.len().checked_sub(1) else {
+        return false;
+    };
+    // The anchor is usually still on screen or where it was last found.
+    let from = app
+        .rendered
+        .iter()
+        .position(|p| p == anchor)
+        .map(|i| app.offset + i)
+        .filter(|&i| app.rows.get(i).is_some_and(|c| c.path == *anchor))
+        .or_else(|| {
+            let hint = mouse.anchor_at;
+            app.rows
+                .get(hint)
+                .is_some_and(|c| c.path == *anchor)
+                .then_some(hint)
+        })
+        .or_else(|| app.rows.iter().position(|c| c.path == *anchor));
+    let Some(from) = from else {
+        return false;
+    };
+    mouse.anchor_at = from;
+    let to = if event.row < area.y {
+        app.offset.saturating_sub(1)
+    } else if event.row >= area.y + area.height {
+        app.offset + app.rendered.len()
+    } else {
+        // Below the last row of a short list, the drag reaches it.
+        app.offset + usize::from(event.row - area.y).min(app.rendered.len().saturating_sub(1))
+    }
+    .min(last);
+    if to == from && app.marks.is_empty() {
+        return false;
+    }
+    let rows: Vec<PathBuf> = if from <= to {
+        app.rows[from..=to].iter().map(|c| c.path.clone()).collect()
+    } else {
+        app.rows[to..=from]
+            .iter()
+            .rev()
+            .map(|c| c.path.clone())
+            .collect()
+    };
+    app.highlight = rows.last().cloned();
+    app.highlight_top = false;
+    app.wanted = None;
+    // The view follows the highlight past the edge.
+    app.scrolled = None;
+    let changed =
+        rows.len() != app.marks.len() || rows.iter().zip(&app.marks[..]).any(|(a, b)| a != b);
+    app.marks = rows.into();
+    // A drag is not the first half of a double click.
+    mouse.click = None;
+    changed
 }
 /// The button bar (`[ui] buttons`): each button does what its key does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

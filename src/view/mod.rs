@@ -34,6 +34,33 @@ pub(crate) struct Rendered {
     pub buttons: Vec<(Rect, crate::ui::Button)>,
     /// Where each tab's number was drawn in the tab strip.
     pub tabs: Vec<(Rect, usize)>,
+    /// The marked list's pane, and where each of its rows was drawn with
+    /// its index in the list shown.
+    pub marks_pane: Rect,
+    pub marks: Vec<(Rect, usize)>,
+    /// The open chooser's rows (bookmarks, icons, palettes, go-to
+    /// suggestions) with the index each one selects.
+    pub choices: Vec<(Rect, usize)>,
+}
+
+/// Where each drawn list item went, for the mouse: items of `heights` rows
+/// stacked from the top of `list`, the first one being item `first`.
+fn item_areas(
+    list: Rect,
+    first: usize,
+    heights: impl IntoIterator<Item = usize>,
+) -> Vec<(Rect, usize)> {
+    let mut y = list.y;
+    let mut areas = Vec::new();
+    for (i, height) in heights.into_iter().enumerate() {
+        if y >= list.bottom() {
+            break;
+        }
+        let height = (height as u16).min(list.bottom() - y);
+        areas.push((Rect::new(list.x, y, list.width, height), first + i));
+        y += height;
+    }
+    areas
 }
 
 fn styled(text: impl Into<String>, color: Color) -> Span<'static> {
@@ -164,6 +191,9 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             results: Rect::default(),
             buttons: Vec::new(),
             tabs: Vec::new(),
+            marks_pane: Rect::default(),
+            marks: Vec::new(),
+            choices: Vec::new(),
         };
     }
     let area = Rect::new(
@@ -236,7 +266,8 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         (rows[0], rows[2], rows[1])
     };
     let mut result = results_pane(frame, results, app, matches!(focus, Focus::Results));
-    marks_pane(frame, marks, app, focus);
+    result.marks = marks_pane(frame, marks, app, focus);
+    result.marks_pane = marks;
     if preview.height > 0 {
         preview_pane(frame, preview, app);
     }
@@ -271,16 +302,18 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             prompt(frame, app, area, Field::Filters, "Edit filters", text, true)
         }
         Focus::Bookmarks { query, index } => {
-            result.bookmark_targets = bookmarks(frame, area, app, query, *index);
+            (result.bookmark_targets, result.choices) = bookmarks(frame, area, app, query, *index);
             result.page = result.bookmark_targets.len();
         }
         Focus::BookmarkEdit(draft) => bookmark_form(frame, main, app, draft),
         Focus::BookmarkIcons { query, index, .. } => {
-            bookmark_icons(frame, area, app, query, *index)
+            result.choices = bookmark_icons(frame, area, app, query, *index)
         }
         Focus::BookmarkDelete { target, .. } => bookmark_delete(frame, main, app, *target),
-        Focus::Palettes { query, index, .. } => palettes(frame, area, app, query, *index),
-        Focus::Location(location) => location_sheet(frame, main, app, location),
+        Focus::Palettes { query, index, .. } => {
+            result.choices = palettes(frame, area, app, query, *index)
+        }
+        Focus::Location(location) => result.choices = location_sheet(frame, main, app, location),
         _ => {}
     }
     notices(frame, main, app);
@@ -830,6 +863,9 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
         results: inner,
         buttons: Vec::new(),
         tabs: tab_areas(app, area),
+        marks_pane: Rect::default(),
+        marks: Vec::new(),
+        choices: Vec::new(),
     }
 }
 /// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.
@@ -1008,7 +1044,7 @@ fn matched_letters(
         .map(|i| first + i)
         .collect()
 }
-fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
+fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) -> Vec<(Rect, usize)> {
     let theme = app.palette;
     let focused = matches!(focus, Focus::Marks { .. });
     let block = panel(
@@ -1036,7 +1072,7 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
             .alignment(ratatui::layout::Alignment::Center),
             inner,
         );
-        return;
+        return Vec::new();
     }
     let item = |path: &PathBuf| {
         let metadata = path.metadata().ok();
@@ -1109,12 +1145,15 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
             items.push(next);
         }
     }
+    let heights: Vec<usize> = items.iter().map(ListItem::height).collect();
     let mut state = ListState::default().with_selected(selected.map(|i| i - first));
     frame.render_stateful_widget(
         List::new(items).highlight_style(Style::default().bg(theme.selection)),
         inner,
         &mut state,
     );
+    let shown = state.offset();
+    item_areas(inner, first + shown, heights.into_iter().skip(shown))
 }
 /// The preview pane: what the followed entry is in the title, its facts, then
 /// its first lines or entries, each cut to the pane's width.

@@ -241,6 +241,7 @@ fn session(
     let mut mouse = Mouse::default();
     let mut buttons = Vec::new();
     let mut tab_areas = Vec::new();
+    let mut list_areas = ListAreas::default();
     // Input read early, before this pass's discovery work.
     let mut queued = None;
     // Input was handled and its frame is not drawn yet: discovery waits.
@@ -290,6 +291,10 @@ fn session(
                 relist_at = None;
                 discovery.changed(app);
             }
+        }
+        // A drag held past the results' edge keeps scrolling and marking.
+        if matches!(focus, Focus::Results) {
+            dirty |= drag_at_edge(app, results_area, &mut mouse, now);
         }
         // Input goes first: with a key waiting, discovery waits a pass.
         if queued.is_none() {
@@ -431,6 +436,11 @@ fn session(
             results_area = completed.results;
             buttons = completed.buttons;
             tab_areas = completed.tabs;
+            list_areas = ListAreas {
+                marks_pane: completed.marks_pane,
+                marks: completed.marks,
+                choices: completed.choices,
+            };
             bookmark_targets = completed.bookmark_targets;
             page = completed.page.max(1);
             dirty = false;
@@ -460,6 +470,10 @@ fn session(
             .preview
             .remaining(std::time::Instant::now())
             .map_or(wait, |delay| delay.min(wait));
+        let wait = mouse.edge_due().map_or(wait, |at| {
+            at.saturating_duration_since(std::time::Instant::now())
+                .min(wait)
+        });
         let event = match queued.take().map_or_else(|| input.try_take(), Ok) {
             Ok(event) => event?,
             Err(std::sync::mpsc::TryRecvError::Empty) => {
@@ -640,16 +654,44 @@ fn session(
                             continue;
                         }
                     },
-                    None => {
-                        // In a dialog a double click is Enter on the row.
-                        if matches!(focus, Focus::Results)
-                            && mouse_results(app, &mut discovery, event, results_area, &mut mouse)
-                        {
+                    None => match mouse_lists(app, &mut focus, event, &list_areas, &mut mouse) {
+                        ListMouse::Enter => Event::Key(KeyEvent::new(K::Enter, M::NONE)),
+                        ListMouse::Open(_) if app.dialog.is_some() => {
                             Event::Key(KeyEvent::new(K::Enter, M::NONE))
-                        } else {
+                        }
+                        ListMouse::Open(mark) => {
+                            // Like `l` on it: a folder is entered, a file opens.
+                            if mark.is_dir() {
+                                if app.can_navigate() {
+                                    discovery.checkpoint(app);
+                                    app.navigate(mark, false);
+                                    app.wanted = None;
+                                    discovery.start(app, true);
+                                    focus = Focus::Results;
+                                }
+                            } else {
+                                open_in_background(app, &mark);
+                            }
                             continue;
                         }
-                    }
+                        ListMouse::Done => continue,
+                        // In a dialog a double click is Enter on the row.
+                        ListMouse::Pass => {
+                            if matches!(focus, Focus::Results)
+                                && mouse_results(
+                                    app,
+                                    &mut discovery,
+                                    event,
+                                    results_area,
+                                    &mut mouse,
+                                )
+                            {
+                                Event::Key(KeyEvent::new(K::Enter, M::NONE))
+                            } else {
+                                continue;
+                            }
+                        }
+                    },
                 }
             }
             event => event,

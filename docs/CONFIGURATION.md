@@ -174,19 +174,34 @@ the column stays blank until its count arrives.
 
 ## Mouse
 
-With `[ui] mouse = true` (the default), the mouse works in the results like in
-a graphical file manager:
+With `[ui] mouse = true` (the default), the mouse works in the results, the
+marked list and the choosers like in a graphical file manager. In the results:
 
 - A click highlights a row and clears the marks.
 - A double click acts like `l`: it enters a directory or opens a file in the
   background. In [`fff explorer`](DESKTOP.md#fff-explorer) it is Enter on the
   row instead: it enters a folder or chooses a file.
 - Dragging with the button held clears the marks, then marks every row from
-  where it was pressed to where it is; the highlight follows the drag.
+  where it was pressed to where it is; the highlight follows the drag. Held
+  past the top or bottom edge of the results, the drag scrolls them a row at
+  a time, marking as it goes, until it comes back or the button is released.
 - The wheel scrolls the results and does nothing else; the highlight may leave
   the view, and the next key that moves it brings the view back.
 - A click on a tab's number in the results' top-right corner switches to that
   tab, like Alt+↑/↓; the marks are kept, since tabs share them.
+
+In the marked list:
+
+- A click on a mark focuses the marked list there (like Alt+Space, then
+  moving to it); a double click acts like `l` on it: a folder is entered and
+  a file opens in the background (in `fff explorer`, Enter on it).
+- The wheel over the marked list moves through the marks, focusing it.
+- A click in the results returns to them, highlighting the row clicked.
+
+In the choosers (bookmarks, bookmark icons, palettes, and the Alt+g
+suggestions), a click selects a row, a double click is Enter on it (opening
+the bookmark, choosing the icon, applying the palette, going to the folder),
+and the wheel moves the selection. Clicks outside an open chooser do nothing.
 
 Capturing the mouse takes it from the terminal's own text selection; most
 terminals still select with Shift held. Set `mouse = false` to leave the mouse

@@ -389,7 +389,7 @@ pub(super) fn location_sheet(
     main: Rect,
     app: &App,
     location: &crate::location::Location,
-) {
+) -> Vec<(Rect, usize)> {
     use crate::location::Source;
     let theme = app.palette;
     let width = main.width.saturating_sub(4) as usize;
@@ -428,7 +428,7 @@ pub(super) fn location_sheet(
     );
     let row = inner.y + top;
     if row >= inner.bottom() {
-        return;
+        return Vec::new();
     }
     frame.render_widget(
         Paragraph::new(bold("❯ ", theme.marked)),
@@ -469,15 +469,14 @@ pub(super) fn location_sheet(
             .style(Style::default().bg(bg))
         })
         .collect::<Vec<_>>();
-    frame.render_widget(
-        Paragraph::new(lines),
-        Rect::new(
-            inner.x,
-            row + 1,
-            inner.width,
-            inner.bottom().saturating_sub(row + 2),
-        ),
+    let list = Rect::new(
+        inner.x,
+        row + 1,
+        inner.width,
+        inner.bottom().saturating_sub(row + 2),
     );
+    let choices = item_areas(list, first, std::iter::repeat_n(1, lines.len()));
+    frame.render_widget(Paragraph::new(lines), list);
     let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
     if app
         .edit_view
@@ -488,6 +487,7 @@ pub(super) fn location_sheet(
     } else if !app.status.is_empty() && app.status != app.status_success {
         frame.render_widget(Paragraph::new(styled(safe(&app.status), theme.error)), last);
     }
+    choices
 }
 /// The paths a program will receive, in argument order.
 pub(super) fn path_lines(
