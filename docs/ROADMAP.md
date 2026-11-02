@@ -6,8 +6,8 @@ not implemented features or commitments:
 - Content search with alternating filtering (below).
 - Path-aware matching (below).
 - A text-only preview pane (below).
-- Tab completion of program options in the gx/gX prompt for programs without a
-  man page or `--help`.
+- Option completion in the gx/gX prompt for programs with neither a man page
+  nor `--help` (Tab already completes options from those two).
 - Becoming the desktop's file manager (below).
 - Resuming only when the last directory was the current one: a new session
   should restore its remembered location only when started from the
@@ -146,12 +146,6 @@ TODO without leaving the browser.
 
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
-
-File operations shipped in 0.3.0; running programs (gx/gX, E), the shell
-integration and remembered locations in 0.4.0; tabs and plain Normal-mode keys
-in 0.5.0; openers, the Enter rules and Neovim-only editing in 0.6.0; result
-details, the richer footer, visible links, live updates, the mouse, opt-in buttons and dropped files in 0.7.0.
-See [the operation guide](OPERATIONS.md).
 
 The current release is 0.7.0. Version 1.0 is planned once the remaining roadmap
 above is implemented. Earlier versions will not be retroactively renumbered.
