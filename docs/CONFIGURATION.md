@@ -227,8 +227,13 @@ browsing (the query in Normal mode) and it consists only of existing absolute
 paths (shell-quoted or backslash-escaped, or `file://` URIs), fff offers to copy
 them into the current directory, with the usual confirmation and conflict
 checks; the marks are left as they were. While typing, a paste is only text
-for the query. Vanilla st has no drag and drop. Drops are ignored with
-`--no-dir`.
+for the query. Drops are ignored with `--no-dir`.
+
+Vanilla st has no drag and drop. With the drag-n-drop patch, st pastes dropped
+paths backslash-escaped and separated by spaces through its usual bracketed
+paste, which fff understands. Besides `config.def.h`, add the patch's
+`xdndescchar` setting to your `config.h` (st builds from it), then rebuild and
+reinstall st. The patch also puts the dropped paths in the PRIMARY selection.
 
 ## Live updates
 
