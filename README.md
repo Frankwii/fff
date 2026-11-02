@@ -181,8 +181,14 @@ the current directory; in `fff seek`, nothing) and Alt+number does nothing.
 
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
-Other display labels are relative to the browsing directory, with repeated leading
-parent steps shortened to `.../`; output paths never use that abbreviation.
+
+Rows in `fff pick` (and `fff seek`) show bare names: when listed entries share
+a name, each gains the fewest trailing parent directories that tell it apart
+(`folder1/main.pdf`, `folder2/main.pdf`), independently of the query, and the
+labels follow the listing as you navigate. The footer shows the highlighted
+entry's path. In `fff roam` and `fff explorer`, labels are relative to the
+browsing directory, with repeated leading parent steps shortened to `.../`.
+Labels are presentation only: output paths are never shortened.
 
 `--glob` is a file filter: only files whose basename matches it are listed, and
 directories are hidden but still traversed. Repeat it to allow several patterns
@@ -212,10 +218,8 @@ fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura
 ```
 
 Discovery still traverses directories within the depth limit, and the query
-starts in Insert mode, ready to type. Result rows show
-bare file names; when listed files share a name, each gains the fewest trailing
-parent directories that tell it apart (`folder1/main.pdf`, `folder2/main.pdf`),
-independently of the query. The footer still shows the highlighted file's path.
+starts in Insert mode, ready to type. Result rows show bare file names, with
+only the parents that tell same-named files apart, as in `fff pick`.
 
 ### Preview pane
 

@@ -509,7 +509,7 @@ fn no_dir_rows_show_names_with_only_the_parents_that_tell_them_apart() {
     let labels: Vec<_> = app
         .rows
         .iter()
-        .map(|c| no_dir_label(&app, &c.path))
+        .map(|c| short_label(&app, &c.path))
         .collect();
     assert_eq!(
         labels,
@@ -528,6 +528,58 @@ fn no_dir_rows_show_names_with_only_the_parents_that_tell_them_apart() {
     // full relative path; the twins' rows carry just their distinguishing parent.
     assert!(!screen.contains("folder/folder1"), "{screen}");
     assert_eq!(targets[1], Path::new("/work/folder/folder1/main.pdf"));
+}
+#[test]
+fn pick_rows_show_names_folders_included_and_follow_navigation() {
+    let mut app = App::browse("/work".into(), 3, crate::Policy::default());
+    app.short_labels = true;
+    for (name, directory, depth) in [
+        ("a", true, 1),
+        ("b", true, 1),
+        ("a/notes", true, 2),
+        ("b/notes", true, 2),
+        ("a/notes/plan.md", false, 3),
+        ("b/todo.md", false, 2),
+    ] {
+        app.insert(
+            0,
+            Candidate {
+                path: Path::new("/work").join(name),
+                directory,
+                depth,
+                root: 0,
+            },
+        );
+    }
+    app.scanning = false;
+    app.refresh();
+    let labels =
+        |app: &App| -> Vec<String> { app.rows.iter().map(|c| short_label(app, &c.path)).collect() };
+    assert_eq!(
+        labels(&app),
+        ["a", "b", "a/notes", "b/notes", "todo.md", "plan.md"]
+    );
+    // In a/, only one notes folder is listed: its bare name is enough.
+    app.navigate("/work/a".into(), false);
+    for (name, directory, depth) in [("notes", true, 1), ("notes/plan.md", false, 2)] {
+        app.insert(
+            app.generation,
+            Candidate {
+                path: Path::new("/work/a").join(name),
+                directory,
+                depth,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    assert_eq!(labels(&app), ["notes", "plan.md"]);
+    let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut Focus::Results))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(screen.contains(" notes/ "), "{screen}");
 }
 #[test]
 fn disambiguation_extends_only_colliding_names() {

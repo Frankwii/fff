@@ -598,6 +598,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
     app.no_dir = mode.no_dir;
+    // Choosing paths shows names; the footer has the highlighted one's path.
+    app.short_labels = mode.no_dir || (mode.output_paths && dialog.is_none());
     app.status_timeout = settings.message_timeout;
     app.columns = settings.columns;
     app.mouse = settings.mouse;

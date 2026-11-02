@@ -65,9 +65,10 @@ fn display_path(path: &Path, base: &Path) -> String {
         safe(relative.display().to_string())
     }
 }
-/// `fff seek` result label: the bare name, or the shortest distinguishing
-/// trailing path when another listed file shares it. Presentation only.
-fn no_dir_label(app: &App, path: &Path) -> String {
+/// `fff pick` and `fff seek` result label: the bare name, or the shortest
+/// distinguishing trailing path when another listed entry shares it.
+/// Presentation only.
+fn short_label(app: &App, path: &Path) -> String {
     match app.labels.get(path) {
         Some(label) => safe(label.display().to_string()),
         None => safe(path.file_name().unwrap_or_default().to_string_lossy()),
@@ -769,8 +770,8 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             } else {
                 String::new()
             };
-            let mut name = if app.no_dir {
-                no_dir_label(app, &c.path)
+            let mut name = if app.no_dir || app.short_labels {
+                short_label(app, &c.path)
             } else {
                 display_path(&c.path, &app.cwd)
             };
@@ -780,7 +781,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
             let info = app.details.info(&c.path);
-            // Labels are relative to the current directory (or, in fff seek,
+            // Labels are relative to the current directory (or, in fff pick and fff seek,
             // as short as a shared name allows); the footer and F1 show the rest.
             let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
             let fixed = (prefix.width() + "● ".width() + kind.width()) as u16;

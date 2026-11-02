@@ -35,9 +35,10 @@ is `fff roam`.
 
 - **`--output-paths` is now `fff pick`**, the only command that prints paths:
   `nvim "$(fff pick)"`, `fff pick --relative -0`. It takes ROOTS and
-  `--browse` like `fff roam`. Scripts that combined `--output-paths` with
-  `--no-dir` and `--glob` use `fff pick --glob ...`, which lists only the
-  matching files.
+  `--browse` like `fff roam`. Its rows show bare names, with only the parent
+  directories that tell same-named entries apart, as `--no-dir` did. Scripts
+  that combined `--output-paths` with `--no-dir` and `--glob` use
+  `fff pick --glob ...`, which lists only the matching files.
 - **`--no-dir` is now `fff seek`**: `fff seek ~/papers --glob '*.pdf'`. It
   behaves as `--no-dir` did without `--output-paths`, leaving into the chosen
   file's folder, and rejects `--browse`, `--window` and `--resume`.

@@ -217,6 +217,7 @@ struct RefreshBasis {
     filters: Vec<String>,
     no_dir: bool,
     files_only: bool,
+    short_labels: bool,
 }
 impl RefreshBasis {
     fn of(app: &App) -> Self {
@@ -231,6 +232,7 @@ impl RefreshBasis {
             filters: app.policy.filters.clone(),
             no_dir: app.no_dir,
             files_only: app.files_only,
+            short_labels: app.short_labels,
         }
     }
 }
@@ -308,7 +310,10 @@ pub struct App {
     /// Alt+d / `zd`: directories are hidden from the results for now; unlike
     /// `fff seek`, navigation still works.
     pub files_only: bool,
-    /// `fff seek` row labels for files whose basename another listed file shares
+    /// `fff pick` and `fff seek`: rows show bare names, with only the parents
+    /// that tell apart entries sharing one (`labels`).
+    pub short_labels: bool,
+    /// Short row labels for entries whose basename another listed entry shares
     /// (presentation only); other rows show their bare name.
     pub labels: HashMap<PathBuf, PathBuf>,
     /// Home directory, shown as `~` in the location line (presentation only).
@@ -405,6 +410,7 @@ impl App {
             normal_keys: normal_keys::NormalKeys::default(),
             no_dir: false,
             files_only: false,
+            short_labels: false,
             labels: HashMap::new(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
@@ -700,7 +706,7 @@ impl App {
             .as_ref()
             .is_none_or(|(previous, _)| *previous != basis)
         {
-            self.labels = if self.no_dir {
+            self.labels = if self.no_dir || self.short_labels {
                 disambiguate(
                     self.known
                         .values()

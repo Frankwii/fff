@@ -221,7 +221,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()
         (self.root / "top.txt").touch()
-        s = self.start("--depth", "2", implicit_root=True)
+        s = self.start("--depth", "2", implicit_root=True, output_paths=False)
         s.wait_ui("Files · 3")
         s.send(b"zd", "files only")
         s.wait_ui("Files · 2")
