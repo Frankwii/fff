@@ -184,7 +184,7 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
     let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_fff")).unwrap();
     assert!(
         entry.contains(&format!(
-            "Exec=st -c fff-picker -e {} --browse %f",
+            " sh st -c fff-picker -e {} --browse %f",
             exe.display()
         )),
         "{entry}"

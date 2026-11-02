@@ -51,7 +51,9 @@ time, keeping everything else.
 
 1. Writes `$XDG_DATA_HOME/applications/fff.desktop` (`~/.local/share/...` by
    default), an application for `inode/directory` whose command is
-   `FFF_TERMINAL fff --browse %f`.
+   `FFF_TERMINAL fff --browse %f`, with the terminal's own output discarded
+(st, for one, logs every escape sequence it does not support, and that log
+would otherwise land in the shell that ran `xdg-open`).
 2. Refreshes the desktop database with `update-desktop-database` when it is
    installed.
 3. Makes it the default for directories with
@@ -150,7 +152,8 @@ cmd=/home/you/.config/xdg-desktop-portal-termfilechooser/fff-wrapper.sh
 env=TERMCMD=foot --app-id fff-picker
 ```
 
-The terminal must stay open until fff exits (most do; a terminal that hands
+The terminal's own output is discarded unless the portal's log level is
+debug. The terminal must stay open until fff exits (most do; a terminal that hands
 the command to an existing server and returns at once cancels every dialog).
 The script needs bash 4.4 or later. With the portal's log level at debug
 (`--loglevel=DEBUG`), it traces its commands in the

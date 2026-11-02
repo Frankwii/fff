@@ -20,8 +20,13 @@ else
 fi
 
 if [[ ${1:-} != --in-terminal ]]; then
-    [[ ${6:-0} -ge 4 ]] && set -x
-    exec "${terminal[@]}" "$0" --in-terminal "$@"
+    # The terminal's own messages (st logs every escape sequence it does not
+    # support) would fill the portal's log; keep them only when debugging.
+    if [[ ${6:-0} -ge 4 ]]; then
+        set -x
+        exec "${terminal[@]}" "$0" --in-terminal "$@"
+    fi
+    exec "${terminal[@]}" "$0" --in-terminal "$@" >/dev/null 2>&1
 fi
 shift
 multiple=$1 directory=$2 save=$3 path=$4 out=$5
