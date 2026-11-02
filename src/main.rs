@@ -72,7 +72,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
   results take <cyan>←/→</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>/</cyan> location, <cyan>b</cyan> bookmarks,
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
-  Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
+  Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> trash, <cyan>X</cyan> delete, <cyan>u</cyan> undo.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
   <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.

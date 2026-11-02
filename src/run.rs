@@ -93,7 +93,7 @@ fn executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 fn search_path() -> Vec<PathBuf> {
-    // Empty PATH entries would mean the current directory; never search it.
+    // Empty and relative PATH entries depend on the current directory; never search them.
     std::env::var_os("PATH")
         .map(|p| {
             std::env::split_paths(&p)
@@ -615,7 +615,7 @@ pub fn pause_after_failure(line: &str, status: ExitStatus) {
     let _ = tty.flush();
     let _ = io::BufReader::new(&tty).read_line(&mut String::new());
 }
-/// "exited with status 1" or "was killed by signal 9".
+/// "exited with status 1" or "was stopped by signal 9".
 pub fn describe(status: ExitStatus) -> String {
     use std::os::unix::process::ExitStatusExt;
     match (status.code(), status.signal()) {

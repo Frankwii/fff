@@ -185,6 +185,37 @@ fn cli_config_precedence_validation_and_missing_files() {
             .status
             .success()
     );
+    // Programs a configuration names must be installed; the built-in
+    // terminals (`st`) are not checked when nothing names them.
+    let empty = base.join("empty-path");
+    fs::create_dir_all(&empty).unwrap();
+    let check = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_fff"))
+            .arg("setup")
+            .args(args)
+            .arg("--check-config")
+            .env("HOME", &home)
+            .env("PATH", &empty)
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .unwrap()
+    };
+    assert!(check(&["--no-config"]).status.success());
+    let openers = base.join("openers.toml");
+    fs::write(
+        &openers,
+        "[open]\nterminal = 'fff-absent-terminal -e'\n\
+         [[open.rules]]\ncommand = 'fff-absent-viewer'\nextensions = ['pdf']\n",
+    )
+    .unwrap();
+    let absent = check(&["--config", openers.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&absent.stderr);
+    assert!(!absent.status.success());
+    assert!(
+        stderr.contains("fff-absent-terminal") && stderr.contains("fff-absent-viewer"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("st:"), "{stderr}");
     let explicit = xdg.join("fff/config.toml");
     assert!(
         run(

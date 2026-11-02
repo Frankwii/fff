@@ -410,7 +410,14 @@ impl Settings {
             palettes.insert(name.as_str(), palette);
         }
         let chosen = palette_override.unwrap_or(&raw.ui.palette);
-        let palette=Palette::named(chosen).or_else(||palettes.get(chosen).copied()).ok_or_else(||format!("Unknown palette {chosen:?}; use midnight, light, forest, or define [palettes.{chosen}]"))?;
+        let palette = Palette::named(chosen)
+            .or_else(|| palettes.get(chosen).copied())
+            .ok_or_else(|| {
+                format!(
+                    "Unknown palette {chosen:?}; use one of {} or define [palettes.{chosen}]",
+                    Palette::names().join(", ")
+                )
+            })?;
         let bookmarks = resolve_bookmarks(raw.bookmarks, base, home)?;
         let available = Palette::names()
             .iter()

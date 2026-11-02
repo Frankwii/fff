@@ -49,9 +49,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 | `fff setup --check-config` | Validate the selected configuration and exit. |
 
 The config directory is always `fff`, independently of the crate name
-`fuzzy-file-finder` or the executable name. After renaming or rebuilding a local
-installation, make sure your PATH entry or symlink points to `target/release/fff`
-rather than an older `target/release/picker` binary.
+`fuzzy-file-finder` or the executable name.
 
 A missing default file uses defaults. An explicitly requested missing file,
 invalid TOML, unknown field, unknown palette, or invalid setting produces a clear
@@ -167,7 +165,7 @@ permissions and `user:group`, dropping the last ones first when space runs out.
 Symbolic links show `→ target` after their name, in the `link` color; broken
 links use the `error` color.
 
-Only rows on screen are inspected, so discovery stays as fast as before:
+Only rows on screen are inspected, so discovery does no extra work:
 one `lstat` per visible row, read again after each scan. Directory entry counts
 come from a background thread, so a huge or slow directory never delays a frame;
 the column stays blank until its count arrives.
@@ -378,8 +376,8 @@ sessions are never saved.
 Highlights are kept in `$XDG_STATE_HOME/fff/state` (`~/.local/state/fff/state`
 when unset): up to 500 directories' highlights, least recently used dropped
 first, as exact path bytes. The last session is in `fff/session` beside it.
-Both files are replaced atomically when a session ends; a missing or damaged
-file is ignored. Delete them to forget everything. `[ui] resume`, which
+Both files are readable only by you and replaced atomically when a session
+ends; a missing or damaged file is ignored. Delete them to forget everything. `[ui] resume`, which
 resumed automatically in 0.8, is still accepted and does nothing.
 
 ## Bookmarks
@@ -508,8 +506,7 @@ max_paths = 1000000     # paths the current view may hold (1000..100000000)
    listing is drawn once, complete, rather than first empty and then again.
    Filesystem calls stay off the UI thread; a slow or large view streams
    normally after that bounded wait. Input and discovery share
-   coalesced wake notifications, so ready results no longer wait for a 30 ms
-   keyboard-poll timeout.
+   coalesced wake notifications, so ready results are drawn at once.
 4. **Quiet updates.** While staying in a view, depth-1 listings refresh every
    `fresh_seconds` (3 seconds by default). Recursive views refresh every
    `ttl_seconds` (60 seconds by default) to avoid repeatedly walking a large tree.
@@ -667,7 +664,9 @@ open with `$EDITOR`, as a terminal program.
 when the desktop entry or the file chooser installed by `fff setup` starts
 it; its default gives the window the class `fff-picker`, so a window manager
 rule can float it (see [desktop integration](DESKTOP.md#floating-windows)).
-`fff setup --check-config` reports opener and terminal programs that are not installed.
+`fff setup --check-config` reports the opener and terminal programs the
+configuration names that are not installed (the built-in `st` defaults are
+not checked).
 
 ## Modal text editing
 

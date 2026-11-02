@@ -87,11 +87,11 @@ fn isolated_buffers_visual_yank_paste_and_multiline_edits() {
     );
     e.reset(Field::Query);
     assert_eq!(e.activate(Field::Query, "").unwrap().label(), "NORMAL");
-    // An explicit Normal reset puts the cursor on the retained query's end.
-    e.reset_normal(Field::Query);
+    // A reset puts the cursor on the retained query's end, in Normal mode.
+    e.reset(Field::Query);
     let view = e.activate(Field::Query, "kept").unwrap();
     assert_eq!((view.label(), view.column), ("NORMAL", 3));
-    e.reset_normal(Field::Query);
+    e.reset(Field::Query);
     assert_eq!(e.activate(Field::Query, "").unwrap().label(), "NORMAL");
     assert_eq!(chars(&mut e, Field::Query, "inew"), "new");
     e.reset(Field::Query);
@@ -210,7 +210,7 @@ fn navigation_keeps_insert_normal_replace_and_visual_modes() {
         ("gh", "s"),
         ("gH", "S"),
     ] {
-        e.reset_normal(Field::Query);
+        e.reset(Field::Query);
         e.activate(Field::Query, "sample").unwrap();
         chars(&mut e, Field::Query, input);
         e.reset_preserving_mode(Field::Query);
@@ -218,13 +218,13 @@ fn navigation_keeps_insert_normal_replace_and_visual_modes() {
         e.reset_preserving_mode(Field::Query);
         assert_eq!(e.activate(Field::Query, "retained").unwrap().mode, mode);
     }
-    e.reset_normal(Field::Query);
+    e.reset(Field::Query);
     e.activate(Field::Query, "block").unwrap();
     e.input(Field::Query, Key::new(K::Char('v'), M::CONTROL))
         .unwrap();
     e.reset_preserving_mode(Field::Query);
     assert_eq!(e.activate(Field::Query, "").unwrap().mode, "\u{16}");
-    e.reset_normal(Field::Location);
+    e.reset(Field::Location);
     e.activate(Field::Location, "new/path").unwrap();
     chars(&mut e, Field::Location, "A");
     e.reset_preserving_mode(Field::Query);
@@ -367,7 +367,7 @@ fn naming_buffer_insert_reset_is_fresh_on_every_activation() {
         assert!(e.activate(Field::FileName, name).unwrap().normal());
     }
     // Multiline rename buffers retain their Normal start.
-    e.reset_normal(Field::Operation);
+    e.reset(Field::Operation);
     assert!(e.activate(Field::Operation, "rename").unwrap().normal());
 }
 
@@ -378,7 +378,7 @@ fn single_line_open_keys_enter_insert_without_adding_rows() {
     };
     for field in [Field::Query, Field::FileName, Field::Extraction] {
         for key in ['o', 'O'] {
-            e.reset_normal(field);
+            e.reset(field);
             e.activate(field, "path").unwrap();
             let (text, view) = e.input(field, Key::new(K::Char(key), M::NONE)).unwrap();
             assert_eq!(text, "path");
@@ -398,7 +398,7 @@ fn single_line_open_keys_enter_insert_without_adding_rows() {
     }
     // Genuine multiline editors retain native open-line and Enter behavior.
     for field in [Field::Exclusions, Field::Operation] {
-        e.reset_normal(field);
+        e.reset(field);
         e.activate(field, "first").unwrap();
         assert_eq!(chars(&mut e, field, "osecond"), "first\nsecond");
         assert_eq!(
@@ -414,7 +414,7 @@ fn invalid_utf8_lines_stay_visible_instead_of_becoming_empty() {
     let Some(mut e) = engine() else {
         return;
     };
-    e.reset_normal(Field::Operation);
+    e.reset(Field::Operation);
     e.activate(Field::Operation, "1 a").unwrap();
     chars(&mut e, Field::Operation, ":call setline(1, \"1 a\\x80b\")");
     let (text, _) = e

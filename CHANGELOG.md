@@ -85,6 +85,20 @@ history.
   cancels it. Escape was swallowed there, so it could not cancel the prompt.
 - Escape leaving Insert mode in the bookmark chooser keeps the highlighted
   bookmark instead of jumping to the first one.
+- `fff setup --check-config` no longer fails on a machine without `st` when
+  the configuration does not name it: the built-in terminal defaults are not
+  checked.
+- The Alt+g prompt suggests the folder fff was started in from zoxide's
+  list; zoxide left out the directory it ran in, which was always that one.
+- Bookmark names and paths with line breaks or other control characters (as
+  `dd` then `P` in the form leaves) are refused instead of being written to
+  the configuration.
+- `--resume` drops relative paths from a damaged session file instead of
+  resolving them against wherever the new session runs; a relative tab
+  folder makes the file count as damaged.
+- An unknown palette's error lists every built-in palette, not three.
+- The remembered-locations and session files are readable only by you; they
+  hold your folders, marks and queries.
 - **Lowering the depth after `max_paths` stopped a scan lists the shallower
   results completely**, instead of stopping again at once and showing
   deleted files until F5.

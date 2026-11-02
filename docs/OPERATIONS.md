@@ -230,8 +230,8 @@ There is no shell. The line is split into words like a shell would split it
 escapes one character; a leading `~` is your home), but nothing else is
 interpreted. Unquoted ``| & ; < > $ ` * ? ( )`` are refused with a message, since
 without a shell they could not mean what they mean in one. The first word must
-be a program on PATH (empty PATH entries, meaning the current directory, are
-ignored) or a path to an executable file, such as `./script`; an unknown command
+be a program on PATH (empty or relative PATH entries, which depend on the
+current directory, are ignored) or a path to an executable file, such as `./script`; an unknown command
 aborts with an error, suggesting the closest command name when there is one.
 The chosen paths are appended after the typed words, as separate absolute
 arguments, so no file name is ever read as syntax or as an option.

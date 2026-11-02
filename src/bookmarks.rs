@@ -81,6 +81,17 @@ impl Draft {
         if self.path.is_empty() {
             return Err("Bookmark path must not be empty".into());
         }
+        // Neovim's linewise edits (dd then P) can add line breaks to a field.
+        if self
+            .name
+            .chars()
+            .chain(self.path.chars())
+            .any(char::is_control)
+        {
+            return Err(
+                "Bookmark names and paths cannot contain line breaks or control characters".into(),
+            );
+        }
         let path = if self.path == "~" {
             home.ok_or("HOME is unavailable")?.to_path_buf()
         } else if let Some(rest) = self.path.strip_prefix("~/") {

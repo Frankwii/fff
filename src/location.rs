@@ -24,12 +24,15 @@ pub struct Location {
 }
 
 /// Directories zoxide knows, best first; empty when zoxide is not installed.
+/// zoxide leaves out the directory it runs in: that is `cwd`, the one place
+/// not worth suggesting, rather than where fff was started.
 pub fn zoxide(cwd: &Path) -> Vec<PathBuf> {
     let Ok(program) = crate::run::resolve("zoxide", cwd) else {
         return vec![];
     };
     let Ok(output) = Command::new(program)
         .args(["query", "--list"])
+        .current_dir(cwd)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()

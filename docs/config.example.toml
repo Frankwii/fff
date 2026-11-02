@@ -77,7 +77,7 @@ ask_above = "10 GiB" # Larger entries ask: delete permanently or trash anyway.
 # terminal. First match wins; unmatched files use $EDITOR. See CONFIGURATION.md.
 [open]
 terminal = "st -e"   # runs terminal openers in a new window
-fff_terminal = "st -c fff-picker -e"   # fff's own window from --setup
+fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup
 
 [[open.rules]]
 command = "zathura"

@@ -287,10 +287,6 @@ impl Nvim {
     pub fn reset(&mut self, field: Field) {
         self.invalid.insert(field, "n".into());
     }
-    /// Reset in Normal mode with the cursor on the last character.
-    pub fn reset_normal(&mut self, field: Field) {
-        self.reset(field);
-    }
     /// Reset in Normal mode with the cursor at the end of `row`.
     pub fn reset_at_row(&mut self, field: Field, row: usize) {
         self.reset(field);

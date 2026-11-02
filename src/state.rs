@@ -84,8 +84,10 @@ pub fn save(path: &Path, state: &State) -> std::io::Result<()> {
     write(path, &bytes)
 }
 
-/// Writes atomically: a private temporary file renamed over the old one.
+/// Writes atomically: a private temporary file (mode 0600: marks, queries
+/// and folders are nobody else's business) renamed over the old one.
 fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     fs::create_dir_all(dir)?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -94,7 +96,10 @@ fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
+        .mode(0o600)
         .open(&temporary)?;
+    // A leftover temporary file keeps its mode when reopened.
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
     file.write_all(bytes)?;
     file.sync_all()?;
     fs::rename(&temporary, path)
@@ -173,7 +178,8 @@ pub fn save_session(path: &Path, session: &Session) -> std::io::Result<()> {
     write(path, &bytes)
 }
 
-/// The saved session, if there is a readable one with a tab.
+/// The saved session, if there is a readable one with a tab. Paths are
+/// absolute: other ones are dropped, and a tab's makes the file damaged.
 pub fn load_session(path: &Path) -> Option<Session> {
     let bytes = fs::read(path).ok()?;
     let body = bytes.strip_prefix(SESSION_HEADER)?;
@@ -183,13 +189,15 @@ pub fn load_session(path: &Path) -> Option<Session> {
         ignore: true,
         ..Session::default()
     };
-    let path = |v: &[u8]| PathBuf::from(std::ffi::OsString::from_vec(v.to_vec()));
+    let path = |v: &[u8]| {
+        Some(PathBuf::from(std::ffi::OsString::from_vec(v.to_vec()))).filter(|p| p.is_absolute())
+    };
     let text = |v: &[u8]| String::from_utf8_lossy(v).into_owned();
     while let (Some(key), Some(value)) = (fields.next(), fields.next()) {
         match key {
-            b"root" => session.roots.push(path(value)),
+            b"root" => session.roots.extend(path(value)),
             b"tab" => session.tabs.push(crate::Tab {
-                cwd: path(value),
+                cwd: path(value)?,
                 ..crate::Tab::default()
             }),
             b"back" | b"forward" => {
@@ -199,12 +207,12 @@ pub fn load_session(path: &Path) -> Option<Session> {
                     } else {
                         &mut tab.forward
                     };
-                    list.push(path(value));
+                    list.extend(path(value));
                 }
             }
             b"active" => session.tab = text(value).parse().unwrap_or(0),
-            b"highlight" => session.highlight = Some(path(value)),
-            b"mark" => session.marks.push(path(value)),
+            b"highlight" => session.highlight = path(value),
+            b"mark" => session.marks.extend(path(value)),
             b"query" => session.query = text(value),
             b"depth" => session.depth = text(value).parse().unwrap_or(2),
             b"filter" => session.filters.push(text(value)),
@@ -233,6 +241,11 @@ mod tests {
         };
         save(&file, &state).unwrap();
         assert_eq!(load(&file), state);
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         fs::write(&file, b"garbage").unwrap();
         assert_eq!(load(&file), State::default());
         assert_eq!(load(&dir.join("missing")), State::default());
@@ -302,6 +315,20 @@ mod tests {
             loaded
         );
         fs::write(&file, b"fff-session 1\0query\0x\0").unwrap();
+        assert_eq!(load_session(&file), None);
+        // Relative paths would resolve against wherever fff runs next.
+        fs::write(
+            &file,
+            b"fff-session 1\0tab\0/t\0back\0b\0mark\0m\0mark\0/m\0highlight\0h\0root\0r\0",
+        )
+        .unwrap();
+        let loaded = load_session(&file).unwrap();
+        assert_eq!(loaded.tabs[0].back, Vec::<PathBuf>::new());
+        assert_eq!((loaded.marks, loaded.highlight), (vec!["/m".into()], None));
+        assert!(loaded.roots.is_empty());
+        fs::write(&file, b"fff-session 1\0tab\0notes\0").unwrap();
+        assert_eq!(load_session(&file), None);
+        fs::write(&file, b"fff-session 1\0tab\0\0").unwrap();
         assert_eq!(load_session(&file), None);
         fs::write(&file, b"garbage").unwrap();
         assert_eq!(load_session(&file), None);

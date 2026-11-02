@@ -87,16 +87,24 @@ impl OpenConfig {
         }
         Ok(())
     }
-    /// Programs named by rules and the terminals that are not installed.
+    /// Programs named by rules and by configured terminals that are not
+    /// installed. The built-in terminals are not checked: a configuration
+    /// that never names one is not wrong for lacking it.
     pub fn missing(&self, cwd: &Path, home: Option<&Path>) -> Vec<String> {
-        [&self.terminal, &self.fff_terminal]
-            .into_iter()
-            .chain(self.rules.iter().map(|r| &r.command))
-            .filter_map(|line| {
-                let name = split(line, home).ok()?.into_iter().next()?;
-                resolve_or_suggest(&name, cwd).err()
-            })
-            .collect()
+        let defaults = Self::default();
+        [
+            (&self.terminal, &defaults.terminal),
+            (&self.fff_terminal, &defaults.fff_terminal),
+        ]
+        .into_iter()
+        .filter(|(line, default)| line != default)
+        .map(|(line, _)| line)
+        .chain(self.rules.iter().map(|r| &r.command))
+        .filter_map(|line| {
+            let name = split(line, home).ok()?.into_iter().next()?;
+            resolve_or_suggest(&name, cwd).err()
+        })
+        .collect()
     }
     /// The first rule matching the file's extension or name; else `$EDITOR`.
     pub fn opener(&self, path: &Path) -> Result<Opener, String> {

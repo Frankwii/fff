@@ -347,3 +347,23 @@ fn draft_paths_expand_home_and_use_the_browsing_directory() {
     );
     assert!(draft.bookmark(&f.0, None).is_err());
 }
+#[test]
+fn drafts_refuse_line_breaks_and_control_characters() {
+    let f = Fixture::new();
+    let mut draft = Draft::new(&f.0, None, String::new(), 0).unwrap();
+    draft.name = "Notes".into();
+    assert!(draft.bookmark(&f.0, None).is_ok());
+    // Linewise Neovim edits (dd then P) leave a trailing line break.
+    draft.name = "Notes\n".into();
+    assert!(
+        draft
+            .bookmark(&f.0, None)
+            .unwrap_err()
+            .contains("line breaks")
+    );
+    draft.name = "Notes".into();
+    draft.path = format!("{}\n", f.0.display());
+    assert!(draft.bookmark(&f.0, None).is_err());
+    draft.path = format!("{}/a\tb", f.0.display());
+    assert!(draft.bookmark(&f.0, None).is_err());
+}
