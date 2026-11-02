@@ -152,6 +152,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (Right / Left in Normal-mode results) |
 | 1 … 9 in Normal | Search results to that depth |
 | Tab / Space in Normal | Toggle mark; advance in results |
+| m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Return marks from results or the marked list |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |

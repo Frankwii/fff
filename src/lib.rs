@@ -21,7 +21,7 @@ mod view;
 
 use globset::{GlobBuilder, GlobMatcher};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -655,6 +655,17 @@ impl App {
         } else {
             self.marks.push(path);
         }
+    }
+    /// Mark every one of `rows`, or with `invert` toggle each; marks on other
+    /// paths stay.
+    pub fn mark_rows(&mut self, rows: &[PathBuf], invert: bool) {
+        let listed: HashSet<&PathBuf> = rows.iter().collect();
+        let marked: HashSet<PathBuf> = self.marks.iter().cloned().collect();
+        if invert {
+            self.marks.retain(|p| !listed.contains(p));
+        }
+        let added = rows.iter().filter(|p| !marked.contains(*p)).cloned();
+        self.marks.extend(added.collect::<Vec<_>>());
     }
     pub fn numbered(&self, digit: u32) -> PathBuf {
         let i = if digit == 0 {
