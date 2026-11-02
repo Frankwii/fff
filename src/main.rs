@@ -146,8 +146,9 @@ struct Args {
     no_dir: bool,
     /// Start in the current directory instead of where the last session ended
     ///
-    /// Without ROOTS and without --output-paths, fff resumes in the directory
-    /// you were last browsing ([ui] resume, on by default).
+    /// Without ROOTS and without --output-paths, a session started from the
+    /// same directory as the last one resumes in the directory that one was
+    /// browsing ([ui] resume, on by default).
     #[arg(long, help_heading = "Search")]
     here: bool,
     /// Browse from the one ROOT given instead of pinning it
@@ -414,17 +415,21 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             roots.push(path);
         }
     }
-    // Interactive sessions without roots resume where the last one ended;
-    // scripts (--output-paths) and pinned roots always start as asked.
+    // Interactive sessions without roots resume where the last one ended,
+    // when started where it was started; scripts (--output-paths) and pinned
+    // roots always start as asked.
     let state = fuzzy_file_finder::state::path()
         .map(|p| fuzzy_file_finder::state::load(&p))
         .unwrap_or_default();
     let records_location = roots.is_empty() && !args.output_paths && dialog.is_none();
-    let resume = (records_location && settings.resume && !args.here)
-        .then_some(state.last.as_ref())
-        .flatten()
-        .filter(|last| last.is_dir() && **last != invocation)
-        .filter(|_| browse_from.is_none());
+    let resume = (records_location
+        && settings.resume
+        && !args.here
+        && state.from.as_ref() == Some(&invocation))
+    .then_some(state.last.as_ref())
+    .flatten()
+    .filter(|last| last.is_dir() && **last != invocation)
+    .filter(|_| browse_from.is_none());
     let mut app = if let Some((start, _)) = &browse_from {
         App::browse(start.clone(), args.depth as usize, policy)
     } else if let Some(last) = resume {

@@ -114,12 +114,15 @@ pub fn run(
     let finish = session(&mut app, keys, cache, palettes, performance);
     app.remember();
     if let Some(path) = crate::state::path() {
-        let last = if app.records_location {
-            Some(app.cwd.clone())
+        let (from, last) = if app.records_location {
+            let from = std::env::current_dir().and_then(|d| d.canonicalize()).ok();
+            (from, Some(app.cwd.clone()))
         } else {
-            crate::state::load(&path).last
+            let state = crate::state::load(&path);
+            (state.from, state.last)
         };
         let state = crate::state::State {
+            from,
             last,
             positions: std::mem::take(&mut app.positions),
         };

@@ -67,8 +67,9 @@ time, keeping everything else.
 
 `--browse` starts fff at the path it is given rather than pinning it as a
 search root; given a file, fff starts in its folder with the file highlighted.
-Started from a menu without a path, fff browses as usual and resumes where the
-last session ended.
+Started from a menu without a path, fff browses as usual, resuming where the
+last session ended when that one was started from the same directory (usually
+your home directory, for launchers).
 
 The entry runs the terminal itself instead of setting `Terminal=true`: with
 `Terminal=true` each launcher chooses the terminal from its own list (GIO, used

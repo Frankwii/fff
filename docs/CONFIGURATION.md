@@ -266,9 +266,13 @@ message_seconds = 4   # 0..3600; 0 = never hide automatically
 Each directory remembers the entry last highlighted in it: going up highlights
 the folder you came from (even several levels up), and entering a folder again
 puts the cursor back where it was, as soon as that row is listed (moving first
-cancels this). In the default mode without ROOTS, a new session also resumes in
-the directory you were last browsing; the status line says so, `q` still exits
-to where you started, and `--here` starts in the current directory instead.
+cancels this). In the default mode without ROOTS, a new session started from
+the same directory as the last one also resumes in the directory that session
+was browsing: start fff in `~`, browse to `~/papers/2026`, quit with `q`, and
+the next `fff` from `~` opens in `~/papers/2026`, while one started anywhere
+else starts there. The status line says when a session resumed, `q` still
+exits to where you started, and `--here` starts in the current directory
+instead.
 `--output-paths` and pinned ROOTS never resume, so scripts start where they ask.
 
 ```toml
@@ -277,7 +281,8 @@ resume = true   # false: always start in the current directory
 ```
 
 Locations are kept in `$XDG_STATE_HOME/fff/state` (`~/.local/state/fff/state`
-when unset): the last directory and up to 500 directories' highlights, least
+when unset): where the last session started and ended, and up to 500
+directories' highlights, least
 recently used dropped first, as exact path bytes. The file is replaced
 atomically when a session ends; a missing or damaged file is ignored. Delete it
 to forget everything.

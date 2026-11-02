@@ -73,7 +73,7 @@ This section describes what each confirmation returns with `--output-paths`; in
 the default mode the same keys choose a directory instead (see above).
 
 Without root arguments, browsing starts in the invocation directory (or, in the
-default mode, where your last session ended; see [remembered
+default mode, where your last session ended if it was started here too; see [remembered
 locations](docs/CONFIGURATION.md#remembered-locations)) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
 depth. Default depth is **2**; immediate children are depth 1. Shallower matches

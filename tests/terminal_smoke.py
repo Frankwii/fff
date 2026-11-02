@@ -26,7 +26,7 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 class Session:
     # Every text field is an embedded Neovim (fff requires it). Tests pin
     # --output-paths (the picker mode) unless they pass output_paths=False to exercise the default directory-changing mode.
-    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True):
+    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True, cwd=None):
         master, slave = pty.openpty()
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
@@ -44,7 +44,7 @@ class Session:
             os.close(slave)
             os.close(writer)
             if implicit_root:
-                os.chdir(root)
+                os.chdir(cwd or root)
             os.environ["TERM"] = "xterm-256color"
             os.environ["COLORTERM"] = "truecolor"
             os.environ.pop("NO_COLOR", None)
@@ -1710,6 +1710,22 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui(("cwd", self.root / "two"))
         s.wait_ui("› 3/0")
         self.assertIn("Resumed where you left off", s.screen.text)
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        s.close()
+        # Started from another folder, a session starts there instead...
+        s = self.session = Session(self.root, "--depth", "1", implicit_root=True,
+                                   output_paths=False, cwd=self.root / "one")
+        s.wait_ui(("cwd", self.root / "one"))
+        self.assertNotIn("Resumed", s.screen.text)
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        s.close()
+        # ...and records that, so the next one from the root does not resume.
+        s = self.session = Session(self.root, "--depth", "1",
+                                   implicit_root=True, output_paths=False)
+        s.wait_ui(("cwd", self.root))
+        self.assertNotIn("Resumed", s.screen.text)
         s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
         s.close()

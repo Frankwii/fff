@@ -8,9 +8,6 @@ not implemented features or commitments:
 - A text-only preview pane (below).
 - Option completion in the gx/gX prompt for programs with neither a man page
   nor `--help` (Tab already completes options from those two).
-- Resuming only when the last directory was the current one: a new session
-  should restore its remembered location only when started from the
-  directory that was being browsed last, instead of always jumping there.
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
   cancel safely within the staged-operation guarantees. This should also move
   file operations off the UI thread, including their preparation: building a

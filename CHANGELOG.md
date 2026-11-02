@@ -8,6 +8,11 @@ history.
 
 ### Changed
 
+- **Resuming only where you left from.** A new session resumes in the
+  directory the last one was browsing only when started from the same
+  directory as that one; started anywhere else, it starts there. State files
+  from earlier versions keep their remembered highlights; the first session
+  after upgrading does not resume.
 - **Every session's footer says how to leave**: `q quit` (`Ctrl+c quit` while
   typing) beside `F1 keys`, not only in `fff explorer`.
 

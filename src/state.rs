@@ -10,11 +10,16 @@ use std::{
 
 /// Directories remembered at most; the least recently left are dropped.
 pub const CAPACITY: usize = 500;
-const HEADER: &[u8] = b"fff-state 1\0";
+const HEADER: &[u8] = b"fff-state 2\0";
+/// Before `from` was recorded; its positions are still read.
+const HEADER_1: &[u8] = b"fff-state 1\0";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct State {
-    /// Where the last session that may resume was browsing.
+    /// Where the last session that may resume was started from: the next one
+    /// resumes only when started there too.
+    pub from: Option<PathBuf>,
+    /// Where that session was browsing when it ended.
     pub last: Option<PathBuf>,
     /// (directory, highlighted entry), least recently used first.
     pub positions: Vec<(PathBuf, PathBuf)>,
@@ -33,26 +38,36 @@ pub fn path() -> Option<PathBuf> {
         .map(|base| base.join("fff/state"))
 }
 
-/// NUL-separated fields keep any path bytes: the last directory (possibly
-/// empty), then directory/entry pairs.
+/// NUL-separated fields keep any path bytes: where the last session started
+/// and where it ended (either possibly empty), then directory/entry pairs.
 pub fn load(path: &Path) -> State {
     let Ok(bytes) = fs::read(path) else {
         return State::default();
     };
-    let Some(body) = bytes.strip_prefix(HEADER) else {
-        return State::default();
+    let (body, version) = match (bytes.strip_prefix(HEADER), bytes.strip_prefix(HEADER_1)) {
+        (Some(body), _) => (body, 2),
+        (_, Some(body)) => (body, 1),
+        _ => return State::default(),
     };
     let mut fields = body
         .split(|b| *b == 0)
         .map(|f| PathBuf::from(std::ffi::OsString::from_vec(f.to_vec())));
-    let last = fields.next().filter(|p| !p.as_os_str().is_empty());
+    let mut field = || fields.next().filter(|p| !p.as_os_str().is_empty());
+    // A version 1 file never resumes: it does not say where it started.
+    let from = if version == 1 { None } else { field() };
+    let last = field();
+    let from = from.filter(|_| last.is_some());
     let mut positions = vec![];
     while let (Some(dir), Some(entry)) = (fields.next(), fields.next()) {
         if dir.is_absolute() && entry.is_absolute() {
             positions.push((dir, entry));
         }
     }
-    State { last, positions }
+    State {
+        from,
+        last,
+        positions,
+    }
 }
 
 /// Writes atomically: a private temporary file renamed over the old state.
@@ -60,10 +75,12 @@ pub fn save(path: &Path, state: &State) -> std::io::Result<()> {
     let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     fs::create_dir_all(dir)?;
     let mut bytes = HEADER.to_vec();
-    if let Some(last) = &state.last {
-        bytes.extend_from_slice(last.as_os_str().as_bytes());
+    for place in [&state.from, &state.last] {
+        if let Some(place) = place {
+            bytes.extend_from_slice(place.as_os_str().as_bytes());
+        }
+        bytes.push(0);
     }
-    bytes.push(0);
     let start = state.positions.len().saturating_sub(CAPACITY);
     for (dir, entry) in &state.positions[start..] {
         for p in [dir, entry] {
@@ -91,6 +108,7 @@ mod tests {
         let file = dir.join("fff/state");
         let odd = PathBuf::from(std::ffi::OsString::from_vec(b"/a/b\xff\nc".to_vec()));
         let state = State {
+            from: Some(PathBuf::from("/home")),
             last: Some(odd.clone()),
             positions: vec![(PathBuf::from("/a"), odd.clone())],
         };
@@ -100,6 +118,7 @@ mod tests {
         assert_eq!(load(&file), State::default());
         assert_eq!(load(&dir.join("missing")), State::default());
         let many = State {
+            from: None,
             last: None,
             positions: (0..CAPACITY + 7)
                 .map(|i| (PathBuf::from(format!("/d{i}")), PathBuf::from("/e")))
@@ -112,6 +131,18 @@ mod tests {
         assert_eq!(
             loaded.positions.last().unwrap().0,
             PathBuf::from(format!("/d{}", CAPACITY + 6))
+        );
+        // A version 1 file keeps its positions but does not resume.
+        let mut old = HEADER_1.to_vec();
+        old.extend_from_slice(b"/last\0/a\0/a/b\0");
+        fs::write(&file, old).unwrap();
+        assert_eq!(
+            load(&file),
+            State {
+                from: None,
+                last: Some(PathBuf::from("/last")),
+                positions: vec![(PathBuf::from("/a"), PathBuf::from("/a/b"))],
+            }
         );
         fs::remove_dir_all(&dir).unwrap();
     }
