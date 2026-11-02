@@ -82,9 +82,12 @@ xdg-mime query default inode/directory   # fff.desktop
 xdg-open ~/Downloads                      # fff in a floating terminal
 ```
 
-Leaving fff closes the window. The chosen directory has no shell to change
-into, so the default mode simply ends; files open with their
-[openers](OPERATIONS.md#opening-files) as usual.
+Leaving fff closes the window. Normal-mode Enter on a file opens it with its
+[opener](OPERATIONS.md#opening-files) and closes the window, as a double click
+would in a graphical file manager (a GUI opener keeps running; a terminal
+opener takes over the window until it ends); `l` opens it in the background
+and keeps fff open; Enter on a folder or `!` just closes the window, since
+there is no shell to change into.
 
 Firefox's "Show in folder" asks a file manager over D-Bus
 (`org.freedesktop.FileManager1`) and, when none answers, opens the containing
@@ -145,10 +148,13 @@ file dialogs. In short:
 | --- | --- | --- |
 | Open a file (attach, upload) | Enter on a file | That file. |
 | Open several files | Tab to mark, then Enter on a file (or Ctrl+w) | The marks and that file. |
-| Choose a folder | Go into it and press `!` | That folder. |
-| Save (a download, a PDF from the viewer) | Go to the folder and press `!` | The suggested name in that folder. |
+| Choose a folder | Go into it and press `!` (or Ctrl+s) | That folder. |
+| Save (a download, a PDF from the viewer) | Go to the folder and press `!` (or Ctrl+s) | The suggested name in that folder. |
+| Save under another name | Go to the folder, `i`, type the name, Ctrl+s | That name in that folder. |
 
-`q` or Ctrl+c cancels. The empty query line repeats how to choose.
+`q` or Ctrl+c cancels. The empty query line says how to choose, and when
+saving, the query box's title says the name the file will get. Saving over an
+existing file always asks first.
 
 ### The wrapper
 
@@ -214,16 +220,19 @@ PATH is a folder, it is `untitled`.
 
 ### Keys
 
-Everything that returns paths from a normal session still does, and the
-answer is then taken from those paths (see [the answer](#the-answer)). What
-differs from a normal session:
+The keys keep their meaning from a normal session (see the
+[README](../README.md#browsing-and-returning-paths)): Enter acts on the
+highlighted entry, `!` on the folder you are in, Ctrl+w on the marks. What
+differs:
 
 | Key | In `fff explorer` |
 | --- | --- |
 | Enter on a folder | Enters it, in Normal and Insert mode alike (a normal session leaves into it from Normal mode). |
-| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file, save) it is that file whatever is marked; with `--multiple`, the marks and that file. |
-| Enter in the marked list | Chooses that mark. |
-| `!` (Normal mode) | Chooses the folder being browsed: the answer to a folder dialog, or where to save. |
+| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file) it is that file whatever is marked; with `--multiple`, the marks and that file. When saving, offers to [replace](#saving) it. |
+| Enter with nothing highlighted | When saving, saves under the typed name: a new name usually matches nothing. |
+| Enter in the marked list | Chooses that mark (when saving, offers to replace it). |
+| `!` (Normal mode) | Takes the folder being browsed: the answer to a folder dialog, or where to save. |
+| Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
 | `q` (Normal mode) | Cancels (a normal session returns the launch directory). |
 | Ctrl+c | Cancels. |
 | Ctrl+w | Chooses the marks. |
@@ -233,15 +242,43 @@ differs from a normal session:
 File operations (move, copy, delete, rename, new file or folder, extract)
 remain available, so a dialog can also make the folder to save into.
 
-The query line, while empty, shows how to choose instead of `type to filter
-names…`:
+### Hints
 
-| Dialog | Hint |
-| --- | --- |
-| Open one file | `Enter chooses a file · q cancels` |
-| Open several | `Enter chooses a file · Tab marks several · Ctrl+w the marks · q cancels` |
-| Folder | `! chooses the folder you are in · q cancels` |
-| Save | `! saves NAME here · Enter on a file replaces it · q cancels` |
+The query line, while empty, shows how to choose instead of `type to filter
+names…`. Typing (Insert mode) changes it, since `!` and `q` are then text:
+
+| Dialog | Normal mode | Insert mode |
+| --- | --- | --- |
+| Open one file | `Enter chooses a file · q cancels` | `Enter chooses a file · Ctrl+c cancels` |
+| Open several | `Enter chooses a file · Tab marks several · Ctrl+w the marks · q cancels` | the same, ending `Ctrl+c cancels` |
+| Folder | `! or Ctrl+s chooses the folder you are in · q cancels` | `Ctrl+s chooses the folder you are in · Ctrl+c cancels` |
+| Save | `i types a name · ! or Ctrl+s saves NAME here · Enter on a file replaces it · q cancels` | `type a name, or Ctrl+s saves NAME here · Ctrl+c cancels` |
+
+When saving, the query box's title is `Save as NAME`: the typed name, or the
+suggested one while the query is empty. It updates as you type.
+
+### Saving
+
+The name is the query, trimmed of surrounding spaces, or the suggested name
+when the query is empty. Typing it also filters the folder, so existing files
+with similar names show up as you type. A name cannot contain `/` or a line
+break, nor be `.` or `..`; the status line says so and nothing is saved.
+
+`!`, Ctrl+s, and Enter with nothing highlighted save under that name in the
+folder being browsed:
+
+- **Nothing of that name there:** the dialog ends with that path.
+- **A folder of that name:** refused; the status line suggests Enter to go
+  into it.
+- **A file or link of that name:** the **Replace** window asks first:
+  - **Enter** replaces it;
+  - **k** keeps both, saving as the first free `NAME (1).EXT`,
+    `NAME (2).EXT`, ... (`paper (1).pdf`; a name without an extension, or
+    starting with a dot, is numbered at its end);
+  - **Escape** goes back to choosing, to type another name or folder.
+
+Enter on an existing file (in the results or the marked list) opens the same
+window for that file.
 
 ### The answer
 
@@ -252,11 +289,10 @@ The paths a key returned become the answer as follows:
   file Enter was pressed on, or the last mark.
 - **Folder:** files are dropped. Without `--multiple`, only the last folder is
   kept.
-- **Save:** only the last path counts. A folder means saving into it under the
-  suggested name; when a file or link of that name is already there, the first
-  free `NAME (1).EXT`, `NAME (2).EXT`, ... is used instead (`paper (1).pdf`; a
-  name without an extension, or starting with a dot, is numbered at its end).
-  A file means replacing that file.
+- **Save:** the path [saving](#saving) settled on. Keys that return paths
+  directly (Ctrl+w, Ctrl+number) count with their last path: a folder means
+  saving into it under the suggested name, numbered when taken, without
+  asking; a file means replacing it.
 
 Paths containing a newline are left out of open and folder answers, since the
 answer has one path per line.

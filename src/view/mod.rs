@@ -223,6 +223,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
         Focus::NewChoice => new_choice(frame, main, app),
+        Focus::Replace(target) => replace_choice(frame, main, app, target),
         Focus::ScopeChoice {
             current,
             selected,
@@ -611,7 +612,13 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let theme = app.palette;
     let block = panel(
         app.palette,
-        mode_title(app, Field::Query, "Query"),
+        mode_title(
+            app,
+            Field::Query,
+            &app.dialog
+                .as_ref()
+                .map_or_else(|| "Query".into(), |d| d.title(&app.query)),
+        ),
         focused,
         theme.accent,
     )
@@ -624,7 +631,7 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
     if app.query.is_empty() {
         let hint = match &app.dialog {
-            Some(dialog) => dialog.hint(),
+            Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal())),
             None => "type to filter names…".into(),
         };
         line = Line::from(styled(hint, theme.muted));

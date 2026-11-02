@@ -27,6 +27,10 @@ not implemented features or commitments:
   Cheap on local disks, but a slow network or FUSE mount stalls the frame;
   these should read from the details cache, refreshed in the background.
 - Mouse-only use beyond the opt-in buttons (below).
+- With `--output-paths`, Normal-mode Enter on a file prints its folder, while
+  everywhere else Enter finishes with the entry itself (the default mode opens
+  it, `fff explorer` chooses it). Printing the file would complete that model,
+  but changes what scripts receive.
 - `--no-dir` as its own subcommand, e.g. `fff seek`, like `fff explorer`: a
   static file choice changes enough behavior (no navigation, Insert mode,
   bare names) to be a mode of its own rather than a flag.

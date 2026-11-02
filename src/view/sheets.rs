@@ -645,6 +645,25 @@ pub(super) fn scope_choice(
         ],
     );
 }
+/// fff explorer --save: the chosen name is taken.
+pub(super) fn replace_choice(frame: &mut Frame, main: Rect, app: &App, target: &Path) {
+    let name = target.file_name().unwrap_or_default().to_string_lossy();
+    let folder = target.parent().unwrap_or(target);
+    let both = crate::explorer::free_name(folder, &name);
+    choice(
+        frame,
+        main,
+        app,
+        "Replace",
+        &format!(
+            "*{name}* already exists in {}. Press *Enter* to replace it, *k* to keep \
+             both (saving as *{}*), or *Esc* to go back and choose another name.",
+            tilde(folder, app.home.as_deref()),
+            both.file_name().unwrap_or_default().to_string_lossy(),
+        ),
+        &[("Enter", "Replace"), ("k", "Keep both"), ("Esc", "Back")],
+    );
+}
 pub(super) fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
     choice(
         frame,

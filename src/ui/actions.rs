@@ -37,6 +37,52 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         Err(error) => app.status = error,
     }
 }
+/// Enter on a file in the default mode: its opener, and fff leaves. A
+/// terminal program replaces fff in this terminal (like gX); any other starts
+/// detached, as with l. Either way the shell then changes to the file's
+/// folder.
+pub(super) fn open_and_leave(app: &App, path: &std::path::Path) -> Result<Finish, String> {
+    let folder = path.parent().unwrap_or(&app.cwd).to_owned();
+    let home = app.home.as_deref();
+    let opener = app.openers.opener(path)?;
+    if !opener.terminal {
+        let plan = crate::open::background_plan(&app.openers, path, &folder, home)?;
+        crate::open::launch(&plan)?;
+        return Ok(Finish::Folder(folder));
+    }
+    let mut plan = crate::open::plan(&opener.line, vec![path.to_owned()], &folder, home)?;
+    plan.exit = true;
+    Ok(Finish::Exec(plan))
+}
+/// fff explorer --save, Ctrl+s or !: saves under the typed name (else the
+/// suggested one) in the folder being browsed.
+pub(super) fn save_here(app: &mut App, focus: &mut Focus) -> Option<Finish> {
+    let name = app.dialog.as_ref()?.save_name(&app.query)?.to_owned();
+    if let Err(error) = crate::explorer::check_name(&name) {
+        app.status = error;
+        return None;
+    }
+    let target = app.cwd.join(name);
+    save_as(app, focus, target)
+}
+/// Saving to `target`: at once when nothing is there; a file there is only
+/// replaced after the replace choice.
+pub(super) fn save_as(app: &mut App, focus: &mut Focus, target: PathBuf) -> Option<Finish> {
+    match target.symlink_metadata() {
+        Err(_) => Some(Finish::Paths(vec![target])),
+        Ok(meta) if meta.is_dir() => {
+            app.status = format!(
+                "{} is a folder; Enter goes into it",
+                target.file_name().unwrap_or_default().to_string_lossy()
+            );
+            None
+        }
+        Ok(_) => {
+            *focus = Focus::Replace(target);
+            None
+        }
+    }
+}
 /// o: the openers take over this terminal one after another, grouped so that
 /// files sharing an opener go to one invocation. Directories are refused.
 pub(super) fn open_here(

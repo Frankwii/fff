@@ -260,8 +260,9 @@ enum Command {
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
     /// --setup file-chooser installs. Enter on a file chooses it and on a
-    /// folder enters it, in either mode; q and Ctrl+c cancel. The query line
-    /// says how to choose.
+    /// folder enters it, in either mode; ! takes the folder you are in, and
+    /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
+    /// how to choose.
     Explorer(ExplorerArgs),
 }
 #[derive(clap::Args)]
@@ -276,8 +277,8 @@ struct ExplorerArgs {
     /// Choose folders instead of files: ! chooses the folder you are in
     #[arg(long, conflicts_with = "save")]
     directory: bool,
-    /// Choose where to save: ! saves here under the suggested name (numbered
-    /// when taken), Enter on a file replaces it
+    /// Choose where to save: ! or Ctrl+s saves here under the typed name (the
+    /// query) or the suggested one; replacing a file asks first
     #[arg(long)]
     save: bool,
 }

@@ -32,9 +32,10 @@ and exit codes.
 fff has two modes:
 
 - **Default: change directory on exit.** `q` leaves you where you started, `!`
-  takes you to the directory you were browsing, and Enter on a file takes you to
-  that file's folder (Ctrl+w: the last mark's folder; Ctrl+number: its target's
-  folder, or the target itself for a directory).
+  takes you to the directory you were browsing, Normal-mode Enter on a directory
+  takes you into it, and on a file opens it and leaves you in its folder
+  (Ctrl+w: the last mark's folder; Ctrl+number: its target's folder, or the
+  target itself for a directory).
 - **`--output-paths`: print the selection.** The picker behavior for scripts and
   command substitution, described under [returning paths](#browsing-and-returning-paths):
   `nvim "$(fff --output-paths)"`, `fff --output-paths -0 | xargs -0 ls -ld`.
@@ -81,12 +82,15 @@ Matching is a case-insensitive ordered subsequence of the basename.
 
 Enter depends on the editing mode:
 
-- **Normal mode:** Enter exits *into the folder* of the highlighted entry: a
-  directory itself, or the folder a file is in, also for deep results
-  (`notes/more/a.pdf` exits into `notes/more`); with nothing listed, the browsing
-  directory. In the default mode the shell changes there; with `--output-paths`
-  the folder is printed. Marks are ignored. In the marked list Enter does the
-  same for the highlighted mark.
+- **Normal mode:** Enter *finishes with* the highlighted entry. On a directory
+  fff exits into it. On a file, in the default mode, fff **opens it and leaves**:
+  a terminal opener (an editor, a pager) takes over this terminal in fff's place,
+  like `gX`, and any other opener starts detached, like `l`; the shell then
+  changes to the file's folder (also for deep results: `notes/more/a.pdf` leaves
+  you in `notes/more`). With `--output-paths` or `--no-dir`, Enter on a file
+  exits into its folder instead, printing it. With nothing listed, Enter exits
+  into the browsing directory. Marks are ignored. In the marked list Enter does
+  the same for the highlighted mark.
 - **While typing (Insert mode):** Enter opens a directory. On a file, with
   `--output-paths` it returns the marked paths in insertion order plus that file
   once; in the default mode it *reveals* the file: fff moves to its folder,
@@ -96,6 +100,21 @@ To move around, use `l` (or Alt+l, or Alt+number for a labelled row): it enters
 a directory, and **opens a file** with its [opener](docs/OPERATIONS.md#opening-files)
 in the background while fff keeps the keyboard. `o` opens the current or marked
 files in this terminal instead, and fff comes back when the program ends.
+
+The keys that open or finish fit together:
+
+| Key | Acts on | Then |
+| --- | --- | --- |
+| `l` | The highlighted entry: go into a directory, open a file in the background | fff stays |
+| `o` | The current or marked files, opened in this terminal | fff comes back |
+| Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
+| `!` | The folder you are browsing | fff leaves into it |
+| Ctrl+w | The marks | fff leaves with them |
+| `q` | Nothing | fff leaves where you started |
+
+[`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
+dialogs, keeps these meanings: Enter chooses a file and enters a folder, `!`
+takes the folder you are in, Ctrl+w the marks, and Ctrl+s saves.
 
 Tab toggles a mark; marks survive navigation and filtering. Ctrl+w returns marks
 only. Insert-mode Enter in a verified physically empty directory returns marks
@@ -169,7 +188,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Enter in Normal | Exit into the highlighted entry's folder (printed with `--output-paths`) |
+| Enter in Normal | Exit into a highlighted directory; open a highlighted file and leave (default mode) or exit into its folder (`--output-paths`, `--no-dir`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`--output-paths`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |

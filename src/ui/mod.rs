@@ -64,6 +64,8 @@ pub(crate) enum Focus {
     Command(crate::run::Prompt),
     RunConfirm(crate::run::Plan),
     NewChoice,
+    /// fff explorer --save: the name is taken; replace it, keep both or go back.
+    Replace(PathBuf),
     Location(crate::location::Location),
     Bookmarks {
         query: String,
@@ -563,6 +565,12 @@ fn session(
                 if app.dialog.is_some() && !current {
                     return Ok(Finish::Cancelled);
                 }
+                if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
+                    if let Some(finish) = save_here(app, &mut focus) {
+                        return Ok(finish);
+                    }
+                    continue;
+                }
                 if app.no_dir {
                     return Ok(Finish::Paths(Vec::new()));
                 }
@@ -986,6 +994,17 @@ fn session(
             Field::Exclusions
         };
         match &mut focus {
+            Focus::Replace(target) => match key.code {
+                K::Enter => return Ok(Finish::Paths(vec![target.clone()])),
+                K::Char('k') => {
+                    let name = target.file_name().unwrap_or_default().to_string_lossy();
+                    let folder = target.parent().unwrap_or(&app.cwd);
+                    let both = crate::explorer::free_name(folder, &name);
+                    return Ok(Finish::Paths(vec![both]));
+                }
+                K::Esc => focus = Focus::Results,
+                _ => {}
+            },
             Focus::NewChoice => match key.code {
                 K::Char('f' | 'd') => {
                     {
@@ -1435,10 +1454,27 @@ fn session(
                 } else if key.code == K::Enter
                     && let Some(mark) = rows.get(*index)
                 {
+                    if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) && !mark.is_dir() {
+                        let mark = mark.clone();
+                        if let Some(finish) = save_as(app, &mut focus, mark) {
+                            return Ok(finish);
+                        }
+                        continue;
+                    }
                     if app.dialog.is_some() {
                         return Ok(Finish::Paths(vec![mark.clone()]));
                     }
-                    // Like Normal-mode Enter in the results: exit into its folder.
+                    // Like Normal-mode Enter in the results: a file opens and
+                    // fff leaves, a directory is left into.
+                    if !app.output_paths && !app.no_dir && !mark.is_dir() {
+                        match open_and_leave(app, mark) {
+                            Ok(finish) => return Ok(finish),
+                            Err(error) => {
+                                app.status = error;
+                                continue;
+                            }
+                        }
+                    }
                     let folder = if mark.is_dir() {
                         mark.clone()
                     } else {
@@ -1457,6 +1493,16 @@ fn session(
                 (K::Char('w'), true, _) => {
                     if let Some(p) = app.confirm(None) {
                         return Ok(Finish::Paths(p));
+                    }
+                }
+                // Dialogs: save here, or choose this folder, while typing too.
+                (K::Char('s'), true, _) if app.dialog.is_some() => {
+                    if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
+                        if let Some(finish) = save_here(app, &mut focus) {
+                            return Ok(finish);
+                        }
+                    } else if app.dialog.as_ref().is_some_and(|d| d.directory) {
+                        return Ok(Finish::Paths(vec![app.cwd.clone()]));
                     }
                 }
                 // Ctrl+i needs a terminal that tells it apart from Tab (Kitty
@@ -1577,10 +1623,26 @@ fn session(
                 }
                 (K::Enter, _, _) => {
                     let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
-                    // Normal mode: exit into the entry's folder (a directory
-                    // itself), like l then !, but for deep results too. A
-                    // dialog chooses files and enters folders instead.
+                    // Normal mode: finish with the entry. In the default mode
+                    // a file opens and fff leaves; otherwise fff exits into
+                    // the entry's folder (a directory itself), also for deep
+                    // results. A dialog chooses files and enters folders
+                    // instead.
                     if app.dialog.is_none() && app.edit_view.as_ref().is_some_and(|v| v.normal()) {
+                        if let Some(file) = &target
+                            && !file.directory
+                            && !app.output_paths
+                            && !app.no_dir
+                            && app.ready_path(&file.path)
+                        {
+                            match open_and_leave(app, &file.path) {
+                                Ok(finish) => return Ok(finish),
+                                Err(error) => {
+                                    app.status = error;
+                                    continue;
+                                }
+                            }
+                        }
                         let folder = match &target {
                             Some(c) if c.directory => c.path.clone(),
                             Some(c) => c.path.parent().unwrap_or(&app.cwd).to_owned(),
@@ -1594,6 +1656,22 @@ fn session(
                         Some(file) if !file.directory && !app.output_paths => {
                             if app.reveal(file.path) {
                                 discovery.start(app, true);
+                            }
+                        }
+                        // Saving over a file asks first; with nothing
+                        // highlighted (a new name matches nothing) Enter saves.
+                        Some(file)
+                            if !file.directory
+                                && app.dialog.as_ref().is_some_and(|d| d.save.is_some())
+                                && app.ready_path(&file.path) =>
+                        {
+                            if let Some(finish) = save_as(app, &mut focus, file.path) {
+                                return Ok(finish);
+                            }
+                        }
+                        None if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) => {
+                            if let Some(finish) = save_here(app, &mut focus) {
+                                return Ok(finish);
                             }
                         }
                         // A dialog with one answer takes this file, whatever

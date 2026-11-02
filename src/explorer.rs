@@ -51,17 +51,41 @@ impl Dialog {
         }
         (dialog, start, highlight)
     }
-    /// How to choose, shown in the empty query line.
-    pub fn hint(&self) -> String {
+    /// How to choose, shown in the empty query line; `typing` in Insert mode,
+    /// where `!` and `q` are text.
+    pub fn hint(&self, typing: bool) -> String {
+        let cancel = if typing {
+            "Ctrl+c cancels"
+        } else {
+            "q cancels"
+        };
+        let here = if typing { "Ctrl+s" } else { "! or Ctrl+s" };
         match (&self.save, self.directory, self.multiple) {
-            (Some(name), _, _) => {
-                format!("! saves {name} here · Enter on a file replaces it · q cancels")
+            (Some(name), _, _) if typing => {
+                format!("type a name, or Ctrl+s saves {name} here · {cancel}")
             }
-            (None, true, _) => "! chooses the folder you are in · q cancels".into(),
+            (Some(name), _, _) => format!(
+                "i types a name · {here} saves {name} here · Enter on a file replaces it · {cancel}"
+            ),
+            (None, true, _) => format!("{here} chooses the folder you are in · {cancel}"),
             (None, false, true) => {
-                "Enter chooses a file · Tab marks several · Ctrl+w the marks · q cancels".into()
+                format!("Enter chooses a file · Tab marks several · Ctrl+w the marks · {cancel}")
             }
-            (None, false, false) => "Enter chooses a file · q cancels".into(),
+            (None, false, false) => format!("Enter chooses a file · {cancel}"),
+        }
+    }
+    /// The name a save takes: the query, else the suggestion.
+    pub fn save_name<'a>(&'a self, query: &'a str) -> Option<&'a str> {
+        let typed = query.trim();
+        self.save
+            .as_deref()
+            .map(|suggested| if typed.is_empty() { suggested } else { typed })
+    }
+    /// The query box title: what Ctrl+s saves as, or `Query`.
+    pub fn title(&self, query: &str) -> String {
+        match self.save_name(query) {
+            Some(name) => format!("Save as {name}"),
+            None => "Query".into(),
         }
     }
     /// The answer from the paths the session returned: files for file
@@ -89,9 +113,19 @@ impl Dialog {
     }
 }
 
+/// Whether `name` can be a file name in a folder.
+pub fn check_name(name: &str) -> Result<(), String> {
+    match name {
+        "." | ".." => Err(format!("{name} is not a file name")),
+        _ if name.contains('/') => Err("A file name cannot contain /".into()),
+        _ if name.contains(['\n', '\0']) => Err("A file name cannot span lines".into()),
+        _ => Ok(()),
+    }
+}
+
 /// `folder/name`, or the first of `name (1).ext`, `name (2).ext`, ... that
 /// does not exist yet.
-fn free_name(folder: &Path, name: &str) -> PathBuf {
+pub fn free_name(folder: &Path, name: &str) -> PathBuf {
     let path = folder.join(name);
     if path.symlink_metadata().is_err() {
         return path;
@@ -143,6 +177,25 @@ mod tests {
         assert_eq!(new(Some(&dir.join("nowhere/x")), true).1, dir);
         assert_eq!(new(Some(&dir), true).0, Some(UNTITLED.into()));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saves_take_the_typed_name_or_the_suggestion() {
+        let dialog = Dialog {
+            save: Some("page.html".into()),
+            ..Dialog::default()
+        };
+        assert_eq!(dialog.save_name(""), Some("page.html"));
+        assert_eq!(dialog.save_name("  notes.html "), Some("notes.html"));
+        assert_eq!(dialog.title("x"), "Save as x");
+        assert_eq!(Dialog::default().save_name("x"), None);
+        assert_eq!(Dialog::default().title("x"), "Query");
+        assert!(dialog.hint(false).contains("saves page.html here"));
+        assert!(dialog.hint(true).contains("Ctrl+c cancels"));
+        for bad in ["a/b", ".", "..", "a\nb"] {
+            assert!(check_name(bad).is_err(), "{bad}");
+        }
+        assert!(check_name(".hidden").is_ok());
     }
 
     #[test]

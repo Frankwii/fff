@@ -1623,10 +1623,10 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(cd_file.read_bytes(), os.fsencode(expected) if expected else b"")
             s.close()
             self.session = None
-        # Normal-mode Enter on a file chooses its folder; without --cd-file
+        # Normal-mode Enter on a directory leaves into it; without --cd-file
         # it is printed.
         s = self.start(implicit_root=True, output_paths=False)
-        s.send(b"ifile", "❯ file")
+        s.send(b"isub", "❯ sub")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(sub) + b"\n"))
@@ -1717,20 +1717,46 @@ class TerminalTests(unittest.TestCase):
         s.send(b"q")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
-        # Saving starts beside the suggestion; ! saves under its name, numbered
-        # when taken.
-        s = self.session = Session(self.root, "explorer", "--save",
-                                   str(self.root / "docs" / "a.pdf"),
-                                   implicit_root=True, output_paths=False)
-        s.wait_ui(("cwd", self.root / "docs"))
-        s.wait_ui("! saves a.pdf here")
-        s.send(b"!")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs" / "a (1).pdf") + b"\n"))
+        # Saving starts beside the suggestion, whose name the query box title
+        # shows; a taken name asks first: k keeps both, Enter replaces.
+        docs = self.root / "docs"
+        def save(*args):
+            s = self.session = Session(self.root, "explorer", "--save", str(docs / "a.pdf"),
+                                       *args, implicit_root=True, output_paths=False)
+            s.wait_ui(("cwd", docs))
+            s.wait_ui("Save as a.pdf · NORMAL")
+            s.wait_ui("! or Ctrl+s saves a.pdf here")
+            return s
+        s = save()
+        s.send(b"!", "Keep both")
+        s.send(b"k")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "a (1).pdf") + b"\n"))
         s.close()
+        s = save()
+        s.send(b"\r", "Replace")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "a.pdf") + b"\n"))
+        s.close()
+        # Escape goes back to choosing.
+        s = save()
+        s.send(b"!", "Keep both")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Keep both")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        # A typed name: Ctrl+s saves it from Insert mode, and so does Enter
+        # when the name matches nothing.
+        for key in [b"\x13", b"\r"]:
+            s = save()
+            s.send(b"inew.pdf", "Save as new.pdf · INSERT")
+            s.send(key)
+            self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
+            s.close()
         # A folder dialog takes the folder being browsed.
         s = self.session = Session(self.root, "explorer", "--directory", "docs",
                                    implicit_root=True, output_paths=False)
-        s.wait_ui("! chooses the folder you are in")
+        s.wait_ui("! or Ctrl+s chooses the folder you are in")
         s.send(b"!")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs") + b"\n"))
         s.close()
@@ -1869,22 +1895,45 @@ class TerminalTests(unittest.TestCase):
                 s.close()
                 self.session = None
 
-    def test_normal_enter_in_default_mode_writes_the_folder_to_the_cd_file(self):
+    def test_normal_enter_in_default_mode_opens_a_file_and_leaves(self):
         more = self.deep_tree()
         cd_file = self.root / "cd"
-        for query, expected in [(b"a.pdf", more), (b"folder", self.root / "folder"), (b"top.txt", None)]:
-            with self.subTest(query=query):
-                cd_file.write_bytes(b"")
-                s = self.start("--depth", "3", "--here", "--cd-file", str(cd_file),
-                               implicit_root=True, output_paths=False)
-                s.send(b"i" + query, "❯ " + query.decode())
-                s.send(b"\x1b[27u", "Query · NORMAL")
-                s.send(b"\r")
-                self.assertEqual(s.finish(), (0, b""))
-                # The launch directory itself is not written.
-                self.assertEqual(cd_file.read_bytes(), os.fsencode(expected) if expected else b"")
-                s.close()
-                self.session = None
+        edited = Path(self.tmp.name + "-edited.log")
+        self.addCleanup(lambda: edited.unlink(missing_ok=True))
+        env, config, log = self.opener_setup(rules=(
+            "[[open.rules]]\ncommand = 'viewer'\nextensions = ['pdf']\n"
+            "[[open.rules]]\ncommand = 'texted'\nextensions = ['txt']\nterminal = true\n"))
+        env = {**env, **self.run_environment(
+            "texted", f'{{ pwd; printf "%s\\n" "$@"; }} > "{edited}"; exit 7\n')}
+        def enter(query):
+            cd_file.write_bytes(b"")
+            s = self.start("--depth", "3", "--here", "--cd-file", str(cd_file), "--config",
+                           str(config), implicit_root=True, output_paths=False, environment=env)
+            s.send(b"i" + query, "❯ " + query.decode())
+            s.send(b"\x1b[27u", "Query · NORMAL")
+            s.send(b"\r")
+            return s
+        # A directory: fff leaves into it.
+        s = enter(b"folder")
+        self.assertEqual(s.finish(), (0, b""))
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(self.root / "folder"))
+        s.close()
+        # A file with a GUI opener: it starts detached, fff leaves, and the
+        # shell changes to the file's folder.
+        s = enter(b"a.pdf")
+        self.assertEqual(s.finish(), (0, b""))
+        self.wait_file(log, [str(more / "a.pdf")])
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(more))
+        s.close()
+        # A terminal opener replaces fff in this terminal, in the file's folder;
+        # its status is fff's. The launch directory itself is not written.
+        s = enter(b"top.txt")
+        self.assertEqual(s.finish(), (7, b""))
+        self.assertEqual(edited.read_text().splitlines(),
+                         [str(self.root), str(self.root / "top.txt")])
+        self.assertEqual(cd_file.read_bytes(), b"")
+        s.close()
+        self.session = None
 
     def test_insert_enter_reveals_a_file_in_default_mode(self):
         more = self.deep_tree()

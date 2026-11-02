@@ -65,7 +65,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("PgUp PgDn".into(), "previous / next page", false),
                 (
                     "Enter".into(),
-                    "Normal: exit into the entry's folder",
+                    "Normal: open file and leave; leave into dir",
                     false,
                 ),
                 (
