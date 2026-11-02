@@ -12,8 +12,11 @@ history.
   during a scan of hundreds of thousands of paths (say `$HOME` with hidden
   files at depth 9) no longer stalls for a second at a time: keys are handled
   before discovery work, and new paths are merged into the results a little
-  at a time instead of re-sorting everything. Such scans also finish several
-  times faster and take less memory.
+  at a time instead of re-sorting everything, shallowest first. Such scans
+  also finish several times faster and take less memory.
+- **The highlight stays on the first row while a location loads**, instead of
+  following whichever row was first when the scan began, until you move it
+  (or a remembered row, such as the folder you came up from, is listed).
 - `fff pick` and `fff seek` update their labels for shared names only where
   they changed, so a large tree no longer slows them down as it fills.
 

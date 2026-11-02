@@ -924,6 +924,8 @@ fn session(
                 continue;
             };
             app.highlight = Some(target.path.clone());
+            app.highlight_top = false;
+            app.wanted = None;
             if target.directory {
                 if app.ready_path(&target.path) && app.can_navigate() {
                     app.navigate(target.path.clone(), false);
@@ -1553,7 +1555,7 @@ fn session(
                         let mark = mark.clone();
                         if app.can_navigate() {
                             app.navigate(mark, false);
-                            app.highlight_top = true;
+                            app.wanted = None;
                             discovery.start(app, true);
                             focus = Focus::Results;
                         }

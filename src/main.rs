@@ -587,6 +587,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.dialog = dialog.clone();
     app.window = mode.window;
     app.positions = state.positions;
+    // The highlight starts on the first row, unless a remembered one is listed.
+    app.highlight_top = true;
     app.wanted = match &browse_from {
         Some((_, Some(file))) => Some(file.clone()),
         _ => app.remembered(&app.cwd.clone()),

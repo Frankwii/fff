@@ -319,7 +319,8 @@ Each directory remembers the entry last highlighted in it: going up highlights
 the folder you came from (even several levels up), and entering a folder again
 puts the cursor back where it was, as soon as that row is listed (moving first
 cancels this). Every session starts in the current directory (or ROOTS), on
-the row last highlighted there.
+the row last highlighted there. Otherwise a newly opened location keeps the
+highlight on the first row while its scan streams in, until you move it.
 
 `fff --resume` continues the last `fff roam` session instead: its folder,
 highlighted row, tabs with their back/forward history, marks, query, depth,

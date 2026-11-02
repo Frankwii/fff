@@ -301,8 +301,9 @@ pub struct App {
     /// Where `highlight` was last found in `rows`. Anything may change either,
     /// so it is checked before use; moving and drawing then skip the search.
     highlight_hint: Cell<usize>,
-    /// After a bookmark jump, the highlight follows the first row while the
-    /// scan streams in and the query changes, until the user moves it.
+    /// In a newly opened location the highlight stays on the first row while
+    /// the scan streams in and the query changes, until the user moves it or
+    /// a row to restore (`wanted`) is listed.
     pub highlight_top: bool,
     pub marks: marks::Marks,
     pub rendered: Vec<PathBuf>,
@@ -665,7 +666,8 @@ impl App {
         }
         self.offset = 0;
         self.highlight = None;
-        self.highlight_top = false;
+        // Rows stream in: the highlight stays on the first one until moved.
+        self.highlight_top = true;
         // Going up highlights the folder we came from; otherwise restore what
         // was highlighted here last time.
         self.wanted = from
@@ -933,7 +935,9 @@ impl App {
             } else {
                 self.added.len()
             };
-            let round = self.added.split_off(self.added.len() - take);
+            // Oldest first: scans deliver shallow paths before deeper ones,
+            // and the rows fill in that order.
+            let round: Vec<_> = self.added.drain(..take).collect();
             let listed: Vec<_> = round.into_iter().filter(|c| self.listed(c)).collect();
             if self.no_dir || self.short_labels {
                 for c in &listed {
@@ -997,11 +1001,12 @@ impl App {
     }
     fn keep_highlight(&mut self) {
         // Rows share the known candidates: look for the wanted one's address.
+        // A row to restore takes the highlight off the first row once listed.
         if let Some(wanted) = self.wanted.as_ref().and_then(|w| self.known.get(w))
-            && !self.highlight_top
             && self.rows.iter().any(|c| Arc::ptr_eq(c, wanted))
         {
             self.highlight = self.wanted.take();
+            self.highlight_top = false;
             return;
         }
         if self.highlight_top || self.highlighted().is_none() {
@@ -1167,7 +1172,7 @@ impl App {
         match bookmark.path.canonicalize() {
             Ok(path) if path.is_dir() => {
                 self.navigate(path, false);
-                self.highlight_top = true;
+                self.wanted = None;
                 true
             }
             _ => {

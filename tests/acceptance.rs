@@ -881,3 +881,47 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
         assert_eq!(!merged.labels.is_empty(), no_dir || short_labels);
     }
 }
+#[test]
+fn a_new_location_keeps_the_highlight_on_the_first_row_until_moved() {
+    let mut app = app();
+    app.navigate(PathBuf::from("/fixture"), false);
+    for name in ["m", "z", "c", "a"] {
+        app.insert(0, candidate(name, false, 1));
+        app.refresh();
+        assert_eq!(app.highlighted(), Some(0), "after {name}");
+    }
+    app.move_by(1);
+    assert_eq!(app.highlight, Some(PathBuf::from("/fixture/c")));
+    // Once moved, the highlight follows its row.
+    app.insert(0, candidate("b", false, 1));
+    app.refresh();
+    assert_eq!(app.highlight, Some(PathBuf::from("/fixture/c")));
+    assert_eq!(app.highlighted(), Some(2));
+}
+#[test]
+fn partial_merges_list_the_shallowest_paths_first() {
+    let mut app = app();
+    app.refresh();
+    // A breadth-first scan delivers every shallower path before deeper ones.
+    let mut names = Vec::new();
+    for depth in 1..=3 {
+        for i in 0..1500 {
+            let path = (1..depth).map(|_| "d/").collect::<String>() + &format!("f{i:04}");
+            names.push((path, depth));
+        }
+    }
+    for (name, depth) in &names {
+        app.insert(0, candidate(name, false, *depth));
+    }
+    let mut deepest = 0;
+    while app.unmerged() > 0 {
+        app.refresh_within(Some(Duration::ZERO));
+        let shown = app.rows.last().unwrap().depth;
+        assert!(shown >= deepest);
+        // Rows of a depth only show once every shallower one does.
+        let shallower = app.rows.iter().filter(|c| c.depth < shown).count();
+        assert_eq!(shallower, 1500 * (shown - 1));
+        deepest = shown;
+    }
+    assert_eq!(app.rows.len(), 4500);
+}

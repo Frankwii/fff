@@ -739,6 +739,8 @@ pub(super) fn mouse_results(
                 app.rendered[to..=from].iter().rev().cloned().collect()
             };
             app.highlight = rows.last().cloned();
+            app.highlight_top = false;
+            app.wanted = None;
             app.marks = rows.into();
             // A drag is not the first half of a double click.
             mouse.click = None;
