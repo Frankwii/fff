@@ -344,6 +344,9 @@ pub struct App {
     /// `fff explorer`: the file dialog being answered. Enter chooses files in
     /// either mode and q cancels.
     pub dialog: Option<explorer::Dialog>,
+    /// `--window`: fff has a terminal window of its own and no shell to leave
+    /// into, so Enter enters folders and `!` starts a shell in this one.
+    pub window: bool,
 }
 
 impl App {
@@ -418,6 +421,7 @@ impl App {
             buttons: config::Buttons::Off,
             mouse_used: false,
             watch: true,
+            window: false,
             dialog: None,
         }
     }

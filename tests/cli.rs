@@ -190,7 +190,7 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
     let script = std::fs::read_to_string(&launcher).unwrap();
     assert!(
         script.contains(&format!(
-            "exec 'st' '-c' 'fff-picker' '-e' '{}' '--browse' \"$@\" >/dev/null 2>&1",
+            "exec 'st' '-c' 'fff-picker' '-e' '{}' '--browse' '--window' \"$@\" >/dev/null 2>&1",
             exe.display()
         )),
         "{script}"

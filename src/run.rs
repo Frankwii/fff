@@ -579,6 +579,25 @@ pub fn editor_plan(paths: Vec<PathBuf>, cwd: &Path, home: Option<&Path>) -> Resu
         line: value.trim().to_owned(),
     })
 }
+/// `!` with `--window`: `$SHELL` (else `/bin/sh`) in `cwd`, replacing fff.
+pub fn shell_plan(cwd: &Path) -> Result<Plan, String> {
+    let shell = std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "/bin/sh".into());
+    let name = Path::new(&shell)
+        .file_name()
+        .map_or(shell.clone(), |n| n.to_string_lossy().into_owned());
+    Ok(Plan {
+        program: resolve_or_suggest(&shell, cwd).map_err(|e| format!("$SHELL: {e}"))?,
+        name,
+        args: vec![],
+        paths: vec![],
+        cwd: cwd.to_owned(),
+        exit: true,
+        line: shell,
+    })
+}
 /// After a failed program, keeps its messages on screen until Enter.
 pub fn pause_after_failure(line: &str, status: ExitStatus) {
     use io::{BufRead, Write};

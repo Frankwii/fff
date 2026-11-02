@@ -50,7 +50,7 @@ time, keeping everything else.
 `fff --setup desktop`:
 
 1. Writes `$XDG_DATA_HOME/fff/open-folder` (`~/.local/share/...` by default),
-   a launcher script running `FFF_TERMINAL fff --browse FOLDER` with the
+   a launcher script running `FFF_TERMINAL fff --browse --window FOLDER` with the
    terminal's own output discarded (st, for one, logs escape sequences it does
    not support, and that log would otherwise land in the shell that ran
    `xdg-open`).
@@ -82,12 +82,20 @@ xdg-mime query default inode/directory   # fff.desktop
 xdg-open ~/Downloads                      # fff in a floating terminal
 ```
 
-Leaving fff closes the window. Normal-mode Enter on a file opens it with its
-[opener](OPERATIONS.md#opening-files) and closes the window, as a double click
-would in a graphical file manager (a GUI opener keeps running; a terminal
-opener takes over the window until it ends); `l` opens it in the background
-and keeps fff open; Enter on a folder or `!` just closes the window, since
-there is no shell to change into.
+`--window` tells fff it has a window of its own and no shell to change into,
+so the keys that would leave into a directory act like a graphical file
+manager instead. Normal-mode Enter on a folder (or on a folder in the marked
+list, or the Select button) enters it and fff stays. Enter on a file opens it
+with its [opener](OPERATIONS.md#opening-files) and closes the window, as a
+double click would (a GUI opener keeps running; a terminal opener takes over
+the window until it ends); `l` opens it in the background and keeps fff open.
+`!` replaces fff with your `$SHELL` (`/bin/sh` when unset) in the folder you
+are browsing, so the window becomes a terminal there; leaving the shell closes
+it. `q` closes the window. Nothing is printed. The F1 guide describes Enter
+and `!` this way in such a window.
+
+Launchers written by an earlier `fff --setup desktop` lack `--window`; run
+setup again to add it.
 
 Firefox's "Show in folder" asks a file manager over D-Bus
 (`org.freedesktop.FileManager1`) and, when none answers, opens the containing

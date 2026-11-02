@@ -155,7 +155,7 @@ pub fn launcher_script(fff: &str, terminal: &[String]) -> String {
     let command: Vec<String> = terminal
         .iter()
         .map(String::as_str)
-        .chain([fff, "--browse"])
+        .chain([fff, "--browse", "--window"])
         .map(shell_quote)
         .collect();
     format!(
@@ -447,7 +447,7 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(dir.join("args")).unwrap(),
-            "-c\nit's\n/my fff\n--browse\n/a dir\n"
+            "-c\nit's\n/my fff\n--browse\n--window\n/a dir\n"
         );
         fs::remove_dir_all(dir).unwrap();
     }

@@ -578,6 +578,16 @@ fn session(
                 if app.no_dir {
                     return Ok(Finish::Paths(Vec::new()));
                 }
+                // With a window of its own, ! leaves into a shell there.
+                if app.window && current {
+                    match crate::run::shell_plan(&app.cwd) {
+                        Ok(plan) => return Ok(Finish::Exec(plan)),
+                        Err(error) => {
+                            app.status = error;
+                            continue;
+                        }
+                    }
+                }
                 return Ok(Finish::Paths(vec![if current {
                     app.cwd.clone()
                 } else {
@@ -1493,6 +1503,17 @@ fn session(
                             }
                         }
                     }
+                    // With a window of its own, a directory is entered.
+                    if app.window && mark.is_dir() {
+                        let mark = mark.clone();
+                        if app.can_navigate() {
+                            app.navigate(mark, false);
+                            app.highlight_top = true;
+                            discovery.start(app, true);
+                            focus = Focus::Results;
+                        }
+                        continue;
+                    }
                     let folder = if mark.is_dir() {
                         mark.clone()
                     } else {
@@ -1661,7 +1682,7 @@ fn session(
                     // results. A dialog chooses files and enters folders
                     // instead.
                     if app.dialog.is_none() && normal {
-                        if let Some(finish) = finish_with(app, target.as_ref()) {
+                        if let Some(finish) = finish_with(app, &mut discovery, target.as_ref()) {
                             return Ok(finish);
                         }
                         continue;

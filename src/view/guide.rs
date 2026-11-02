@@ -65,7 +65,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("PgUp PgDn".into(), "previous / next page", false),
                 (
                     "Enter".into(),
-                    "Normal: open file and leave; leave into dir",
+                    if app.window {
+                        "Normal: open file and leave; enter dir"
+                    } else {
+                        "Normal: open file and leave; leave into dir"
+                    },
                     false,
                 ),
                 (
@@ -197,7 +201,15 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     true,
                 ),
                 (normal(Quit), "exit, return launch directory", true),
-                (normal(QuitCurrent), "exit, return current directory", true),
+                (
+                    normal(QuitCurrent),
+                    if app.window {
+                        "exit into a shell in this directory"
+                    } else {
+                        "exit, return current directory"
+                    },
+                    true,
+                ),
                 (
                     normal(Run),
                     "run a program on current / marked, come back",

@@ -2023,6 +2023,34 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_window_enters_folders_and_bang_starts_a_shell_there(self):
+        self.deep_tree()
+        here = Path(self.tmp.name + "-shell.log")
+        self.addCleanup(lambda: here.unlink(missing_ok=True))
+        env = self.run_environment("fakesh", f'pwd > "{here}"; exit 5\n')
+        env["SHELL"] = "fakesh"
+        def start():
+            return self.start("--depth", "1", "--browse", str(self.root), "--window",
+                              implicit_root=True, output_paths=False, environment=env)
+        # Normal-mode Enter on a folder goes into it, and fff stays.
+        s = start()
+        s.wait_ui(("cwd", self.root))
+        self.wait_highlight(s, "folder")
+        s.send(b"\r", ("cwd", self.root / "folder"))
+        # ! replaces fff with the shell in the folder being browsed.
+        s.send(b"!")
+        self.assertEqual(s.finish(), (5, b""))
+        self.assertEqual(here.read_text().strip(), str(self.root / "folder"))
+        s.close()
+        # q prints nothing: there is no shell to change.
+        s = self.session = start()
+        s.wait_ui(("cwd", self.root))
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        s.close()
+        self.session = None
+
     def test_insert_enter_reveals_a_file_in_default_mode(self):
         more = self.deep_tree()
         s = self.start("--depth", "3", "--here", implicit_root=True, output_paths=False)

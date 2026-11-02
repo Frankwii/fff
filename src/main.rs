@@ -157,6 +157,13 @@ struct Args {
     /// entry and file chooser installed by --setup start fff this way.
     #[arg(long, help_heading = "Search")]
     browse: bool,
+    /// Run in a terminal window of its own, with no shell to change directory
+    ///
+    /// Normal-mode Enter on a folder enters it instead of leaving, ! replaces
+    /// fff with $SHELL in the folder being browsed, and nothing is printed.
+    /// The desktop entry installed by --setup desktop starts fff this way.
+    #[arg(long, conflicts_with = "output_paths", help_heading = "Interface")]
+    window: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
     #[arg(global = true, long, help_heading = "Search")]
     hidden: bool,
@@ -431,6 +438,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.openers = settings.open.clone();
     app.output_paths = args.output_paths || dialog.is_some();
     app.dialog = dialog.clone();
+    app.window = args.window;
     app.positions = state.positions;
     app.wanted = match &browse_from {
         Some((_, Some(file))) => Some(file.clone()),
@@ -466,7 +474,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     // In the default mode the session chooses a directory: the folder of the
     // confirmed entry (a directory itself for directories).
     let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
-        let Some(target) = target else {
+        // A window of its own has no shell to change.
+        let Some(target) = target.filter(|_| !args.window) else {
             return Ok(());
         };
         let dir = if target.is_dir() {

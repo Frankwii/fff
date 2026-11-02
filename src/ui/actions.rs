@@ -97,9 +97,24 @@ pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, Str
 /// a file opens and fff leaves (default mode), is printed (`--output-paths`)
 /// or is left into its folder (`--no-dir`); nothing leaves into the browsing
 /// directory. Marks are ignored. `None` (with the reason in the status line)
-/// when the file cannot open.
-pub(super) fn finish_with(app: &mut App, target: Option<&crate::Candidate>) -> Option<Finish> {
+/// when the file cannot open. With `--window` there is no shell to leave
+/// into: a directory is entered instead, and nothing stays.
+pub(super) fn finish_with(
+    app: &mut App,
+    discovery: &mut Discovery,
+    target: Option<&crate::Candidate>,
+) -> Option<Finish> {
     match target {
+        Some(dir) if app.window && dir.directory => {
+            if app.enter(Some(crate::Candidate::clone(dir))) == EnterOutcome::Navigated {
+                discovery.start(app, true);
+            }
+            None
+        }
+        None if app.window => {
+            app.nothing_to_enter();
+            None
+        }
         Some(file) if !file.directory && app.ready_path(&file.path) => {
             if app.output_paths {
                 return Some(Finish::Paths(vec![file.path.clone()]));
@@ -117,9 +132,10 @@ pub(super) fn finish_with(app: &mut App, target: Option<&crate::Candidate>) -> O
                 file.path.parent().unwrap_or(&app.cwd).to_owned(),
             ))
         }
-        Some(file) if !file.directory => Some(Finish::Folder(
+        Some(file) if !file.directory && !app.window => Some(Finish::Folder(
             file.path.parent().unwrap_or(&app.cwd).to_owned(),
         )),
+        Some(file) if !file.directory => None,
         Some(dir) => Some(Finish::Folder(dir.path.clone())),
         None => Some(Finish::Folder(app.cwd.clone())),
     }
@@ -849,9 +865,10 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
                 let target = app.highlight.clone()?;
                 return app.ready_path(&target).then(|| Finish::Paths(vec![target]));
             }
-            // Otherwise like Normal-mode Enter, which always leaves.
+            // Otherwise like Normal-mode Enter, which leaves unless fff has
+            // a window of its own.
             let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
-            return finish_with(app, target.as_ref());
+            return finish_with(app, discovery, target.as_ref());
         }
     }
     None

@@ -271,6 +271,15 @@ fn buttons_do_what_their_keys_do() {
     assert_eq!(app.cwd, root);
     press(&mut app, &mut discovery, Button::Back);
     assert_eq!(app.cwd, root.join("dir"));
+    // With a window of its own, Select enters a directory and stays.
+    app.window = true;
+    app.output_paths = false;
+    app.refresh();
+    app.highlight = Some(root.join("dir"));
+    assert!(press(&mut app, &mut discovery, Button::Select).is_none());
+    assert_eq!(app.cwd, root.join("dir"));
+    app.navigate(root.clone(), false);
+    app.window = false;
     // --no-dir cannot change directory.
     app.no_dir = true;
     assert!(!Button::Up.available(&app) && !Button::Back.available(&app));

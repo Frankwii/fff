@@ -4,6 +4,23 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Folders opened from the desktop are browsed, not left.** fff started by
+  `xdg-open`, a launcher or "Show in folder" has no shell to change into, so
+  Normal-mode Enter on a folder (or the Select button) now enters it instead
+  of closing the window, and `!` turns the window into a shell (`$SHELL`) in
+  the folder being browsed. Enter on a file still opens it and closes the
+  window. Run `fff --setup desktop` again to update the launcher.
+
+### Added
+
+- **`--window`**, for fff running in a terminal window of its own: Enter
+  enters folders, `!` starts a shell in the current folder, and nothing is
+  printed. The desktop launcher passes it.
+
 ## 0.8.0 — 2026-11-02
 
 fff can now be the desktop's file manager and Firefox's file chooser, and the

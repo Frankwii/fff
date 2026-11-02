@@ -114,7 +114,10 @@ The keys that open or finish fit together:
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
 dialogs, keeps these meanings: Enter chooses a file and enters a folder, `!`
-takes the folder you are in, Ctrl+w the marks, and Ctrl+s saves.
+takes the folder you are in, Ctrl+w the marks, and Ctrl+s saves. A folder
+opened from the desktop (`--window`) has no shell to leave into: Enter enters a
+folder, and `!` starts a shell in the folder you are in
+([details](docs/DESKTOP.md#opening-directories)).
 
 Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
 with the marks only. With `--output-paths` (and `--no-dir`) it returns them; in
