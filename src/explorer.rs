@@ -105,18 +105,22 @@ impl Dialog {
     /// allowed. Saving into a folder takes the suggested name, numbered when
     /// that is taken; a chosen file is replaced.
     pub fn answer(&self, chosen: Vec<PathBuf>) -> Vec<PathBuf> {
+        // The portal reads one path per line.
+        let one_line = |p: &PathBuf| !p.as_os_str().as_encoded_bytes().contains(&b'\n');
         if let Some(name) = &self.save {
             return match chosen.last() {
                 Some(folder) if folder.is_dir() => vec![free_name(folder, name)],
                 Some(file) => vec![file.clone()],
                 None => vec![],
-            };
+            }
+            .into_iter()
+            .filter(one_line)
+            .collect();
         }
         let mut chosen: Vec<PathBuf> = chosen
             .into_iter()
             .filter(|p| p.is_dir() == self.directory)
-            // The portal reads one path per line.
-            .filter(|p| !p.as_os_str().as_encoded_bytes().contains(&b'\n'))
+            .filter(one_line)
             .collect();
         if !self.multiple && chosen.len() > 1 {
             chosen.drain(..chosen.len() - 1);

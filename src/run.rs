@@ -358,7 +358,8 @@ impl Prompt {
         for (i, c) in self.text.char_indices() {
             match (c, quote) {
                 _ if escaped => escaped = false,
-                ('\\', _) => escaped = true,
+                // Inside single quotes a backslash is literal, as in `split`.
+                ('\\', None | Some('"')) => escaped = true,
                 ('\'' | '"', None) => quote = Some(c),
                 (q, Some(open)) if q == open => quote = None,
                 (c, None) if c.is_whitespace() => {
@@ -716,6 +717,19 @@ mod tests {
 #[cfg(test)]
 mod flag_tests {
     use super::*;
+    #[test]
+    fn words_end_at_spaces_outside_quotes() {
+        let mut p = Prompt::new(vec![], false);
+        for (text, start) in [
+            ("ls 'a\\' b", 8),
+            ("ls \"a\\\" b", 3),
+            ("ls a\\ b", 3),
+            ("ls", 0),
+        ] {
+            p.text = text.into();
+            assert_eq!(p.current_word().0, start, "{text}");
+        }
+    }
     #[test]
     fn a_bare_tilde_completes_inside_home() {
         let home = std::env::temp_dir().join(format!("fff-tilde-{}", std::process::id()));

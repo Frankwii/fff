@@ -51,7 +51,12 @@ history.
   `command`) no longer fails the configuration with "must name a program".
 - Tab after a bare `~` in the gx/gX prompt completes inside the home folder
   instead of turning it into a relative path.
-- A `file://` URI with `%+5`-style escapes is no longer decoded as a byte.
+- A `file://` URI with `%+5`-style escapes is no longer decoded as a byte,
+  and the short `file:/path` form is understood.
+- Tab in the gx/gX prompt no longer treats a backslash inside single quotes
+  as an escape, which made it complete the wrong word.
+- `fff explorer` never answers a save dialog with a path containing a
+  newline, which the portal would read as two paths.
 - **Read-only folders can be copied, deleted and overwritten.** A folder
   without write permission for its owner (mode 555, say) failed with
   "Permission denied" where `cp -r` and `rm -r` succeed; the copy keeps the

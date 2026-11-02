@@ -197,7 +197,11 @@ pub fn file_path(uri: &str) -> Option<PathBuf> {
     if uri.starts_with('/') {
         return Some(PathBuf::from(uri));
     }
-    let rest = uri.strip_prefix("file://")?;
+    // `file:/path`, without an authority, is the short form (RFC 8089).
+    let rest = match uri.strip_prefix("file://") {
+        Some(rest) => rest,
+        None => uri.strip_prefix("file:").filter(|p| p.starts_with('/'))?,
+    };
     // An authority before the path: empty or this machine.
     let path = &rest[rest.find('/')?..];
     let host = &rest[..rest.len() - path.len()];
@@ -579,6 +583,8 @@ mod tests {
         );
         assert_eq!(file_path("file://localhost/tmp/x"), Some("/tmp/x".into()));
         assert_eq!(file_path("/tmp/plain"), Some("/tmp/plain".into()));
+        assert_eq!(file_path("file:/tmp/x%20y"), Some("/tmp/x y".into()));
+        assert_eq!(file_path("file:tmp/x"), None);
         assert_eq!(file_path("file://elsewhere/tmp/x"), None);
         assert_eq!(file_path("https://example.org/x"), None);
         // Undecodable escapes stay as they are; bytes need not be UTF-8.
