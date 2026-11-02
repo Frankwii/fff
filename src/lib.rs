@@ -1586,7 +1586,7 @@ impl App {
                     .map(EnterOutcome::Selected)
                     .unwrap_or(EnterOutcome::Stay)
             }
-        } else if !self.scanning && self.physical_empty && !self.no_dir {
+        } else if !self.scanning && self.physical_empty && self.returns_folder() {
             self.confirm(Some(self.cwd.clone()))
                 .map(EnterOutcome::Selected)
                 .unwrap_or(EnterOutcome::Stay)
@@ -1594,6 +1594,12 @@ impl App {
             self.nothing_to_enter();
             EnterOutcome::Stay
         }
+    }
+    /// Whether Enter in a verified empty folder may answer with the folder:
+    /// not in `fff seek`, with no shell to leave into (`--window`), or in a
+    /// dialog choosing files, whose answer has no room for a folder.
+    fn returns_folder(&self) -> bool {
+        !self.no_dir && !self.window && self.dialog.as_ref().is_none_or(|d| d.directory)
     }
     /// Says why Enter (or Ctrl+number) with no row did nothing.
     pub fn nothing_to_enter(&mut self) {

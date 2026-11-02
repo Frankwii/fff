@@ -478,6 +478,20 @@ fn buttons_do_what_their_keys_do() {
         press(&mut app, &mut discovery, Button::Select),
         Some(Finish::Folder(p)) if p == root.join("dir")
     ));
+    // In a file dialog Select is Enter on the row, so saving over a file
+    // asks first and a folder is entered; marks to return are returned.
+    app.dialog = Some(crate::explorer::Dialog {
+        multiple: true,
+        directory: false,
+        save: None,
+    });
+    let enter = Some(KeyEvent::new(K::Enter, M::NONE));
+    assert_eq!(Button::Select.key(&app), enter);
+    app.marks.push(root.join("file"));
+    assert_eq!(Button::Select.key(&app), None);
+    app.marks.clear();
+    app.dialog = None;
+    assert_eq!(Button::Select.key(&app), None);
     assert!(matches!(
         press(&mut app, &mut discovery, Button::Cancel),
         Some(Finish::Cancelled)

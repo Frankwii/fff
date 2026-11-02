@@ -137,11 +137,13 @@ fn types_query(app: &App, focus: &Focus, event: &Event) -> bool {
         }
 }
 /// The directories live updates watch: the current directory and the pinned
-/// roots, then the folders whose entries are listed, shallowest first. While
-/// a scan runs, those already watched stay if still in reach.
-fn watched_dirs(app: &App, watch: &crate::watch::Watch) -> Vec<PathBuf> {
+/// roots, then the folders whose entries are listed, shallowest first; and
+/// how many lead as roots. While a scan runs, those already watched stay if
+/// still in reach.
+fn watched_dirs(app: &App, watch: &crate::watch::Watch) -> (Vec<PathBuf>, usize) {
     let mut dirs = vec![app.cwd.clone()];
     dirs.extend(app.scope.iter().filter(|r| **r != app.cwd).cloned());
+    let roots = dirs.len();
     // Folders below `depth - 1` have their entries beyond the depth.
     let within = |dir: &std::path::Path| {
         app.scope.iter().any(|root| {
@@ -169,7 +171,7 @@ fn watched_dirs(app: &App, watch: &crate::watch::Watch) -> Vec<PathBuf> {
             .map(|(_, dir)| dir)
             .take(crate::watch::MOST.saturating_sub(dirs.len())),
     );
-    dirs
+    (dirs, roots)
 }
 /// Runs a session, then remembers where it was for the next one.
 pub fn run(
@@ -294,8 +296,9 @@ fn session(
             let basis = (app.generation, app.scanning, app.depth, known);
             if watch_basis != Some(basis) {
                 watch_basis = Some(basis);
-                let dirs = watched_dirs(app, watch);
-                watch.follow(&dirs.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+                let (dirs, roots) = watched_dirs(app, watch);
+                let dirs: Vec<_> = dirs.iter().map(PathBuf::as_path).collect();
+                watch.follow(&dirs, roots);
             }
             let changes = watch.poll();
             for path in &changes.touched {
@@ -585,8 +588,11 @@ fn session(
                     })
                     .flatten();
                 match button {
-                    Some(&(_, button)) => match button.key() {
-                        Some(key) => Event::Key(key),
+                    Some(&(_, button)) => match button.key(app) {
+                        Some(key) => {
+                            on_row = button == Button::Select;
+                            Event::Key(key)
+                        }
                         None => {
                             if let Some(finish) = press(app, &mut discovery, button) {
                                 return Ok(finish);

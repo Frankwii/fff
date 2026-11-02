@@ -620,6 +620,33 @@ fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
     assert_eq!(app.enter(None), fuzzy_file_finder::EnterOutcome::Stay);
 }
 #[test]
+fn an_empty_folder_answers_enter_only_where_a_folder_is_an_answer() {
+    use fuzzy_file_finder::{EnterOutcome, explorer::Dialog};
+    let f = Fixture::new();
+    let empty = |set: &dyn Fn(&mut App)| {
+        let mut app = App::browse(f.0.clone(), 1, Policy::default());
+        app.scanning = false;
+        app.physical_empty = true;
+        set(&mut app);
+        app.enter(None)
+    };
+    let folder = EnterOutcome::Selected(vec![f.0.clone()]);
+    assert_eq!(empty(&|_| {}), folder);
+    let dialog = |directory| Dialog {
+        multiple: false,
+        directory,
+        save: None,
+    };
+    assert_eq!(empty(&|app| app.dialog = Some(dialog(true))), folder);
+    // A file dialog cannot take a folder, and a window has no shell to
+    // leave into: a stray Enter must not end either.
+    assert_eq!(
+        empty(&|app| app.dialog = Some(dialog(false))),
+        EnterOutcome::Stay
+    );
+    assert_eq!(empty(&|app| app.window = true), EnterOutcome::Stay);
+}
+#[test]
 fn status_messages_expire_and_restart_when_reported_again() {
     use fuzzy_file_finder::ui::StatusTimer;
     let mut app = app();

@@ -130,6 +130,21 @@ history.
   directory away.
 - The trash purge keeps entries whose recorded date is impossible (a 13th
   month, a 31st of April) instead of reading them as a later real date.
+- **The Select & Exit button in `fff explorer` is Enter on the highlighted
+  row**, as documented: saving over a file asks first, and a folder is
+  entered. It answered with the row as it was, so in a save dialog it
+  overwrote a file without asking.
+- Enter while typing in an empty folder no longer closes a `--window`
+  session, or cancels a dialog choosing files in `fff explorer`; only where
+  a folder is an answer (`fff pick`, `fff roam`, folder dialogs) does it
+  answer with the folder.
+- Live updates no longer watch the targets of symlinked folders listed
+  below the browsed one, which fff never lists the insides of: changes in
+  `/tmp` behind a `tmp` link no longer rescan the results, and a link into
+  an unreachable mount cannot hang the screen.
+- Closing the terminal while a file operation runs lets the operation
+  finish before fff ends. fff ended at once, stopping it partway and leaving
+  entries in hidden `.fff-stage-*` folders.
 - The remembered-locations and session files are readable only by you; they
   hold your folders, marks and queries.
 - **Lowering the depth after `max_paths` stopped a scan lists the shallower

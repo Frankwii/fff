@@ -139,6 +139,10 @@ pub(super) fn finish_with(
         None => Some(Finish::Folder(app.cwd.clone())),
     }
 }
+/// Select returns the marks, like Ctrl+w, when there are some to return.
+fn select_returns_marks(app: &App) -> bool {
+    !app.marks.is_empty() && app.returns_marks()
+}
 /// Ctrl+w: the marks are returned where the answer can be several paths
 /// (`App::returns_marks`); elsewhere nothing happens and the status line says
 /// why. `None` when fff stays.
@@ -428,6 +432,19 @@ pub(crate) struct Job {
     pub(crate) started: std::time::Instant,
     result: std::sync::mpsc::Receiver<crate::operations::Result<Done>>,
     then: Then,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+/// An operation runs to its end even when the session ends abruptly (the
+/// terminal hung up and drawing failed): leaving would end the process and
+/// kill its thread partway. Checking only reads, so it is left behind.
+impl Drop for Job {
+    fn drop(&mut self) {
+        if !matches!(self.then, Then::Planned)
+            && let Some(thread) = self.thread.take()
+        {
+            let _ = thread.join();
+        }
+    }
 }
 /// What a job produced.
 pub(super) enum Done {
@@ -477,7 +494,7 @@ impl Job {
         progress
             .checking
             .store(planning, std::sync::atomic::Ordering::Relaxed);
-        std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             let outcome = match work {
                 Work::Execute(request) => engine.execute(request).map(Done::Outcome),
                 Work::Undo(record) => engine.undo(&record).map(Done::Outcome),
@@ -495,6 +512,7 @@ impl Job {
             started: std::time::Instant::now(),
             result,
             then,
+            thread: Some(thread),
         }
     }
     /// A job that never ends, to draw its progress.
@@ -507,6 +525,7 @@ impl Job {
             started: std::time::Instant::now(),
             result: std::sync::mpsc::channel().1,
             then: Then::Planned,
+            thread: None,
         }
     }
     /// The result, once the operation has ended.
@@ -631,7 +650,7 @@ pub(super) fn finish(
     app: &mut App,
     discovery: &mut Discovery,
     focus: &mut Focus,
-    job: Job,
+    mut job: Job,
     result: crate::operations::Result<Done>,
 ) {
     *focus = Focus::Results;
@@ -651,7 +670,9 @@ pub(super) fn finish(
         Ok(Done::Outcome(outcome)) => Ok(outcome),
         Err(error) => Err(error),
     };
-    match (outcome, job.then) {
+    // Its thread delivered the result and ends; nothing waits for it.
+    let then = std::mem::replace(&mut job.then, Then::Planned);
+    match (outcome, then) {
         (Ok(_), Then::Planned) => unreachable!("plans end above"),
         (Ok(outcome), then) => {
             app.marks.update(|marked| {
@@ -1361,10 +1382,16 @@ impl Button {
         }
     }
     /// The key a button stands for, where the key's handling is all it does.
-    pub(crate) fn key(self) -> Option<KeyEvent> {
+    /// The key a button stands for, which the session handles as that key;
+    /// Select in a file dialog is Enter on the highlighted row (unless it
+    /// returns marks), so saving over a file asks and folders are entered.
+    pub(crate) fn key(self, app: &App) -> Option<KeyEvent> {
         match self {
             Self::Dismiss => Some(KeyEvent::new(K::Esc, M::NONE)),
             Self::Confirm => Some(KeyEvent::new(K::Enter, M::NONE)),
+            Self::Select if app.dialog.is_some() && !select_returns_marks(app) => {
+                Some(KeyEvent::new(K::Enter, M::NONE))
+            }
             _ => None,
         }
     }
@@ -1431,16 +1458,12 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
         // Delivered as their keys by the session.
         Button::Dismiss | Button::Confirm => {}
         Button::Select => {
-            if !app.marks.is_empty() && app.returns_marks() {
+            if select_returns_marks(app) {
                 return leave_with_marks(app);
             }
-            // In a dialog, the answer is taken from the row's path.
-            if app.dialog.is_some() {
-                let target = app.highlight.clone()?;
-                return app.ready_path(&target).then(|| Finish::Paths(vec![target]));
-            }
-            // Otherwise like Normal-mode Enter, which leaves unless fff has
-            // a window of its own.
+            // Otherwise like Normal-mode Enter (in a dialog, `key` made it
+            // Enter on the row), which leaves unless fff has a window of its
+            // own.
             let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
             return finish_with(app, discovery, target.as_ref());
         }

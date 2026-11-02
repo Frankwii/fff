@@ -45,7 +45,11 @@ impl Watch {
         self.descriptors.keys().map(PathBuf::as_path)
     }
     /// Watch `dirs`, the first `MOST` of them, instead of what was watched.
-    pub fn follow(&mut self, dirs: &[&Path]) {
+    /// The first `roots` are where browsing starts (the current directory
+    /// and pinned roots), watched even through a symlink; the folders below
+    /// them only when they are real folders, since discovery never enters a
+    /// symlinked one (whose target could be anywhere, a hung mount too).
+    pub fn follow(&mut self, dirs: &[&Path], roots: usize) {
         let dirs = &dirs[..dirs.len().min(MOST)];
         let wanted: std::collections::HashSet<&Path> = dirs.iter().copied().collect();
         self.descriptors.retain(|dir, wd| {
@@ -67,10 +71,15 @@ impl Watch {
             | WatchFlags::CLOSE_WRITE
             | WatchFlags::ONLYDIR
             | WatchFlags::EXCL_UNLINK;
-        for &dir in dirs {
+        for (i, &dir) in dirs.iter().enumerate() {
             if self.descriptors.contains_key(dir) {
                 continue;
             }
+            let flags = if i < roots {
+                flags
+            } else {
+                flags | WatchFlags::DONT_FOLLOW
+            };
             // An unwatchable directory (permissions) is simply not live; at
             // the system's watch limit, neither are the rest.
             match inotify::add_watch(&self.fd, dir, flags) {
@@ -156,7 +165,7 @@ mod tests {
             eprintln!("inotify unavailable; skipping");
             return;
         };
-        watch.follow(&[&dir]);
+        watch.follow(&[&dir], 1);
         assert_eq!(watch.poll(), Changes::default());
         fs::write(dir.join("old"), "more").unwrap();
         let changes = watch.poll();
@@ -167,7 +176,7 @@ mod tests {
         fs::rename(dir.join("new"), dir.join("renamed")).unwrap();
         assert!(watch.poll().listing);
         // Following another directory stops reporting the first one.
-        watch.follow(&[&dir.join("sub")]);
+        watch.follow(&[&dir.join("sub")], 1);
         let _ = watch.poll();
         fs::write(dir.join("elsewhere"), "").unwrap();
         assert_eq!(watch.poll(), Changes::default());
@@ -178,7 +187,7 @@ mod tests {
         assert_eq!(changes.touched, [dir.join("sub"), dir.join("sub/inside")]);
         // Several directories at once: a folder and one inside it.
         fs::create_dir(dir.join("sub/deeper")).unwrap();
-        watch.follow(&[&dir, &dir.join("sub/deeper")]);
+        watch.follow(&[&dir, &dir.join("sub/deeper")], 1);
         let _ = watch.poll();
         fs::write(dir.join("sub/deeper/x"), "").unwrap();
         assert!(watch.poll().listing);
@@ -188,6 +197,19 @@ mod tests {
         fs::remove_dir_all(dir.join("sub")).unwrap();
         assert!(watch.poll().listing);
         assert_eq!(watch.watched().collect::<Vec<_>>(), [dir.as_path()]);
+        // A symlinked folder is watched as a root, never below one.
+        let target = dir.with_extension("target");
+        let _ = fs::remove_dir_all(&target);
+        fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, dir.join("link")).unwrap();
+        watch.follow(&[&dir, &dir.join("link")], 1);
+        assert_eq!(watch.watched().collect::<Vec<_>>(), [dir.as_path()]);
+        watch.follow(&[&dir.join("link")], 1);
+        assert_eq!(
+            watch.watched().collect::<Vec<_>>(),
+            [dir.join("link").as_path()]
+        );
+        fs::remove_dir_all(&target).unwrap();
         fs::remove_dir_all(&dir).unwrap();
     }
 }
