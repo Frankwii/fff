@@ -711,7 +711,7 @@ fn operation_sheets_align_with_the_pane_edges_and_list_keys_in_the_border() {
         let mut focus = Focus::ScopeChoice {
             current,
             selected: app.marks.to_vec(),
-            action: crate::ui::ScopedAction::Delete,
+            action: crate::ui::ScopedAction::Delete(false),
         };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
@@ -740,7 +740,10 @@ fn operation_sheets_align_with_the_pane_edges_and_list_keys_in_the_border() {
             " c: Current ─ s: Selection ─ a: All "
         };
         assert!(lines[bottom].contains(hints), "{screen}");
-        assert!(screen.contains("to delete both (3 entries)"), "{screen}");
+        assert!(
+            screen.contains("permanently") && screen.contains("delete both (3 entries)"),
+            "{screen}"
+        );
     }
 }
 #[test]
@@ -766,6 +769,132 @@ fn deletion_confirmation_groups_the_smallest_rows_with_summed_sizes() {
         screen.contains(" Enter: Delete ─── Esc: Cancel "),
         "{screen}"
     );
+}
+
+fn sheet_text(width: u16, height: u16, draw: impl FnOnce(&mut Frame)) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(draw).unwrap();
+    text(terminal.backend().buffer())
+}
+#[test]
+fn the_trash_sheet_explains_why_it_asks_and_offers_the_answers_that_apply() {
+    use crate::operations::{DeletePlan, Fate};
+    let mut app = fixture();
+    app.trash = Some(crate::trash::Trash::new(Path::new("/data"), 30, 10 << 30));
+    let big = app.cwd.join("disk.img");
+    let small = app.cwd.join("todo.txt");
+    let plan = DeletePlan::shown(
+        vec![(big.clone(), 12 << 30), (small.clone(), 3)],
+        vec![Fate::Large, Fate::Trash],
+    );
+    let screen = sheet_text(160, 12, |f| trash_confirmation(f, f.area(), &app, &plan));
+    for expected in [
+        "╭ Too large for the trash",
+        "This entry is larger than 10.0 GiB",
+        "for 30 days",
+        "With d or t, the other entry goes to the trash.",
+        "12.0 GiB",
+        "disk.img",
+        " d: Delete permanently ─── t: Trash ─── Esc: Cancel ",
+        "1 entry · 12.0 GiB",
+    ] {
+        assert!(screen.contains(expected), "{expected}\n{screen}");
+    }
+    // Only the entries asked about are listed.
+    assert!(!screen.contains("todo.txt"), "{screen}");
+    // Entries that cannot go to the trash leave only permanent deletion.
+    let plan = DeletePlan::shown(
+        vec![
+            (big.clone(), 12 << 30),
+            (app.cwd.join("bin"), 5),
+            (small.clone(), 3),
+            (app.cwd.join("more"), 1),
+        ],
+        vec![
+            Fate::Large,
+            Fate::Unavailable("already in the trash".into()),
+            Fate::Trash,
+            Fate::Trash,
+        ],
+    );
+    let screen = sheet_text(160, 14, |f| trash_confirmation(f, f.area(), &app, &plan));
+    for expected in [
+        "╭ Delete permanently",
+        "Some of these entries cannot go to the trash (already in the trash), and the others are \
+         larger than 10.0 GiB.",
+        "With d, the other 2 entries go to the trash.",
+        " d: Delete permanently ─── Esc: Cancel ",
+        "2 entries · 12.0 GiB",
+    ] {
+        assert!(screen.contains(expected), "{expected}\n{screen}");
+    }
+    assert!(!screen.contains("t: Trash"), "{screen}");
+    let plan = DeletePlan::shown(
+        vec![(small, 3)],
+        vec![Fate::Unavailable(
+            "its filesystem has no trash folder".into(),
+        )],
+    );
+    let screen = sheet_text(160, 10, |f| trash_confirmation(f, f.area(), &app, &plan));
+    assert!(
+        screen.contains("This entry cannot go to the trash (its filesystem has no trash folder)"),
+        "{screen}"
+    );
+    assert!(!screen.contains("other"), "{screen}");
+}
+#[test]
+fn the_progress_sheet_shows_a_bar_figures_and_the_stop_key_while_it_applies() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let app = fixture();
+    let draw = |job: &crate::ui::Job| sheet_text(80, 6, |f| progress(f, f.area(), &app, job));
+    let job = crate::ui::Job::shown("Copying 3 entries", false);
+    job.progress.checking.store(true, Relaxed);
+    job.progress.stoppable.store(true, Relaxed);
+    let screen = draw(&job);
+    assert!(screen.contains("╭ Copying 3 entries"), "{screen}");
+    assert!(screen.contains("checking the entries · 0 s"), "{screen}");
+    assert!(screen.contains(" Ctrl+c: Stop "), "{screen}");
+    // Bytes, with a known total: the bar fills, with a percentage and speed.
+    job.progress.checking.store(false, Relaxed);
+    job.progress.total.store(4 << 20, Relaxed);
+    job.progress.done.store(1 << 20, Relaxed);
+    let screen = draw(&job);
+    let bar = screen.lines().find(|l| l.contains('━')).unwrap();
+    assert!(bar.contains("25%"), "{screen}");
+    let filled = bar.matches('━').count();
+    let empty = bar.matches('─').count();
+    assert!(
+        filled * 4 <= filled + empty && (filled + 1) * 4 >= filled + empty,
+        "{bar}"
+    );
+    assert!(screen.contains("1.0 MiB of 4.0 MiB · "), "{screen}");
+    assert!(screen.contains("/s · 0 s"), "{screen}");
+    // Unknown totals sweep instead of filling, and count what is done.
+    job.progress.total.store(0, Relaxed);
+    let screen = draw(&job);
+    assert!(!screen.contains('%'), "{screen}");
+    assert!(screen.contains("│ 1.0 MiB · "), "{screen}");
+    // Past the point where stopping changes nothing, Ctrl+c is not offered.
+    job.progress.stoppable.store(false, Relaxed);
+    assert!(!draw(&job).contains("Ctrl+c"));
+    // Once asked to stop, it says so.
+    job.progress.stoppable.store(true, Relaxed);
+    job.progress.cancel.store(true, Relaxed);
+    let screen = draw(&job);
+    assert!(screen.contains("stopping…"), "{screen}");
+    assert!(!screen.contains("Ctrl+c"), "{screen}");
+    // Nothing to count: only the time.
+    let job = crate::ui::Job::shown("Undoing", false);
+    let screen = draw(&job);
+    assert!(screen.contains("│ 0 s "), "{screen}");
+    assert!(!screen.contains(" B"), "{screen}");
+    // Deletions count entries.
+    let job = crate::ui::Job::shown("Deleting tree", true);
+    job.progress.total.store(10, Relaxed);
+    job.progress.done.store(3, Relaxed);
+    let screen = draw(&job);
+    assert!(screen.contains("3 of 10 entries · 0 s"), "{screen}");
+    assert!(screen.contains("30%"), "{screen}");
 }
 
 #[test]
@@ -1153,7 +1282,7 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
         offset: 0,
         keys: true,
     };
-    let mut terminal = Terminal::new(TestBackend::new(120, 38)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
@@ -1177,6 +1306,12 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
         "{screen}"
     );
     assert!(screen.contains("Alt+e") && screen.contains("one glob per line"));
+    assert!(
+        screen.contains("x / r / e / n    trash, rename, extract, new (Normal)")
+            && screen.contains("undo the last file operation")
+            && screen.contains("delete current / marked permanently"),
+        "{screen}"
+    );
     assert!(!screen.contains("off in fff seek"));
     app.no_dir = true;
     terminal

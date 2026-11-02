@@ -6,16 +6,14 @@ not implemented features or commitments:
 - Content search with alternating filtering (below).
 - Option completion in the gx/gX prompt for programs with neither a man page
   nor `--help` (Tab already completes options from those two).
-- Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
-  cancel safely within the staged-operation guarantees. This should also move
-  file operations off the UI thread, including their preparation: building a
-  confirmation inventories the selected trees and extraction validates every
-  archive payload first, so today even opening a confirmation can freeze the
-  interface. A worker would prepare and run them with progress shown at once,
-  keeping the confirmation binding, validation and rollback guarantees, and
-  must define what stays usable meanwhile (navigation, marks, other
-  operations), how live-update rescans interact, and what Ctrl+c does at each
-  stage.
+- Using fff while a long file operation runs. Operations and their checks
+  already run on another thread with their progress shown and Ctrl+c to stop
+  them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
+  operations usable would need rules for what a second operation may touch and
+  how live-update rescans interact. Archive validation before the extraction
+  prompt still runs on the interface thread.
+- Bringing back trashed entries from earlier sessions inside fff (a trash
+  view with restore), since undo lasts for the session.
 - No filesystem calls while drawing. Result rows already use cached details,
   but the marks pane stats each visible mark on every frame, the F1 guide
   checks every mark twice per frame, and confirmation lists stat their rows.
@@ -24,7 +22,7 @@ not implemented features or commitments:
 - Mouse-only use beyond the opt-in buttons (below).
 - Preview pane follow-ups: scrolling it without moving the highlight, and
   previewing the marked list's rows from the results.
-- Trash with undo, and an AUR package once the project nears 1.0.
+- An AUR package once the project nears 1.0.
 - An optional query field (experimental, undecided): hide the query until `/`
   is pressed (moving the go-to prompt elsewhere), freeing a row and making
   more Normal-mode keys available; a flag or setting would start with the

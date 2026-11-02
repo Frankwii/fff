@@ -25,7 +25,7 @@ buffers Enter applies from Normal or Insert mode; command-line Enter still
 executes commands such as `:s`. Query Enter keeps its navigation/confirmation
 action. Rename, exclusion and filter buffers retain multiline `o`, `O` and Enter.
 
-In results Normal mode, `v`, `p`, `x`, `r`, `e`, `n` and `s` invoke file
+In results Normal mode, `v`, `p`, `x`, `X`, `u`, `r`, `e`, `n` and `s` invoke file
 operations; Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
 edit, delete and reload bookmarks in the bookmark chooser's Normal mode (Alt+n,
 Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers
@@ -46,9 +46,9 @@ cancels transient pending input or selection.
 The table lists Neovim's own keys, as they work in fields without fff
 bindings (exclusions, filters, rename lists, prompts). In the results' query,
 Normal-mode keys bound to [list actions](#normal-mode-list-keys) act on the
-results instead: `b`, `d`, `p`, `P`, `v` and `x`, for example, are not
+results instead: `b`, `d`, `p`, `P`, `u`, `v` and `x`, for example, are not
 editing commands there, while `c` operators (`cw`, `ciw`, `C`), `0`, `$`, `w`,
-`u` and Ctrl+r still edit the query.
+`:u` and Ctrl+r still edit the query.
 
 | Action | Keys in Normal mode |
 | --- | --- |
@@ -150,7 +150,9 @@ Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
 unmatched continuation sends both keys to Neovim, preserving commands such as
 `gU`, `ge`, `gu` and `g~`. Escape after a lone `g` cancels it without
 clearing the query. The default `d`, `D` and `P` replace Neovim's delete and
-put commands in the results, which have little use in a one-line query. Configure sequences in [keys.normal](CONFIGURATION.md#normal-mode-keys).
+put commands in the results, which have little use in a one-line query, and
+`u` undoes file operations there instead of query edits (`:u` still undoes
+those). Configure sequences in [keys.normal](CONFIGURATION.md#normal-mode-keys).
 
 ## Isolation and terminal behavior
 

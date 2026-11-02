@@ -94,11 +94,12 @@ pub fn safe_path(path: &Path) -> Result<PathBuf> {
     }
     Ok(path)
 }
-pub fn extract(input: File, stage: &File) -> Result<()> {
-    scan(input, Some(stage))
+/// `tick` hears of every chunk of bytes written; an error from it stops.
+pub fn extract(input: File, stage: &File, tick: &dyn Fn(u64) -> Result<()>) -> Result<()> {
+    scan(input, Some(stage), tick)
 }
 pub fn validate(input: File) -> Result<()> {
-    scan(input, None)
+    scan(input, None, &|_| Ok(()))
 }
 /// An archive entry's name, whether it is a directory, and its size.
 pub type Entry = (PathBuf, bool, u64);
@@ -170,7 +171,7 @@ fn open(input: &File) -> Result<Reader> {
 }
 /// Validation and extraction share entry checks and read every payload, including
 /// integrity checks, without writing anything when no staging directory is given.
-fn scan(input: File, stage: Option<&File>) -> Result<()> {
+fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> Result<()> {
     let a = open(&input)?;
     let root = stage.map(|stage| PathBuf::from(format!("/proc/self/fd/{}", stage.as_raw_fd())));
     let mut names = HashSet::new();
@@ -279,6 +280,7 @@ fn scan(input: File, stage: Option<&File>) -> Result<()> {
             if let Some(file) = &mut file {
                 file.write_all(&buffer[..n as usize])
                     .map_err(|e| e.to_string())?;
+                tick(n as u64)?;
             }
         }
         if let Some(file) = file {

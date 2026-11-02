@@ -36,12 +36,16 @@ pub enum ListAction {
     Copy,
     Link,
     Delete,
+    /// Delete permanently, after confirmation, instead of trashing.
+    DeletePermanently,
     Rename,
     Extract,
     Edit,
     New,
     /// Open the current or marked files with their openers, in this terminal.
     Open,
+    /// Undo the last file operation.
+    Undo,
     /// Same as Alt+← in the results: search one level shallower.
     Shallower,
     /// Same as Alt+→ in the results: search one level deeper.
@@ -64,7 +68,7 @@ pub enum ListAction {
     NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 34] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -82,11 +86,13 @@ impl ListAction {
         Self::Copy,
         Self::Link,
         Self::Delete,
+        Self::DeletePermanently,
         Self::Rename,
         Self::Extract,
         Self::Edit,
         Self::New,
         Self::Open,
+        Self::Undo,
         Self::Shallower,
         Self::Deeper,
         Self::Bookmarks,
@@ -106,11 +112,13 @@ impl ListAction {
             Self::Copy => 'p',
             Self::Link => 's',
             Self::Delete => 'x',
+            Self::DeletePermanently => 'X',
             Self::Rename => 'r',
             Self::Extract => 'e',
             Self::Edit => 'E',
             Self::New => 'n',
             Self::Open => 'o',
+            Self::Undo => 'u',
             _ => return None,
         })
     }
@@ -144,11 +152,13 @@ impl ListAction {
             | Self::Copy
             | Self::Link
             | Self::Delete
+            | Self::DeletePermanently
             | Self::Rename
             | Self::Extract
             | Self::Edit
             | Self::New
-            | Self::Open => return None,
+            | Self::Open
+            | Self::Undo => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -298,11 +308,13 @@ pub struct NormalKeysConfig {
     pub copy: Sequences,
     pub link: Sequences,
     pub delete: Sequences,
+    pub delete_permanently: Sequences,
     pub rename: Sequences,
     pub extract: Sequences,
     pub edit: Sequences,
     pub new: Sequences,
     pub open: Sequences,
+    pub undo: Sequences,
     pub shallower: Sequences,
     pub deeper: Sequences,
     pub bookmarks: Sequences,
@@ -337,11 +349,13 @@ impl Default for NormalKeysConfig {
             copy: one("p"),
             link: one("s"),
             delete: one("x"),
+            delete_permanently: one("X"),
             rename: one("r"),
             extract: one("e"),
             edit: one("E"),
             new: one("n"),
             open: one("o"),
+            undo: one("u"),
             shallower: one("<left>"),
             deeper: one("<right>"),
             bookmarks: one("b"),
@@ -376,11 +390,13 @@ impl NormalKeysConfig {
             ListAction::Copy => ("copy", &self.copy),
             ListAction::Link => ("link", &self.link),
             ListAction::Delete => ("delete", &self.delete),
+            ListAction::DeletePermanently => ("delete_permanently", &self.delete_permanently),
             ListAction::Rename => ("rename", &self.rename),
             ListAction::Extract => ("extract", &self.extract),
             ListAction::Edit => ("edit", &self.edit),
             ListAction::New => ("new", &self.new),
             ListAction::Open => ("open", &self.open),
+            ListAction::Undo => ("undo", &self.undo),
             ListAction::Shallower => ("shallower", &self.shallower),
             ListAction::Deeper => ("deeper", &self.deeper),
             ListAction::Bookmarks => ("bookmarks", &self.bookmarks),
@@ -529,6 +545,14 @@ mod tests {
         assert_eq!(k.feed(key('D'), all), Step::Action(ListAction::Files));
         assert_eq!(k.feed(key('P'), all), Step::Action(ListAction::Preview));
         assert_eq!(k.feed(key('p'), all), Step::Action(ListAction::Copy));
+        assert_eq!(k.feed(key('x'), all), Step::Action(ListAction::Delete));
+        assert_eq!(
+            k.feed(key('X'), all),
+            Step::Action(ListAction::DeletePermanently)
+        );
+        assert_eq!(k.feed(key('u'), all), Step::Action(ListAction::Undo));
+        assert_eq!(ListAction::Undo.operation_key(), Some('u'));
+        assert_eq!(ListAction::DeletePermanently.operation_key(), Some('X'));
         assert_eq!(ListAction::Files.alt_key(), alt(KeyCode::Char('D')));
         assert_eq!(k.feed(key('/'), all), Step::Action(ListAction::GoTo));
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
@@ -604,5 +628,10 @@ mod tests {
         let mut k = config.build().unwrap();
         assert_eq!(k.feed(key('D'), all), Step::Action(ListAction::Delete));
         assert_eq!(k.describe(ListAction::Files), "");
+        // Without the undo binding, u reaches Neovim again.
+        let config: NormalKeysConfig = toml::from_str("undo='none'").unwrap();
+        let mut k = config.build().unwrap();
+        assert_eq!(k.feed(key('u'), all), Step::Pass);
+        assert_eq!(k.describe(ListAction::Undo), "");
     }
 }

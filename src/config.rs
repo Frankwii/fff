@@ -184,6 +184,62 @@ impl Default for PerformanceConfig {
     }
 }
 
+/// `[trash]`: where `x` sends entries, and for how long.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawTrash {
+    enabled: bool,
+    days: u64,
+    ask_above: Size,
+}
+/// A size in bytes, or a number with a unit such as "10 GiB".
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+enum Size {
+    Bytes(u64),
+    Text(String),
+}
+impl Default for RawTrash {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            days: 30,
+            ask_above: Size::Text("10 GiB".into()),
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrashConfig {
+    pub enabled: bool,
+    /// Entries older than this are deleted at startup.
+    pub days: u64,
+    /// Larger entries ask before going to the trash.
+    pub ask_above: u64,
+}
+impl Default for TrashConfig {
+    fn default() -> Self {
+        RawTrash::default().validate().unwrap()
+    }
+}
+impl RawTrash {
+    fn validate(&self) -> Result<TrashConfig, String> {
+        if !(1..=36_500).contains(&self.days) {
+            return Err("trash.days must be 1..36500".into());
+        }
+        let ask_above = match &self.ask_above {
+            Size::Bytes(n) => *n,
+            Size::Text(text) => {
+                crate::trash::parse_size(text).map_err(|e| format!("trash.ask_above: {e}"))?
+            }
+        };
+        Ok(TrashConfig {
+            enabled: self.enabled,
+            days: self.days,
+            ask_above,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bookmark {
     pub name: String,
@@ -202,6 +258,7 @@ struct RawConfig {
     performance: PerformanceConfig,
     keys: KeysConfig,
     open: crate::open::OpenConfig,
+    trash: RawTrash,
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -287,6 +344,7 @@ pub struct Settings {
     pub preview: bool,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
+    pub trash: TrashConfig,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
     /// Active bookmark save destination, including a missing default config.
@@ -318,6 +376,7 @@ impl Settings {
         }
         let normal_keys = raw.keys.normal.build()?;
         raw.open.validate()?;
+        let trash = raw.trash.validate()?;
         let key_maps: Vec<String> = raw
             .keys
             .map
@@ -377,6 +436,7 @@ impl Settings {
             watch: raw.ui.watch,
             preview: raw.ui.preview,
             open: raw.open,
+            trash,
             source: None,
             bookmark_path: None,
         })

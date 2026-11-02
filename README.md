@@ -296,7 +296,9 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
 | Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
 | v / p / s in Normal | Move / copy / symlink all marked paths into the current directory, after confirmation |
-| x in Normal | Choose current/selected deletion, review sizes, then Enter confirms |
+| x in Normal | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
+| X in Normal | Choose current/selected deletion, review sizes, then Enter deletes permanently |
+| u in Normal | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before) |
 | r in Normal | Batch rename the filtered results in a buffer |
 | e in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |
@@ -338,9 +340,10 @@ Mappings translate once to default chords; later mappings for a source win.
 Printable source characters are reserved for editing. Normal-mode sequences are
 configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURATION.md).
 
-File operations are confirmed before they change anything, refuse to overwrite
-unless a move or copy confirmation says so, and roll back on failure; there is
-no undo. Name and destination buffers use Enter to apply and Escape to
+File operations are confirmed before they change anything (except `x`, which
+only moves to the trash), refuse to overwrite unless a move or copy
+confirmation says so, roll back on failure, and can be undone with `u`; long
+ones show their progress and stop safely with Ctrl+c. Name and destination buffers use Enter to apply and Escape to
 cancel; the multiline rename buffer uses `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
 archive limits and current boundaries. Building
 requires libarchive development files; the operation engine requires Linux 5.8+.

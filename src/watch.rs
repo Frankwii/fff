@@ -92,8 +92,10 @@ impl Watch {
         if self.watched.is_empty() {
             return changes;
         }
+        // A burst (an operation on a large tree) brings thousands of events.
+        let mut seen = std::collections::HashSet::new();
         let mut touch = |path: PathBuf| {
-            if !changes.touched.contains(&path) {
+            if seen.insert(path.clone()) {
                 changes.touched.push(path);
             }
         };

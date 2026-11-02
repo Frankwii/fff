@@ -27,9 +27,9 @@ mod input;
 mod screen;
 #[cfg(test)]
 mod tests;
-pub(crate) use actions::Button;
 pub use actions::ScopedAction;
 use actions::*;
+pub(crate) use actions::{Button, Job};
 use input::*;
 pub use input::{StatusTimer, alt_numbered_key, numbered_key, start_editor};
 use screen::*;
@@ -52,6 +52,10 @@ pub(crate) enum Focus {
     Filters(String),
     Operation(crate::operations::Draft),
     DeleteConfirm(crate::operations::DeletePlan),
+    /// x on entries too large for the trash, or that cannot go there.
+    TrashConfirm(crate::operations::DeletePlan),
+    /// A file operation taking a while: its progress, and Ctrl+c to stop it.
+    Busy(Job),
     /// Which paths an action applies to, asked only when ambiguous: the current
     /// entry is unmarked while other entries are marked.
     ScopeChoice {
@@ -100,6 +104,8 @@ pub enum Finish {
     /// gX: the terminal is restored; the caller replaces fff with the program.
     Exec(crate::run::Plan),
 }
+/// How often the progress of a running operation is redrawn.
+const PROGRESS_FRAME: Duration = Duration::from_millis(100);
 /// How long a change to the current directory's listing waits for more
 /// changes before the quiet rescan.
 const RELIST_DELAY: Duration = Duration::from_millis(150);
@@ -196,6 +202,10 @@ fn session(
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
     let invocation = std::env::current_dir()?.canonicalize()?;
+    // Entries that waited in the trash long enough go, without delaying startup.
+    if let Some(trash) = &app.trash {
+        trash.purge_in_background();
+    }
     let mut terminal = Terminal::enter(app.mouse)?;
     let (wake, waking) = std::sync::mpsc::sync_channel(1);
     crate::notify::set_waker(wake.clone());
@@ -247,6 +257,17 @@ fn session(
     // Input was handled and its frame is not drawn yet: discovery waits.
     let mut answering = false;
     loop {
+        if let Focus::Busy(job) = &focus
+            && let Some(result) = job.poll(Duration::ZERO)
+        {
+            let Focus::Busy(job) = std::mem::take(&mut focus) else {
+                unreachable!()
+            };
+            finish(app, &mut discovery, &mut focus, job, result);
+            dirty = true;
+        }
+        // Progress moves on its own while an operation runs.
+        dirty |= matches!(focus, Focus::Busy(_)) && drawn_at.elapsed() >= PROGRESS_FRAME;
         dirty |= status.tick(app);
         // Pop-up notifications from background work, shown for a while.
         let now = std::time::Instant::now();
@@ -340,7 +361,9 @@ fn session(
                 focus = Focus::Results;
                 if let Some(request) = request {
                     match request {
-                        Ok(request) => perform_operation(app, &mut discovery, request),
+                        Ok(request) => {
+                            perform_operation(app, &mut discovery, &mut focus, request, None)
+                        }
                         Err(error) => app.status = error,
                     }
                 }
@@ -477,6 +500,11 @@ fn session(
             at.saturating_duration_since(std::time::Instant::now())
                 .min(wait)
         });
+        let wait = if matches!(focus, Focus::Busy(_)) {
+            wait.min(PROGRESS_FRAME)
+        } else {
+            wait
+        };
         let event = match queued.take().map_or_else(|| input.try_take(), Ok) {
             Ok(event) => event?,
             Err(std::sync::mpsc::TryRecvError::Empty) => {
@@ -489,6 +517,21 @@ fn session(
         };
         dirty = true;
         answering = true;
+        // While an operation runs, only Ctrl+c (stop it) is heard.
+        if let Focus::Busy(job) = &focus {
+            if let Event::Key(key) = event
+                && key.kind != KeyEventKind::Release
+                && let Some(key) = keys.translate(key)
+                && key.modifiers.contains(M::CONTROL)
+                && key.code == K::Char('c')
+                && job.stop()
+            {
+                // Only checking: nothing changed, so it is dropped at once.
+                app.status = format!("Stopped {}; nothing changed", lowercase_first(&job.title));
+                focus = Focus::Results;
+            }
+            continue;
+        }
         // Typing a query may run ahead of rows being ranked on another
         // thread; anything else may act on rows, so it waits for them.
         if app.ranking_pending() && !types_query(app, &focus, &event) {
@@ -507,14 +550,8 @@ fn session(
                 && app.edit_view.as_ref().is_some_and(|v| v.normal())
                 && let Some(paths) = dropped_paths(&text, app.home.as_deref())
             {
-                use crate::operations::{Transfer, TransferPlan};
-                match TransferPlan::new(Transfer::Copy, paths, app.cwd.clone()) {
-                    Ok(mut plan) => {
-                        plan.dropped = true;
-                        focus = Focus::TransferConfirm(plan);
-                    }
-                    Err(error) => app.status = error,
-                }
+                let copy = crate::operations::Transfer::Copy;
+                transfer(app, &mut discovery, &mut focus, copy, paths, true);
                 continue;
             }
             let field = text_field(app, &focus).map(|(field, _)| field);
@@ -813,23 +850,23 @@ fn session(
                             K::Char('p') => Transfer::Copy,
                             _ => Transfer::Link,
                         };
-                        match crate::operations::TransferPlan::new(kind, sources, app.cwd.clone()) {
-                            Ok(plan) => focus = Focus::TransferConfirm(plan),
-                            Err(error) => app.status = error,
-                        }
+                        transfer(app, &mut discovery, &mut focus, kind, sources, false);
                     }
                 }
-                K::Char('x') => match scope(&app.marks, current) {
-                    Scope::Ready(paths) => focus = delete_confirmation(paths, &mut app.status),
+                K::Char(letter @ ('x' | 'X')) => match scope(&app.marks, current) {
+                    Scope::Ready(paths) => {
+                        delete(app, &mut discovery, &mut focus, paths, letter == 'X')
+                    }
                     Scope::Ask(current, selected) => {
                         focus = Focus::ScopeChoice {
                             current,
                             selected,
-                            action: ScopedAction::Delete,
+                            action: ScopedAction::Delete(letter == 'X'),
                         }
                     }
                     Scope::Nothing => app.status = "No current file".into(),
                 },
+                K::Char('u') => undo(app, &mut discovery, &mut focus),
                 K::Char('n') => focus = Focus::NewChoice,
                 // $EDITOR on the current or marked paths: no review, it only edits.
                 K::Char('E') => match scope(&app.marks, current) {
@@ -1251,7 +1288,11 @@ fn session(
                 };
                 focus = match action {
                     ScopedAction::Extract => start_extract(app, &mut editor, paths),
-                    ScopedAction::Delete => delete_confirmation(paths, &mut app.status),
+                    ScopedAction::Delete(permanently) => {
+                        let permanently = *permanently;
+                        delete(app, &mut discovery, &mut focus, paths, permanently);
+                        continue;
+                    }
                     ScopedAction::Run(exit) => start_run(&mut editor, paths, *exit),
                     ScopedAction::Edit => {
                         focus = Focus::Results;
@@ -1271,11 +1312,8 @@ fn session(
                     let marks = plan.dropped.then(|| app.marks.clone());
                     focus = Focus::Results;
                     match request {
-                        Ok(r) => perform_operation(app, &mut discovery, r),
+                        Ok(r) => perform_operation(app, &mut discovery, &mut focus, r, marks),
                         Err(e) => app.status = e,
-                    }
-                    if let Some(marks) = marks {
-                        app.marks = marks;
                     }
                 }
                 K::Esc => {
@@ -1294,11 +1332,40 @@ fn session(
                     let request = plan.request();
                     focus = Focus::Results;
                     match request {
-                        Ok(r) => perform_operation(app, &mut discovery, r),
+                        Ok(r) => perform_operation(app, &mut discovery, &mut focus, r, None),
                         Err(e) => app.status = e,
                     }
                 }
                 K::Esc => focus = Focus::Results,
+                _ => {}
+            },
+            // Keys never reach here while an operation runs.
+            Focus::Busy(_) => {}
+            Focus::TrashConfirm(plan) => match key.code {
+                // d deletes the listed entries permanently, t trashes the
+                // large ones anyway; the others go to the trash either way.
+                K::Char('d') => {
+                    let request = plan.trash_request(false);
+                    perform_operation(app, &mut discovery, &mut focus, request, None);
+                }
+                K::Char('t') => {
+                    if plan
+                        .fates
+                        .iter()
+                        .any(|f| matches!(f, crate::operations::Fate::Unavailable(_)))
+                    {
+                        app.status = "Some of these entries cannot go to the trash; \
+                                      d deletes them permanently"
+                            .into();
+                    } else {
+                        let request = plan.trash_request(true);
+                        perform_operation(app, &mut discovery, &mut focus, request, None);
+                    }
+                }
+                K::Esc => {
+                    app.status = "Deletion cancelled; nothing changed".into();
+                    focus = Focus::Results;
+                }
                 _ => {}
             },
             Focus::Operation(draft) => {
@@ -1310,17 +1377,14 @@ fn session(
                 } else if key.code == K::Enter && !draft.multiline() {
                     // Validation errors keep the buffer open for correction.
                     match draft.request() {
-                        Ok(r) => {
-                            focus = Focus::Results;
-                            perform_operation(app, &mut discovery, r);
-                        }
+                        Ok(r) => perform_operation(app, &mut discovery, &mut focus, r, None),
                         Err(e) => app.status = e,
                     }
                 } else if ctrl && key.code == K::Char('s') {
                     let request = draft.request();
                     focus = Focus::Results;
                     match request {
-                        Ok(r) => perform_operation(app, &mut discovery, r),
+                        Ok(r) => perform_operation(app, &mut discovery, &mut focus, r, None),
                         Err(e) => app.status = e,
                     }
                 } else {

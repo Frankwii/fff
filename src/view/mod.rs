@@ -289,6 +289,8 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::Command(prompt) => run_prompt(frame, main, app, prompt),
         Focus::RunConfirm(plan) => run_confirmation(frame, main, app, plan),
         Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
+        Focus::TrashConfirm(plan) => trash_confirmation(frame, main, app, plan),
+        Focus::Busy(job) => progress(frame, main, app, job),
         Focus::Exclusions(text) => prompt(
             frame,
             app,

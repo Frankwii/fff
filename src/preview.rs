@@ -303,8 +303,8 @@ fn file(path: &Path, meta: &fs::Metadata, cancel: &AtomicBool, preview: &mut Pre
             preview.kind = "SQLite 3 database".into();
             let size = u16::from_be_bytes([head[16], head[17]]);
             let page = if size == 1 { 65536 } else { size as u64 };
-            if page > 0 {
-                preview.fact("Pages", (meta.len() / page).to_string());
+            if let Some(pages) = meta.len().checked_div(page) {
+                preview.fact("Pages", pages.to_string());
             }
         }
         Some(Sniff::Other(name)) => preview.kind = name.into(),

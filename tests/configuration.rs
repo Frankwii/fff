@@ -427,3 +427,39 @@ fn cache_freshness_and_prefetch_configuration() {
         assert!(parse(text).is_err(), "{text}");
     }
 }
+#[test]
+fn trash_defaults_to_a_month_and_asks_above_ten_gib() {
+    use fuzzy_file_finder::config::TrashConfig;
+    let trash = parse("").unwrap().trash;
+    assert_eq!(
+        trash,
+        TrashConfig {
+            enabled: true,
+            days: 30,
+            ask_above: 10 << 30,
+        }
+    );
+    let trash = parse("[trash]\nenabled=false\ndays=7\nask_above='500 MiB'")
+        .unwrap()
+        .trash;
+    assert_eq!(
+        (trash.enabled, trash.days, trash.ask_above),
+        (false, 7, 500 << 20)
+    );
+    // Plain numbers are bytes.
+    assert_eq!(
+        parse("[trash]\nask_above=4096").unwrap().trash.ask_above,
+        4096
+    );
+    for (text, message) in [
+        ("[trash]\ndays=0", "trash.days must be 1..36500"),
+        ("[trash]\ndays=36501", "trash.days must be 1..36500"),
+        ("[trash]\nask_above='lots'", "trash.ask_above"),
+        ("[trash]\nask_above='10 parsecs'", "unknown size unit"),
+        ("[trash]\nenabled='yes'", "invalid type"),
+        ("[trash]\nkeep=3", "unknown field"),
+    ] {
+        let error = parse(text).err().unwrap();
+        assert!(error.contains(message), "{text}: {error}");
+    }
+}

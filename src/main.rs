@@ -626,6 +626,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.buttons = settings.buttons;
     app.watch = settings.watch;
     app.preview.shown = settings.preview;
+    app.trash = settings
+        .trash
+        .enabled
+        .then(|| {
+            fuzzy_file_finder::trash::Trash::from_env(settings.trash.days, settings.trash.ask_above)
+        })
+        .flatten();
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);

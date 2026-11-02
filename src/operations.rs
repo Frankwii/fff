@@ -5,17 +5,23 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs::{self, File},
-    io,
+    io::{self, Read},
     os::{
         fd::AsRawFd,
         unix::fs::{MetadataExt, PermissionsExt},
     },
     path::{Component, Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
 };
+#[path = "undo.rs"]
+pub mod undo;
+use crate::trash::{Bin, Trash};
 
 pub type Result<T> = std::result::Result<T, String>;
-fn err(e: impl std::fmt::Display) -> String {
+pub(crate) fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -33,7 +39,7 @@ fn unique() -> String {
 fn fdpath(f: &File) -> PathBuf {
     PathBuf::from(format!("/proc/self/fd/{}", f.as_raw_fd()))
 }
-fn open_dir(path: &Path) -> Result<File> {
+pub(crate) fn open_dir(path: &Path) -> Result<File> {
     let path = path.canonicalize().map_err(err)?;
     sys::openat2(
         sys::CWD,
@@ -45,7 +51,7 @@ fn open_dir(path: &Path) -> Result<File> {
     .map(File::from)
     .map_err(err)
 }
-fn child_dir(parent: &File, name: &OsStr) -> Result<File> {
+pub(crate) fn child_dir(parent: &File, name: &OsStr) -> Result<File> {
     sys::openat(
         parent,
         name,
@@ -78,7 +84,7 @@ fn rename(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<()> {
 /// `rename` into another directory. Linux moves a directory to a new parent
 /// only if the directory itself is writable (its `..` changes), so one without
 /// owner write permission gains it for the rename alone, as `cp` and `rm` allow.
-fn reparent(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<()> {
+pub(crate) fn reparent(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<()> {
     let locked = child_dir(a, name).ok().and_then(|dir| {
         let mode = dir.metadata().ok()?.mode() & 0o7777;
         (mode & 0o200 == 0
@@ -92,6 +98,10 @@ fn reparent(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<()> {
         let _ = dir.set_permissions(fs::Permissions::from_mode(mode));
     }
     result
+}
+/// Where an opened directory is now, without symlinks.
+pub(crate) fn canonical_dir(dir: &File) -> Result<PathBuf> {
+    fs::read_link(fdpath(dir)).map_err(err)
 }
 struct Entry {
     parent: File,
@@ -285,10 +295,21 @@ fn keep_times(dir: &File, name: &OsStr, m: &fs::Metadata) -> Result<()> {
     };
     sys::utimensat(dir, name, &times, AtFlags::SYMLINK_NOFOLLOW).map_err(err)
 }
-fn copy_tree(src: &File, name: &OsStr, dst: &File, to: &OsStr) -> Result<()> {
-    copy_entry(src, name, dst, to, false)
+/// `tick` hears of every chunk copied; an error from it (Ctrl+c) stops.
+fn copy_tree(src: &File, name: &OsStr, dst: &File, to: &OsStr, tick: &Tick) -> Result<()> {
+    copy_entry(src, name, dst, to, false, tick)
 }
-fn copy_entry(src: &File, name: &OsStr, dst: &File, to: &OsStr, nested: bool) -> Result<()> {
+type Tick<'a> = dyn Fn(u64) -> Result<()> + 'a;
+/// Files are copied in pieces this large, between progress reports.
+const CHUNK: u64 = 8 << 20;
+fn copy_entry(
+    src: &File,
+    name: &OsStr,
+    dst: &File,
+    to: &OsStr,
+    nested: bool,
+    tick: &Tick,
+) -> Result<()> {
     let m = fs::symlink_metadata(fdpath(src).join(name)).map_err(err)?;
     if nested && mount_root(src, name)? {
         return Err("Tree contains a mount point".into());
@@ -306,7 +327,7 @@ fn copy_entry(src: &File, name: &OsStr, dst: &File, to: &OsStr, nested: bool) ->
         let output = child_dir(dst, to)?;
         for item in fs::read_dir(fdpath(&input)).map_err(err)? {
             let name = item.map_err(err)?.file_name();
-            copy_entry(&input, &name, &output, &name, true)?;
+            copy_entry(&input, &name, &output, &name, true, tick)?;
         }
         output
             .set_permissions(fs::Permissions::from_mode(m.mode() & 0o777))
@@ -314,7 +335,7 @@ fn copy_entry(src: &File, name: &OsStr, dst: &File, to: &OsStr, nested: bool) ->
         keep_times(dst, to, &m)?;
         output.sync_all().map_err(err)?;
     } else if m.is_file() {
-        let mut input = File::from(
+        let input = File::from(
             sys::openat(
                 src,
                 name,
@@ -327,7 +348,14 @@ fn copy_entry(src: &File, name: &OsStr, dst: &File, to: &OsStr, nested: bool) ->
             return Err("Source changed while copying".into());
         }
         let mut output = new_file(dst, to)?;
-        io::copy(&mut input, &mut output).map_err(err)?;
+        // Pieces keep the kernel's fast copy and still report progress.
+        loop {
+            let n = io::copy(&mut (&input).take(CHUNK), &mut output).map_err(err)?;
+            if n == 0 {
+                break;
+            }
+            tick(n)?;
+        }
         output
             .set_permissions(fs::Permissions::from_mode(m.mode() & 0o777))
             .map_err(err)?;
@@ -375,9 +403,12 @@ pub enum Request {
         sources: Vec<PathBuf>,
         targets: Vec<PathBuf>,
     },
+    /// Each source with `trash[i]` set goes to the trash; the others (all of
+    /// them when `trash` is empty) are deleted permanently.
     Delete {
         sources: Vec<PathBuf>,
         confirmed: Vec<Snapshot>,
+        trash: Vec<bool>,
     },
     Create {
         path: PathBuf,
@@ -389,6 +420,12 @@ pub enum Request {
         destination: Option<PathBuf>,
     },
 }
+impl Request {
+    /// A deletion moving every source to the trash.
+    pub fn trashes_all(&self) -> bool {
+        matches!(self, Request::Delete { trash, .. } if !trash.is_empty() && trash.iter().all(|&t| t))
+    }
+}
 #[derive(Debug)]
 pub struct Outcome {
     pub changed: bool,
@@ -397,23 +434,128 @@ pub struct Outcome {
     pub warning: Option<String>,
     pub moved: Vec<(PathBuf, PathBuf)>,
     pub removed: Vec<PathBuf>,
+    /// How to undo what happened, in the order it happened.
+    pub undo: Vec<undo::Step>,
+    /// Entries moved to the trash, and entries deleted for good (including
+    /// overwritten ones).
+    pub trashed: usize,
+    pub lost: usize,
 }
+impl Outcome {
+    fn new(changed: bool) -> Self {
+        Self {
+            changed,
+            warning: None,
+            moved: vec![],
+            removed: vec![],
+            undo: vec![],
+            trashed: 0,
+            lost: 0,
+        }
+    }
+}
+/// An operation's progress, shared with the interface while it runs on
+/// another thread.
+#[derive(Debug, Default)]
+pub struct Progress {
+    /// Bytes copied or extracted, or entries deleted.
+    pub done: AtomicU64,
+    /// What `done` counts up to; 0 when unknown.
+    pub total: AtomicU64,
+    /// Ctrl+c asked the operation to stop.
+    pub cancel: AtomicBool,
+    /// Stopping now changes nothing: the trees are still being checked, or
+    /// copies and extractions staged. A deletion stops between entries and
+    /// puts the rest back.
+    pub stoppable: AtomicBool,
+    /// The chosen trees are being checked; nothing has changed yet.
+    pub checking: AtomicBool,
+}
+/// The error of an operation stopped with Ctrl+c.
+pub const CANCELLED: &str = "Stopped";
 #[derive(Default)]
 pub struct Engine {
     #[cfg(test)]
-    hook: Option<Box<dyn Fn(usize)>>,
+    hook: Option<Box<dyn Fn(usize) + Send>>,
+    /// Where `Request::Delete` puts entries marked for the trash, and
+    /// overwritten entries; without it they are deleted permanently.
+    pub trash: Option<Trash>,
+    pub progress: Option<Arc<Progress>>,
 }
 impl Engine {
+    pub fn new(trash: Option<Trash>, progress: Option<Arc<Progress>>) -> Self {
+        Self {
+            #[cfg(test)]
+            hook: None,
+            trash,
+            progress,
+        }
+    }
     fn checkpoint(&self, _index: usize) {
         #[cfg(test)]
         if let Some(hook) = &self.hook {
             hook(_index);
         }
     }
+    /// Counts `n` more units done; an error once Ctrl+c asked to stop, while
+    /// stopping is allowed.
+    fn tick(&self, n: u64) -> Result<()> {
+        let Some(p) = &self.progress else {
+            return Ok(());
+        };
+        p.done.fetch_add(n, Ordering::Relaxed);
+        if p.stoppable.load(Ordering::Relaxed) && p.cancel.load(Ordering::Relaxed) {
+            return Err(CANCELLED.into());
+        }
+        Ok(())
+    }
+    /// Starts a phase counting up to `total` (0: unknown).
+    fn phase(&self, total: u64, stoppable: bool) {
+        if let Some(p) = &self.progress {
+            p.done.store(0, Ordering::Relaxed);
+            p.total.store(total, Ordering::Relaxed);
+            p.stoppable.store(stoppable, Ordering::Relaxed);
+            p.checking.store(false, Ordering::Relaxed);
+        }
+    }
+    /// Checking ends and acting begins, unless Ctrl+c asked to stop first.
+    fn act(&self) -> Result<()> {
+        if let Some(p) = &self.progress {
+            if p.cancel.load(Ordering::Relaxed) {
+                return Err(CANCELLED.into());
+            }
+            p.checking.store(false, Ordering::Relaxed);
+            p.stoppable.store(false, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+    /// From here on, stopping would leave the operation half done.
+    fn settle(&self) {
+        if let Some(p) = &self.progress {
+            p.stoppable.store(false, Ordering::Relaxed);
+        }
+    }
+    /// The bin for `entry`, refusing entries in a bin or containing one.
+    fn bin(&self, entry: &Entry) -> Result<Bin> {
+        let trash = self.trash.as_ref().ok_or("The trash is off")?;
+        let bin = trash.bin_for(&entry.parent, entry.path.parent().unwrap_or(&entry.path))?;
+        if entry.path.starts_with(&bin.path) {
+            return Err("already in the trash".into());
+        }
+        if bin.path.starts_with(&entry.path) {
+            return Err("contains the trash folder".into());
+        }
+        Ok(bin)
+    }
     pub fn execute(&self, request: Request) -> Result<Outcome> {
         // Closing the terminal or a termination signal waits until this
         // operation has finished or rolled back.
         let _deferred = interrupt::Deferred::new();
+        // Until every tree is checked, nothing changes, so Ctrl+c may stop.
+        if let Some(p) = &self.progress {
+            p.checking.store(true, Ordering::Relaxed);
+            p.stoppable.store(true, Ordering::Relaxed);
+        }
         let (mut sources, mut targets) = match &request {
             Request::Copy {
                 sources, directory, ..
@@ -480,12 +622,7 @@ impl Engine {
             pairs.sort_by_key(|(s, _)| s.components().count());
             (sources, targets) = pairs.into_iter().unzip();
             if sources.is_empty() {
-                return Ok(Outcome {
-                    changed: false,
-                    warning: None,
-                    moved: vec![],
-                    removed: vec![],
-                });
+                return Ok(Outcome::new(false));
             }
         }
         let src = sources
@@ -612,12 +749,8 @@ impl Engine {
                 return Err("Source changed; operation cancelled".into());
             }
         }
-        let mut outcome = Outcome {
-            changed: true,
-            warning: None,
-            moved: vec![],
-            removed: vec![],
-        };
+        self.act()?;
+        let mut outcome = Outcome::new(true);
         let result = (|| -> Result<()> {
             match request {
                 Request::Move { .. } | Request::Rename { .. } => {
@@ -657,38 +790,58 @@ impl Engine {
                         }
                         done.push(i);
                     }
-                    outcome.warning = over.finish();
+                    over.finish(self, &mut outcome);
                     let names = rename_map(&sources, &targets);
-                    outcome.moved = src
-                        .iter()
-                        .zip(&dst)
-                        .enumerate()
-                        .filter(|(_, (s, d))| s.path != d.path)
-                        .map(|(i, (_, d))| {
-                            let to = if renaming {
-                                renamed(&sources[i], &names)
-                            } else {
-                                d.path.clone()
-                            };
-                            (sources[i].clone(), to)
-                        })
-                        .collect();
+                    for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
+                        if s.path == d.path {
+                            continue;
+                        }
+                        let to = if renaming {
+                            renamed(&sources[i], &names)
+                        } else {
+                            d.path.clone()
+                        };
+                        // Undone deepest first, a renamed entry goes back to
+                        // its old name in its (still renamed) parent.
+                        let back = if renaming {
+                            to.with_file_name(&s.name)
+                        } else {
+                            s.path.clone()
+                        };
+                        let root = &before[i][Path::new("")];
+                        outcome.undo.push(undo::Step::Return {
+                            now: to.clone(),
+                            back,
+                            id: (root.0, root.1),
+                        });
+                        outcome.moved.push((sources[i].clone(), to));
+                    }
                 }
                 Request::Copy { .. } | Request::Symlink { .. } => {
                     // Stage all entries before publishing any. Never follow an
                     // existing destination or replace one created concurrently.
                     let stage = Stage::new(&dst[0].parent, &dst[0].path)?;
                     let linking = matches!(request, Request::Symlink { .. });
+                    let bytes = before
+                        .iter()
+                        .flat_map(|t| t.values())
+                        .filter(|s| s.7 & 0o170000 == 0o100000)
+                        .fold(0u64, |n, s| n.saturating_add(s.2));
+                    // Until everything is staged, stopping changes nothing.
+                    self.phase(bytes, true);
                     let mut staged = vec![];
                     for (i, s) in src.iter().enumerate() {
                         let name = format!("{i}");
                         if linking {
                             sys::symlinkat(&s.path, &stage.dir, &name).map_err(err)?;
                         } else {
-                            copy_tree(&s.parent, &s.name, &stage.dir, OsStr::new(&name))?;
+                            copy_tree(&s.parent, &s.name, &stage.dir, OsStr::new(&name), &|n| {
+                                self.tick(n)
+                            })?;
                         }
                         staged.push(identity(&stage.dir, OsStr::new(&name)));
                     }
+                    self.settle();
                     for (source, was) in src.iter().zip(&before) {
                         if tree(source)? != *was {
                             return Err("Source changed while staging; nothing copied".into());
@@ -729,85 +882,148 @@ impl Engine {
                         }
                         done.push(i);
                     }
-                    outcome.warning = over.finish();
+                    over.finish(self, &mut outcome);
+                    for (d, id) in dst.iter().zip(&staged) {
+                        if let Some(id) = *id {
+                            outcome.undo.push(undo::Step::Discard {
+                                path: d.path.clone(),
+                                id,
+                            });
+                        }
+                    }
                 }
-                Request::Delete { .. } => {
+                Request::Delete { trash, .. } => {
+                    let trashing = |i: usize| trash.get(i).copied().unwrap_or(false);
+                    // Counted from the start: what deleting will remove.
+                    let entries = (0..src.len())
+                        .filter(|&i| !trashing(i))
+                        .map(|i| before[i].len() as u64)
+                        .sum();
+                    self.phase(entries, false);
+                    // Every bin is found before anything moves.
+                    let mut bins = vec![];
+                    for (i, s) in src.iter().enumerate() {
+                        bins.push(if trashing(i) {
+                            Some(
+                                self.bin(s).map_err(|e| {
+                                    format!("{:?} cannot go to the trash: {e}", s.name)
+                                })?,
+                            )
+                        } else {
+                            None
+                        });
+                    }
                     // Detach all selected roots before deleting any contents;
                     // a failure to detach rolls earlier roots back intact.
-                    let mut held = src
-                        .iter()
-                        .map(|s| Stage::new(&s.parent, &s.path))
-                        .collect::<Result<Vec<_>>>()?;
+                    let mut held: Vec<Hold> = vec![];
                     for (i, s) in src.iter().enumerate() {
                         self.checkpoint(i);
+                        let bin = bins[i].take();
                         let result = tree(s).and_then(|now| {
-                            if now == before[i] {
-                                reparent(&s.parent, &s.name, &held[i].dir, OsStr::new("entry"))
-                            } else {
-                                Err("Source changed before deletion".into())
+                            if now != before[i] {
+                                return Err("Source changed before deletion".into());
                             }
+                            Ok(match bin {
+                                Some(bin) => {
+                                    let slot = bin.put(&s.parent, &s.name, &s.path)?;
+                                    Hold::Trash {
+                                        bin,
+                                        slot,
+                                        stranded: false,
+                                    }
+                                }
+                                None => {
+                                    let mut stage = Stage::new(&s.parent, &s.path)?;
+                                    reparent(&s.parent, &s.name, &stage.dir, OsStr::new("entry"))?;
+                                    stage.keep = true;
+                                    Hold::Stage(stage)
+                                }
+                            })
                         });
-                        if let Err(e) = result {
-                            for j in (0..i).rev() {
-                                let s = &src[j];
-                                held[j].keep =
-                                    reparent(&held[j].dir, OsStr::new("entry"), &s.parent, &s.name)
-                                        .is_err();
+                        match result {
+                            Ok(hold) => held.push(hold),
+                            Err(e) => {
+                                for (j, hold) in held.iter_mut().enumerate().rev() {
+                                    hold.restore(&src[j]);
+                                }
+                                return Err(format!("{e}; {}", unrestored(&held)));
                             }
-                            return Err(format!("{e}; {}", unrestored(&held)));
                         }
-                        held[i].keep = true;
                     }
                     self.checkpoint(usize::MAX - 1);
-                    let validation: Result<()> = held.iter().enumerate().try_for_each(|(i, st)| {
-                        if detached_matches(&st.dir, OsStr::new("entry"), &before[i])? {
+                    let validation: Result<()> = held.iter().enumerate().try_for_each(|(i, h)| {
+                        let (dir, name) = h.at();
+                        if detached_matches(dir, name, &before[i])? {
                             Ok(())
                         } else {
                             Err("Source changed while preparing deletion".into())
                         }
                     });
                     if let Err(error) = validation {
-                        for (i, st) in held.iter_mut().enumerate().rev() {
-                            st.keep = reparent(
-                                &st.dir,
-                                OsStr::new("entry"),
-                                &src[i].parent,
-                                &src[i].name,
-                            )
-                            .is_err();
+                        for (i, hold) in held.iter_mut().enumerate().rev() {
+                            hold.restore(&src[i]);
                         }
                         return Err(format!("{error}; {}", unrestored(&held)));
                     }
+                    // Trashed entries are done; undoing takes them back out.
+                    for (i, hold) in held.iter().enumerate() {
+                        if let Hold::Trash { bin, slot, .. } = hold {
+                            let root = &before[i][Path::new("")];
+                            outcome.undo.push(undo::Step::Restore {
+                                bin: bin.path.clone(),
+                                slot: slot.clone(),
+                                back: src[i].path.clone(),
+                                id: (root.0, root.1),
+                            });
+                            outcome.removed.push(sources[i].clone());
+                            outcome.trashed += 1;
+                        }
+                    }
                     self.checkpoint(usize::MAX - 2);
-                    for i in 0..held.len() {
-                        if let Err(e) = remove_tree(&held[i].dir, OsStr::new("entry")) {
+                    let permanent = (0..held.len())
+                        .filter(|&i| matches!(held[i], Hold::Stage(_)))
+                        .collect::<Vec<_>>();
+                    self.phase(entries, true);
+                    for (k, &i) in permanent.iter().enumerate() {
+                        let (dir, name) = held[i].at();
+                        if let Err(e) = remove_counting(dir, name, &|n| self.tick(n)) {
                             // Put back what remains of this root and every root not
                             // yet deleted, so nothing is left hidden in staging.
-                            for (j, st) in held.iter_mut().enumerate().skip(i) {
-                                let s = &src[j];
-                                st.keep =
-                                    reparent(&st.dir, OsStr::new("entry"), &s.parent, &s.name)
-                                        .is_err();
+                            for &j in &permanent[k..] {
+                                held[j].restore(&src[j]);
                             }
-                            let rest = match held.len() - i - 1 {
+                            let rest = match permanent.len() - k - 1 {
                                 0 => String::new(),
                                 1 => ", and the entry after it,".into(),
                                 n => format!(", and the {n} entries after it,"),
                             };
-                            let back = if held[i..].iter().all(|st| !st.keep) {
+                            let left = permanent[k..].iter().map(|&j| &held[j]);
+                            let back = if left.clone().all(|h| h.stranded().is_none()) {
                                 format!("What remains of it{rest} is back in place.")
                             } else {
-                                format!("Could {}.", &unrestored(&held[i..])[6..])
+                                format!("Could {}.", &unrestored(left)[6..])
                             };
-                            outcome.warning = Some(format!(
-                                "Deleted {i} of {}; {:?} was only partly deleted ({e}). {back}",
-                                held.len(),
-                                sources[i],
-                            ));
+                            outcome.warning = Some(if e == CANCELLED {
+                                format!(
+                                    "Stopped after deleting {k} of {}; {:?} was only partly \
+                                     deleted. {back}",
+                                    permanent.len(),
+                                    sources[i],
+                                )
+                            } else {
+                                format!(
+                                    "Deleted {k} of {}; {:?} was only partly deleted ({e}). {back}",
+                                    permanent.len(),
+                                    sources[i],
+                                )
+                            });
                             return Ok(());
                         }
-                        held[i].keep = false;
+                        if let Hold::Stage(stage) = &mut held[i] {
+                            stage.keep = false;
+                        }
                         outcome.removed.push(sources[i].clone());
+                        outcome.lost += 1;
                     }
                 }
 
@@ -834,8 +1050,16 @@ impl Engine {
                         .sync_all()
                         .map_err(err)?;
                     }
+                    if let Some(id) = identity(&d.parent, &d.name) {
+                        outcome.undo.push(undo::Step::Discard {
+                            path: d.path.clone(),
+                            id,
+                        });
+                    }
                 }
                 Request::Extract { .. } => {
+                    // Until everything is staged, stopping changes nothing.
+                    self.phase(0, true);
                     // One stage per destination holds every archive bound for it,
                     // so entries colliding across archives abort before anything
                     // is published.
@@ -871,14 +1095,22 @@ impl Engine {
                             if !input.metadata().map_err(err)?.is_file() {
                                 return Err(format!("{:?} is not a regular archive file", s.name));
                             }
-                            crate::archive::extract(input, &stage.dir)
-                                .map_err(|e| format!("{:?}: {e}", s.name))?;
+                            crate::archive::extract(input, &stage.dir, &|n| self.tick(n)).map_err(
+                                |e| {
+                                    if e == CANCELLED {
+                                        e
+                                    } else {
+                                        format!("{:?}: {e}", s.name)
+                                    }
+                                },
+                            )?;
                             if tree(s)? != before[i] {
                                 return Err(format!("{:?} changed during extraction", s.name));
                             }
                         }
                         groups.push((k, existing, dest, stage));
                     }
+                    self.settle();
                     // Plan every publication and check every collision first.
                     let mut plan = vec![];
                     for (k, existing, dest, stage) in &groups {
@@ -896,7 +1128,8 @@ impl Engine {
                                     ));
                                 }
                                 let id = identity(&stage.dir, &name);
-                                plan.push((&stage.dir, name.clone(), dest, name, id));
+                                let path = d.path.join(&name);
+                                plan.push((&stage.dir, name.clone(), dest, name, id, path));
                             }
                         } else {
                             // The private stage becomes an ordinary new directory.
@@ -911,15 +1144,16 @@ impl Engine {
                                 &d.parent,
                                 d.name.clone(),
                                 id,
+                                d.path.clone(),
                             ));
                         }
                     }
                     let mut done: Vec<usize> = vec![];
-                    for (n, (from, name, to, as_name, _)) in plan.iter().enumerate() {
+                    for (n, (from, name, to, as_name, _, _)) in plan.iter().enumerate() {
                         if let Err(e) = rename(from, name, to, as_name) {
                             let mut rollback = true;
                             for &n in done.iter().rev() {
-                                let (from, name, to, as_name, id) = &plan[n];
+                                let (from, name, to, as_name, id, _) = &plan[n];
                                 // Only take back what this extraction published.
                                 rollback &= identity(to, as_name) == *id
                                     && rename(to, as_name, from, name).is_ok();
@@ -931,6 +1165,11 @@ impl Engine {
                         }
                         done.push(n);
                     }
+                    for (_, _, _, _, id, path) in plan {
+                        if let Some(id) = id {
+                            outcome.undo.push(undo::Step::Discard { path, id });
+                        }
+                    }
                 }
             }
             Ok(())
@@ -939,12 +1178,62 @@ impl Engine {
         Ok(outcome)
     }
 }
-/// After putting detached delete roots back: what, if anything, remains staged.
-fn unrestored(held: &[Stage]) -> String {
+/// Where a delete root waits once detached: a private stage beside it, to
+/// be deleted for good, or a slot in the trash.
+enum Hold {
+    Stage(Stage),
+    Trash {
+        bin: Bin,
+        slot: OsString,
+        /// It could not be moved back out of the trash.
+        stranded: bool,
+    },
+}
+impl Hold {
+    fn at(&self) -> (&File, &OsStr) {
+        match self {
+            Hold::Stage(stage) => (&stage.dir, OsStr::new("entry")),
+            Hold::Trash { bin, slot, .. } => (&bin.files, slot),
+        }
+    }
+    /// Moves the root back to `s`; false when it stays held.
+    fn restore(&mut self, s: &Entry) -> bool {
+        match self {
+            Hold::Stage(stage) => {
+                stage.keep = reparent(&stage.dir, OsStr::new("entry"), &s.parent, &s.name).is_err();
+                !stage.keep
+            }
+            Hold::Trash {
+                bin,
+                slot,
+                stranded,
+            } => {
+                *stranded = bin.take(slot, &s.parent, &s.name).is_err();
+                if !*stranded {
+                    bin.forget(slot);
+                }
+                !*stranded
+            }
+        }
+    }
+    /// Where the root remains when it could not be moved back.
+    fn stranded(&self) -> Option<PathBuf> {
+        match self {
+            Hold::Stage(stage) => stage.keep.then(|| stage.path.join("entry")),
+            Hold::Trash {
+                bin,
+                slot,
+                stranded,
+            } => stranded.then(|| bin.path.join("files").join(slot)),
+        }
+    }
+}
+/// After putting detached delete roots back: what, if anything, remains held.
+fn unrestored<'a>(held: impl IntoIterator<Item = &'a Hold>) -> String {
     let stranded = held
-        .iter()
-        .filter(|st| st.keep)
-        .map(|st| format!("{:?}", st.path.join("entry")))
+        .into_iter()
+        .filter_map(Hold::stranded)
+        .map(|path| format!("{path:?}"))
         .collect::<Vec<_>>();
     if stranded.is_empty() {
         "nothing changed".into()
@@ -1081,31 +1370,53 @@ impl<'a> Overwrite<'a> {
             _ => "entries remain at their destinations".into(),
         }
     }
-    /// Deletes the overwritten entries once every new entry is published.
-    /// An entry changed while detached is kept, never deleted unconfirmed.
-    fn finish(self) -> Option<String> {
-        let mut stage = self.stage?;
+    /// Once every new entry is published, moves the overwritten entries to
+    /// the trash (deleting them when it is off or unavailable), recording how
+    /// to undo that. An entry changed while detached is kept, never removed
+    /// unconfirmed.
+    fn finish(self, engine: &Engine, outcome: &mut Outcome) {
+        let Some(mut stage) = self.stage else {
+            return;
+        };
         let mut kept = vec![];
         for (j, o) in self.old.iter().enumerate() {
             let name = j.to_string();
-            let removed = detached_matches(&stage.dir, OsStr::new(&name), &self.expected[j])
-                .and_then(|same| {
-                    if same {
-                        remove_tree(&stage.dir, OsStr::new(&name))
-                    } else {
-                        Err("it changed while being overwritten".into())
+            let name = OsStr::new(&name);
+            let removed = detached_matches(&stage.dir, name, &self.expected[j]).and_then(|same| {
+                if !same {
+                    return Err("it changed while being overwritten".into());
+                }
+                match engine.trash.as_ref().and_then(|_| engine.bin(o).ok()) {
+                    Some(bin) => {
+                        let slot = bin.put(&stage.dir, name, &o.path)?;
+                        let root = &self.expected[j][Path::new("")];
+                        outcome.undo.push(undo::Step::Restore {
+                            bin: bin.path.clone(),
+                            slot,
+                            back: o.path.clone(),
+                            id: (root.0, root.1),
+                        });
+                        outcome.trashed += 1;
                     }
-                });
+                    None => {
+                        remove_tree(&stage.dir, name)?;
+                        outcome.lost += 1;
+                    }
+                }
+                Ok(())
+            });
             if let Err(e) = removed {
                 kept.push(format!(
                     "{:?} ({e}) is kept as {:?}",
                     o.name,
-                    stage.path.join(&name)
+                    stage.path.join(name)
                 ));
             }
         }
         stage.keep = !kept.is_empty();
-        (!kept.is_empty()).then(|| format!("Done, but {}", kept.join("; ")))
+        if !kept.is_empty() {
+            outcome.warning = Some(format!("Done, but {}", kept.join("; ")));
+        }
     }
 }
 pub const STAGE_PREFIX: &str = ".fff-stage-";
@@ -1159,7 +1470,12 @@ impl Drop for Stage {
         }
     }
 }
-fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
+pub(crate) fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
+    remove_counting(parent, name, &|_| Ok(()))
+}
+/// `remove_tree`, telling `tick` of every entry removed; an error from it
+/// (Ctrl+c) stops with the rest in place.
+fn remove_counting(parent: &File, name: &OsStr, tick: &Tick) -> Result<()> {
     let m = fs::symlink_metadata(fdpath(parent).join(name)).map_err(err)?;
     // Recheck while deleting: nothing mounted since validation is entered.
     if mount_root(parent, name)? {
@@ -1177,7 +1493,7 @@ fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
         }
         let emptied = (|| {
             for item in fs::read_dir(fdpath(&dir)).map_err(err)? {
-                remove_tree(&dir, &item.map_err(err)?.file_name())?;
+                remove_counting(&dir, &item.map_err(err)?.file_name(), tick)?;
             }
             Ok(())
         })();
@@ -1187,9 +1503,11 @@ fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
             }
             return Err(e);
         }
-        sys::unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(err)
+        sys::unlinkat(parent, name, AtFlags::REMOVEDIR).map_err(err)?;
+        tick(1)
     } else {
-        sys::unlinkat(parent, name, AtFlags::empty()).map_err(err)
+        sys::unlinkat(parent, name, AtFlags::empty()).map_err(err)?;
+        tick(1)
     }
 }
 /// New names must be safe to see and type: one line of visible text that a
@@ -1423,10 +1741,21 @@ pub fn deletion_rows(rows: &[(PathBuf, u64)], capacity: usize) -> Vec<(Listed, u
     out
 }
 
+/// Where `x` sends one entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fate {
+    Trash,
+    /// It could go to the trash, but is larger than `[trash] ask_above`.
+    Large,
+    /// It cannot go to the trash, for this reason.
+    Unavailable(String),
+}
 #[derive(Clone)]
 pub struct DeletePlan {
     pub rows: Vec<(PathBuf, u64)>,
     snapshots: Vec<Snapshot>,
+    /// Each row's fate when trashing; empty for a permanent deletion.
+    pub fates: Vec<Fate>,
 }
 impl DeletePlan {
     pub fn new(sources: Vec<PathBuf>) -> Result<Self> {
@@ -1454,13 +1783,65 @@ impl DeletePlan {
         Ok(Self {
             rows: sources.into_iter().zip(sizes).collect(),
             snapshots,
+            fates: vec![],
         })
     }
+    /// A plan to move `sources` to the trash, finding out which cannot go
+    /// there or are large enough to ask first.
+    pub fn trash(sources: Vec<PathBuf>, trash: &Trash) -> Result<Self> {
+        let mut plan = Self::new(sources)?;
+        let engine = Engine::new(Some(trash.clone()), None);
+        plan.fates = plan
+            .rows
+            .iter()
+            .map(
+                |(path, size)| match Entry::at(path).and_then(|e| engine.bin(&e)) {
+                    Err(reason) => Fate::Unavailable(reason),
+                    Ok(_) if *size > trash.ask_above => Fate::Large,
+                    Ok(_) => Fate::Trash,
+                },
+            )
+            .collect();
+        Ok(plan)
+    }
+    /// A plan for showing `rows` with their `fates`, without looking at disk.
+    #[cfg(test)]
+    pub(crate) fn shown(rows: Vec<(PathBuf, u64)>, fates: Vec<Fate>) -> Self {
+        Self {
+            rows,
+            snapshots: vec![],
+            fates,
+        }
+    }
+    /// The rows to ask about before trashing: too large or not trashable.
+    pub fn asking(&self) -> Vec<(PathBuf, u64)> {
+        self.rows
+            .iter()
+            .zip(&self.fates)
+            .filter(|(_, fate)| **fate != Fate::Trash)
+            .map(|(row, _)| row.clone())
+            .collect()
+    }
+    /// Deletes every row permanently.
     pub fn request(&self) -> Result<Request> {
         Ok(Request::Delete {
             sources: self.rows.iter().map(|(p, _)| p.clone()).collect(),
             confirmed: self.snapshots.clone(),
+            trash: vec![],
         })
+    }
+    /// Trashes what can go to the trash (large rows too, when `large`) and
+    /// deletes the rest permanently.
+    pub fn trash_request(&self, large: bool) -> Request {
+        Request::Delete {
+            sources: self.rows.iter().map(|(p, _)| p.clone()).collect(),
+            confirmed: self.snapshots.clone(),
+            trash: self
+                .fates
+                .iter()
+                .map(|fate| *fate == Fate::Trash || (large && *fate == Fate::Large))
+                .collect(),
+        }
     }
 }
 

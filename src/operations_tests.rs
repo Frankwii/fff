@@ -121,6 +121,7 @@ fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
         .execute(Request::Delete {
             sources: vec![f.dest.join(&name)],
             confirmed: vec![],
+            trash: vec![],
         })
         .unwrap();
     assert!(!f.dest.join(&name).exists());
@@ -218,6 +219,7 @@ fn missing_source_and_special_files_abort_everything() {
             .execute(Request::Delete {
                 sources: vec![p.clone(), f.work.join("missing")],
                 confirmed: vec![],
+                trash: vec![],
             })
             .is_err()
     );
@@ -228,6 +230,7 @@ fn missing_source_and_special_files_abort_everything() {
             .execute(Request::Delete {
                 sources: vec![p.clone(), socket],
                 confirmed: vec![],
+                trash: vec![],
             })
             .is_err()
     );
@@ -504,6 +507,7 @@ fn delete_tree_and_links_preserves_external_target() {
         .execute(Request::Delete {
             sources: vec![dir.clone()],
             confirmed: vec![],
+            trash: vec![],
         })
         .unwrap();
     assert!(!dir.exists());
@@ -605,6 +609,7 @@ fn source_changed_after_validation_never_gets_deleted() {
             .execute(Request::Delete {
                 sources: vec![p.clone()],
                 confirmed: vec![],
+                trash: vec![],
             })
             .unwrap_err()
             .contains("Source changed")
@@ -627,6 +632,7 @@ fn delete_rolls_back_detached_sources_if_next_source_changes() {
         e.execute(Request::Delete {
             sources: vec![a.clone(), b.clone()],
             confirmed: vec![],
+            trash: vec![],
         })
         .is_err()
     );
@@ -837,6 +843,7 @@ fn unreadable_files_can_be_deleted_but_not_copied() {
     let delete = f.engine().execute(Request::Delete {
         sources: vec![a.clone(), b.clone()],
         confirmed: vec![],
+        trash: vec![],
     });
     assert!(delete.is_ok());
     assert!(!a.exists() && !b.exists());
@@ -993,6 +1000,7 @@ fn changes_after_detaching_delete_roots_are_restored_without_removal() {
         e.execute(Request::Delete {
             sources: vec![dir.clone()],
             confirmed: vec![],
+            trash: vec![],
         })
         .unwrap_err()
         .contains("nothing changed")
@@ -1047,6 +1055,7 @@ fn failed_delete_rollback_retains_original_in_private_stage() {
         .execute(Request::Delete {
             sources: vec![a.clone(), b],
             confirmed: vec![],
+            trash: vec![],
         })
         .unwrap_err();
     // The staging path holding the original is named.
@@ -1444,6 +1453,7 @@ fn bind_mounts_in_namespace() {
     let delete = Request::Delete {
         sources: vec![a.clone()],
         confirmed: vec![],
+        trash: vec![],
     };
     assert!(f.engine().execute(delete).is_err());
     let copy = Request::Copy {
@@ -1785,3 +1795,5 @@ fn a_late_extraction_collision_publishes_nothing() {
     assert_eq!(fs::read(elsewhere.join("taken")).unwrap(), b"mine");
     assert!(stranded(&f.work).is_empty() && stranded(&elsewhere).is_empty());
 }
+#[path = "trash_tests.rs"]
+mod trash;

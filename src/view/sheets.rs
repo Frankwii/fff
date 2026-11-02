@@ -225,6 +225,180 @@ pub(super) fn delete_confirmation(
         rows,
     );
 }
+/// x on entries too large for the trash or that cannot go there: they are
+/// listed, and the rest of the selection goes to the trash with either answer.
+pub(super) fn trash_confirmation(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    plan: &crate::operations::DeletePlan,
+) {
+    use crate::operations::Fate;
+    let rows = plan.asking();
+    let one = rows.len() == 1;
+    let it = if one { "it" } else { "them" };
+    let mut reasons = vec![];
+    for fate in &plan.fates {
+        if let Fate::Unavailable(reason) = fate
+            && !reasons.contains(&reason.as_str())
+        {
+            reasons.push(reason.as_str());
+        }
+    }
+    let large = plan.fates.contains(&Fate::Large);
+    let (days, limit) = app.trash.as_ref().map_or((0, 0), |t| (t.days, t.ask_above));
+    let limit = crate::operations::human_size(limit);
+    let others = plan.rows.len() - rows.len();
+    let mut text = if reasons.is_empty() {
+        format!(
+            "{} larger than {limit}; in the trash {} would keep taking up disk space for \
+             {days} days. Press *d* to delete {it} permanently, *t* to move {it} to the \
+             trash anyway, or *Esc* to cancel.",
+            if one {
+                "This entry is"
+            } else {
+                "These entries are"
+            },
+            if one { "it" } else { "they" },
+        )
+    } else {
+        format!(
+            "{} cannot go to the trash ({}){}. Press *d* to delete {it} permanently, \
+             including everything inside directories, or *Esc* to cancel.",
+            if one {
+                "This entry"
+            } else if large {
+                "Some of these entries"
+            } else {
+                "These entries"
+            },
+            reasons.join("; "),
+            if large && !one {
+                format!(", and the others are larger than {limit}")
+            } else {
+                String::new()
+            },
+        )
+    };
+    if others > 0 {
+        text += &format!(
+            " With *d*{}, the other {} to the trash.",
+            if reasons.is_empty() { " or *t*" } else { "" },
+            if others == 1 {
+                "entry goes".to_string()
+            } else {
+                format!("{others} entries go")
+            }
+        );
+    }
+    let keys: &[(&str, &str)] = if reasons.is_empty() {
+        &[
+            ("d", "Delete permanently"),
+            ("t", "Trash"),
+            ("Esc", "Cancel"),
+        ]
+    } else {
+        &[("d", "Delete permanently"), ("Esc", "Cancel")]
+    };
+    listing(
+        frame,
+        main,
+        app,
+        if reasons.is_empty() {
+            "Too large for the trash"
+        } else {
+            "Delete permanently"
+        },
+        app.palette.error,
+        &text,
+        keys,
+        &rows,
+    );
+}
+/// A file operation taking a while: a bar, how much is done and how fast,
+/// and Ctrl+c while stopping it would change nothing.
+pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui::Job) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let theme = app.palette;
+    let done = job.progress.done.load(Relaxed);
+    let total = job.progress.total.load(Relaxed);
+    let elapsed = job.started.elapsed();
+    let stoppable = job.progress.stoppable.load(Relaxed) && !job.stopping();
+    let width = main.width.saturating_sub(4) as usize;
+    let room = width.saturating_sub(6).max(1);
+    let mut bar = vec![];
+    if total > 0 {
+        let filled = ((done.min(total) as u128 * room as u128) / total as u128) as usize;
+        bar.push(styled("━".repeat(filled), theme.accent));
+        bar.push(styled("─".repeat(room - filled), theme.border));
+        bar.push(styled(
+            format!("{:>5}%", (done.min(total) as u128 * 100 / total as u128)),
+            theme.text,
+        ));
+    } else {
+        // Unknown length: a segment sweeps back and forth.
+        let segment = (room / 5).max(1);
+        let span = room - segment;
+        let step = (elapsed.as_millis() / 100) as usize % (2 * span).max(1);
+        let at = if step < span { step } else { 2 * span - step };
+        bar.push(styled("─".repeat(at), theme.border));
+        bar.push(styled("━".repeat(segment), theme.accent));
+        bar.push(styled("─".repeat(span - at), theme.border));
+    }
+    let seconds = elapsed.as_secs();
+    let clock = if seconds < 60 {
+        format!("{seconds} s")
+    } else {
+        format!("{}:{:02}", seconds / 60, seconds % 60)
+    };
+    let mut figures = if job.progress.checking.load(Relaxed) {
+        // Every tree is inventoried and checked before anything changes.
+        "checking the entries · ".to_string()
+    } else if done == 0 && total == 0 {
+        // Nothing counted yet (a rename, an undo): only the time.
+        String::new()
+    } else if job.entries {
+        if total > 0 {
+            format!("{done} of {total} entries · ")
+        } else {
+            format!("{done} entries · ")
+        }
+    } else {
+        let size = crate::operations::human_size;
+        let rate = done as f64 / elapsed.as_secs_f64().max(0.001);
+        let rate = format!("{}/s", size(rate as u64));
+        if total > 0 {
+            format!("{} of {} · {rate} · ", size(done), size(total))
+        } else {
+            format!("{} · {rate} · ", size(done))
+        }
+    };
+    figures += &clock;
+    if job.stopping() {
+        figures += " · stopping…";
+    }
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        4,
+        Sheet {
+            title: format!(" {} ", job.title),
+            accent: theme.marked,
+            keys: if stoppable {
+                &[("Ctrl+c", "Stop")]
+            } else {
+                &[]
+            },
+            summary: None,
+        },
+    );
+    let lines = vec![
+        Line::from(bar),
+        Line::from(styled(truncate(&figures, width), theme.muted)),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
+}
 /// Move, copy and link confirmations list the selection; when existing entries
 /// would be overwritten, the window lists those instead, as a warning.
 pub(super) fn transfer_confirmation(
@@ -620,7 +794,10 @@ pub(super) fn scope_choice(
 ) {
     let (title, verb) = match action {
         crate::ui::ScopedAction::Extract => ("Extract", "extract"),
-        crate::ui::ScopedAction::Delete => ("Delete", "delete"),
+        crate::ui::ScopedAction::Delete(false) if app.trash.is_some() => {
+            ("Move to the trash", "move to the trash")
+        }
+        crate::ui::ScopedAction::Delete(_) => ("Delete permanently", "permanently delete"),
         crate::ui::ScopedAction::Run(false) => ("Run", "run a program on"),
         crate::ui::ScopedAction::Run(true) => ("Run and exit", "run a program on"),
         crate::ui::ScopedAction::Edit => ("Edit", "open in $EDITOR"),

@@ -20,7 +20,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/mod.rs` | The session: focus states, wakeups and key dispatch. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | Normal-mode list dispatch, text-field editing and paste, status timing, numbered keys. |
-| `src/ui/actions.rs` | Scope choice, file operations, running programs and their messages, bookmark/palette saves, the mouse. |
+| `src/ui/actions.rs` | Scope choice, file operations as background jobs (checks, progress, undo), running programs and their messages, bookmark/palette saves, the mouse. |
 | `src/view/mod.rs` | Ratatui frame layout: query, location line, results and tab strip, marks, footer, display paths. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
@@ -33,7 +33,9 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Per-directory highlights and the last session for `--resume`, saved atomically. |
-| `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback and deletion review. |
+| `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback, deletion review, progress and stopping. |
+| `src/trash.rs` | Trash bins per filesystem, their records, and the startup purge. |
+| `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
 | `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
@@ -91,6 +93,13 @@ listed separately in the [roadmap](ROADMAP.md).
   path directly. Validate the full batch, bind destructive steps to confirmed
   snapshots, stage, then publish with no-replace semantics, rolling back on
   failure. See [file operations](OPERATIONS.md).
+- Operations and their preparation run as jobs on their own thread; the
+  session only polls them, draws their progress and hears Ctrl+c, which the
+  engine honors only while stopping changes nothing (checking, staging) or
+  puts the rest back (between deleted entries). Every change an operation
+  makes is recorded for undo, and undo checks identities before acting.
+- Entries go to the trash by rename only, into the bin on their own mount and
+  device; the purge deletes only dated records older than `[trash] days`.
 
 ## Verification
 
@@ -105,6 +114,8 @@ python3 tests/terminal_smoke.py
 
 `src/operations_tests.rs` covers collisions, confirmation binding, injected
 races and rollback, mount points (bind mounts in a user namespace via `unshare`),
+the trash, undo, purge, progress and stopping (`src/trash_tests.rs`, with
+per-filesystem bins on tmpfs mounts in a namespace),
 deferred signals, source changes, permissions, byte paths, links, malicious archives and
 archive limits. PTY tests cover Normal-only operation keys, prompts, save/discard
 and mark reconciliation. Some safety tests create temporary Unix sockets and

@@ -51,6 +51,8 @@ class Session:
             # Remembered locations live beside the test directory, never in
             # the tester's own state.
             os.environ["XDG_STATE_HOME"] = str(root) + "-state"
+            # So does the trash.
+            os.environ["XDG_DATA_HOME"] = str(root) + "-data"
             # A stray l on a file must not open the tester's editor in a new
             # terminal window; tests that open files name their own programs.
             os.environ["EDITOR"] = "fff-test-no-editor"
@@ -73,8 +75,8 @@ class Session:
             return
         self.wait_ui("● complete" if size[0] >= 12 and size[1] >= 36 else " complete")
 
-    def wait_ui(self, token, after=None):
-        deadline = time.monotonic() + 5
+    def wait_ui(self, token, after=None, timeout=5):
+        deadline = time.monotonic() + timeout
         location = token[1] if isinstance(token, tuple) else None
         token = token.decode("utf-8") if isinstance(token, bytes) else token
         def matches():
@@ -188,6 +190,7 @@ class TerminalTests(unittest.TestCase):
         if self.session:
             self.session.close()
         shutil.rmtree(self.tmp.name + "-state", ignore_errors=True)
+        shutil.rmtree(self.tmp.name + "-data", ignore_errors=True)
         self.tmp.cleanup()
 
     def start(self, *args, **kwargs):
@@ -1236,7 +1239,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0ctw\x1b[27u", "❯ world")  # d hides folders in Normal mode
-        s.send(b"u", "❯ hello world")
+        # u undoes file operations; :u undoes the query's edits.
+        s.send(b"u", "Nothing to undo")
+        s.send(b":u\r", "❯ hello world")
         s.send(b"\x12", "❯ world")
         s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
         s.send(b"\r")
@@ -1351,7 +1356,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "NORMAL")
         # Unbound continuations reach Neovim intact: gU, ge.
         s.send(b"0gUiw", "❯ GAMMA")
-        s.send(b"u", "❯ gamma")
+        s.send(b":u\r", "❯ gamma")
         s.send(b"$ge", "NORMAL")  # plain e would stay on the last letter
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
@@ -1645,23 +1650,38 @@ class TerminalTests(unittest.TestCase):
     def test_file_operations_delete_current_or_selected_and_cancel(self):
         (self.root / "alpha").write_text("aaa")
         (self.root / "beta").write_bytes(b"b" * 20000)
+        trash = Path(self.tmp.name + "-data") / "fff/trash"
         s = self.start(implicit_root=True)
         s.send(b"\t", "Marks (1)")  # alpha marked, beta highlighted
         s.send(b"x", "c: Current ─── s: Selection ─── a: All")
-        s.send(b"c", "permanently delete")
-        self.assertIn("beta", s.screen.text)
-        self.assertIn("19.5 KiB", s.screen.text)
-        s.send(b"\x1b[27u", "Query · NORMAL")
-        self.assertTrue((self.root / "beta").exists())
+        self.assertIn("Move to the trash", s.screen.text)
+        # x moves to the trash at once; u brings it back.
+        s.send(b"c", "Moved beta to the trash; u undoes")
+        self.assertFalse((self.root / "beta").exists())
+        self.assertEqual((trash / "files/beta").read_bytes(), b"b" * 20000)
+        info = (trash / "info/beta.trashinfo").read_text()
+        self.assertIn("Path=" + str(self.root / "beta") + "\n", info)
         self.assertIn("Marks (1)", s.screen.text)
-        s.send(b"xs", "permanently delete")
-        self.assertIn("alpha", s.screen.text)
-        s.send(b"\r", "Deleted alpha")
+        s.send(b"u", "Undid: Moved beta to the trash")
+        self.assertEqual((self.root / "beta").read_bytes(), b"b" * 20000)
+        self.assertEqual(os.listdir(trash / "files") + os.listdir(trash / "info"), [])
+        s.send(b"u", "Nothing to undo")
+        s.send(b"xs", "Moved alpha to the trash")
         self.assertFalse((self.root / "alpha").exists())
         self.assertTrue((self.root / "beta").exists())
         self.assertIn("Marks (0)", s.screen.text)
-        s.send(b"x", "permanently delete")
+        # X deletes permanently, after confirmation.
+        s.send(b"X", "permanently delete")
+        self.assertIn("19.5 KiB", s.screen.text)
         s.send(b"\x1b[27u", "Query · NORMAL")
+        self.assertTrue((self.root / "beta").exists())
+        s.send(b"X", "permanently delete")
+        s.send(b"\r", "Deleted beta permanently")
+        self.assertFalse((self.root / "beta").exists())
+        self.assertEqual(os.listdir(trash / "files"), ["alpha"])
+        # Nothing to bring back from a permanent deletion: u undoes the trashing before it.
+        s.send(b"u", "Undid: Moved alpha to the trash")
+        self.assertEqual((self.root / "alpha").read_text(), "aaa")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -1673,13 +1693,218 @@ class TerminalTests(unittest.TestCase):
         current.write_text("current")
         s = self.start(implicit_root=True)
         s.send(b"\t", "Marks (1)")
-        s.send(b"xc", "permanently delete")
-        s.send(b"\r", "Deleted beta")
+        s.send(b"xc", "Moved beta to the trash")
         self.assertFalse(current.exists())
         self.assertTrue(selected.exists())
         self.assertIn("Marks (1)", s.screen.text)
         s.send(b"\x17")
         self.assertEqual(s.finish(), (0, os.fsencode(selected) + b"\n"))
+
+    def config(self, text):
+        config = Path(self.tmp.name + "-config.toml")
+        self.addCleanup(lambda: config.unlink(missing_ok=True))
+        config.write_text(text)
+        return str(config)
+
+    def trash(self):
+        return Path(self.tmp.name + "-data") / "fff/trash"
+
+    def tree(self, name, count):
+        tree = self.root / name
+        tree.mkdir()
+        for n in range(count):
+            (tree / f"f{n}").write_bytes(b"x" * 64)
+        return tree
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_large_entries_ask_before_going_to_the_trash(self):
+        small = self.root / "small"
+        big = self.root / "big"
+        small.write_text("small")
+        big.write_bytes(b"b" * 5000)
+        config = self.config("[trash]\nask_above = '1 KiB'\ndays = 7\n")
+        s = self.start("--config", config, implicit_root=True)
+        s.send(b"m", "Marks (2)")
+        s.send(b"x", "Too large for the trash")
+        self.assertIn("This entry is larger than 1.0 KiB", s.screen.text)
+        self.assertIn("for 7 days", s.screen.text)
+        self.assertIn("the other entry goes to the trash", s.screen.text)
+        self.assertIn("d: Delete permanently ─── t: Trash ─── Esc: Cancel", s.screen.text)
+        self.assertIn("4.9 KiB", s.screen.text)
+        s.send(b"\x1b[27u", "Deletion cancelled; nothing changed")
+        self.assertTrue(small.exists() and big.exists())
+        self.assertIn("Marks (2)", s.screen.text)
+        # t: everything goes to the trash, and comes back together.
+        s.send(b"x", "Too large for the trash")
+        s.send(b"t", "Moved 2 entries to the trash; u undoes")
+        self.assertEqual(sorted(os.listdir(self.trash() / "files")), ["big", "small"])
+        self.assertIn("Marks (0)", s.screen.text)
+        s.send(b"u", "Undid: Moved 2 entries to the trash")
+        self.assertEqual(big.read_bytes(), b"b" * 5000)
+        self.assertEqual(small.read_text(), "small")
+        # d: the large entry is deleted for good, the small one trashed.
+        s.send(b"m", "Marks (2)")
+        s.send(b"x", "Too large for the trash")
+        s.send(b"d", "Moved 1 entry to the trash and deleted 1 entry permanently")
+        self.assertFalse(big.exists() or small.exists())
+        self.assertEqual(os.listdir(self.trash() / "files"), ["small"])
+        s.send(b"u", "1 entry deleted permanently cannot come back")
+        self.assertIn("Undid: Moved 1 entry to the trash and deleted 1 entry permanently", s.screen.text)
+        self.assertEqual(small.read_text(), "small")
+        self.assertFalse(big.exists())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_without_the_trash_x_confirms_a_permanent_deletion(self):
+        (self.root / "alpha").write_text("a")
+        config = self.config("[trash]\nenabled = false\n")
+        s = self.start("--config", config, implicit_root=True)
+        s.send(b"x", "Delete permanently")
+        s.send(b"\r", "Deleted alpha permanently")
+        self.assertFalse((self.root / "alpha").exists())
+        self.assertFalse(self.trash().exists())
+        s.send(b"u", "Nothing to undo")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_u_undoes_moves_renames_copies_and_new_entries_newest_first(self):
+        (self.root / "alpha").write_text("a")
+        target = self.root / "target"
+        target.mkdir()
+        s = self.start(implicit_root=True)
+        s.send(b"ialpha", "❯ alpha")
+        s.send(b"\x1b[27u\t", "Marks (1)")
+        s.send(b"\x1b[27uitarget", "❯ target")
+        s.send(b"\x1b[27ul", ("cwd", target))
+        s.send(b"p", "Copy here")
+        s.send(b"\r", "Copied alpha")
+        s.send(b"h", ("cwd", self.root))
+        s.send(b"ialpha", "❯ alpha")
+        s.send(b"\x1b[27ur", "Rename files")
+        s.send(b"ccrenamed\x1b[27u:wq\r", "Renamed alpha")
+        s.send(b"n", "Press f to create a file")
+        s.send(b"f", "New file · INSERT")
+        s.send(b"fresh\x1b[27u:wq\r", "Created file fresh")
+        self.assertEqual(sorted(os.listdir(self.root)), ["fresh", "renamed", "target"])
+        s.send(b"u", "Undid: Created file fresh")
+        self.assertFalse((self.root / "fresh").exists())
+        s.send(b"u", "Undid: Renamed alpha")
+        self.assertEqual((self.root / "alpha").read_text(), "a")
+        self.assertFalse((self.root / "renamed").exists())
+        s.send(b"u", "Undid: Copied alpha")
+        self.assertEqual(os.listdir(target), [])
+        self.assertEqual(sorted(os.listdir(self.trash() / "files")), ["alpha", "fresh"])
+        s.send(b"u", "Nothing to undo")
+        # A move is undone too, but never out from under the browsing directory.
+        (self.root / "folder").mkdir()
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"ifolder", "❯ folder")
+        s.send(b"\x1b[27u\t", "Marks (1)")
+        s.send(b"\x1b[27uitarget", "❯ target")
+        s.send(b"\x1b[27ul", ("cwd", target))
+        s.send(b"v", "Move here")
+        s.send(b"\r", "Moved folder")
+        s.send(b"ifolder", "❯ folder")
+        s.send(b"\x1b[27ul", ("cwd", target / "folder"))
+        s.send(b"u", "Cannot undo: it would move the current directory")
+        s.send(b"h", ("cwd", target))
+        s.send(b"u", "Undid: Moved folder")
+        self.assertTrue((self.root / "folder").is_dir())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_a_rebound_undo_key_leaves_u_to_neovim(self):
+        (self.root / "alpha").write_text("a")
+        config = self.config("[keys.normal]\nundo = 'U'\n")
+        s = self.start("--config", config, implicit_root=True)
+        s.send(b"x", "Moved alpha to the trash; U undoes")
+        s.send(b"ihello", "❯ hello")
+        s.send(b"\x1b[27uu")
+        s.wait_absent("❯ hello")
+        self.assertFalse((self.root / "alpha").exists())
+        s.send(b"U", "Undid: Moved alpha to the trash")
+        self.assertTrue((self.root / "alpha").exists())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_old_trash_entries_are_purged_at_startup(self):
+        trash = self.trash()
+        (trash / "files/old").mkdir(parents=True)
+        (trash / "files/old/inner").write_text("old")
+        (trash / "files/recent").write_text("recent")
+        (trash / "files/undated").write_text("?")
+        (trash / "info").mkdir()
+        (trash / "info/old.trashinfo").write_text("[Trash Info]\nPath=/x/old\nDeletionDate=2000-01-01T00:00:00\n")
+        recent = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - 3 * 86400))
+        (trash / "info/recent.trashinfo").write_text(f"[Trash Info]\nPath=/x/recent\nDeletionDate={recent}\n")
+        (trash / "info/undated.trashinfo").write_text("[Trash Info]\nPath=/x/undated\n")
+        s = self.start(implicit_root=True)
+        deadline = time.monotonic() + 5
+        while (trash / "files/old").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(sorted(os.listdir(trash / "files")), ["recent", "undated"])
+        self.assertEqual(sorted(os.listdir(trash / "info")), ["recent.trashinfo", "undated.trashinfo"])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+        # A shorter setting purges sooner.
+        s = self.session = Session(self.root, "--config", self.config("[trash]\ndays = 2\n"), implicit_root=True)
+        deadline = time.monotonic() + 5
+        while (trash / "files/recent").exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(os.listdir(trash / "files"), ["undated"])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_long_operations_show_progress_and_ctrl_c_stops_them_unchanged(self):
+        # Large enough that checking it takes a while even on tmpfs.
+        tree = self.tree("tree", 80000)
+        target = self.root / "target"
+        target.mkdir()
+        s = self.start(implicit_root=True)
+        # A copy stopped while it is staged leaves nothing behind.
+        s.send(b"itree", "❯ tree")
+        s.send(b"\x1b[27u\t", "Marks (1)")
+        s.send(b"\x1b[27uitarget", "❯ target")
+        s.send(b"\x1b[27ul", ("cwd", target))
+        s.send(b"p", "Copy here")
+        s.send(b"\r", "Copying tree")
+        s.wait_ui(" of 4.9 MiB · ", timeout=10)
+        self.assertRegex(s.screen.text, r"[\d.]+ (B|KiB|MiB) of 4\.9 MiB · [\d.]+ (B|KiB|MiB)/s · \d+ s")
+        self.assertIn("Ctrl+c: Stop", s.screen.text)
+        s.send(b"\x03", "Stopped copying tree; nothing changed")
+        self.assertEqual(os.listdir(target), [])
+        self.assertIn("Marks (1)", s.screen.text)
+        self.assertIsNone(s.status)
+        # Checking a large selection shows progress, and stops at once.
+        s.send(b"h", ("cwd", self.root))
+        s.send(b"itree", "❯ tree")
+        s.send(b"\x1b[27ux", "Moving tree to the trash")
+        s.wait_ui("checking the entries")
+        s.send(b"\x03", "Stopped moving tree to the trash; nothing changed")
+        self.assertEqual(len(os.listdir(tree)), 80000)
+        self.assertEqual(os.listdir(self.trash() / "files") if (self.trash() / "files").exists() else [], [])
+        # While an operation runs only Ctrl+c is heard: q does not quit,
+        # Esc does not cancel, and Ctrl+c stops it before anything changed.
+        s.send(b"X", "Delete permanently")
+        s.send(b"\r", "Deleting tree")
+        s.wait_ui("checking the entries")
+        s.send(b"q\x1b[27u")
+        s.send(b"\x03", "Stopped deleting tree; nothing changed")
+        self.assertEqual(len(os.listdir(tree)), 80000)
+        self.assertIsNone(s.status)
+        # Left alone, it finishes, counting entries.
+        s.send(b"X", "Delete permanently")
+        s.send(b"\r", "Deleting tree")
+        s.wait_ui(" of 80001 entries · ", timeout=15)
+        s.wait_ui("Deleted tree permanently", timeout=30)
+        self.assertFalse(tree.exists())
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_file_operations_extract_empty_and_explicit_destination(self):
@@ -2053,8 +2278,8 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--config", str(config), implicit_root=True, environment=env)
         s.send(b"\t", "Marks (1)")
         s.send(b"x")  # no longer delete: Neovim gets it
-        s.send(b"D", "Delete permanently")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"D", "Moved alpha to the trash")
+        s.send(b"u", "Undid: Moved alpha to the trash")
         s.send(b"gx", "Run · INSERT")
         s.send(b"tool --and", "❯ tool --and")
         s.send(b"\t", "❯ tool --and-exit ")

@@ -8,12 +8,37 @@ history.
 
 ### Added
 
+- **A trash.** `x` moves entries to the trash at once, without a
+  confirmation: `$XDG_DATA_HOME/fff/trash` (`~/.local/share/fff/trash`), or a
+  `.fff-trash-UID` folder at the top of another filesystem, so trashing is
+  always a rename. Entries larger than `[trash] ask_above` (10 GiB) ask first,
+  in one sheet for the whole selection: delete them permanently or trash them
+  anyway. Entries that cannot go to the trash are offered permanent deletion.
+  When fff starts, a background thread deletes what has been in the trash for
+  more than `[trash] days` (30). `[trash] enabled = false` keeps permanent
+  deletion.
+- **`X` deletes permanently**, after the size review `x` used to show.
+- **`u` undoes file operations**, last first: trashing, moves, renames,
+  copies, links, new entries and extractions (created entries go to the
+  trash), and overwrites (the overwritten entries come back from the trash).
+  An undo checks that every entry is still the one the operation left and
+  happens completely or not at all. Configurable as `undo` in `[keys.normal]`.
+- **Progress for long operations.** Copies, extractions, deletions, and the
+  checks before every operation run on their own thread; one taking more than
+  a moment shows a sheet with a bar, the bytes or entries done, the speed and
+  the time. Ctrl+c stops it while stopping changes nothing (and between the
+  entries of a permanent deletion, putting the rest back); confirmations of
+  large selections no longer freeze the screen while they are sized.
 - **D hides files**, listing only folders (Alt+D while typing); again to show
   them. `d` and `D` switch between files only and folders only. Configurable
   as `files` in `[keys.normal]`.
 
 ### Changed
 
+- `x` moves to the trash instead of deleting permanently; overwritten
+  entries of a move or copy also go to the trash when they can.
+- **`u` in Normal-mode results undoes file operations**, no longer query
+  edits; `:u` still undoes those, or set `undo` to another key or `"none"`.
 - **`q` in `fff pick` prints nothing**, like Ctrl+c, instead of the launch
   directory: a script such as `fff pick | xargs -r zathura` no longer opens
   the folder you started in. `!` still prints the browsing directory.
@@ -30,6 +55,9 @@ history.
 
 ### Fixed
 
+- **Operations on large folders no longer freeze fff afterwards.** With live
+  updates on, the thousands of changes from deleting, copying or extracting a
+  large tree took seconds to process, during which the screen stood still.
 - **Capitals and shifted symbols type correctly in kitty, foot, ghostty and
   WezTerm.** With the kitty keyboard protocol, Shift+a reached every text
   field as `a` (and `:` as `;`), so names, commands and `ZZ` could not be

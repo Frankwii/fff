@@ -596,3 +596,11 @@ fn the_tty_writes_whole_frames_without_underline_resets() {
     assert_eq!(std::fs::read(&path).unwrap(), b"a\x1b[39m\x1b[0mb");
     std::fs::remove_file(path).unwrap();
 }
+#[test]
+fn stopped_messages_keep_the_names_in_a_title() {
+    assert_eq!(
+        lowercase_first("Moving README.md to the trash"),
+        "moving README.md to the trash"
+    );
+    assert_eq!(lowercase_first(""), "");
+}

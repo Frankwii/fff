@@ -130,7 +130,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 (
                     [Delete, Rename, Extract, New].map(normal).join(" / "),
-                    "delete / rename / extract / create (Normal)",
+                    "trash, rename, extract, new (Normal)",
                     false,
                 ),
                 ("F5".into(), "rescan, bypassing the cache", false),
@@ -231,6 +231,12 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "open current / marked in $EDITOR, come back",
                     true,
                 ),
+                (
+                    normal(DeletePermanently),
+                    "delete current / marked permanently",
+                    false,
+                ),
+                (normal(Undo), "undo the last file operation", false),
                 ("i  a".into(), "enter Insert mode", false),
             ],
         ),

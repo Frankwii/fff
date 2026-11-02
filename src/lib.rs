@@ -26,6 +26,7 @@ pub mod reload;
 pub mod run;
 pub mod setup;
 pub mod state;
+pub mod trash;
 pub mod ui;
 mod view;
 pub mod watch;
@@ -652,6 +653,10 @@ pub struct App {
     /// `--window`: fff has a terminal window of its own and no shell to leave
     /// into, so Enter enters folders and `!` starts a shell in this one.
     pub window: bool,
+    /// `[trash]`: where `x` sends entries; `None` deletes them permanently.
+    pub trash: Option<trash::Trash>,
+    /// This session's file operations that `u` can undo, oldest first.
+    pub undo: Vec<operations::undo::Record>,
 }
 
 impl App {
@@ -739,6 +744,8 @@ impl App {
             watch: true,
             preview: preview::Pane::default(),
             window: false,
+            trash: None,
+            undo: Vec::new(),
             dialog: None,
         }
     }
@@ -1250,6 +1257,10 @@ impl App {
     /// Wake `waker` when a ranking on another thread is done.
     pub fn set_waker(&mut self, waker: mpsc::SyncSender<()>) {
         self.waker = Some(waker);
+    }
+    /// Wakes the session loop, e.g. when background work finishes.
+    pub fn waker(&self) -> Option<mpsc::SyncSender<()>> {
+        self.waker.clone()
     }
     /// Bring the rows ranked for `query` up to date with the candidates
     /// forgotten and, within `budget`, those inserted since: work in proportion

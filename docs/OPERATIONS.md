@@ -9,7 +9,9 @@ keeps them as text.
 | `v` | Move all marked paths into the current directory, after confirmation |
 | `p` | Copy all marked paths into the current directory, after confirmation |
 | `s` | Create absolute symlinks to all marked paths here, after confirmation |
-| `x` | Delete the highlighted path or the marked paths, with confirmation |
+| `x` | Move the highlighted path or the marked paths to the [trash](#trash-and-deletion) |
+| `X` | Delete the highlighted path or the marked paths permanently, after confirmation |
+| `u` | [Undo](#undo) the last file operation |
 | `r` | Open a batch rename buffer for every currently filtered result |
 | `e` | Extract the current or marked archives into a prompted directory |
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
@@ -30,7 +32,8 @@ confirmation. **Escape** cancels the whole operation; **Enter** moves or copies
 everything and overwrites the listed entries. A directory is overwritten as a
 whole, never merged. The listed entries are detached into a private staging
 directory (for copies, only after every copy is
-staged), and deleted only after every entry has been published; any failure
+staged), and moved to the [trash](#trash-and-deletion) (or deleted, when it is
+off or unavailable) only after every entry has been published; any failure
 rolls the publications back and restores them. Entries changed since
 confirmation, collisions that appear after confirmation, moving or copying a
 path into its own directory, and overwriting an entry that contains a selected
@@ -71,9 +74,33 @@ only) instead of clipping a key. The rename buffer lists `ZZ` / `ZQ`; name and d
 `marked`.
 
 A successful operation reports what it did in the footer with a `✓` in the
-`success` color, such as `Deleted 2 entries` or `Renamed notes.md`. An operation
-that took effect only partly (a deletion stopped partway) reports a warning in
-the `error` color, as errors do.
+`success` color, such as `Moved 2 entries to the trash; u undoes` or `Renamed
+notes.md`. An operation that took effect only partly (a deletion stopped
+partway) reports a warning in the `error` color, as errors do.
+
+## Progress and stopping
+
+Operations run on a thread of their own, and so do the checks before them
+(sizing and inventorying the chosen trees for a confirmation). Most finish at
+once and look instant; one still running after 150 ms shows a sheet with its
+title (`Copying 3 entries`), a bar and figures, redrawn ten times a second:
+
+- `checking the entries`, while every chosen tree is inventoried and compared
+  with what was confirmed; nothing has changed yet;
+- bytes copied or extracted, with the total (and a percentage) when known, the
+  speed and the time so far;
+- entries deleted out of all of them, for a permanent deletion.
+
+**Ctrl+c** stops it while that changes nothing: during the checks, while a copy
+or an extraction is still being staged (the staged part is discarded), and
+between entries of a permanent deletion, where what remains, and every chosen
+entry not yet deleted, is put back as after a failure (`Stopped after deleting 1
+of 3; …`). The bottom border shows `Ctrl+c: Stop` only while stopping is
+possible. A step that cannot stop (publishing staged copies, moves, renames,
+trashing) is quick and finishes. While an operation runs, every other key and
+the mouse are ignored: Ctrl+c does not quit fff, and fff cannot be left
+halfway. Termination signals wait for it, as described
+[below](#confirmations-and-interruptions).
 
 ## Buffer interactions
 
@@ -237,28 +264,96 @@ Programs always read and write the terminal (`/dev/tty`), never fff's stdout,
 so both work while fff's output is redirected. They start in the browsing
 directory with fff's environment.
 
-## Deletion confirmation
+## Trash and deletion
 
-`x` deletes the current entry when nothing is marked, and the marks when the
+`x` acts on the current entry when nothing is marked, and on the marks when the
 current entry is one of them. When the current entry is unmarked while others
 are marked, it asks: **current (`c`)**, **selection (`s`)** or **all (`a`)**, the
-selection plus the current entry, as extraction does. The **Delete permanently** window
-lists the paths and their cumulative logical sizes. Directory sizes include
-hidden descendants; symlinks count their own link bytes, never target contents.
-Hard-linked entries count separately. Sizes use B, KiB, MiB, GiB and TiB.
+selection plus the current entry, as extraction does. `X` asks the same way.
+
+`x` moves the entries to the trash at once, without a confirmation: `u` brings
+them back. The trash is a folder of fff's own, `$XDG_DATA_HOME/fff/trash`
+(`~/.local/share/fff/trash`), for entries on the same filesystem. A move into
+the trash is always a rename, never a copy, so an entry on another filesystem
+goes to that filesystem's own trash, `.fff-trash-UID` at its top (the mount
+point, or the top of a subvolume), created with mode 0700 the first time it is
+needed and remembered in `$XDG_DATA_HOME/fff/trash-volumes`. Each trash holds
+`files/NAME` and `info/NAME.trashinfo` with the original path and the deletion
+time, laid out like the freedesktop.org trash, so an entry can also be found and
+moved back by hand; a name already there gets a number (`notes.2`).
+
+When fff starts, a background thread deletes the entries that have been in a
+trash for more than `[trash] days` (30 by default; see
+[configuration](CONFIGURATION.md#trash)). Trashes on filesystems that are not
+mounted wait for a later start; entries without a readable date are kept.
+
+Before anything moves, `x` asks about two kinds of entries, listed with their
+sizes in one sheet for the whole selection:
+
+- **Too large for the trash:** larger than `[trash] ask_above` (10 GiB by
+  default), where the trash would keep the space in use for weeks. **d**
+  deletes them permanently, **t** moves them to the trash anyway.
+- **Cannot go to the trash:** no trash can be made on its filesystem (its top
+  is read-only or not writable to you, or the trash folder there is a symlink or
+  someone else's), the entry is already in a trash, or it contains the trash
+  folder. **d** deletes them permanently; **t** is not offered.
+
+With either answer the other entries go to the trash; **Esc** cancels
+everything. Overwritten entries of a [move or copy](#file-operations) also go
+to the trash when they can, and are deleted only otherwise.
+
+`X`, and `x` with `[trash] enabled = false`, delete permanently. The **Delete
+permanently** window lists the paths and their cumulative logical sizes.
+Directory sizes include hidden descendants; symlinks count their own link
+bytes, never target contents. Hard-linked entries count separately. Sizes use
+B, KiB, MiB, GiB and TiB.
 
 Rows sort by decreasing size, sizes right-aligned and names styled like result
 rows. If they exceed the available height, the final row reports how many more
 entries remain and their summed size. The top border shows the entry count and
 total size. **Enter** confirms and **Escape** cancels.
-A failed size calculation prevents deletion. After confirmation, all roots are
-detached into private staging directories before recursive
-deletion starts. If deleting one root fails, deletion stops: that root (with
-whatever remained of it, directory modes unchanged) and every root not yet
-deleted are moved back, and a warning says how many were deleted and which root
-was only partly deleted. Marks of the deleted roots are removed. Anything that
-cannot be moved back, here or in any other rollback, is named with its staging
-path.
+
+Trashing and deleting validate the same way. A failed size calculation prevents
+either. After confirmation, all roots are detached, into private staging
+directories (deletion) or straight into their trash (trashing), before
+recursive deletion starts; a failure while detaching puts every root back,
+trashed ones included, and removes their records. If deleting one root fails,
+deletion stops: that root (with whatever remained of it, directory modes
+unchanged) and every root not yet deleted are moved back, and a warning says how
+many were deleted and which root was only partly deleted. Marks of the deleted
+and trashed roots are removed. Anything that cannot be moved back, here or in
+any other rollback, is named with its staging or trash path.
+
+## Undo
+
+`u` (configurable as `undo` in `[keys.normal]`) undoes the last file operation
+of the session, and pressing it again the one before, up to 100:
+
+| Operation | Undoing it |
+| --- | --- |
+| `x` | Moves the entries back from the trash |
+| `v`, `r` | Moves or renames the entries back |
+| `p`, `s`, `n`, `e` | Moves the copies, links, new entries or extracted entries to the trash |
+| Overwriting `v` / `p` | Also brings the overwritten entries back from the trash |
+
+What was deleted permanently cannot come back: undoing a selection where some
+entries were deleted permanently brings back the others and says how many
+cannot return, and a purely permanent deletion is not on the undo list, so
+`u` after it undoes the operation before. The undo list lasts for the session.
+
+Undoing changes nothing unless every entry is still the one the operation left
+(the same file, by identity, even if edited since) and its old place is free:
+an entry renamed, removed or replaced since, or a new file where the original
+was, stops the undo with a message, and the operation leaves the list. Steps
+are undone last to first; if one fails, those already undone are redone, so
+an undo happens completely or not at all. Undoing that would move the current
+directory or one of its ancestors is refused (and stays on the list): go up
+first. Entries undone into the trash follow the trash's rules; with the trash
+turned off, copies and new entries cannot be undone.
+
+In the results' query, `u` therefore no longer undoes query edits in Normal
+mode; `:u` (and Ctrl+r to redo) still does, or rebind `undo` to give `u` back
+to Neovim.
 
 ## Confirmations and interruptions
 
@@ -271,17 +366,20 @@ Operations run to completion or roll back: a terminal hangup, `SIGTERM` or
 `SIGINT` arriving during an operation is held until it finishes, then takes
 effect. Signals ignored when fff started (such as under `nohup`) stay ignored.
 A kill that cannot be held (`SIGKILL`, power loss) can leave hidden
-`.fff-stage-*` directories holding data; when fff enters a directory with such a
+`.fff-stage-*` directories holding data (an entry already moved to the trash
+stays there, with its record); when fff enters a directory with such a
 leftover from a process that no longer runs, the status line names it.
 Rollbacks only move back entries this operation published, verified by identity.
 The destination directory of a move, copy or link is bound to the confirmation
 too. An overwritten entry that changes while detached is kept in its staging
-directory (and named in the message) instead of being deleted.
+directory (and named in the message) instead of being trashed or deleted.
 
 ## Guarantees and limits
 
-There is no undo: confirmed deletions and overwrites are as final as `rm`.
-Everything else is designed so that only confirmed data is ever removed.
+Permanent deletions (`X`, the **d** answer, and overwrites when the trash is
+off or unavailable) are as final as `rm`. Trashed entries can be undone while
+the session lasts and recovered by hand until they are purged. Everything else
+is designed so that only confirmed data is ever removed.
 
 Parents are pinned by directory descriptors and nothing follows a symlink.
 Destinations are published with no-replace renames; copies and extractions are
@@ -299,7 +397,9 @@ directory gains it only for the instant it is renamed into or out of staging
 mode. A plain move of such a directory to another folder fails, as with `mv`. They are not filesystem snapshots: ownership,
 extended attributes, ACLs, hard-link relationships and sparse allocation are not
 preserved. Concurrent writers can still race an operation; stop writers when a
-stable copy matters. Operations run synchronously, including size calculation.
+stable copy matters. Operations and their checks run on another thread while
+the screen shows their [progress](#progress-and-stopping); archive validation
+before the extraction prompt still runs on the interface thread.
 
 ## Archives and system requirements
 

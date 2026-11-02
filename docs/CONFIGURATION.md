@@ -232,7 +232,7 @@ key does:
 | Select & Exit | Ctrl+w with marks (opening them in `fff roam`), else Normal-mode Enter on the highlighted row |
 
 Buttons that cannot act (Back with no history, Up and Back in `fff seek`)
-are dimmed. In the copy, move, link and delete confirmations the bar shows
+are dimmed. In the copy, move, link and permanent-deletion confirmations the bar shows
 Cancel and Confirm (Esc and Enter). A narrow bar leaves out buttons from the
 end of the left group. `buttons` other than `"off"` needs `mouse = true`.
 
@@ -335,6 +335,27 @@ the timer; `0` keeps each message until another replaces it.
 [ui]
 message_seconds = 4   # 0..3600; 0 = never hide automatically
 ```
+
+## Trash
+
+`x` moves entries to the trash, from where `u` brings them back; see
+[trash and deletion](OPERATIONS.md#trash-and-deletion). The trash lives in
+`$XDG_DATA_HOME/fff/trash` (`~/.local/share/fff/trash` when unset), with one
+`.fff-trash-UID` folder at the top of each other filesystem used.
+
+```toml
+[trash]
+enabled = true        # false: x deletes permanently, after confirmation, like X
+days = 30             # entries older than this are deleted when fff starts; 1..36500
+ask_above = "10 GiB"  # larger entries ask before going to the trash
+```
+
+`ask_above` is a number of bytes or a size with a unit (`B`, `KiB`, `MiB`,
+`GiB`, `TiB`; `K`, `M`, `G`, `T` and `KB`… mean the same binary units), such as
+`"500 MiB"` or `"1.5G"`. An entry counts its whole tree, like the deletion
+window's sizes. The purge runs on a thread of its own at every start, so a
+large trash never delays the first frame; with `enabled = false` nothing is
+purged either.
 
 ## Remembered locations
 
@@ -681,11 +702,14 @@ run_exit = "gX"      # Run a program on the current/marked paths in place of fff
 move = "v"           # Move marked paths here (with a review)
 copy = "p"           # Copy marked paths here (with a review)
 link = "s"           # Symlink marked paths here (with a review)
-delete = "x"         # Delete current/marked paths (with a review)
+delete = "x"         # Move current/marked paths to the trash
+delete_permanently = "X" # Delete current/marked paths permanently (with a review)
 rename = "r"         # Batch rename the results in a buffer
 extract = "e"        # Extract current/marked archives
 edit = "E"           # Open current/marked paths in $EDITOR
 new = "n"            # Create a file or directory
+open = "o"           # Open current/marked files with their openers, here
+undo = "u"           # Undo the last file operation
 shallower = "<left>" # Search one level shallower, like Alt+Left (results)
 deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
@@ -704,8 +728,9 @@ actions and the depth digits work only in Normal-mode results; the Alt chords ke
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.
 
-File operations (`move` … `new`) work in Normal-mode results and in the marked
-list. To give one of their letters to another action, disable or rebind the
+File operations (`move` … `undo`) work in Normal-mode results and in the
+marked list. `undo` takes `u` from Neovim's undo in the query (`:u` still
+undoes query edits); set `undo = "U"` or `"none"` to give `u` back. To give one of their letters to another action, disable or rebind the
 operation first; for example `mark = "x"` needs `delete = "none"` or another
 sequence such as `delete = "D"`, because two actions cannot share a sequence.
 
