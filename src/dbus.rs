@@ -9,6 +9,7 @@
 //! EXTERNAL authentication over a Unix socket, then messages in the D-Bus
 //! wire format (method calls in, returns and errors out).
 use std::{
+    collections::VecDeque,
     io::{self, Read, Write},
     os::unix::{net::UnixStream, process::CommandExt},
     path::{Path, PathBuf},
@@ -70,7 +71,11 @@ pub fn serve(address: Option<&str>, launcher: &Path, idle: Duration) -> io::Resu
     }
     bus.stream.set_read_timeout(Some(idle))?;
     loop {
-        let message = match bus.receive() {
+        let next = match bus.queued.pop_front() {
+            Some(message) => Ok(message),
+            None => bus.receive(),
+        };
+        let message = match next {
             Ok(message) => message,
             Err(e)
                 if matches!(
@@ -206,6 +211,7 @@ pub fn file_path(uri: &str) -> Option<PathBuf> {
         if bytes[i] == b'%'
             && let Some(byte) = bytes
                 .get(i + 1..i + 3)
+                .filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))
                 .and_then(|hex| std::str::from_utf8(hex).ok())
                 .and_then(|hex| u8::from_str_radix(hex, 16).ok())
         {
@@ -260,6 +266,9 @@ fn socket(address: Option<&str>) -> io::Result<UnixStream> {
 struct Bus {
     stream: UnixStream,
     serial: u32,
+    /// Calls that arrived while waiting for the bus to answer one of ours:
+    /// the call that made the bus start fff comes before RequestName's reply.
+    queued: VecDeque<Message>,
 }
 
 #[derive(Debug, Default)]
@@ -307,7 +316,11 @@ impl Bus {
             )));
         }
         stream.write_all(b"BEGIN\r\n")?;
-        Ok(Self { stream, serial: 0 })
+        Ok(Self {
+            stream,
+            serial: 0,
+            queued: VecDeque::new(),
+        })
     }
     fn send<'a>(
         &mut self,
@@ -368,6 +381,10 @@ impl Bus {
         )?;
         loop {
             let message = self.receive()?;
+            if message.kind == METHOD_CALL {
+                self.queued.push_back(message);
+                continue;
+            }
             if message.reply_serial == Some(serial) {
                 return match message.kind {
                     METHOD_RETURN => Ok(message),
@@ -566,6 +583,7 @@ mod tests {
         assert_eq!(file_path("https://example.org/x"), None);
         // Undecodable escapes stay as they are; bytes need not be UTF-8.
         assert_eq!(file_path("file:///a%zz"), Some("/a%zz".into()));
+        assert_eq!(file_path("file:///a%+5b"), Some("/a%+5b".into()));
         use std::os::unix::ffi::OsStrExt;
         assert_eq!(
             file_path("file:///caf%E9").unwrap().as_os_str().as_bytes(),

@@ -30,6 +30,14 @@ history.
 
 ### Fixed
 
+- **The first "Show in folder" of a session works.** When the desktop started
+  fff to answer it, that call was lost and the asking program waited 25
+  seconds for nothing; only later calls opened fff.
+- A leading `~` in `[open]` commands (`terminal`, `fff_terminal`, a rule's
+  `command`) no longer fails the configuration with "must name a program".
+- Tab after a bare `~` in the gx/gX prompt completes inside the home folder
+  instead of turning it into a relative path.
+- A `file://` URI with `%+5`-style escapes is no longer decoded as a byte.
 - **Renaming many entries no longer quits fff.** Saving a rename list larger
   than about 64 KiB (thousands of rows, as in a deep `fff pick` or
   `fff seek`) ended the session with "Neovim stopped: Neovim RPC

@@ -745,7 +745,10 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
     if setup.check_config {
         KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
         // Openers name programs; report the ones that are not installed.
-        let missing = settings.open.missing(&std::env::current_dir()?);
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let missing = settings
+            .open
+            .missing(&std::env::current_dir()?, home.as_deref());
         if !missing.is_empty() {
             return Err(format!("[open] programs not found: {}", missing.join("; ")).into());
         }

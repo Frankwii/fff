@@ -459,6 +459,8 @@ impl Prompt {
 /// last component; directories end in `/`. Hidden entries only for a `.` prefix.
 /// For the command word, only directories and executables are offered.
 fn paths(word: &str, cwd: &Path, home: Option<&Path>, command: bool) -> Vec<String> {
+    // A bare `~` names the home folder: complete inside it.
+    let word = if word == "~" { "~/" } else { word };
     let typed = split(word, home)
         .ok()
         .and_then(|w| w.into_iter().next())
@@ -714,6 +716,15 @@ mod tests {
 #[cfg(test)]
 mod flag_tests {
     use super::*;
+    #[test]
+    fn a_bare_tilde_completes_inside_home() {
+        let home = std::env::temp_dir().join(format!("fff-tilde-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        fs::create_dir_all(home.join("only")).unwrap();
+        let cwd = Path::new("/");
+        assert_eq!(paths("~", cwd, Some(&home), false), ["~/only/"]);
+        fs::remove_dir_all(&home).unwrap();
+    }
     #[test]
     fn options_are_read_from_line_starts_only() {
         let help = "Usage: dragon [OPTION] [FILENAME]

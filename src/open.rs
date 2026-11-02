@@ -62,10 +62,12 @@ pub struct Opener {
 impl OpenConfig {
     /// Rejects rules that can never match or have no command.
     pub fn validate(&self) -> Result<(), String> {
-        if split(&self.terminal, None).map_or(true, |w| w.is_empty()) {
+        // Only the syntax matters here; `~` expands when a command runs.
+        let split = |line: &str| split(line, Some(Path::new("/")));
+        if split(&self.terminal).map_or(true, |w| w.is_empty()) {
             return Err("open.terminal must name a terminal command, e.g. \"st -e\"".into());
         }
-        if split(&self.fff_terminal, None).map_or(true, |w| w.is_empty()) {
+        if split(&self.fff_terminal).map_or(true, |w| w.is_empty()) {
             return Err(
                 "open.fff_terminal must name a terminal command, e.g. \"st -c fff-picker -e\""
                     .into(),
@@ -73,7 +75,7 @@ impl OpenConfig {
         }
         for (i, rule) in self.rules.iter().enumerate() {
             let at = format!("open.rules[{}]", i + 1);
-            if split(&rule.command, None).map_or(true, |w| w.is_empty()) {
+            if split(&rule.command).map_or(true, |w| w.is_empty()) {
                 return Err(format!("{at}: command must name a program"));
             }
             if rule.extensions.is_empty() && rule.patterns.is_empty() {
@@ -86,12 +88,12 @@ impl OpenConfig {
         Ok(())
     }
     /// Programs named by rules and the terminals that are not installed.
-    pub fn missing(&self, cwd: &Path) -> Vec<String> {
+    pub fn missing(&self, cwd: &Path, home: Option<&Path>) -> Vec<String> {
         [&self.terminal, &self.fff_terminal]
             .into_iter()
             .chain(self.rules.iter().map(|r| &r.command))
             .filter_map(|line| {
-                let name = split(line, None).ok()?.into_iter().next()?;
+                let name = split(line, home).ok()?.into_iter().next()?;
                 resolve_or_suggest(&name, cwd).err()
             })
             .collect()
@@ -264,6 +266,12 @@ mod tests {
         assert!(config("[[rules]]\ncommand = \"x\"").validate().is_err());
         assert!(config("terminal = \"\"").validate().is_err());
         assert!(config("fff_terminal = \"\"").validate().is_err());
+        // `~` expands when the command runs, not while validating.
+        assert!(
+            config("fff_terminal = \"~/bin/st -e\"\n[[rules]]\ncommand = \"~/bin/view\"\nextensions = [\"a\"]")
+                .validate()
+                .is_ok()
+        );
         assert!(
             config("[[rules]]\ncommand = \"\"\nextensions = [\"a\"]")
                 .validate()
