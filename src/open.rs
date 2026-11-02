@@ -20,6 +20,9 @@ use std::{
 pub struct OpenConfig {
     /// Prefix that runs a command in a new terminal window, e.g. `st -e`.
     pub terminal: String,
+    /// Prefix for fff's own windows, which `--setup` installs (the desktop
+    /// entry, the file chooser): a class a window manager can float.
+    pub fff_terminal: String,
     /// `[[open.rules]]`, first match wins.
     pub rules: Vec<Rule>,
 }
@@ -27,6 +30,7 @@ impl Default for OpenConfig {
     fn default() -> Self {
         Self {
             terminal: "st -e".into(),
+            fff_terminal: "st -c fff-picker -e".into(),
             rules: vec![],
         }
     }
@@ -61,6 +65,12 @@ impl OpenConfig {
         if split(&self.terminal, None).map_or(true, |w| w.is_empty()) {
             return Err("open.terminal must name a terminal command, e.g. \"st -e\"".into());
         }
+        if split(&self.fff_terminal, None).map_or(true, |w| w.is_empty()) {
+            return Err(
+                "open.fff_terminal must name a terminal command, e.g. \"st -c fff-picker -e\""
+                    .into(),
+            );
+        }
         for (i, rule) in self.rules.iter().enumerate() {
             let at = format!("open.rules[{}]", i + 1);
             if split(&rule.command, None).map_or(true, |w| w.is_empty()) {
@@ -75,9 +85,10 @@ impl OpenConfig {
         }
         Ok(())
     }
-    /// Programs named by rules and the terminal that are not installed.
+    /// Programs named by rules and the terminals that are not installed.
     pub fn missing(&self, cwd: &Path) -> Vec<String> {
-        std::iter::once(&self.terminal)
+        [&self.terminal, &self.fff_terminal]
+            .into_iter()
             .chain(self.rules.iter().map(|r| &r.command))
             .filter_map(|line| {
                 let name = split(line, None).ok()?.into_iter().next()?;
@@ -252,6 +263,7 @@ mod tests {
         }
         assert!(config("[[rules]]\ncommand = \"x\"").validate().is_err());
         assert!(config("terminal = \"\"").validate().is_err());
+        assert!(config("fff_terminal = \"\"").validate().is_err());
         assert!(
             config("[[rules]]\ncommand = \"\"\nextensions = [\"a\"]")
                 .validate()

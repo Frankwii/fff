@@ -9,8 +9,8 @@
 # one per line; leaving it empty cancels the dialog. From LOGLEVEL 4 (debug)
 # on, the script traces its commands.
 #
-# fff opens in a new terminal window: the terminal below is [open] terminal
-# from fff's configuration at setup time, and TERMCMD overrides it.
+# fff opens in a new terminal window: the terminal below is [open]
+# fff_terminal from fff's configuration at setup time, and TERMCMD overrides it.
 
 fff=@FFF@
 if [[ -n ${TERMCMD:-} ]]; then

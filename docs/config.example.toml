@@ -69,6 +69,7 @@ cached_queries = 5 # Shorter queries' results kept for Backspace; 0..64, 0 = non
 # terminal. First match wins; unmatched files use $EDITOR. See CONFIGURATION.md.
 [open]
 terminal = "st -e"   # runs terminal openers in a new window
+fff_terminal = "st -c fff-picker -e"   # fff's own window from --setup
 
 [[open.rules]]
 command = "zathura"

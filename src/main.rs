@@ -233,7 +233,7 @@ struct Args {
     cd_file: Option<PathBuf>,
     /// Install fff as the desktop's folder handler or file chooser, and exit
     ///
-    /// desktop writes an fff.desktop entry, run in [open] terminal, and makes
+    /// desktop writes an fff.desktop entry, run in [open] fff_terminal, and makes
     /// it the default for directories (xdg-open, "Show in folder").
     /// file-chooser sets up xdg-desktop-portal-termfilechooser to pick files
     /// with fff, for Firefox and other portal users. Files fff generated
@@ -303,8 +303,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
     if let Some(target) = args.setup {
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        let terminal = fuzzy_file_finder::run::split(&settings.open.terminal, home.as_deref())
-            .map_err(|e| format!("[open] terminal: {e}"))?;
+        let terminal = fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref())
+            .map_err(|e| format!("[open] fff_terminal: {e}"))?;
         let dirs = fuzzy_file_finder::setup::Dirs::from_env()?;
         let fff = std::env::current_exe()?;
         fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut io::stderr())?;

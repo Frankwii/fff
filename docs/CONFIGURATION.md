@@ -506,7 +506,7 @@ Which program opens a file, by extension or name, for `l` / Alt+l / Alt+number
 ```toml
 [open]
 terminal = "st -e"   # how to run a terminal program in a new window (default)
-                     # also fff's own window from --setup (see DESKTOP.md)
+fff_terminal = "st -c fff-picker -e"   # fff's own window from --setup (default)
 
 [[open.rules]]
 command = "zathura"
@@ -534,8 +534,11 @@ needs a command and at least one extension or pattern. Files no rule matches
 open with `$EDITOR`, as a terminal program.
 
 `terminal` must start a terminal window running the rest of the line: `st -e`,
-`alacritty -e`, `foot`, `kitty`. `--check-config` reports opener and terminal
-programs that are not installed.
+`alacritty -e`, `foot`, `kitty`. `fff_terminal` does the same for fff itself
+when the desktop entry or the file chooser installed by `fff --setup` starts
+it; its default gives the window the class `fff-picker`, so a window manager
+rule can float it (see [desktop integration](DESKTOP.md#floating-windows)).
+`--check-config` reports opener and terminal programs that are not installed.
 
 ## Modal text editing
 

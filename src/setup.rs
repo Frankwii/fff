@@ -62,7 +62,7 @@ impl Dirs {
 }
 
 /// Runs one setup, reporting each step to `out`. `terminal` is the
-/// `[open] terminal` command, split into words.
+/// `[open] fff_terminal` command, split into words.
 pub fn run(
     target: Target,
     dirs: &Dirs,
@@ -78,6 +78,16 @@ pub fn run(
         Target::Desktop => desktop(dirs, fff, terminal, out),
         Target::FileChooser => file_chooser(dirs, fff, terminal, out),
     }
+    .and_then(|()| {
+        writeln!(
+            out,
+            "fff: its window opens with `{}` ([open] fff_terminal); to float it, add a \
+             window manager rule, e.g. for i3:\n  \
+             for_window [class=\"fff-picker\"] floating enable, resize set 1500 1000, \
+             move position center",
+            terminal.join(" ")
+        )
+    })
     .map_err(|e| e.to_string())
 }
 
