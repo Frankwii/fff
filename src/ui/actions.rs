@@ -86,7 +86,7 @@ pub(super) enum Scope {
 }
 /// The paths an action applies to. Unambiguous without marks (the current
 /// entry) or when the current entry is marked (the marks); otherwise ask.
-pub(super) fn scope(marks: &[PathBuf], current: Option<PathBuf>) -> Scope {
+pub(super) fn scope(marks: &crate::marks::Marks, current: Option<PathBuf>) -> Scope {
     match current {
         None if marks.is_empty() => Scope::Nothing,
         None => Scope::Ready(marks.to_vec()),
@@ -239,7 +239,7 @@ pub(super) fn perform_operation(
     let summary = operation_summary(&request);
     match crate::operations::Engine::default().execute(request) {
         Ok(outcome) => {
-            for marked in &mut app.marks {
+            app.marks.update(|marked| {
                 // Nested renames report final paths; the deepest match wins.
                 if let Some((from, to)) = outcome
                     .moved
@@ -254,7 +254,7 @@ pub(super) fn perform_operation(
                         to.join(suffix)
                     };
                 }
-            }
+            });
             app.marks
                 .retain(|p| !outcome.removed.iter().any(|r| p.starts_with(r)));
             if clear_selection {
@@ -587,7 +587,7 @@ pub(super) fn mouse_results(
                 app.rendered[to..=from].iter().rev().cloned().collect()
             };
             app.highlight = rows.last().cloned();
-            app.marks = rows;
+            app.marks = rows.into();
             // A drag is not the first half of a double click.
             mouse.click = None;
         }

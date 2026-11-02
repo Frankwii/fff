@@ -59,6 +59,7 @@ prefetch = true       # Pre-read a highlighted child after 500 ms, depth 1 only.
 
 [performance]
 refresh_ms = 50 # Min ms between re-sorts while a scan streams in; 0 = every batch.
+cached_queries = 5 # Shorter queries' results kept for Backspace; 0..64, 0 = none.
 
 # Every text field is a clean embedded Neovim; nvim must be on PATH.
 # Openers: l / Alt+l / Alt+number open a file in the background, o in this

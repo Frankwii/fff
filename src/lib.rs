@@ -10,6 +10,7 @@ pub mod editor;
 pub mod icons;
 pub mod keys;
 pub mod location;
+pub mod marks;
 pub mod normal_keys;
 pub mod notify;
 pub mod open;
@@ -27,6 +28,7 @@ use globset::{GlobBuilder, GlobMatcher};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,17 +253,23 @@ pub struct App {
     pub depth: usize,
     pub query: String,
     pub policy: Policy,
-    pub known: HashMap<PathBuf, Candidate>,
+    /// Every discovered path; rows share these candidates.
+    pub known: HashMap<PathBuf, Arc<Candidate>>,
     /// Bumped whenever `known` changes; part of the refresh shortcut's basis.
     pub(crate) known_version: u64,
     /// What the current rows were computed from, and the lowercased query.
     refreshed: Option<(RefreshBasis, String)>,
-    pub rows: Vec<Candidate>,
+    /// Rows of shorter queries the current one extends, shortest first, kept so
+    /// that deleting letters restores them; they share candidates with `rows`.
+    earlier: Vec<(String, Vec<Arc<Candidate>>)>,
+    /// `[performance] cached_queries`: most entries kept in `earlier`.
+    pub cached_queries: usize,
+    pub rows: Vec<Arc<Candidate>>,
     pub highlight: Option<PathBuf>,
     /// After a bookmark jump, the highlight follows the first row while the
     /// scan streams in and the query changes, until the user moves it.
     pub highlight_top: bool,
-    pub marks: Vec<PathBuf>,
+    pub marks: marks::Marks,
     pub rendered: Vec<PathBuf>,
     pub offset: usize,
     /// The mouse wheel scrolled the results while this was the highlight: the
@@ -345,10 +353,12 @@ impl App {
             known: HashMap::new(),
             known_version: 0,
             refreshed: None,
+            earlier: Vec::new(),
+            cached_queries: config::PerformanceConfig::default().cached_queries,
             rows: Vec::new(),
             highlight: None,
             highlight_top: false,
-            marks: Vec::new(),
+            marks: marks::Marks::default(),
             rendered: Vec::new(),
             offset: 0,
             scrolled: None,
@@ -547,7 +557,8 @@ impl App {
         if let Some((depth, root)) = best {
             candidate.depth = depth;
             candidate.root = root;
-            self.known.insert(candidate.path.clone(), candidate);
+            self.known
+                .insert(candidate.path.clone(), Arc::new(candidate));
             self.known_version += 1;
         }
     }
@@ -587,17 +598,46 @@ impl App {
         // Rows already match the previous query under the same basis. A query
         // that only appends letters (after lowercasing, as `score` does) can only
         // remove matches, so re-score those rows instead of every known path.
-        let narrowing = match &self.refreshed {
-            Some((previous, query)) if *previous == basis => {
-                if *query == folded {
+        // Deleting letters returns to a shorter query's kept rows, or narrows
+        // from the longest kept query the new one still extends.
+        let mut base = None;
+        match self.refreshed.take() {
+            Some((previous, query)) if previous == basis => {
+                if query == folded {
+                    self.refreshed = Some((previous, query));
                     self.keep_highlight();
                     return;
                 }
-                folded.starts_with(query.as_str())
+                if folded.starts_with(query.as_str()) {
+                    if self.cached_queries > 0 {
+                        self.earlier.push((query, self.rows.clone()));
+                        if self.earlier.len() > self.cached_queries {
+                            self.earlier.remove(0);
+                        }
+                    }
+                    base = Some(std::mem::take(&mut self.rows));
+                } else {
+                    while self
+                        .earlier
+                        .last()
+                        .is_some_and(|(q, _)| !folded.starts_with(q.as_str()))
+                    {
+                        self.earlier.pop();
+                    }
+                    if let Some((q, _)) = self.earlier.last() {
+                        if *q == folded {
+                            self.rows = self.earlier.pop().expect("checked").1;
+                            self.refreshed = Some((basis, folded));
+                            self.keep_highlight();
+                            return;
+                        }
+                        base = self.earlier.last().map(|(_, rows)| rows.clone());
+                    }
+                }
             }
-            _ => false,
-        };
-        let order = |(a, sa): &(&Candidate, i64), (b, sb): &(&Candidate, i64)| {
+            _ => self.earlier.clear(),
+        }
+        let order = |(a, sa): &(&Arc<Candidate>, i64), (b, sb): &(&Arc<Candidate>, i64)| {
             a.depth
                 .cmp(&b.depth)
                 .then(b.directory.cmp(&a.directory))
@@ -608,9 +648,9 @@ impl App {
         let matcher = Matcher::new(&self.query);
         let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
         // Pathnames break every tie, so an unstable sort yields the same order.
-        let rows = if narrowing {
+        let rows = if let Some(base) = base {
             // Move the surviving rows rather than cloning them.
-            let mut ranked: Vec<_> = std::mem::take(&mut self.rows)
+            let mut ranked: Vec<_> = base
                 .into_iter()
                 .filter_map(|c| {
                     let score = score_of(&c)?;
@@ -620,7 +660,7 @@ impl App {
             ranked.sort_unstable_by(|(a, sa), (b, sb)| order(&(a, *sa), &(b, *sb)));
             ranked.into_iter().map(|(c, _)| c).collect()
         } else {
-            // Sort references and clone only the result.
+            // Sort references and share only the result.
             let mut ranked: Vec<_> = self
                 .known
                 .values()
@@ -628,7 +668,7 @@ impl App {
                 .filter_map(|c| Some((c, score_of(c)?)))
                 .collect();
             ranked.sort_unstable_by(order);
-            ranked.into_iter().map(|(c, _)| c.clone()).collect()
+            ranked.into_iter().map(|(c, _)| Arc::clone(c)).collect()
         };
         self.rows = rows;
         self.refreshed = Some((basis, folded));
@@ -690,12 +730,15 @@ impl App {
     /// paths stay.
     pub fn mark_rows(&mut self, rows: &[PathBuf], invert: bool) {
         let listed: HashSet<&PathBuf> = rows.iter().collect();
-        let marked: HashSet<PathBuf> = self.marks.iter().cloned().collect();
+        let added: Vec<_> = rows
+            .iter()
+            .filter(|p| !self.marks.contains(p))
+            .cloned()
+            .collect();
         if invert {
             self.marks.retain(|p| !listed.contains(p));
         }
-        let added = rows.iter().filter(|p| !marked.contains(*p)).cloned();
-        self.marks.extend(added.collect::<Vec<_>>());
+        self.marks.extend(added);
     }
     pub fn numbered(&self, digit: u32) -> PathBuf {
         let i = if digit == 0 {
@@ -846,8 +889,8 @@ impl App {
             return self.enter(None);
         }
         let path = self.numbered(digit);
-        if let Some(target) = self.rows.iter().find(|c| c.path == path).cloned() {
-            self.enter(Some(target))
+        if let Some(target) = self.rows.iter().find(|c| c.path == path) {
+            self.enter(Some(Candidate::clone(target)))
         } else {
             // Never substitute another candidate for a previously rendered path.
             EnterOutcome::Stay
@@ -859,7 +902,7 @@ impl App {
                 "Missing marked paths: unmark them in the marked list before confirming".into();
             return None;
         }
-        let mut paths = self.marks.clone();
+        let mut paths = self.marks.to_vec();
         if let Some(path) = target
             && !paths.contains(&path)
         {

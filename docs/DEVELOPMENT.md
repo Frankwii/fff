@@ -10,6 +10,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | --- | --- |
 | `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
 | `src/lib.rs` | Session state, navigation, tabs, policies, matching, ordering, marks and path output. |
+| `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, freshness and scan reconciliation. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |

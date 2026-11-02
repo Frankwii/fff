@@ -909,7 +909,7 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     frame.render_widget(block, area);
     let (rows, index) = match focus {
         Focus::Marks { rows, index } => (rows.as_slice(), Some(*index)),
-        _ => (app.marks.as_slice(), None),
+        _ => (&app.marks[..], None),
     };
     if rows.is_empty() {
         frame.render_widget(
@@ -926,54 +926,78 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         );
         return;
     }
-    let items = rows
-        .iter()
-        .map(|path| {
-            let metadata = path.metadata().ok();
-            let missing = metadata.is_none();
-            let icon = if app.icons {
-                crate::icons::icon(path, metadata.is_some_and(|m| m.is_dir())).cell()
+    let item = |path: &PathBuf| {
+        let metadata = path.metadata().ok();
+        let missing = metadata.is_none();
+        let icon = if app.icons {
+            crate::icons::icon(path, metadata.is_some_and(|m| m.is_dir())).cell()
+        } else {
+            String::new()
+        };
+        let title = format!(
+            "{} {} {icon}{}{}",
+            if index.and_then(|i| rows.get(i)) == Some(path) {
+                "›"
             } else {
-                String::new()
-            };
-            let title = format!(
-                "{} {} {icon}{}{}",
-                if index.and_then(|i| rows.get(i)) == Some(path) {
-                    "›"
-                } else {
-                    " "
-                },
-                if app.marks.contains(path) {
-                    "●"
-                } else {
-                    "○"
-                },
-                safe(
-                    path.file_name()
-                        .unwrap_or(path.as_os_str())
-                        .to_string_lossy()
-                ),
-                if missing { " [MISSING]" } else { "" }
+                " "
+            },
+            if app.marks.contains(path) {
+                "●"
+            } else {
+                "○"
+            },
+            safe(
+                path.file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy()
+            ),
+            if missing { " [MISSING]" } else { "" }
+        );
+        let mut lines = vec![Line::from(bold(
+            title,
+            if missing { theme.error } else { theme.marked },
+        ))];
+        // Compact labels wrap; F1 retains exact absolute paths. A label that
+        // is just the name (a mark in the current directory) adds nothing.
+        let label = display_path(path, &app.cwd);
+        if label.contains('/') {
+            lines.extend(
+                wrap_text(&label, inner.width.saturating_sub(2).max(1) as usize)
+                    .into_iter()
+                    .map(|s| Line::from(styled(format!("  {s}"), theme.muted))),
             );
-            let mut lines = vec![Line::from(bold(
-                title,
-                if missing { theme.error } else { theme.marked },
-            ))];
-            // Compact labels wrap; F1 retains exact absolute paths. A label that
-            // is just the name (a mark in the current directory) adds nothing.
-            let label = display_path(path, &app.cwd);
-            if label.contains('/') {
-                lines.extend(
-                    wrap_text(&label, inner.width.saturating_sub(2).max(1) as usize)
-                        .into_iter()
-                        .map(|s| Line::from(styled(format!("  {s}"), theme.muted))),
-                );
+        }
+        lines.push(Line::from(""));
+        ListItem::new(Text::from(lines))
+    };
+    // Build only the items on screen, the window List picks with a fresh
+    // state: from the top while the selection fits, otherwise ending at it.
+    let height = inner.height as usize;
+    let selected = index.filter(|&i| i < rows.len());
+    let mut first = selected.unwrap_or(0);
+    let mut items = vec![item(&rows[first])];
+    let mut used = items[0].height();
+    while first > 0 {
+        let previous = item(&rows[first - 1]);
+        if used + previous.height() > height {
+            break;
+        }
+        used += previous.height();
+        items.push(previous);
+        first -= 1;
+    }
+    items.reverse();
+    if first == 0 {
+        for path in &rows[items.len()..] {
+            if used >= height {
+                break;
             }
-            lines.push(Line::from(""));
-            ListItem::new(Text::from(lines))
-        })
-        .collect::<Vec<_>>();
-    let mut state = ListState::default().with_selected(index);
+            let next = item(path);
+            used += next.height();
+            items.push(next);
+        }
+    }
+    let mut state = ListState::default().with_selected(selected.map(|i| i - first));
     frame.render_stateful_widget(
         List::new(items).highlight_style(Style::default().bg(theme.selection)),
         inner,

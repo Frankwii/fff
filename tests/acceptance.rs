@@ -595,24 +595,36 @@ fn incremental_refresh_matches_a_full_refresh_for_every_query_edit() {
         seed ^= seed << 5;
         seed as usize % n
     };
-    let mut app = build();
-    app.refresh();
-    for _ in 0..2_000 {
-        if next(3) == 0 {
-            app.query.pop();
-        } else {
-            app.query.push(alphabet[next(alphabet.len())]);
-        }
-        if app.query.chars().count() > 6 {
-            app.query.clear();
-        }
+    let paths = |a: &App| a.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+    // Kept shorter queries (none, one, the default) restore or narrow exactly.
+    for cached in [0, 1, 5] {
+        let mut app = build();
+        app.cached_queries = cached;
         app.refresh();
-        let mut fresh = build();
-        fresh.query = app.query.clone();
-        fresh.refresh();
-        let paths = |a: &App| a.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
-        assert_eq!(paths(&app), paths(&fresh), "query {:?}", app.query);
+        for _ in 0..2_000 {
+            match next(6) {
+                0 | 1 => {
+                    app.query.pop();
+                }
+                // An edit inside the query, not at its end.
+                2 if app.query.chars().count() > 1 => {
+                    let mut chars: Vec<char> = app.query.chars().collect();
+                    chars[0] = alphabet[next(alphabet.len())];
+                    app.query = chars.into_iter().collect();
+                }
+                _ => app.query.push(alphabet[next(alphabet.len())]),
+            }
+            if app.query.chars().count() > 8 {
+                app.query.clear();
+            }
+            app.refresh();
+            let mut fresh = build();
+            fresh.query = app.query.clone();
+            fresh.refresh();
+            assert_eq!(paths(&app), paths(&fresh), "query {:?}", app.query);
+        }
     }
+    let mut app = build();
     // A basis change (depth) after narrowing rebuilds from every known path.
     app.query = "re".into();
     app.refresh();

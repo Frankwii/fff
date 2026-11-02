@@ -13,7 +13,20 @@ not implemented features or commitments:
   should restore its remembered location only when started from the
   directory that was being browsed last, instead of always jumping there.
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
-  cancel safely within the staged-operation guarantees.
+  cancel safely within the staged-operation guarantees. This should also move
+  file operations off the UI thread, including their preparation: building a
+  confirmation inventories the selected trees and extraction validates every
+  archive payload first, so today even opening a confirmation can freeze the
+  interface. A worker would prepare and run them with progress shown at once,
+  keeping the confirmation binding, validation and rollback guarantees, and
+  must define what stays usable meanwhile (navigation, marks, other
+  operations), how live-update rescans interact, and what Ctrl+c does at each
+  stage.
+- No filesystem calls while drawing. Result rows already use cached details,
+  but the marks pane stats each visible mark on every frame, the F1 guide
+  checks every mark twice per frame, and confirmation lists stat their rows.
+  Cheap on local disks, but a slow network or FUSE mount stalls the frame;
+  these should read from the details cache, refreshed in the background.
 - Mouse-only use, planned for 0.7.0 (below).
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked

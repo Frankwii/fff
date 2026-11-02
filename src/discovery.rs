@@ -243,7 +243,7 @@ impl Discovery {
                     })
                 })
                 .take(self.options.max_candidates)
-                .cloned()
+                .map(|c| Candidate::clone(c))
                 .collect()
         } else {
             Vec::new()
