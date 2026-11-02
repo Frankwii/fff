@@ -22,9 +22,10 @@ fn fixture() -> App {
     app.refresh();
     app.scanning = false;
     app.marks = vec![
-        "/home/frank/papers/Turing 1952.pdf".into(),
-        "/home/frank/notes/report.tex".into(),
-    ];
+        PathBuf::from("/home/frank/papers/Turing 1952.pdf"),
+        PathBuf::from("/home/frank/notes/report.tex"),
+    ]
+    .into();
     app
 }
 #[test]
@@ -304,6 +305,42 @@ fn narrow_tiny_unicode_and_resize_frames_have_only_visible_targets() {
     }
 }
 #[test]
+fn marks_pane_shows_the_window_list_would_scroll_to() {
+    let mut app = fixture();
+    let rows: Vec<PathBuf> = (0..60)
+        .map(|i| PathBuf::from(format!("/elsewhere/m{i:03}")))
+        .collect();
+    app.marks = rows.clone().into();
+    let screen = |app: &mut App, mut focus: Focus| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        terminal
+            .draw(|f| {
+                render(f, app, &mut focus);
+            })
+            .unwrap();
+        text(terminal.backend().buffer())
+    };
+    let selected = |screen: &str, name: &str| {
+        screen
+            .lines()
+            .any(|l| l.contains(name) && l.contains("│› ●"))
+    };
+    let unfocused = screen(&mut app, Focus::Results);
+    assert!(unfocused.contains("m000") && !unfocused.contains("m059"));
+    let near_top = screen(
+        &mut app,
+        Focus::Marks {
+            rows: rows.clone(),
+            index: 2,
+        },
+    );
+    assert!(near_top.contains("m000") && selected(&near_top, "m002"));
+    // Deep in the list the selection is the last row, as List scrolls it.
+    let deep = screen(&mut app, Focus::Marks { rows, index: 45 });
+    assert!(selected(&deep, "m045") && deep.contains("m044"));
+    assert!(!deep.contains("m046") && !deep.contains("m000"));
+}
+#[test]
 fn marks_focus_retains_unmarked_rows_and_details_clamp_scroll() {
     let theme = Palette::default();
     let mut app = fixture();
@@ -562,7 +599,7 @@ fn operation_sheets_align_with_the_pane_edges_and_list_keys_in_the_border() {
         let current = app.cwd.join("todo.txt");
         let mut focus = Focus::ScopeChoice {
             current,
-            selected: app.marks.clone(),
+            selected: app.marks.to_vec(),
             action: crate::ui::ScopedAction::Delete,
         };
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -960,7 +997,7 @@ fn icons_keep_columns_elision_and_numbered_targets_aligned() {
             },
         );
     }
-    app.marks = vec!["/home/frank/notes/report.tex".into()];
+    app.marks = vec![PathBuf::from("/home/frank/notes/report.tex")].into();
     app.refresh();
     let mut frames = Vec::new();
     for icons in [true, false] {

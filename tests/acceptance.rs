@@ -595,24 +595,36 @@ fn incremental_refresh_matches_a_full_refresh_for_every_query_edit() {
         seed ^= seed << 5;
         seed as usize % n
     };
-    let mut app = build();
-    app.refresh();
-    for _ in 0..2_000 {
-        if next(3) == 0 {
-            app.query.pop();
-        } else {
-            app.query.push(alphabet[next(alphabet.len())]);
-        }
-        if app.query.chars().count() > 6 {
-            app.query.clear();
-        }
+    let paths = |a: &App| a.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+    // Kept shorter queries (none, one, the default) restore or narrow exactly.
+    for cached in [0, 1, 5] {
+        let mut app = build();
+        app.cached_queries = cached;
         app.refresh();
-        let mut fresh = build();
-        fresh.query = app.query.clone();
-        fresh.refresh();
-        let paths = |a: &App| a.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
-        assert_eq!(paths(&app), paths(&fresh), "query {:?}", app.query);
+        for _ in 0..2_000 {
+            match next(6) {
+                0 | 1 => {
+                    app.query.pop();
+                }
+                // An edit inside the query, not at its end.
+                2 if app.query.chars().count() > 1 => {
+                    let mut chars: Vec<char> = app.query.chars().collect();
+                    chars[0] = alphabet[next(alphabet.len())];
+                    app.query = chars.into_iter().collect();
+                }
+                _ => app.query.push(alphabet[next(alphabet.len())]),
+            }
+            if app.query.chars().count() > 8 {
+                app.query.clear();
+            }
+            app.refresh();
+            let mut fresh = build();
+            fresh.query = app.query.clone();
+            fresh.refresh();
+            assert_eq!(paths(&app), paths(&fresh), "query {:?}", app.query);
+        }
     }
+    let mut app = build();
     // A basis change (depth) after narrowing rebuilds from every known path.
     app.query = "re".into();
     app.refresh();
@@ -731,4 +743,29 @@ fn tabs_keep_their_own_directory_and_history_and_share_marks() {
     fs::remove_dir(&b).unwrap();
     assert!(!app.switch_tab(false));
     assert_eq!((app.tab, &app.cwd), (1, &f.0));
+}
+#[test]
+fn highlighted_row_stays_correct_when_rows_or_highlight_change_elsewhere() {
+    let mut app = app();
+    for name in ["a1", "a2", "b1", "b2", "c1"] {
+        app.insert(0, candidate(name, false, 1));
+    }
+    app.refresh();
+    let position = |a: &App| {
+        a.rows
+            .iter()
+            .position(|c| Some(&c.path) == a.highlight.as_ref())
+    };
+    app.move_by(3);
+    assert_eq!(app.highlighted(), position(&app));
+    // Set directly, as clicks and jumps do.
+    app.highlight = Some(Path::new("/fixture/a2").into());
+    assert_eq!(app.highlighted(), Some(1));
+    app.move_by(2);
+    assert_eq!(app.highlighted(), position(&app));
+    app.query = "1".into();
+    app.refresh();
+    assert_eq!(app.highlighted(), position(&app));
+    app.highlight = Some(Path::new("/fixture/missing").into());
+    assert_eq!(app.highlighted(), None);
 }

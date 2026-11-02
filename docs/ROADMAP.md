@@ -4,6 +4,8 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content search with alternating filtering (below).
+- Path-aware matching (below).
+- A text-only preview pane (below).
 - Tab completion of program options in the gx/gX prompt for programs without a
   man page or `--help`.
 - Becoming the desktop's file manager (below).
@@ -11,7 +13,20 @@ not implemented features or commitments:
   should restore its remembered location only when started from the
   directory that was being browsed last, instead of always jumping there.
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
-  cancel safely within the staged-operation guarantees.
+  cancel safely within the staged-operation guarantees. This should also move
+  file operations off the UI thread, including their preparation: building a
+  confirmation inventories the selected trees and extraction validates every
+  archive payload first, so today even opening a confirmation can freeze the
+  interface. A worker would prepare and run them with progress shown at once,
+  keeping the confirmation binding, validation and rollback guarantees, and
+  must define what stays usable meanwhile (navigation, marks, other
+  operations), how live-update rescans interact, and what Ctrl+c does at each
+  stage.
+- No filesystem calls while drawing. Result rows already use cached details,
+  but the marks pane stats each visible mark on every frame, the F1 guide
+  checks every mark twice per frame, and confirmation lists stat their rows.
+  Cheap on local disks, but a slow network or FUSE mount stalls the frame;
+  these should read from the details cache, refreshed in the background.
 - Mouse-only use beyond the opt-in buttons (below).
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
@@ -23,7 +38,7 @@ not implemented features or commitments:
   more Normal-mode keys available; a flag or setting would start with the
   query visible.
 
-There is deliberately no preview pane: see [design
+There will be no image previews: see [design
 choices](DEVELOPMENT.md#design-choices).
 
 ## Mouse-only use
@@ -55,6 +70,46 @@ from the shell.
   the portal's open, open-multiple, directory and save requests onto
   `--output-paths` (marks for multiple files) and a save-name prompt, and
   writes the chosen paths where the portal reads them.
+
+## Path-aware matching
+
+Today the query matches only basenames, so similarly named files in different
+folders (`notes/stability.tex`, `pde/notes/stability.tex`) can only be told
+apart by reading their labels. Path-aware matching would let `pde/stab` match
+`pde/notes/stability.tex`.
+
+- **Slash-triggered.** A query containing `/` matches the path relative to the
+  result's root instead of the basename. No basename contains `/`, so such a
+  query lists nothing today and no working query changes meaning; a query
+  without `/` behaves exactly as now.
+- **Segments in order.** Each `/`-separated part of the query is a
+  case-insensitive subsequence of some path component, the components in
+  order, and the last part must match the basename. Scoring favours whole
+  components and the basename, and the highlighted letters span the whole label.
+- **Ordering unchanged.** Depth stays the primary sort key, then directories
+  before files, then the score, as today.
+- **Same narrowing.** Appending letters still only narrows, so the incremental
+  re-score keeps working.
+
+## Text-only preview pane
+
+An optional pane beside the results showing the highlighted entry. **Text
+only**: no images, sixel, kitty graphics or other terminal image protocols, so
+it works the same in st and any other plain terminal.
+
+- **What it shows.** The first lines of a text file (tabs expanded, control
+  characters made safe, long lines cut), PDF text through `pdftotext` when it
+  is installed, a directory's first entries, and for anything else (binary
+  files, images, archives) a short metadata summary: type, size, modification
+  time, permissions, link target.
+- **Never slows the list.** Reading happens in a worker, bounded by bytes and
+  lines, and starts only once the highlight has rested briefly (like the
+  palette preview's wait); moving again cancels it. The frame never waits for a
+  preview, and stale previews are dropped.
+- **Off by default.** A key toggles it and a setting can start with it shown;
+  on narrow terminals it stacks below the results, as the marks do.
+- **With content search.** A content match could preview the lines around it
+  and E would open `$EDITOR` there.
 
 ## Content search with alternating filtering
 

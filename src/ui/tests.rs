@@ -110,7 +110,7 @@ fn m_marks_every_listed_row_and_shift_m_inverts_them() {
     let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
     let [a, b, c, other]: [PathBuf; 4] =
         ["/fixture/a", "/fixture/b", "/fixture/c", "/elsewhere/d"].map(PathBuf::from);
-    app.marks = vec![other.clone(), b.clone()];
+    app.marks = vec![other.clone(), b.clone()].into();
     let mut focus = Focus::Marks {
         rows: vec![a.clone(), b.clone(), c.clone()],
         index: 0,
@@ -177,7 +177,7 @@ fn clicks_highlight_drags_mark_double_clicks_enter_and_the_wheel_only_scrolls() 
     );
     let path = |name: &str| root.join(name);
     let marked = vec![path("f"), path("g")];
-    app.marks = marked.clone();
+    app.marks = marked.clone().into();
     // Outside the rows, past the last one, or another button: nothing changes.
     mouse(&mut app, left, 1, 8);
     mouse(&mut app, left, 10, 30);

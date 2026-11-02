@@ -167,10 +167,16 @@ pub struct PerformanceConfig {
     /// Minimum milliseconds between re-sorts of the result list while a scan
     /// streams in; 0 re-sorts after every drained batch.
     pub refresh_ms: u64,
+    /// Shorter queries whose results are kept while typing, so deleting
+    /// letters restores them without ranking every path again; 0 disables.
+    pub cached_queries: usize,
 }
 impl Default for PerformanceConfig {
     fn default() -> Self {
-        Self { refresh_ms: 50 }
+        Self {
+            refresh_ms: 50,
+            cached_queries: 5,
+        }
     }
 }
 
@@ -288,6 +294,9 @@ impl Settings {
         raw.cache.validate()?;
         if raw.performance.refresh_ms > 1000 {
             return Err("performance.refresh_ms must be 0..1000".into());
+        }
+        if raw.performance.cached_queries > 64 {
+            return Err("performance.cached_queries must be 0..64".into());
         }
         if raw.ui.message_seconds > 3600 {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());

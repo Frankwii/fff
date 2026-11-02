@@ -128,7 +128,7 @@ impl Cache {
             .rows
             .iter()
             .take(self.options.max_candidates)
-            .cloned()
+            .map(|c| Candidate::clone(c))
             .collect();
         if candidates.len() < self.options.max_candidates {
             let used: HashSet<_> = candidates.iter().map(|c| c.path.clone()).collect();
@@ -140,7 +140,7 @@ impl Cache {
                 .filter(|c| app.eligible(c) && !used.contains(&c.path))
                 .take(self.options.max_candidates - candidates.len())
                 .collect();
-            let order = |a: &&Candidate, b: &&Candidate| {
+            let order = |a: &&Arc<Candidate>, b: &&Arc<Candidate>| {
                 a.depth
                     .cmp(&b.depth)
                     .then(b.directory.cmp(&a.directory))
@@ -148,7 +148,7 @@ impl Cache {
                     .then(a.path.cmp(&b.path))
             };
             rest.sort_by(order);
-            candidates.extend(rest.into_iter().cloned());
+            candidates.extend(rest.into_iter().map(|c| Candidate::clone(c)));
         }
         self.invalidate(&key);
         while self.entries.len() >= self.options.max_entries {

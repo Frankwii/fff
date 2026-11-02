@@ -140,6 +140,7 @@ fn session(
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
     discovery.refresh_every = Duration::from_millis(performance.refresh_ms);
+    app.cached_queries = performance.cached_queries;
     app.details.set_waker(wake.clone());
     let mut watch = app.watch.then(crate::watch::Watch::new).flatten();
     // When a change to the current directory's listing is reconciled.
@@ -593,7 +594,7 @@ fn session(
             };
             match key.code {
                 K::Char('v' | 'p' | 's') => {
-                    let sources = app.marks.clone();
+                    let sources = app.marks.to_vec();
                     if sources.is_empty() {
                         app.status = "No files selected".into();
                     } else {
@@ -846,7 +847,7 @@ fn session(
             app.highlight = Some(target.path.clone());
             if target.directory {
                 if app.ready_path(&target.path) && app.can_navigate() {
-                    app.navigate(target.path, false);
+                    app.navigate(target.path.clone(), false);
                     discovery.start(app, true);
                 }
             } else {
@@ -1475,7 +1476,7 @@ fn session(
                 }
                 (K::Char(' '), _, true) => {
                     focus = Focus::Marks {
-                        rows: app.marks.clone(),
+                        rows: app.marks.to_vec(),
                         index: 0,
                     }
                 }
@@ -1569,11 +1570,7 @@ fn session(
                     }
                 }
                 (K::Enter, _, _) => {
-                    let target = app
-                        .rows
-                        .iter()
-                        .find(|c| Some(&c.path) == app.highlight.as_ref())
-                        .cloned();
+                    let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
                     // Normal mode: exit into the entry's folder (a directory
                     // itself), like l then !, but for deep results too.
                     if app.edit_view.as_ref().is_some_and(|v| v.normal()) {

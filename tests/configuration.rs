@@ -80,6 +80,7 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
         "[cache]\nttl_seconds=0",
         "[ui]\nmessage_seconds=3601",
         "[performance]\nrefresh_ms=1001",
+        "[performance]\ncached_queries=65",
         "[performance]\nrefresh=50",
         "[ui]\nmessage_seconds=-1",
         "[[bookmarks]]\nname=''\npath='/tmp'",
@@ -392,6 +393,12 @@ fn performance_refresh_interval_defaults_to_fifty_and_accepts_zero() {
             .refresh_ms,
         0
     );
+}
+#[test]
+fn performance_cached_queries_default_to_five_and_accept_zero() {
+    assert_eq!(parse("").unwrap().performance.cached_queries, 5);
+    let config = parse("[performance]\ncached_queries=0").unwrap();
+    assert_eq!(config.performance.cached_queries, 0);
 }
 
 #[test]

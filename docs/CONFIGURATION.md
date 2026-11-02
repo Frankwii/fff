@@ -384,6 +384,7 @@ prefetch = true         # pre-read a stable highlighted child at depth 1
 
 [performance]
 refresh_ms = 50         # minimum time between re-sorts during scans (0..1000)
+cached_queries = 5      # shorter queries kept for deleting letters (0..64)
 ```
 
 ### Opening a directory
@@ -482,10 +483,12 @@ classification reads `/proc/self/mountinfo`.
 | Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
 | `refresh_ms` | `50` | 0–1000 | Minimum interval between result re-sorts during a scan. First results, completion and query changes update immediately. Zero re-sorts after every drained batch; larger intervals reduce repeated ranking on large trees. |
+| `cached_queries` | `5` | 0–64 | Results of this many shorter queries are kept while you type, so deleting letters restores them instead of ranking every path again; an edited query narrows from the longest kept query it still starts with. Each kept query costs about 8 bytes per matching row (rows share their paths). Zero keeps none. Discovery or a policy change discards them. |
 
 Workers batch up to 256 paths or 10 ms of discoveries; the UI drains for up to
 8 ms per iteration. ASCII scoring avoids allocation, narrower queries re-score
-current matches, unchanged refreshes skip work, and completed scans release their
+current matches, shorter ones restore kept results (`cached_queries`),
+unchanged refreshes skip work, and completed scans release their
 reconciliation set. Non-ASCII paths and exclusions retain the general code paths.
 The UI redraws after visible changes and at least once a second, with a single
 bounded terminal-input reader waking it immediately alongside discovery.
