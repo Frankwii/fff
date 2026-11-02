@@ -27,6 +27,9 @@ not implemented features or commitments:
   Cheap on local disks, but a slow network or FUSE mount stalls the frame;
   these should read from the details cache, refreshed in the background.
 - Mouse-only use beyond the opt-in buttons (below).
+- `--no-dir` as its own subcommand, e.g. `fff seek`, like `fff explorer`: a
+  static file choice changes enough behavior (no navigation, Insert mode,
+  bare names) to be a mode of its own rather than a flag.
 - Desktop follow-ups to `--setup` (see [desktop integration](DESKTOP.md)):
   answering `org.freedesktop.FileManager1` over D-Bus, so "Show in folder"
   highlights the file instead of only opening its folder, and a hint in the

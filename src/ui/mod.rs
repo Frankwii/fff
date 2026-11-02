@@ -560,6 +560,9 @@ fn session(
                 continue;
             }
             NormalKey::Quit(current) => {
+                if app.dialog.is_some() && !current {
+                    return Ok(Finish::Cancelled);
+                }
                 if app.no_dir {
                     return Ok(Finish::Paths(Vec::new()));
                 }
@@ -1432,6 +1435,9 @@ fn session(
                 } else if key.code == K::Enter
                     && let Some(mark) = rows.get(*index)
                 {
+                    if app.dialog.is_some() {
+                        return Ok(Finish::Paths(vec![mark.clone()]));
+                    }
                     // Like Normal-mode Enter in the results: exit into its folder.
                     let folder = if mark.is_dir() {
                         mark.clone()
@@ -1572,8 +1578,9 @@ fn session(
                 (K::Enter, _, _) => {
                     let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
                     // Normal mode: exit into the entry's folder (a directory
-                    // itself), like l then !, but for deep results too.
-                    if app.edit_view.as_ref().is_some_and(|v| v.normal()) {
+                    // itself), like l then !, but for deep results too. A
+                    // dialog chooses files and enters folders instead.
+                    if app.dialog.is_none() && app.edit_view.as_ref().is_some_and(|v| v.normal()) {
                         let folder = match &target {
                             Some(c) if c.directory => c.path.clone(),
                             Some(c) => c.path.parent().unwrap_or(&app.cwd).to_owned(),

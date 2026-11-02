@@ -7,6 +7,7 @@ pub mod config;
 pub mod details;
 pub mod discovery;
 pub mod editor;
+pub mod explorer;
 pub mod icons;
 pub mod keys;
 pub mod location;
@@ -340,6 +341,9 @@ pub struct App {
     pub mouse_used: bool,
     /// `[ui] watch`: follow changes to the current directory as they happen.
     pub watch: bool,
+    /// `fff explorer`: the file dialog being answered. Enter chooses files in
+    /// either mode and q cancels.
+    pub dialog: Option<explorer::Dialog>,
 }
 
 impl App {
@@ -414,6 +418,7 @@ impl App {
             buttons: config::Buttons::Off,
             mouse_used: false,
             watch: true,
+            dialog: None,
         }
     }
     /// The button bar is shown: always, or once the mouse has been used.

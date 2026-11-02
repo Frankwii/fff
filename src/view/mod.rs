@@ -623,7 +623,11 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let available = inner.width.saturating_sub(prefix.width() as u16) as usize;
     let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
     if app.query.is_empty() {
-        line = Line::from(styled("type to filter names…", theme.muted));
+        let hint = match &app.dialog {
+            Some(dialog) => dialog.hint(),
+            None => "type to filter names…".into(),
+        };
+        line = Line::from(styled(hint, theme.muted));
     }
     line.spans.insert(0, bold(prefix, theme.accent));
     frame.render_widget(Paragraph::new(line), inner);

@@ -133,25 +133,31 @@ it back to undo.
 
 ### Using the dialog
 
-fff opens in picker mode (`--output-paths`), starting beside the file or in the
-folder the application suggests (`$HOME` when it suggests none).
+Each dialog runs `fff explorer`, a mode made for answering file dialogs. It
+starts beside the file or in the folder the application suggests (`$HOME` when
+it suggests none), and the empty query line says how to choose. Enter on a
+folder enters it and Enter on a file chooses it, in Normal and Insert mode
+alike; `q` and Ctrl+c cancel.
 
 | Dialog | How to choose | Received |
 | --- | --- | --- |
-| Open a file | Enter on a file | The first file chosen. |
-| Open several files | Tab to mark, then Enter on a file or Ctrl+w | Every chosen file. |
+| Open a file (attach, upload) | Enter on a file | That file. |
+| Open several files | Tab to mark, then Enter on a file or Ctrl+w | The marks and the file. |
 | Choose a folder | Navigate into it and press `!`, or mark folders and Ctrl+w | Folders only. |
-| Save | `!` for the browsing folder, or Enter on a file to replace | See below. |
+| Save (a download, a PDF from the viewer) | Navigate to the folder and press `!` | The suggested name in that folder. |
 
-Ctrl+c cancels any dialog. Directories are dropped from file choices and files
-from folder choices, so `q`, which returns the launch directory, cancels a file
-dialog (and chooses the starting folder in a folder dialog).
+Saving needs no typing: `!` saves under the name the application suggests in
+the folder you are browsing. When a file of that name exists, the new one is
+numbered instead (`paper (1).pdf`); to replace a file, press Enter on it.
+To use another name, rename the file afterwards (`r` in fff).
 
-When saving, fff hands over to a prompt in the same window once you choose:
-`Save in FOLDER as:` with the suggested name filled in (or the chosen file's
-name), editable with the usual line editing keys. A name starting with `/` is
-an absolute path. If the file exists you are asked before replacing it; an
-empty name or Ctrl+d cancels.
+`fff explorer` works on its own too, printing the chosen paths one per line:
+
+```sh
+fff explorer ~/Downloads                 # choose one file
+fff explorer --multiple --directory      # choose folders
+fff explorer --save ~/Downloads/a.pdf    # where to save a.pdf
+```
 
 ### The wrapper
 
@@ -169,6 +175,6 @@ env=TERMCMD=foot --app-id fff-picker
 The terminal's own output is discarded unless the portal's log level is
 debug. The terminal must stay open until fff exits (most do; a terminal that hands
 the command to an existing server and returns at once cancels every dialog).
-The script needs bash 4.4 or later. With the portal's log level at debug
+The script needs bash. With the portal's log level at debug
 (`--loglevel=DEBUG`), it traces its commands in the
 portal's log.

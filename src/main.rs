@@ -1,7 +1,11 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
 use fuzzy_file_finder::{App, Policy, completion, config::Settings, keys::KeyMap, ui, write_paths};
-use std::{io, path::PathBuf, process::ExitCode};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+    process::ExitCode,
+};
 
 const STYLES: styling::Styles = styling::Styles::styled()
     .header(styling::AnsiColor::Green.on_default().bold())
@@ -50,6 +54,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Add Emacs-style movement keys.
   <cyan>fff --setup desktop; fff --setup file-chooser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
+  <cyan>fff explorer --save ~/Downloads/paper.pdf</cyan>
+      Choose where to save a file, as a file dialog would (see fff explorer --help).
 
 <bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide; Tab there shows session details)
   <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
@@ -112,7 +118,7 @@ struct Args {
     /// Maximum discovery depth below each scope (immediate children = 1)
     ///
     /// Change it during the session with Alt+Left / Alt+Right.
-    #[arg(short, long, default_value_t = 2, value_name = "N", help_heading = "Search",
+    #[arg(global = true, short, long, default_value_t = 2, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: u32,
     /// Only list files whose basename matches GLOB; repeat to allow several
@@ -152,10 +158,10 @@ struct Args {
     #[arg(long, help_heading = "Search")]
     browse: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
-    #[arg(long, help_heading = "Search")]
+    #[arg(global = true, long, help_heading = "Search")]
     hidden: bool,
     /// Start with exclusion rules disabled; toggle with Alt+H
-    #[arg(long, help_heading = "Search")]
+    #[arg(global = true, long, help_heading = "Search")]
     no_exclusions: bool,
     /// Print the selected paths to stdout instead of changing directory
     ///
@@ -176,7 +182,7 @@ struct Args {
     /// Built-in names include midnight, light, forest, nord, gruvbox-dark,
     /// catppuccin-mocha and tokyonight-night; custom [palettes.NAME] tables from
     /// the configuration work too. Shell completion lists all of them.
-    #[arg(long, value_name = "NAME", help_heading = "Interface",
+    #[arg(global = true, long, value_name = "NAME", help_heading = "Interface",
         add = ArgValueCompleter::new(completion::palette_candidates))]
     palette: Option<String>,
     /// Remap a key chord to a default chord, e.g. ctrl+n=down; TARGET=none disables it
@@ -185,21 +191,21 @@ struct Args {
     /// backspace, up, down, left, right, pageup, pagedown, f1, f5 or a single
     /// character. Letter case matters. Repeatable; later rules for the same
     /// SOURCE win, and these override the configuration's [keys.map].
-    #[arg(long = "map-key", value_name = "SOURCE=TARGET", help_heading = "Interface",
+    #[arg(global = true, long = "map-key", value_name = "SOURCE=TARGET", help_heading = "Interface",
         add = ArgValueCompleter::new(completion::map_key_candidates))]
     key_maps: Vec<String>,
     /// Hide Nerd Font filetype icons; overrides [ui] icons
     ///
     /// Rows then use the plain `▸`/`·` markers. Useful when the terminal font has
     /// no Nerd Font glyphs.
-    #[arg(long, help_heading = "Interface")]
+    #[arg(global = true, long, help_heading = "Interface")]
     no_icons: bool,
     /// Read this TOML configuration instead of the default file
-    #[arg(long, value_name = "FILE", conflicts_with = "no_config",
+    #[arg(global = true, long, value_name = "FILE", conflicts_with = "no_config",
         value_hint = clap::ValueHint::FilePath, help_heading = "Configuration")]
     config: Option<PathBuf>,
     /// Ignore the configuration file and use built-in defaults
-    #[arg(long, help_heading = "Configuration")]
+    #[arg(global = true, long, help_heading = "Configuration")]
     no_config: bool,
     /// Validate the configuration (and --palette), report the result and exit
     #[arg(long, help_heading = "Configuration")]
@@ -245,6 +251,35 @@ struct Args {
         help_heading = "Shell integration"
     )]
     setup: Option<fuzzy_file_finder::setup::Target>,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Answer a file dialog: choose files or a folder, or where to save
+    ///
+    /// Prints the chosen paths, one per line, for the file chooser that
+    /// --setup file-chooser installs. Enter on a file chooses it and on a
+    /// folder enters it, in either mode; q and Ctrl+c cancel. The query line
+    /// says how to choose.
+    Explorer(ExplorerArgs),
+}
+#[derive(clap::Args)]
+struct ExplorerArgs {
+    /// Where to start: a folder, or a file to highlight in its folder; when
+    /// saving, the suggested file, which need not exist
+    #[arg(value_hint = clap::ValueHint::AnyPath)]
+    path: Option<PathBuf>,
+    /// Allow several files (Tab marks them)
+    #[arg(long)]
+    multiple: bool,
+    /// Choose folders instead of files: ! chooses the folder you are in
+    #[arg(long, conflicts_with = "save")]
+    directory: bool,
+    /// Choose where to save: ! saves here under the suggested name (numbered
+    /// when taken), Enter on a file replaces it
+    #[arg(long)]
+    save: bool,
 }
 fn main() -> ExitCode {
     // Answers `COMPLETE=<shell> fff ...` requests before anything is printed.
@@ -329,9 +364,25 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         fuzzy_file_finder::reload::PaletteState::from_settings(&settings),
     );
     let invocation = std::env::current_dir()?.canonicalize()?;
-    // --browse: where to start, and the file to highlight there.
+    // --browse and explorer: where to start, and the file to highlight there.
     let mut browse_from = None;
-    if args.browse {
+    let mut dialog = None;
+    if let Some(Command::Explorer(explorer)) = &args.command {
+        if !args.roots.is_empty() {
+            usage("explorer", &"give the starting PATH after explorer");
+        }
+        let (asked, start, highlight) = fuzzy_file_finder::explorer::Dialog::new(
+            explorer.path.as_deref(),
+            explorer.multiple,
+            explorer.directory,
+            explorer.save,
+            &invocation,
+        );
+        dialog = Some(asked);
+        let start = start.canonicalize()?;
+        let highlight = highlight.and_then(|h| h.file_name().map(|n| start.join(n)));
+        browse_from = Some((start, highlight));
+    } else if args.browse {
         if args.roots.len() > 1 {
             usage("--browse", &"give at most one path to browse from");
         }
@@ -362,7 +413,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let state = fuzzy_file_finder::state::path()
         .map(|p| fuzzy_file_finder::state::load(&p))
         .unwrap_or_default();
-    let records_location = roots.is_empty() && !args.output_paths;
+    let records_location = roots.is_empty() && !args.output_paths && dialog.is_none();
     let resume = (records_location && settings.resume && !args.here)
         .then_some(state.last.as_ref())
         .flatten()
@@ -379,7 +430,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     app.records_location = records_location;
     app.openers = settings.open.clone();
-    app.output_paths = args.output_paths;
+    app.output_paths = args.output_paths || dialog.is_some();
+    app.dialog = dialog.clone();
     app.positions = state.positions;
     app.wanted = match &browse_from {
         Some((_, Some(file))) => Some(file.clone()),
@@ -438,6 +490,20 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             ),
         }
     };
+    if let Some(dialog) = dialog {
+        let chosen = match finish {
+            ui::Finish::Paths(paths) => paths,
+            ui::Finish::Folder(folder) => vec![folder],
+            ui::Finish::Cancelled | ui::Finish::Exec(_) => vec![],
+        };
+        let answer = dialog.answer(chosen);
+        let mut out = io::stdout().lock();
+        for path in &answer {
+            out.write_all(path.as_os_str().as_encoded_bytes())?;
+            out.write_all(b"\n")?;
+        }
+        return Ok(!answer.is_empty());
+    }
     match finish {
         ui::Finish::Cancelled => Ok(false),
         ui::Finish::Paths(paths) if args.output_paths => {
@@ -501,7 +567,8 @@ mod tests {
     #[test]
     fn every_completable_argument_has_completion() {
         let command = Args::command();
-        for arg in command.get_arguments() {
+        let explorer = command.find_subcommand("explorer").unwrap();
+        for arg in command.get_arguments().chain(explorer.get_arguments()) {
             let id = arg.get_id().as_str();
             if !arg.get_action().takes_values() || ["help", "version"].contains(&id) {
                 continue;
@@ -532,6 +599,10 @@ mod tests {
         );
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         assert_eq!(candidates(&["fff", "do"], Some(root)), ["docs/"]);
+        assert_eq!(
+            candidates(&["fff", "explorer", "--no-config", "do"], Some(root)),
+            ["docs/"]
+        );
         let configs = candidates(&["fff", "--config", "docs/con"], Some(root));
         assert!(
             configs.contains(&"docs/config.example.toml".to_string()),

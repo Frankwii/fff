@@ -1686,6 +1686,43 @@ class TerminalTests(unittest.TestCase):
         self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_explorer_answers_open_and_save_dialogs(self):
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "a.pdf").write_text("a")
+        (self.root / "b.txt").write_text("b")
+        # Normal-mode Enter enters a folder, then chooses a file.
+        s = self.start("explorer", implicit_root=True, output_paths=False)
+        s.wait_ui("Enter chooses a file · q cancels")
+        s.send(b"\r", ("cwd", self.root / "docs"))
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs" / "a.pdf") + b"\n"))
+        s.close()
+        # q cancels instead of returning the launch directory.
+        s = self.session = Session(self.root, "explorer", implicit_root=True,
+                                   output_paths=False)
+        s.send(b"q")
+        self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        # Saving starts beside the suggestion; ! saves under its name, numbered
+        # when taken.
+        s = self.session = Session(self.root, "explorer", "--save",
+                                   str(self.root / "docs" / "a.pdf"),
+                                   implicit_root=True, output_paths=False)
+        s.wait_ui(("cwd", self.root / "docs"))
+        s.wait_ui("! saves a.pdf here")
+        s.send(b"!")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs" / "a (1).pdf") + b"\n"))
+        s.close()
+        # A folder dialog takes the folder being browsed.
+        s = self.session = Session(self.root, "explorer", "--directory", "docs",
+                                   implicit_root=True, output_paths=False)
+        s.wait_ui("! chooses the folder you are in")
+        s.send(b"!")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs") + b"\n"))
+        s.close()
+        self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_E_opens_editor_without_review_and_explains_a_bad_editor(self):
         (self.root / "alpha").write_text("a")
         log = self.root / "log"

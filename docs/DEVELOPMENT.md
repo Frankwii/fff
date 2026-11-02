@@ -35,6 +35,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
 | `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
+| `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
 | `src/setup.rs`, `src/setup/` | `--setup`: the desktop entry, the termfilechooser wrapper script and the configuration keys selecting them. |
 | `src/completion.rs`, `src/icons.rs` | Dynamic shell completion and filetype glyphs. |
 

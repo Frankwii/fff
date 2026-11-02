@@ -7,7 +7,8 @@
 # directory is wanted and SAVE 1 when saving, with PATH the suggested file
 # (otherwise a starting place, possibly empty). The chosen paths go to OUT,
 # one per line; leaving it empty cancels the dialog. From LOGLEVEL 4 (debug)
-# on, the script traces its commands.
+# on, the script traces its commands. `fff explorer` does the choosing; this
+# script translates the arguments and opens a terminal.
 #
 # fff opens in a new terminal window: the terminal below is [open]
 # fff_terminal from fff's configuration at setup time, and TERMCMD overrides it.
@@ -31,50 +32,13 @@ fi
 shift
 multiple=$1 directory=$2 save=$3 path=$4 out=$5
 [[ ${6:-0} -ge 4 ]] && set -x
-: >"$out"
 
-# Start beside the suggested file, or in the suggested folder.
-start=()
-if [[ -e $path ]]; then
-    start=(--browse "$path")
-elif [[ -n $path && -d $(dirname -- "$path") ]]; then
-    start=(--browse "$(dirname -- "$path")")
-else
-    cd -- "$HOME" || exit
-fi
-mapfile -d '' -t picked < <("$fff" --output-paths -0 "${start[@]}")
-
-chosen=()
-if [[ $save == 1 ]]; then
-    ((${#picked[@]})) || exit 0
-    # A directory (! or q) keeps the suggested name; a file is replaced.
-    last=${picked[-1]}
-    if [[ -d $last ]]; then
-        folder=$last name=$(basename -- "$path")
-    else
-        folder=$(dirname -- "$last") name=$(basename -- "$last")
-    fi
-    while :; do
-        read -r -e -i "$name" -p "Save in $folder as: " name || exit 0
-        [[ -n $name ]] || exit 0
-        if [[ $name == /* ]]; then target=$name; else target=$folder/$name; fi
-        [[ -e $target ]] || break
-        read -r -p "$target exists. Replace it? [y/N] " answer || exit 0
-        [[ $answer == [yY]* ]] && break
-    done
-    chosen=("$target")
-else
-    for p in "${picked[@]}"; do
-        # Files for open dialogs, directories for folder dialogs.
-        if [[ $directory == 1 ]]; then
-            [[ -d $p ]] || continue
-        else
-            [[ -d $p ]] && continue
-        fi
-        [[ $p == *$'\n'* ]] && continue
-        chosen+=("$p")
-        [[ $multiple == 1 ]] || break
-    done
-fi
-((${#chosen[@]})) && printf '%s\n' "${chosen[@]}" >"$out"
+args=(explorer)
+[[ $multiple == 1 ]] && args+=(--multiple)
+[[ $directory == 1 ]] && args+=(--directory)
+[[ $save == 1 ]] && args+=(--save)
+[[ -n $path ]] && args+=("$path")
+# Without a suggestion, dialogs start at home.
+cd -- "$HOME" || exit
+"$fff" "${args[@]}" >"$out"
 exit 0

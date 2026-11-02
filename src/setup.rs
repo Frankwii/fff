@@ -481,13 +481,13 @@ Exec=sh -c "exec \\"\\$@\\" >/dev/null 2>&1" sh st -e "/opt/my fff/fff" --browse
     }
 
     /// Runs the wrapper as the portal would, with `env` as the terminal and a
-    /// stand-in fff that prints `picked` (NUL-separated) and records its
-    /// arguments. Returns what the dialog received and fff's arguments.
-    fn dialog(dir: &Path, args: [&str; 4], picked: &[&Path], input: &str) -> (String, String) {
+    /// stand-in fff that prints `answer` and records its arguments and
+    /// directory. Returns what the dialog received and fff's arguments.
+    fn dialog(dir: &Path, args: [&str; 4], answer: &str) -> (String, String) {
         let stub = dir.join("stub");
         fs::write(
             &stub,
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"$ARGS\"\nprintf '%b' \"$PICK\"\n",
+            "#!/bin/sh\n{ pwd; printf '%s\\n' \"$@\"; } >\"$ARGS\"\nprintf '%s' \"$ANSWER\"\n",
         )
         .unwrap();
         fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
@@ -499,28 +499,17 @@ Exec=sh -c "exec \\"\\$@\\" >/dev/null 2>&1" sh st -e "/opt/my fff/fff" --browse
         .unwrap();
         fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
         let out = dir.join("out");
-        let pick: String = picked
-            .iter()
-            .map(|p| format!("{}\\0", p.display()))
-            .collect();
-        let mut child = Command::new("bash")
+        let status = Command::new("bash")
             .arg(&wrapper)
             .args(args)
             .arg(&out)
-            .env("PICK", pick)
+            .env("ANSWER", answer)
             .env("ARGS", dir.join("args"))
             .env("HOME", dir)
             .env_remove("TERMCMD")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
+            .status()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
-        assert!(child.wait().unwrap().success());
+        assert!(status.success());
         (
             fs::read_to_string(out).unwrap(),
             fs::read_to_string(dir.join("args")).unwrap(),
@@ -528,49 +517,20 @@ Exec=sh -c "exec \\"\\$@\\" >/dev/null 2>&1" sh st -e "/opt/my fff/fff" --browse
     }
 
     #[test]
-    fn wrapper_answers_open_directory_and_save_dialogs() {
+    fn wrapper_turns_portal_requests_into_fff_explorer() {
         let dir = scratch("wrapper");
-        let folder = dir.join("folder");
-        fs::create_dir(&folder).unwrap();
-        let (a, b) = (dir.join("a"), dir.join("b"));
-        fs::write(&a, "").unwrap();
-        fs::write(&b, "").unwrap();
-        let all = [folder.as_path(), &a, &b];
-        let lines = |paths: &[&Path]| -> String {
-            paths.iter().map(|p| format!("{}\n", p.display())).collect()
-        };
-        // Open one file: directories are skipped, the first file wins.
-        let (got, args) = dialog(&dir, ["0", "0", "0", ""], &all, "");
-        assert_eq!(got, lines(&[&a]));
-        assert_eq!(args, "--output-paths\n-0\n");
-        assert_eq!(
-            dialog(&dir, ["1", "0", "0", ""], &all, "").0,
-            lines(&[&a, &b])
-        );
-        assert_eq!(
-            dialog(&dir, ["0", "1", "0", ""], &all, "").0,
-            lines(&[&folder])
-        );
-        // Cancelled: nothing printed, nothing chosen.
-        assert_eq!(dialog(&dir, ["0", "0", "0", ""], &[], "").0, "");
-        // Save into a chosen folder under a typed name; the suggestion's folder
-        // is where fff starts.
-        let suggested = dir.join("page.html");
-        let (got, args) = dialog(
-            &dir,
-            ["0", "0", "1", suggested.to_str().unwrap()],
-            &[&folder],
-            "new.html\n",
-        );
-        assert_eq!(got, lines(&[&folder.join("new.html")]));
+        let home = dir.display();
+        let (got, args) = dialog(&dir, ["0", "0", "0", ""], "/x/a\n");
+        assert_eq!(got, "/x/a\n");
+        assert_eq!(args, format!("{home}\nexplorer\n"));
+        let (_, args) = dialog(&dir, ["1", "1", "0", "/x/y z"], "");
         assert_eq!(
             args,
-            format!("--output-paths\n-0\n--browse\n{}\n", dir.display())
+            format!("{home}\nexplorer\n--multiple\n--directory\n/x/y z\n")
         );
-        // Picking an existing file asks before replacing it.
-        let save = ["0", "0", "1", suggested.to_str().unwrap()];
-        assert_eq!(dialog(&dir, save, &[&a], "a\nn\n").0, "");
-        assert_eq!(dialog(&dir, save, &[&a], "a\ny\n").0, lines(&[&a]));
+        let (got, args) = dialog(&dir, ["0", "0", "1", "/x/page.html"], "");
+        assert_eq!(got, "");
+        assert_eq!(args, format!("{home}\nexplorer\n--save\n/x/page.html\n"));
         fs::remove_dir_all(dir).unwrap();
     }
 }

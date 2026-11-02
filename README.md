@@ -56,7 +56,8 @@ directory instead, so `cd "$(command fff)"` also works.
 
 fff can also be the desktop's file manager and file chooser: `fff --setup
 desktop` opens directories from other programs in fff, and `fff --setup
-file-chooser` lets Firefox and other portal users pick files with it. See
+file-chooser` lets Firefox and other portal users pick files with it, through
+`fff explorer`, a mode for answering file dialogs. See
 [desktop integration](docs/DESKTOP.md).
 
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
