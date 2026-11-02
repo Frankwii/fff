@@ -243,7 +243,37 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::Location(location) => location_sheet(frame, main, app, location),
         _ => {}
     }
+    notices(frame, main, app);
     result
+}
+/// Pop-up notifications (e.g. a program opened in the background failed),
+/// newest first at the top right of the panes, a few at a time.
+fn notices(frame: &mut Frame, main: Rect, app: &App) {
+    let theme = app.palette;
+    let width = main.width.saturating_sub(4).min(60);
+    let mut y = main.y;
+    for (text, _) in app.notices.iter().rev().take(3) {
+        let lines = wrap_text(&safe(text), width.saturating_sub(4) as usize);
+        let height = (lines.len() as u16 + 2).min(main.bottom().saturating_sub(y));
+        if height < 3 || width < 10 {
+            break;
+        }
+        let area = Rect::new(main.right().saturating_sub(width + 1), y, width, height);
+        let block = panel(theme, " Notice ", true, theme.error).padding(Padding::horizontal(1));
+        let inner = block.inner(area);
+        frame.render_widget(Clear, area);
+        frame.render_widget(block, area);
+        frame.render_widget(
+            Paragraph::new(
+                lines
+                    .into_iter()
+                    .map(|l| Line::from(styled(l, theme.text)))
+                    .collect::<Vec<_>>(),
+            ),
+            inner,
+        );
+        y += height;
+    }
 }
 
 /// `~` for the home directory, presentation only.

@@ -115,7 +115,10 @@ fn m_marks_every_listed_row_and_shift_m_inverts_them() {
         rows: vec![a.clone(), b.clone(), c.clone()],
         index: 0,
     };
-    let mut editor = None;
+    let Ok(mut editor) = crate::editor::Nvim::start() else {
+        eprintln!("nvim missing; skipping");
+        return;
+    };
     let mut press = |app: &mut App, ch: char| {
         let shift = if ch.is_uppercase() { M::SHIFT } else { M::NONE };
         let key = KeyEvent::new(K::Char(ch), shift);

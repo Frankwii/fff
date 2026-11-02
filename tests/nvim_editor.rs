@@ -135,27 +135,19 @@ fn unavailable_backend_returns_an_error_instead_of_hanging() {
 }
 
 #[test]
-fn default_backend_falls_back_quietly_but_explicit_nvim_reports() {
-    use fuzzy_file_finder::{config::EditorBackend, ui::start_editor};
+fn a_missing_neovim_is_a_clear_startup_error() {
+    use fuzzy_file_finder::ui::start_editor;
     for program in ["/definitely/not/a/neovim", "true"] {
-        let mut status = String::new();
-        assert!(start_editor(None, program, &mut status).is_none());
-        assert_eq!(status, "", "default fallback must be quiet for {program}");
-        assert!(start_editor(Some(EditorBackend::Nvim), program, &mut status).is_none());
-        assert!(status.starts_with("Using basic editing"), "{status}");
+        let error = start_editor(program).err().unwrap().to_string();
+        assert!(error.starts_with("fff needs Neovim"), "{error}");
     }
-    let mut status = String::new();
-    assert!(start_editor(Some(EditorBackend::Basic), "nvim", &mut status).is_none());
-    assert_eq!(status, "");
 }
 #[test]
 fn default_backend_starts_neovim_when_installed() {
     if engine().is_none() {
         return;
     }
-    let mut status = String::new();
-    let mut e = fuzzy_file_finder::ui::start_editor(None, "nvim", &mut status).unwrap();
-    assert_eq!(status, "");
+    let mut e = fuzzy_file_finder::ui::start_editor("nvim").unwrap();
     assert_eq!(e.activate(Field::Query, "").unwrap().label(), "NORMAL");
     assert_eq!(chars(&mut e, Field::Query, "iabc"), "abc");
 }

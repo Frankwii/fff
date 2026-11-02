@@ -40,6 +40,8 @@ pub enum ListAction {
     Extract,
     Edit,
     New,
+    /// Open the current or marked files with their openers, in this terminal.
+    Open,
     /// Same as Alt+← in the results: search one level shallower.
     Shallower,
     /// Same as Alt+→ in the results: search one level deeper.
@@ -56,7 +58,7 @@ pub enum ListAction {
     NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -78,6 +80,7 @@ impl ListAction {
         Self::Extract,
         Self::Edit,
         Self::New,
+        Self::Open,
         Self::Shallower,
         Self::Deeper,
         Self::Bookmarks,
@@ -98,6 +101,7 @@ impl ListAction {
             Self::Extract => 'e',
             Self::Edit => 'E',
             Self::New => 'n',
+            Self::Open => 'o',
             _ => return None,
         })
     }
@@ -131,7 +135,8 @@ impl ListAction {
             | Self::Rename
             | Self::Extract
             | Self::Edit
-            | Self::New => return None,
+            | Self::New
+            | Self::Open => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -285,6 +290,7 @@ pub struct NormalKeysConfig {
     pub extract: Sequences,
     pub edit: Sequences,
     pub new: Sequences,
+    pub open: Sequences,
     pub shallower: Sequences,
     pub deeper: Sequences,
     pub bookmarks: Sequences,
@@ -320,6 +326,7 @@ impl Default for NormalKeysConfig {
             extract: one("e"),
             edit: one("E"),
             new: one("n"),
+            open: one("o"),
             shallower: one("<left>"),
             deeper: one("<right>"),
             bookmarks: one("b"),
@@ -355,6 +362,7 @@ impl NormalKeysConfig {
             ListAction::Extract => ("extract", &self.extract),
             ListAction::Edit => ("edit", &self.edit),
             ListAction::New => ("new", &self.new),
+            ListAction::Open => ("open", &self.open),
             ListAction::Shallower => ("shallower", &self.shallower),
             ListAction::Deeper => ("deeper", &self.deeper),
             ListAction::Bookmarks => ("bookmarks", &self.bookmarks),

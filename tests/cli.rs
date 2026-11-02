@@ -72,7 +72,7 @@ fn dynamic_completion_reads_custom_palettes_from_the_named_config() {
     let palettes = line(&["--config", "docs/config.example.toml", "--palette", ""]);
     assert!(palettes.contains("ember\tcustom") && palettes.contains("nord\tbuilt-in"));
     assert!(!line(&["--no-config", "--palette", ""]).contains("ember"));
-    assert!(line(&["--edi"]).starts_with("--editor"));
+    assert!(line(&["--pal"]).starts_with("--palette"));
     assert!(line(&["--config", "docs/config.ex"]).contains("docs/config.example.toml"));
     assert!(line(&["--map-key", "alt+j=no"]).contains("alt+j=none"));
 }

@@ -22,6 +22,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |
+| `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
+| `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Remembered locations: last directory and per-directory highlights, saved atomically. |
@@ -100,6 +102,6 @@ cargo build --offline --release
 python3 tests/navigation_benchmark.py --binary target/release/fff
 ```
 
-This measures first in-app visits at depth 1 with warm OS metadata, basic editing
+This measures first in-app visits at depth 1 with warm OS metadata, Neovim editing
 and no icons. Report the workload and build mode alongside latency or memory
 measurements. Slow storage and large trees still require progressive updates.

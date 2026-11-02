@@ -272,10 +272,8 @@ fn editor_config_defaults_to_unspecified_nvim_and_is_validated() {
         parse("[editor]\nbackend='nvim'").unwrap().editor.backend,
         Some(EditorBackend::Nvim)
     );
-    assert_eq!(
-        parse("[editor]\nbackend='basic'").unwrap().editor.backend,
-        Some(EditorBackend::Basic)
-    );
+    // The basic editor was removed; Neovim is the only engine.
+    assert!(parse("[editor]\nbackend='basic'").is_err());
     assert!(parse("[editor]\nbackend='unknown'").is_err());
     assert!(parse("[editor]\nbacked='nvim'").is_err());
 }

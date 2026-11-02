@@ -89,6 +89,8 @@ pub(crate) enum Focus {
 pub enum Finish {
     /// Confirmed paths, or the directory of a quit key.
     Paths(Vec<PathBuf>),
+    /// Normal-mode Enter: exit into this folder (printed with --output-paths).
+    Folder(PathBuf),
     /// Ctrl+c.
     Cancelled,
     /// gX: the terminal is restored; the caller replaces fff with the program.
@@ -100,10 +102,9 @@ pub fn run(
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
-    backend: Option<crate::config::EditorBackend>,
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
-    let finish = session(&mut app, keys, cache, palettes, backend, performance);
+    let finish = session(&mut app, keys, cache, palettes, performance);
     app.remember();
     if let Some(path) = crate::state::path() {
         let last = if app.records_location {
@@ -124,12 +125,12 @@ fn session(
     keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
-    backend: Option<crate::config::EditorBackend>,
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
     let invocation = std::env::current_dir()?.canonicalize()?;
     let mut terminal = Terminal::enter()?;
     let (wake, waking) = std::sync::mpsc::sync_channel(1);
+    crate::notify::set_waker(wake.clone());
     let mut input = Input::start(wake.clone());
     let mut discovery = Discovery::new(cache);
     discovery.set_waker(wake.clone());
@@ -138,12 +139,10 @@ fn session(
     let notice = std::mem::take(&mut app.status);
     discovery.start(app, true);
     app.status = notice;
-    let mut editor = start_editor(backend, "nvim", &mut app.status);
+    let mut editor = start_editor("nvim")?;
     // A --no-dir session is a file choice: start ready to type the query.
-    if app.no_dir
-        && let Some(e) = &mut editor
-    {
-        e.reset_insert(Field::Query);
+    if app.no_dir {
+        editor.reset_insert(Field::Query);
     }
     let mut editor_directory = app.cwd.clone();
     warn_stranded(app);
@@ -159,6 +158,16 @@ fn session(
     let mut bookmark_targets = Vec::new();
     loop {
         dirty |= status.tick(app);
+        // Pop-up notifications from background work, shown for a while.
+        let now = std::time::Instant::now();
+        for notice in crate::notify::drain() {
+            app.notices.push((notice, now));
+            dirty = true;
+        }
+        let shown = app.notices.len();
+        app.notices
+            .retain(|(_, at)| now.duration_since(*at) < crate::notify::SHOWN_FOR);
+        dirty |= app.notices.len() != shown;
         for update in palettes.updates() {
             dirty = true;
             match update {
@@ -178,7 +187,8 @@ fn session(
             editor_directory = app.cwd.clone();
             warn_stranded(app);
             // Carry the initiating field's editing mode into the new location.
-            if let Some(e) = &mut editor {
+            {
+                let e = &mut editor;
                 e.reset_preserving_mode(Field::Query);
             }
         }
@@ -215,15 +225,15 @@ fn session(
             app.edit_view = None;
             dirty = true;
         }
+        if let Some(error) = editor.broken() {
+            return Err(io::Error::other(format!("Neovim stopped: {error}")));
+        }
         if let Some((field, text)) = text_field(app, &focus) {
-            if let Some(e) = &mut editor {
+            {
+                let e = &mut editor;
                 match e.activate(field, &text) {
                     Ok(view) => app.edit_view = Some(view),
-                    Err(error) => {
-                        app.status = format!("Using basic editing: {error}");
-                        editor = None;
-                        app.edit_view = None;
-                    }
+                    Err(error) => e.break_with(error),
                 }
             }
         } else {
@@ -417,12 +427,11 @@ fn session(
         }
         // Multiline buffers keep Neovim's write/close lifecycle; single-line
         // names and destinations take Enter/Escape like the bookmark form.
-        let buffer_input = editor.is_some()
-            && match &focus {
-                Focus::Exclusions(_) | Focus::Filters(_) => true,
-                Focus::Operation(draft) => draft.multiline(),
-                _ => false,
-            };
+        let buffer_input = match &focus {
+            Focus::Exclusions(_) | Focus::Filters(_) => true,
+            Focus::Operation(draft) => draft.multiline(),
+            _ => false,
+        };
         if buffer_input {
             deliver(app, &mut focus, &mut editor, key);
             continue;
@@ -521,6 +530,20 @@ fn session(
                     }
                     Scope::Nothing => app.status = "Nothing to edit".into(),
                 },
+                // The opener takes over this terminal until it ends.
+                K::Char('o') => match scope(&app.marks, current) {
+                    Scope::Ask(current, selected) => {
+                        focus = Focus::ScopeChoice {
+                            current,
+                            selected,
+                            action: ScopedAction::Open,
+                        }
+                    }
+                    Scope::Ready(paths) => {
+                        open_here(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?
+                    }
+                    Scope::Nothing => app.status = "Nothing to open".into(),
+                },
                 K::Char('r') => {
                     let sources = app
                         .rows
@@ -537,7 +560,8 @@ fn session(
                                     .iter()
                                     .position(|p| Some(p) == app.highlight.as_ref())
                                     .unwrap_or(0);
-                                if let Some(e) = &mut editor {
+                                {
+                                    let e = &mut editor;
                                     e.reset_at_row(Field::Operation, row);
                                 }
                                 focus = Focus::Operation(crate::operations::Draft {
@@ -704,11 +728,23 @@ fn session(
         if matches!(focus, Focus::Results)
             && let Some(digit) = alt_numbered_key(key)
         {
+            // Like l on that row: enter a directory, open a file in the background.
             discovery.checkpoint(app);
-            match app.enter_numbered(digit) {
-                EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
-                EnterOutcome::Navigated => discovery.start(app, true),
-                EnterOutcome::Stay => {}
+            if app.rendered.is_empty() {
+                continue;
+            }
+            let path = app.numbered(digit);
+            let Some(target) = app.rows.iter().find(|c| c.path == path).cloned() else {
+                continue;
+            };
+            app.highlight = Some(target.path.clone());
+            if target.directory {
+                if app.ready_path(&target.path) && app.can_navigate() {
+                    app.navigate(target.path, false);
+                    discovery.start(app, true);
+                }
+            } else {
+                open_in_background(app, &target.path);
             }
             continue;
         }
@@ -756,7 +792,8 @@ fn session(
             if let Some(next) = next {
                 match next {
                     Ok(draft) => {
-                        if let Some(e) = &mut editor {
+                        {
+                            let e = &mut editor;
                             e.reset(Field::BookmarkName);
                             e.reset(Field::BookmarkPath);
                         }
@@ -807,7 +844,8 @@ fn session(
                 match app.bookmark_store.reload() {
                     Ok(bookmarks) => {
                         app.bookmarks = bookmarks;
-                        if let Some(e) = &mut editor {
+                        {
+                            let e = &mut editor;
                             e.reset(Field::Bookmarks);
                         }
                         focus = Focus::Bookmarks {
@@ -820,21 +858,6 @@ fn session(
                 }
                 continue;
             }
-        }
-        if editor.is_none()
-            && matches!(
-                focus,
-                Focus::BookmarkEdit(_) | Focus::Exclusions(_) | Focus::Filters(_)
-            )
-            && ctrl
-            && key.code == K::Char('s')
-        {
-            if matches!(focus, Focus::BookmarkEdit(_)) {
-                save_bookmark(app, &mut focus);
-            } else {
-                apply_globs(app, &mut focus, &mut discovery);
-            }
-            continue;
         }
         let navigation =
             key.code == K::Enter || (alt && matches!(key.code, K::Char('h' | 'l' | '0'..='9')));
@@ -855,7 +878,8 @@ fn session(
         match &mut focus {
             Focus::NewChoice => match key.code {
                 K::Char('f' | 'd') => {
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_insert(Field::FileName);
                     }
                     focus = Focus::Operation(crate::operations::Draft {
@@ -889,6 +913,11 @@ fn session(
                     ScopedAction::Edit => {
                         focus = Focus::Results;
                         edit_files(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?;
+                        continue;
+                    }
+                    ScopedAction::Open => {
+                        focus = Focus::Results;
+                        open_here(&mut terminal, &mut input, &wake, app, &mut discovery, paths)?;
                         continue;
                     }
                 };
@@ -1070,7 +1099,8 @@ fn session(
                         .iter()
                         .position(|(_, glyph)| glyph.map(|g| g.to_string()) == draft.icon)
                         .unwrap_or(0);
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset(Field::BookmarkIcons);
                     }
                     focus = Focus::BookmarkIcons {
@@ -1203,7 +1233,8 @@ fn session(
                 } else if key.code == K::Tab {
                     prompt.complete(&app.cwd, app.home.as_deref());
                     // Hand the completed line back to Neovim, still typing.
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_preserving_mode(Field::Command);
                     }
                 } else {
@@ -1251,7 +1282,8 @@ fn session(
                     location.choose(key.code == K::Down);
                 } else if key.code == K::Tab {
                     location.complete(&app.cwd, app.home.as_deref());
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_preserving_mode(Field::Location);
                     }
                 } else {
@@ -1286,6 +1318,16 @@ fn session(
                     && let Some(p) = app.confirm(None)
                 {
                     return Ok(Finish::Paths(p));
+                } else if key.code == K::Enter
+                    && let Some(mark) = rows.get(*index)
+                {
+                    // Like Normal-mode Enter in the results: exit into its folder.
+                    let folder = if mark.is_dir() {
+                        mark.clone()
+                    } else {
+                        mark.parent().unwrap_or(&app.cwd).to_owned()
+                    };
+                    return Ok(Finish::Folder(folder));
                 }
             }
             Focus::Results => match (key.code, ctrl, alt) {
@@ -1338,7 +1380,8 @@ fn session(
                         .collect::<Vec<_>>();
                     let frequent = crate::location::zoxide(&app.cwd);
                     // It exists for typing, like the run prompt.
-                    if let Some(e) = &mut editor {
+                    {
+                        let e = &mut editor;
                         e.reset_insert(Field::Location);
                     }
                     focus = Focus::Location(crate::location::Location::new(
@@ -1351,9 +1394,20 @@ fn session(
                         index: 0,
                     }
                 }
+                // Directories are entered; files open in the background.
                 (K::Char('l'), _, true) => {
-                    if app.navigate_highlighted() {
-                        discovery.start(app, true);
+                    let file = app
+                        .rows
+                        .iter()
+                        .find(|c| Some(&c.path) == app.highlight.as_ref() && !c.directory)
+                        .map(|c| c.path.clone());
+                    match file {
+                        Some(path) => open_in_background(app, &path),
+                        None => {
+                            if app.navigate_highlighted() {
+                                discovery.start(app, true);
+                            }
+                        }
                     }
                 }
                 (K::Char('p' | 'P'), _, true) if palette == Some(PaletteKey::Reload) => {
@@ -1425,10 +1479,29 @@ fn session(
                         .iter()
                         .find(|c| Some(&c.path) == app.highlight.as_ref())
                         .cloned();
-                    match app.enter(target) {
-                        EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
-                        EnterOutcome::Navigated => discovery.start(app, true),
-                        EnterOutcome::Stay => {}
+                    // Normal mode: exit into the entry's folder (a directory
+                    // itself), like l then !, but for deep results too.
+                    if app.edit_view.as_ref().is_some_and(|v| v.normal()) {
+                        let folder = match &target {
+                            Some(c) if c.directory => c.path.clone(),
+                            Some(c) => c.path.parent().unwrap_or(&app.cwd).to_owned(),
+                            None => app.cwd.clone(),
+                        };
+                        return Ok(Finish::Folder(folder));
+                    }
+                    match target {
+                        // Typing: a file is revealed in its folder, unless
+                        // fff is picking paths for a script.
+                        Some(file) if !file.directory && !app.output_paths => {
+                            if app.reveal(file.path) {
+                                discovery.start(app, true);
+                            }
+                        }
+                        target => match app.enter(target) {
+                            EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
+                            EnterOutcome::Navigated => discovery.start(app, true),
+                            EnterOutcome::Stay => {}
+                        },
                     }
                 }
                 _ => {

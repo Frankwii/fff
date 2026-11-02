@@ -83,7 +83,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   bash  <cyan>source <<(fff --completions bash)</cyan>   in ~/.bashrc
   zsh   <cyan>source <<(fff --completions zsh)</cyan>    in ~/.zshrc
   fish  <cyan>fff --completions fish | source</cyan>    in ~/.config/fish/config.fish
-  Completions cover options, root and config paths, editors, palettes
+  Completions cover options, root and config paths, palettes
   (including custom ones from the configuration) and --map-key chords."
 );
 
@@ -161,15 +161,6 @@ struct Args {
     /// Terminate each output path with NUL instead of newline (for xargs -0)
     #[arg(short = '0', long, requires = "output_paths", help_heading = "Output")]
     null: bool,
-    /// Text-field editor backend; overrides [editor] backend in the configuration
-    ///
-    /// nvim (the default) embeds a clean Neovim (no user config or plugins) in
-    /// every text field, initially in Normal mode (press i to type); basic
-    /// supports typing and Backspace. Without an explicit
-    /// choice, a missing or broken nvim falls back to basic quietly. See
-    /// docs/EDITING.md.
-    #[arg(long, value_enum, help_heading = "Interface")]
-    editor: Option<fuzzy_file_finder::config::EditorBackend>,
     /// Color palette for this session; overrides [ui] palette
     ///
     /// Built-in names include midnight, light, forest, nord, gruvbox-dark,
@@ -287,6 +278,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     // Configured [keys.map] chords first, so --map-key rules override them.
     let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
     if args.check_config {
+        // Openers name programs; report the ones that are not installed.
+        let missing = settings.open.missing(&std::env::current_dir()?);
+        if !missing.is_empty() {
+            return Err(format!("[open] programs not found: {}", missing.join("; ")).into());
+        }
         match &settings.source {
             Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
             None => eprintln!("fff: no configuration file; using built-in settings"),
@@ -330,6 +326,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         App::new(roots, args.depth as usize, policy)
     };
     app.records_location = records_location;
+    app.openers = settings.open.clone();
+    app.output_paths = args.output_paths;
     app.positions = state.positions;
     app.wanted = app.remembered(&app.cwd.clone());
     app.apply_palette(fuzzy_file_finder::reload::PaletteState::from_settings(
@@ -354,14 +352,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.bookmarks.clone(),
         app.home.clone(),
     );
-    let finish = ui::run(
-        app,
-        keys,
-        settings.cache,
-        watcher,
-        args.editor.or(settings.editor.backend),
-        settings.performance,
-    )?;
+    let finish = ui::run(app, keys, settings.cache, watcher, settings.performance)?;
     // In the default mode the session chooses a directory: the folder of the
     // confirmed entry (a directory itself for directories).
     let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
@@ -398,6 +389,20 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
                 args.relative,
                 args.null,
             )?;
+            Ok(true)
+        }
+        ui::Finish::Folder(folder) if args.output_paths => {
+            write_paths(
+                io::stdout().lock(),
+                &[folder],
+                &invocation,
+                args.relative,
+                args.null,
+            )?;
+            Ok(true)
+        }
+        ui::Finish::Folder(folder) => {
+            change_to(Some(&folder))?;
             Ok(true)
         }
         ui::Finish::Paths(paths) => {
@@ -455,10 +460,6 @@ mod tests {
     #[test]
     fn completion_offers_options_values_paths_and_palettes() {
         assert_eq!(candidates(&["fff", "--pal"], None), ["--palette"]);
-        assert_eq!(
-            candidates(&["fff", "--editor", ""], None),
-            ["basic", "nvim"]
-        );
         let shells = candidates(&["fff", "--completions", ""], None);
         for shell in ["bash", "zsh", "fish"] {
             assert!(shells.contains(&shell.to_string()), "{shell}");

@@ -2,8 +2,7 @@
 
 Operations act on results and the marked list. These keys act
 only in Neovim Normal mode (the marked list always accepts them). Insert mode
-keeps them as text. The basic editor can invoke operations from the marked list;
-its prompt buffers use Ctrl+s to apply and Escape to discard.
+keeps them as text.
 
 | Key | Action |
 | --- | --- |
@@ -66,8 +65,7 @@ rename buffer fills the pane area). The text explains what each key does, and
 the bottom border repeats the keys, for example
 `─ c: Current ─── s: Selection ─── a: All ─── Esc: Cancel ─`. On narrow
 terminals the hints compact (tighter separators, then without Esc, then keys
-only) instead of clipping a key. The rename buffer lists `ZZ` / `ZQ` with Neovim
-and `Ctrl+s` / `Esc` with basic editing; name and destination buffers list
+only) instead of clipping a key. The rename buffer lists `ZZ` / `ZQ`; name and destination buffers list
 `Enter` / `Esc`. Destructive confirmations
 (deletion, overwriting) use the `error` color; choices and buffers use
 `marked`.
@@ -141,6 +139,32 @@ directory stages inside it, so its parent need not be writable.
 New file/directory naming buffers start in Insert mode, ready for typing.
 Names must be a single nonempty basename in the current directory; existing
 entries are refused. New files get ordinary permissions under your umask. Rename and extraction buffers start in Normal mode.
+
+## Opening files
+
+Each file type can have an **opener**, configured under `[open]` (see the
+[configuration guide](CONFIGURATION.md#openers)); files no rule matches use
+`$EDITOR`. There are two ways to open:
+
+- **In the background:** `l`, Alt+l, or Alt+number on a file. fff keeps the
+  keyboard. A GUI opener (zathura, imv, mpv) starts detached from the terminal:
+  in its own session, so closing the terminal or quitting fff leaves it open,
+  with no terminal input and its output appended to `open.log` next to the
+  remembered state (`~/.local/state/fff/open.log`). A terminal opener (one with
+  `terminal = true`, and `$EDITOR`) cannot share fff's terminal, so it opens in
+  a new terminal window, using `[open] terminal` (`st -e` by default). The status
+  line says what was opened; if the program later fails, a **Notice** pop-up
+  appears at the top right with its exit status and the log's location, and
+  fades after a few seconds.
+- **In this terminal:** `o` (configurable as `open` in `[keys.normal]`) opens the
+  current or marked files with the same current / selection / all choice as `E`.
+  The opener takes over the terminal, GUI or not, and fff comes back when it
+  ends. Files sharing an opener go to one invocation (three PDFs, one zathura);
+  different openers run one after another. `o` refuses directories (`l` enters
+  them).
+
+Openers are resolved like `gx` commands: no shell, the program found on PATH
+before anything runs, and the file paths added as separate arguments.
 
 ## Running programs
 

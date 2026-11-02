@@ -63,8 +63,21 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
             vec![
                 ("↑↓  Alt+k Alt+j".into(), "move the highlight", false),
                 ("PgUp PgDn".into(), "previous / next page", false),
-                ("Enter".into(), "open dir, or return file + marks", false),
-                ("Alt+l".into(), "enter the highlighted directory", true),
+                (
+                    "Enter".into(),
+                    "Normal: exit into the entry's folder",
+                    false,
+                ),
+                (
+                    String::new(),
+                    "typing: open dir, reveal / return file",
+                    false,
+                ),
+                (
+                    "Alt+l".into(),
+                    "enter directory, or open file in background",
+                    true,
+                ),
                 ("Alt+h".into(), "parent directory, keeping query", true),
                 (
                     "Alt+g".into(),
@@ -90,7 +103,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Tab".into(), "mark / unmark, then move down", false),
                 ("Alt+Space".into(), "focus the marked list", false),
                 ("Ctrl+w".into(), "return the marked paths", false),
-                ("Alt+1…9 Alt+0".into(), "activate row n like Enter", false),
+                ("Alt+1…9 Alt+0".into(), "like Alt+l on row n", false),
                 (
                     "Ctrl+1…9 Ctrl+0".into(),
                     "return row n now, ignoring marks",
@@ -134,8 +147,8 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ),
                 (String::new(), "only files whose name matches one", false),
                 (String::new(), "are listed; empty lists every file", false),
-                ("ZZ  Ctrl+s".into(), "apply (Ctrl+s without Neovim)", false),
-                ("ZQ  Esc".into(), "discard (Esc without Neovim)", false),
+                ("ZZ".into(), "apply", false),
+                ("ZQ".into(), "discard", false),
                 (String::new(), "ZZ/ZQ also apply/discard renames", false),
             ],
         ),
@@ -144,7 +157,16 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
             vec![
                 (normal(Down) + "  " + &normal(Up), "move down / up", false),
                 (normal(Left), "parent directory, like Alt+h", true),
-                (normal(Right), "enter directory, like Alt+l", true),
+                (
+                    normal(Right),
+                    "enter directory / open file, like Alt+l",
+                    true,
+                ),
+                (
+                    normal(Open),
+                    "open current / marked files here, come back",
+                    false,
+                ),
                 (
                     normal(First) + "  " + &normal(Last),
                     "first / last row",
