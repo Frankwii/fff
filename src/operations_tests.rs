@@ -699,6 +699,8 @@ fn archives_refuse_traversal_absolute_links_special_duplicate_and_colliding_entr
             ("a", b'0', b"one".as_slice(), ""),
             ("a", b'0', b"two".as_slice(), ""),
         ],
+        // C1 controls such as CSI (U+009B) drive terminals like ESC does.
+        vec![("csi\u{9b}31m", b'0', b"bad".as_slice(), "")],
     ] {
         let f = Fixture::new();
         let archive = f.work.join("a.tar");
@@ -1087,6 +1089,83 @@ fn readonly_destination_failure_leaves_sources_and_destinations_intact() {
     assert!(error.contains("Permission denied"), "{error}");
     assert_eq!(fs::read(a).unwrap(), b"a");
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 0);
+}
+/// A directory without owner write permission, like `cp -r` and `rm -r` handle.
+fn locked_dir(path: &Path) {
+    fs::create_dir(path).unwrap();
+    fs::write(path.join("x"), b"x").unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o555)).unwrap();
+}
+fn unlock(path: &Path) {
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o755));
+}
+#[test]
+fn readonly_directories_copy_with_their_mode_and_times() {
+    let f = Fixture::new();
+    let ro = f.work.join("ro");
+    locked_dir(&ro);
+    let plan = TransferPlan::new(Transfer::Copy, vec![ro.clone()], f.dest.clone()).unwrap();
+    let result = f.engine().execute(plan.request().unwrap());
+    let copy = f.dest.join("ro");
+    let (was, now) = (fs::metadata(&ro).unwrap(), fs::metadata(&copy));
+    unlock(&copy);
+    unlock(&ro);
+    result.unwrap();
+    let now = now.unwrap();
+    assert_eq!(now.mode() & 0o7777, 0o555);
+    assert_eq!(
+        (now.mtime(), now.mtime_nsec()),
+        (was.mtime(), was.mtime_nsec())
+    );
+    assert_eq!(fs::read(copy.join("x")).unwrap(), b"x");
+    assert_eq!(fs::read(ro.join("x")).unwrap(), b"x");
+}
+#[test]
+fn readonly_directories_can_be_deleted_and_overwritten() {
+    let f = Fixture::new();
+    let (ro, empty) = (f.work.join("ro"), f.work.join("empty"));
+    locked_dir(&ro);
+    fs::create_dir(&empty).unwrap();
+    fs::set_permissions(&empty, fs::Permissions::from_mode(0o555)).unwrap();
+    let plan = DeletePlan::new(vec![ro.clone(), empty.clone()]).unwrap();
+    let result = f.engine().execute(plan.request().unwrap());
+    unlock(&ro);
+    unlock(&empty);
+    assert!(result.unwrap().warning.is_none());
+    assert!(!ro.exists() && !empty.exists());
+    let a = f.file("a", b"new");
+    locked_dir(&f.dest.join("a"));
+    let plan = TransferPlan::new(Transfer::Move, vec![a], f.dest.clone()).unwrap();
+    let result = f.engine().execute(plan.request().unwrap());
+    unlock(&f.dest.join("a"));
+    assert!(result.unwrap().warning.is_none());
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"new");
+    assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 1);
+}
+#[test]
+fn a_cancelled_delete_puts_readonly_directories_back_with_their_mode() {
+    let f = Fixture::new();
+    let ro = f.work.join("ro");
+    locked_dir(&ro);
+    let other = f.file("other", b"other");
+    let plan = DeletePlan::new(vec![ro.clone(), other.clone()]).unwrap();
+    let mut e = f.engine();
+    e.hook = Some(Box::new(move |phase| {
+        if phase == 1 {
+            fs::write(&other, b"changed").unwrap();
+        }
+    }));
+    let result = e.execute(plan.request().unwrap());
+    let mode = fs::metadata(&ro).map(|m| m.mode() & 0o7777);
+    unlock(&ro);
+    let error = result.unwrap_err();
+    // The directory was detached and then put back.
+    assert!(
+        error.contains("Source changed before deletion; nothing changed"),
+        "{error}"
+    );
+    assert_eq!(mode.unwrap(), 0o555);
+    assert_eq!(fs::read(ro.join("x")).unwrap(), b"x");
 }
 #[test]
 fn cross_filesystem_moves_refuse_when_available() {

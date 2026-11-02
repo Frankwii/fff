@@ -56,13 +56,17 @@ impl Reader {
     }
 }
 /// Absolute, parent-traversing and backslash-separated names are refused even on
-/// Linux, as are control characters (a newline would forge a second name) and
+/// Linux, as are control characters, C1 ones included in UTF-8 names (a newline
+/// would forge a second name, a CSI drive the terminal), and
 /// names fff reserves for its own staging directories.
 pub fn safe_path(path: &Path) -> Result<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let bytes = path.as_os_str().as_bytes();
     if bytes.contains(&b'\\')
         || bytes.iter().any(|b| *b < 0x20 || *b == 0x7f)
+        || path
+            .to_str()
+            .is_some_and(|t| t.chars().any(char::is_control))
         || path.components().any(|c| {
             c.as_os_str()
                 .as_bytes()

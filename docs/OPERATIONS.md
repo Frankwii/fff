@@ -53,8 +53,8 @@ with the kernel's mount-root flag, which also catches bind mounts from the same
 filesystem, and by device number for other filesystems and subvolumes. Recursive
 copy and deletion check again at every directory, in case something is mounted
 after validation. Sockets, devices and other
-special files are refused anywhere in a tree, as are trees deeper than 128
-levels or with more than 100,000 entries. Symlinks are copied or
+special files are refused anywhere in a tree, as are trees nesting more than
+128 levels below the selected entry or with more than 100,000 entries. Symlinks are copied or
 removed as links; recursive operations never follow them.
 
 ## Dialogs and messages
@@ -292,7 +292,11 @@ partway through rolls earlier steps back, and anything that cannot be rolled
 back is named with its path.
 
 Copies preserve file contents, ordinary permission bits, symlinks and
-access/modification times. They are not filesystem snapshots: ownership,
+access/modification times. Like `cp -r`, `rm -r` and overwriting, fff copies,
+deletes and replaces directories without owner write permission: such a
+directory gains it only for the instant it is renamed into or out of staging
+(Linux requires it to change a directory's parent) and is left with its exact
+mode. A plain move of such a directory to another folder fails, as with `mv`. They are not filesystem snapshots: ownership,
 extended attributes, ACLs, hard-link relationships and sparse allocation are not
 preserved. Concurrent writers can still race an operation; stop writers when a
 stable copy matters. Operations run synchronously, including size calculation.
@@ -314,8 +318,9 @@ Detection uses contents, not filename extensions. Validation runs again during
 extraction in case the archive changes after the prompt opens. Extraction stages all entries before publication and
 refuses existing top-level destinations rather than merging or overwriting them.
 It refuses absolute paths, parent traversal, backslash separators, control
-characters in names, names reserved for fff's staging directories, duplicate
+characters in names (including C1 controls such as U+009B in UTF-8 names), names reserved for fff's staging directories, duplicate
 entries, links, and special files. Colons are allowed. Extracted files keep the
-archive's permission bits, limited by your umask. Limits are 10,000 entries, 64 path components,
+archive's permission bits, limited by your umask; extracted directories get the
+default mode (0777 limited by your umask). Limits are 10,000 entries, 64 path components,
 2 GiB per file and 4 GiB total extracted bytes. Exceeding a limit discards staging.
 

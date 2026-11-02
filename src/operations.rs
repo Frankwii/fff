@@ -75,6 +75,24 @@ fn exists(parent: &File, name: &OsStr) -> Result<bool> {
 fn rename(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<()> {
     sys::renameat_with(a, name, b, to, RenameFlags::NOREPLACE).map_err(err)
 }
+/// `rename` into another directory. Linux moves a directory to a new parent
+/// only if the directory itself is writable (its `..` changes), so one without
+/// owner write permission gains it for the rename alone, as `cp` and `rm` allow.
+fn reparent(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<()> {
+    let locked = child_dir(a, name).ok().and_then(|dir| {
+        let mode = dir.metadata().ok()?.mode() & 0o7777;
+        (mode & 0o200 == 0
+            && dir
+                .set_permissions(fs::Permissions::from_mode(mode | 0o200))
+                .is_ok())
+        .then_some((dir, mode))
+    });
+    let result = rename(a, name, b, to);
+    if let Some((dir, mode)) = locked {
+        let _ = dir.set_permissions(fs::Permissions::from_mode(mode));
+    }
+    result
+}
 struct Entry {
     parent: File,
     name: OsString,
@@ -683,7 +701,7 @@ impl Engine {
                     for (i, d) in dst.iter().enumerate() {
                         self.checkpoint(i);
                         if let Err(e) =
-                            rename(&stage.dir, OsStr::new(&i.to_string()), &d.parent, &d.name)
+                            reparent(&stage.dir, OsStr::new(&i.to_string()), &d.parent, &d.name)
                         {
                             let mut rollback = true;
                             for &j in done.iter().rev() {
@@ -691,7 +709,7 @@ impl Engine {
                                 // Never pull back (and then delete) an entry that
                                 // replaced the published copy concurrently.
                                 rollback &= identity(&d.parent, &d.name) == staged[j]
-                                    && rename(
+                                    && reparent(
                                         &d.parent,
                                         &d.name,
                                         &stage.dir,
@@ -724,7 +742,7 @@ impl Engine {
                         self.checkpoint(i);
                         let result = tree(s).and_then(|now| {
                             if now == before[i] {
-                                rename(&s.parent, &s.name, &held[i].dir, OsStr::new("entry"))
+                                reparent(&s.parent, &s.name, &held[i].dir, OsStr::new("entry"))
                             } else {
                                 Err("Source changed before deletion".into())
                             }
@@ -733,7 +751,7 @@ impl Engine {
                             for j in (0..i).rev() {
                                 let s = &src[j];
                                 held[j].keep =
-                                    rename(&held[j].dir, OsStr::new("entry"), &s.parent, &s.name)
+                                    reparent(&held[j].dir, OsStr::new("entry"), &s.parent, &s.name)
                                         .is_err();
                             }
                             return Err(format!("{e}; {}", unrestored(&held)));
@@ -750,9 +768,13 @@ impl Engine {
                     });
                     if let Err(error) = validation {
                         for (i, st) in held.iter_mut().enumerate().rev() {
-                            st.keep =
-                                rename(&st.dir, OsStr::new("entry"), &src[i].parent, &src[i].name)
-                                    .is_err();
+                            st.keep = reparent(
+                                &st.dir,
+                                OsStr::new("entry"),
+                                &src[i].parent,
+                                &src[i].name,
+                            )
+                            .is_err();
                         }
                         return Err(format!("{error}; {}", unrestored(&held)));
                     }
@@ -763,8 +785,9 @@ impl Engine {
                             // yet deleted, so nothing is left hidden in staging.
                             for (j, st) in held.iter_mut().enumerate().skip(i) {
                                 let s = &src[j];
-                                st.keep = rename(&st.dir, OsStr::new("entry"), &s.parent, &s.name)
-                                    .is_err();
+                                st.keep =
+                                    reparent(&st.dir, OsStr::new("entry"), &s.parent, &s.name)
+                                        .is_err();
                             }
                             let rest = match held.len() - i - 1 {
                                 0 => String::new(),
@@ -1013,7 +1036,7 @@ impl<'a> Overwrite<'a> {
         for (j, o) in old.iter().enumerate() {
             let result = tree(o).and_then(|now| {
                 if now == expected[j] {
-                    rename(&o.parent, &o.name, &stage.dir, OsStr::new(&j.to_string()))
+                    reparent(&o.parent, &o.name, &stage.dir, OsStr::new(&j.to_string()))
                 } else {
                     Err("An entry to overwrite changed".into())
                 }
@@ -1041,7 +1064,8 @@ impl<'a> Overwrite<'a> {
         };
         let mut restored = true;
         for (j, o) in self.old.iter().enumerate().take(count).rev() {
-            restored &= rename(&stage.dir, OsStr::new(&j.to_string()), &o.parent, &o.name).is_ok();
+            restored &=
+                reparent(&stage.dir, OsStr::new(&j.to_string()), &o.parent, &o.name).is_ok();
         }
         stage.keep = !restored;
         restored
