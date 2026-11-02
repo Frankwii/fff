@@ -895,6 +895,13 @@ fn filename_spans(
     let start = label
         .len()
         .saturating_sub(safe(&basename).len() + usize::from(candidate.directory));
+    // Only a name the query matches is highlighted (a save dialog lists the
+    // others too).
+    let query = if crate::score(&basename, query).is_some() {
+        query
+    } else {
+        ""
+    };
     let mut wanted = query
         .to_lowercase()
         .chars()
@@ -1046,7 +1053,17 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     } else {
         app.highlight.as_ref()
     };
-    let help = [bold("F1", theme.accent), styled(" keys ", theme.muted)];
+    let mut help = vec![bold("F1", theme.accent), styled(" keys ", theme.muted)];
+    // A dialog says how to leave without choosing; q is text while typing.
+    if app.dialog.is_some() {
+        let typing = app.edit_view.as_ref().is_some_and(|v| !v.normal());
+        let quit = if typing { "Ctrl+c" } else { "q" };
+        help.extend([
+            Span::raw(" "),
+            bold(quit, theme.accent),
+            styled(" quit ", theme.muted),
+        ]);
+    }
     let help_width = help.iter().map(|s| s.width()).sum::<usize>();
     let available = (area.width as usize).saturating_sub(help_width + 2);
     let mut spans = if app.status.is_empty() {

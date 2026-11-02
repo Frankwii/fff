@@ -150,11 +150,12 @@ file dialogs. In short:
 | Open several files | Tab to mark, then Enter on a file (or Ctrl+w) | The marks and that file. |
 | Choose a folder | Go into it and press `!` (or Ctrl+s) | That folder. |
 | Save (a download, a PDF from the viewer) | Go to the folder and press `!` (or Ctrl+s) | The suggested name in that folder. |
-| Save under another name | Go to the folder, `i`, type the name, Ctrl+s | That name in that folder. |
+| Save under another name | Go to the folder, `i`, type the name, Enter (or Ctrl+s) | That name in that folder. |
 
-`q` or Ctrl+c cancels. The empty query line says how to choose, and when
-saving, the query box's title says the name the file will get. Saving over an
-existing file always asks first.
+`q` (or Ctrl+c while typing) cancels, as the footer says beside `F1 keys`. The
+empty query line says how to choose, and when saving, the query box's title
+says the name the file will get. Saving over an existing file always asks
+first.
 
 ### The wrapper
 
@@ -229,7 +230,8 @@ differs:
 | --- | --- |
 | Enter on a folder | Enters it, in Normal and Insert mode alike (a normal session leaves into it from Normal mode). |
 | Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file) it is that file whatever is marked; with `--multiple`, the marks and that file. When saving, offers to [replace](#saving) it. |
-| Enter with nothing highlighted | When saving, saves under the typed name: a new name usually matches nothing. |
+| Enter while typing (Insert mode), when saving | Saves under the typed name, as in any name field. |
+| Enter with nothing listed (an empty folder), when saving | Saves under the typed or suggested name. |
 | Enter in the marked list | Chooses that mark (when saving, offers to replace it). |
 | `!` (Normal mode) | Takes the folder being browsed: the answer to a folder dialog, or where to save. |
 | Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
@@ -244,15 +246,18 @@ remain available, so a dialog can also make the folder to save into.
 
 ### Hints
 
-The query line, while empty, shows how to choose instead of `type to filter
-names…`. Typing (Insert mode) changes it, since `!` and `q` are then text:
+The query line, while empty, says how to choose instead of `type to filter
+names…`. Typing (Insert mode) changes it, since `!` is then text:
 
 | Dialog | Normal mode | Insert mode |
 | --- | --- | --- |
-| Open one file | `Enter chooses a file · q cancels` | `Enter chooses a file · Ctrl+c cancels` |
-| Open several | `Enter chooses a file · Tab marks several · Ctrl+w the marks · q cancels` | the same, ending `Ctrl+c cancels` |
-| Folder | `! or Ctrl+s chooses the folder you are in · q cancels` | `Ctrl+s chooses the folder you are in · Ctrl+c cancels` |
-| Save | `i types a name · ! or Ctrl+s saves NAME here · Enter on a file replaces it · q cancels` | `type a name, or Ctrl+s saves NAME here · Ctrl+c cancels` |
+| Open one file | Press Enter on a file to choose it. | the same |
+| Open several | Press Enter on a file to choose it. Press Tab to mark several, then Ctrl+w to choose them. | the same |
+| Folder | Press ! or Ctrl+s to choose the folder you are in. | Press Ctrl+s to choose the folder you are in. |
+| Save | Press ! or Ctrl+s to save NAME here. Press i to type a custom name. Press Enter on a file to replace it. | Type a custom name, then press Enter or Ctrl+s to save it here. Press Esc to browse folders. |
+
+How to leave without choosing is in the footer, to the right of `F1 keys` and
+in the same style: `q quit`, or `Ctrl+c quit` while typing.
 
 When saving, the query box's title is `Save as NAME`: the typed name, or the
 suggested one while the query is empty. It updates as you type.
@@ -260,12 +265,13 @@ suggested one while the query is empty. It updates as you type.
 ### Saving
 
 The name is the query, trimmed of surrounding spaces, or the suggested name
-when the query is empty. Typing it also filters the folder, so existing files
-with similar names show up as you type. A name cannot contain `/` or a line
+when the query is empty. In a save dialog the query does not filter: every
+entry stays listed, and the names it matches have their matching letters
+highlighted, so files with similar names stand out as you type. A name cannot contain `/` or a line
 break, nor be `.` or `..`; the status line says so and nothing is saved.
 
-`!`, Ctrl+s, and Enter with nothing highlighted save under that name in the
-folder being browsed:
+`!`, Ctrl+s, and Enter while typing save under that name in the folder being
+browsed:
 
 - **Nothing of that name there:** the dialog ends with that path.
 - **A folder of that name:** refused; the status line suggests Enter to go

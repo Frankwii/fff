@@ -606,9 +606,17 @@ impl App {
                             .admits(Path::new(name.to_string_lossy().as_ref()))
                     }))
     }
+    /// The query rows are filtered by. A save dialog's query is the file
+    /// name being typed: matches are only highlighted, nothing is hidden.
+    pub fn filter(&self) -> &str {
+        match &self.dialog {
+            Some(dialog) if dialog.save.is_some() => "",
+            _ => &self.query,
+        }
+    }
     pub fn refresh(&mut self) {
         let basis = RefreshBasis::of(self);
-        let folded = self.query.to_lowercase();
+        let folded = self.filter().to_lowercase();
         // Labels depend on the whole listing, not the query, so they stay put
         // while typing.
         if self
@@ -677,7 +685,7 @@ impl App {
                 .then(a.root.cmp(&b.root))
                 .then(a.path.as_os_str().cmp(b.path.as_os_str()))
         };
-        let matcher = Matcher::new(&self.query);
+        let matcher = Matcher::new(self.filter());
         let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
         // Pathnames break every tie, so an unstable sort yields the same order.
         let rows = if let Some(base) = base {

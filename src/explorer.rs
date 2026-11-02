@@ -52,26 +52,22 @@ impl Dialog {
         (dialog, start, highlight)
     }
     /// How to choose, shown in the empty query line; `typing` in Insert mode,
-    /// where `!` and `q` are text.
+    /// where `!` is text.
     pub fn hint(&self, typing: bool) -> String {
-        let cancel = if typing {
-            "Ctrl+c cancels"
-        } else {
-            "q cancels"
-        };
-        let here = if typing { "Ctrl+s" } else { "! or Ctrl+s" };
         match (&self.save, self.directory, self.multiple) {
-            (Some(name), _, _) if typing => {
-                format!("type a name, or Ctrl+s saves {name} here · {cancel}")
-            }
+            (Some(_), _, _) if typing => "Type a custom name, then press Enter or Ctrl+s to save \
+                 it here. Press Esc to browse folders."
+                .into(),
             (Some(name), _, _) => format!(
-                "i types a name · {here} saves {name} here · Enter on a file replaces it · {cancel}"
+                "Press ! or Ctrl+s to save {name} here. Press i to type a custom name. \
+                 Press Enter on a file to replace it."
             ),
-            (None, true, _) => format!("{here} chooses the folder you are in · {cancel}"),
-            (None, false, true) => {
-                format!("Enter chooses a file · Tab marks several · Ctrl+w the marks · {cancel}")
-            }
-            (None, false, false) => format!("Enter chooses a file · {cancel}"),
+            (None, true, _) if typing => "Press Ctrl+s to choose the folder you are in.".into(),
+            (None, true, _) => "Press ! or Ctrl+s to choose the folder you are in.".into(),
+            (None, false, true) => "Press Enter on a file to choose it. Press Tab to mark \
+                 several, then Ctrl+w to choose them."
+                .into(),
+            (None, false, false) => "Press Enter on a file to choose it.".into(),
         }
     }
     /// The name a save takes: the query, else the suggestion.
@@ -190,8 +186,12 @@ mod tests {
         assert_eq!(dialog.title("x"), "Save as x");
         assert_eq!(Dialog::default().save_name("x"), None);
         assert_eq!(Dialog::default().title("x"), "Query");
-        assert!(dialog.hint(false).contains("saves page.html here"));
-        assert!(dialog.hint(true).contains("Ctrl+c cancels"));
+        assert!(
+            dialog
+                .hint(false)
+                .starts_with("Press ! or Ctrl+s to save page.html here.")
+        );
+        assert!(dialog.hint(true).starts_with("Type a custom name"));
         for bad in ["a/b", ".", "..", "a\nb"] {
             assert!(check_name(bad).is_err(), "{bad}");
         }

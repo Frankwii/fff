@@ -1627,12 +1627,21 @@ fn session(
                 }
                 (K::Enter, _, _) => {
                     let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
+                    let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
+                    // Typing a name to save under: Enter saves it, as in any
+                    // name field.
+                    if !normal && app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
+                        if let Some(finish) = save_here(app, &mut focus) {
+                            return Ok(finish);
+                        }
+                        continue;
+                    }
                     // Normal mode: finish with the entry. In the default mode
                     // a file opens and fff leaves; otherwise fff exits into
                     // the entry's folder (a directory itself), also for deep
                     // results. A dialog chooses files and enters folders
                     // instead.
-                    if app.dialog.is_none() && app.edit_view.as_ref().is_some_and(|v| v.normal()) {
+                    if app.dialog.is_none() && normal {
                         if let Some(file) = &target
                             && !file.directory
                             && !app.output_paths
@@ -1662,8 +1671,8 @@ fn session(
                                 discovery.start(app, true);
                             }
                         }
-                        // Saving over a file asks first; with nothing
-                        // highlighted (a new name matches nothing) Enter saves.
+                        // Saving over a file asks first; with nothing listed
+                        // (an empty folder) Enter saves.
                         Some(file)
                             if !file.directory
                                 && app.dialog.as_ref().is_some_and(|d| d.save.is_some())

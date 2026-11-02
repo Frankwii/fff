@@ -1692,7 +1692,8 @@ class TerminalTests(unittest.TestCase):
         (self.root / "b.txt").write_text("b")
         # Normal-mode Enter enters a folder, then chooses a file.
         s = self.start("explorer", implicit_root=True, output_paths=False)
-        s.wait_ui("Enter chooses a file · q cancels")
+        s.wait_ui("Press Enter on a file to choose it.")
+        s.wait_ui("F1 keys  q quit")
         s.send(b"\r", ("cwd", self.root / "docs"))
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs" / "a.pdf") + b"\n"))
@@ -1725,7 +1726,7 @@ class TerminalTests(unittest.TestCase):
                                        *args, implicit_root=True, output_paths=False)
             s.wait_ui(("cwd", docs))
             s.wait_ui("Save as a.pdf · NORMAL")
-            s.wait_ui("! or Ctrl+s saves a.pdf here")
+            s.wait_ui("Press ! or Ctrl+s to save a.pdf here. Press i to type a custom name.")
             return s
         s = save()
         s.send(b"!", "Keep both")
@@ -1750,13 +1751,16 @@ class TerminalTests(unittest.TestCase):
         for key in [b"\x13", b"\r"]:
             s = save()
             s.send(b"inew.pdf", "Save as new.pdf · INSERT")
+            # The name does not filter the folder: a.pdf stays listed.
+            self.assertIn("Files · 1", s.screen.text)
+            self.assertIn("F1 keys  Ctrl+c quit", s.screen.text)
             s.send(key)
             self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
             s.close()
         # A folder dialog takes the folder being browsed.
         s = self.session = Session(self.root, "explorer", "--directory", "docs",
                                    implicit_root=True, output_paths=False)
-        s.wait_ui("! or Ctrl+s chooses the folder you are in")
+        s.wait_ui("Press ! or Ctrl+s to choose the folder you are in.")
         s.send(b"!")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs") + b"\n"))
         s.close()
