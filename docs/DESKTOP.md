@@ -275,7 +275,7 @@ differs:
 | Enter in the marked list | Chooses that mark (when saving, offers to replace it). |
 | `!` (Normal mode) | Takes the folder being browsed: the answer to a folder dialog, or where to save. |
 | Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
-| `q` (Normal mode) | Cancels (a normal session returns the launch directory). |
+| `q` (Normal mode) | Cancels, as everywhere: nothing is chosen. |
 | Ctrl+c | Cancels. |
 | Ctrl+w | Chooses the marks. |
 | Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving. |

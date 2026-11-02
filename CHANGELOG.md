@@ -9,12 +9,14 @@ history.
 ### Added
 
 - **D hides files**, listing only folders (Alt+D while typing); again to show
-  them. `d` and `D` switch between files only and folders only. Not in
-  `fff pick` or `fff seek`, which list files. Configurable as `files` in
-  `[keys.normal]`.
+  them. `d` and `D` switch between files only and folders only. Configurable
+  as `files` in `[keys.normal]`.
 
 ### Changed
 
+- **`q` in `fff pick` prints nothing**, like Ctrl+c, instead of the launch
+  directory: a script such as `fff pick | xargs -r zathura` no longer opens
+  the folder you started in. `!` still prints the browsing directory.
 - **Shorter Normal-mode keys:** `d` hides directories (was `zd`) and `P`
   shows the preview pane (was `zp`); `p` still copies. In the results, `d`,
   `D` and `P` no longer reach Neovim as delete and put.
@@ -22,7 +24,9 @@ history.
   key instead of refusing to start, so a configuration with `delete = "D"`
   keeps working and `files` is then left unbound.
 - **`fff seek` has no tabs at all:** Up / Down in Normal mode move the
-  highlight there instead of reporting that navigation is disabled.
+  highlight there instead of reporting that navigation is disabled. Like
+  the other keys of modes that navigate, `d`, `D` and `P` are not bound
+  there either and reach Neovim.
 
 ### Fixed
 

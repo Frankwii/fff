@@ -998,10 +998,6 @@ impl App {
             self.kinds
         }
     }
-    /// `fff pick`, as opposed to `fff explorer`, which prints paths too.
-    pub fn picking(&self) -> bool {
-        self.output_paths && self.dialog.is_none()
-    }
     /// What decides which known paths are listed, for ranking elsewhere.
     fn listing(&self) -> Listing {
         Listing {

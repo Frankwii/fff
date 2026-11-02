@@ -120,9 +120,8 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Esc".into(), "leave Insert, then clear query", false),
                 ("Alt+← Alt+→".into(), "search shallower / deeper", false),
                 ("Alt+.".into(), "show / hide hidden entries", false),
-                ("Alt+d".into(), "hide / show directories", false),
-                // Crossed out in fff seek like navigation; fff pick refuses it too.
-                ("Alt+D".into(), "hide / show files (not fff pick)", true),
+                ("Alt+d".into(), "hide / show directories", true),
+                ("Alt+D".into(), "hide / show files", true),
                 ("Alt+v".into(), "show / hide the preview pane", false),
                 (
                     [Move, Copy, Link].map(normal).join(" / "),
@@ -197,9 +196,9 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     false,
                 ),
                 (normal(Hidden), "show / hide hidden entries", false),
-                (normal(Directories), "hide / show directories", false),
-                (normal(Files), "hide / show files (not fff pick)", true),
-                (normal(Preview), "show / hide the preview pane", false),
+                (normal(Directories), "hide / show directories", true),
+                (normal(Files), "hide / show files", true),
+                (normal(Preview), "show / hide the preview pane", true),
                 (normal(GoTo), "go to a path, bookmark or zoxide", true),
                 (normal(Bookmarks), "open a bookmark", true),
                 (
@@ -207,7 +206,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "next / previous tab",
                     true,
                 ),
-                (normal(Quit), "exit, return launch directory", true),
+                (normal(Quit), "exit, choosing nothing", true),
                 (
                     normal(QuitCurrent),
                     if app.window {

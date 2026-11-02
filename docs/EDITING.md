@@ -61,10 +61,10 @@ For example, type `ihello world`, press Escape, then `0dw`: the query becomes
 
 ## Application keys and Escape
 
-In Normal mode, `q` exits and returns the invocation directory; `!` exits and
-returns the current browsing directory. Both ignore marks and use the normal
-path output format (`--relative` and `--null` apply). In `fff seek`, they exit
-successfully without output. They also work in the marked list. Insert-mode
+In Normal mode, `q` exits choosing nothing (no output, no directory change);
+`!` exits and returns the current browsing directory in the normal path
+output format (`--relative` and `--null` apply). Both ignore marks. In
+`fff seek`, both exit successfully without output. They also work in the marked list. Insert-mode
 fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]`.
 
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,

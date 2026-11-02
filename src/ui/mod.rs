@@ -749,7 +749,8 @@ fn session(
                     }
                     continue;
                 }
-                if app.no_dir {
+                // fff seek, and q in fff pick, leave without choosing anything.
+                if app.no_dir || (app.output_paths && !current) {
                     return Ok(Finish::Paths(Vec::new()));
                 }
                 // With a window of its own, ! leaves into a shell there.
@@ -1824,14 +1825,8 @@ fn session(
                     discovery.start(app, false);
                 }
                 (K::Char('v'), _, true) => app.preview.shown = !app.preview.shown,
-                (K::Char('d'), _, true) if app.no_dir => {
+                (K::Char('d' | 'D'), _, true) if app.no_dir => {
                     app.status = "fff seek lists only files".into();
-                }
-                (K::Char('D'), _, true) if app.no_dir || app.picking() => {
-                    app.status = format!(
-                        "fff {} lists files; it cannot hide them",
-                        if app.no_dir { "seek" } else { "pick" }
-                    );
                 }
                 (K::Char(c @ ('d' | 'D')), _, true) => {
                     let only = if c == 'd' {

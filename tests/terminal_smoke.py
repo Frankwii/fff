@@ -195,14 +195,18 @@ class TerminalTests(unittest.TestCase):
         return self.session
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_normal_quit_returns_launch_directory_and_ignores_marks(self):
+    def test_normal_quit_prints_nothing_and_ignores_marks(self):
         (self.root / "child").mkdir()
         (self.root / "child" / "file").touch()
-        s = self.start("--depth", "1", implicit_root=True)
-        s.send(b"\t", "Marks (1)")
-        s.send(b"l", ("cwd", self.root / "child"))
-        s.send(b"q")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
+        # fff pick prints only what was chosen; fff roam stays where it started.
+        for output_paths in (True, False):
+            s = self.start("--depth", "1", implicit_root=True, output_paths=output_paths)
+            s.send(b"\t", "Marks (1)")
+            s.send(b"l", ("cwd", self.root / "child"))
+            s.send(b"q")
+            self.assertEqual(s.finish(), (0, b""))
+            self.session.close()
+        self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_normal_quit_current_uses_relative_nul_and_insert_keeps_text(self):
@@ -238,7 +242,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_files_hide_and_show_except_in_pick_and_seek(self):
+    def test_files_hide_and_show_except_in_seek(self):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()
         (self.root / "top.txt").touch()
@@ -257,15 +261,20 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
         self.session.close()
-        for command in ("pick", "seek"):
-            s = self.start(command, "--depth", "2", implicit_root=True)
-            s.send(b"\x1b", "NORMAL")
-            s.send(b"D", f"fff {command} lists files")
-            self.assertNotIn("folders only", s.screen.text)
-            s.send(b"\x03")
-            s.finish()
-            self.session.close()
-        self.session = None
+        s = self.start("--depth", "2", implicit_root=True)
+        s.send(b"D", "folders only")
+        s.send(b"\x03")
+        s.finish()
+        self.session.close()
+        # fff seek cannot navigate: D is Neovim's, deleting to the line's end.
+        s = self.start("seek", "--depth", "2", implicit_root=True)
+        s.send(b"top", "❯ top")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"0D", "❯ type to filter")
+        self.assertNotIn("folders only", s.screen.text)
+        s.send(b"\x1bD", "fff seek lists only files")
+        s.send(b"\x03")
+        s.finish()
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_preview_pane_follows_the_highlight(self):
@@ -311,11 +320,11 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_quit_from_pinned_root_uses_invocation_not_root(self):
+    def test_quit_from_pinned_root_prints_nothing(self):
         (self.root / "file").touch()
         s = self.start()
         s.send(b"q")
-        self.assertEqual(s.finish(), (0, os.fsencode(Path.cwd().resolve()) + b"\n"))
+        self.assertEqual(s.finish(), (0, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_no_dir_starts_in_insert_and_quit_returns_no_directory(self):

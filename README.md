@@ -289,8 +289,8 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |
-| Alt+d / d in Normal | Hide directories, listing only files; again to show them |
-| Alt+D / D in Normal | Hide files, listing only folders; again to show them (not in `fff pick` or `fff seek`) |
+| Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d, D and P reach Neovim there) |
+| Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
@@ -313,10 +313,11 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Click a tab number | Switch to that [tab](#tabs), keeping the marks |
 | Drop files on the terminal | Copy them into the current directory, after confirmation |
 
-`q` and `!` exit with status 0. In `fff pick` they print the launch or
-current directory in the usual output format; in `fff roam` `!` changes
-to the current directory and `q` changes nothing. `fff seek` makes either exit
-successfully without output. Insert mode keeps these characters as
+`q` and `!` exit with status 0. `q` chooses nothing: it prints nothing and
+changes no directory, so `fff pick | xargs -r …` opens nothing. `!` prints
+the current directory in `fff pick`, in the usual output format, and changes
+to it in `fff roam`. `fff seek` makes either exit successfully without
+output. Insert mode keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the

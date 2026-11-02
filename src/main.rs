@@ -295,8 +295,8 @@ enum Command {
     /// Browse and print the chosen paths, for scripts and $(...)
     ///
     /// Enter on a file prints it (while typing, the marks and it), Ctrl+number
-    /// does the same for its row, Ctrl+w prints the marks, q the launch
-    /// directory and ! the browsing directory.
+    /// does the same for its row, Ctrl+w prints the marks and ! the browsing
+    /// directory; q, like Ctrl+c, prints nothing.
     Pick(PickArgs),
     /// Choose files below the current directory or ROOTS, without navigating
     ///
