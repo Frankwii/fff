@@ -68,7 +68,7 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
         help.contains("Usage: fff seek [OPTIONS] [ROOTS]..."),
         "{help}"
     );
-    for text in ["--output-paths", "--glob", "--depth"] {
+    for text in ["--glob", "--depth"] {
         assert!(help.contains(text), "missing {text:?}");
     }
     // Options that became commands say where they went.
@@ -94,6 +94,7 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
         &["--window", "pick"],
         &["pick", "--resume"],
         &["seek", "--relative"],
+        &["seek", "--output-paths"],
         &["explorer", "--output-paths"],
         &["--resume", "src"],
         &["setup"],

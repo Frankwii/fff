@@ -33,11 +33,14 @@ is `fff roam`.
 
 ### Changed
 
-- **`--output-paths` is now `fff pick`**: `nvim "$(fff pick)"`,
-  `fff pick --relative -0`. It takes ROOTS and `--browse` like `fff roam`.
-- **`--no-dir` is now `fff seek`**: `fff seek ~/papers --glob '*.pdf'
-  --output-paths`. It behaves as `--no-dir` did and rejects `--browse`,
-  `--window` and `--resume`.
+- **`--output-paths` is now `fff pick`**, the only command that prints paths:
+  `nvim "$(fff pick)"`, `fff pick --relative -0`. It takes ROOTS and
+  `--browse` like `fff roam`. Scripts that combined `--output-paths` with
+  `--no-dir` and `--glob` use `fff pick --glob ...`, which lists only the
+  matching files.
+- **`--no-dir` is now `fff seek`**: `fff seek ~/papers --glob '*.pdf'`. It
+  behaves as `--no-dir` did without `--output-paths`, leaving into the chosen
+  file's folder, and rejects `--browse`, `--window` and `--resume`.
 - **Setting up is `fff setup`**: `--init SHELL`, `--completions SHELL`,
   `--desktop`, `--file-chooser` (or `--browser`) and `--check-config` replace
   `fff --init`, `--completions`, `--setup desktop`, `--setup file-chooser`

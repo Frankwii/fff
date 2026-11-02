@@ -324,7 +324,7 @@ pub struct App {
     pub records_session: bool,
     /// `[open]`: which program opens a file.
     pub openers: open::OpenConfig,
-    /// `fff pick` (and `fff seek --output-paths`): Insert-mode Enter on a file returns it instead of
+    /// `fff pick`: Insert-mode Enter on a file returns it instead of
     /// revealing it.
     pub output_paths: bool,
     /// Pop-up notifications and when each arrived.

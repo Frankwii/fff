@@ -54,8 +54,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Open the picked file using a path relative to here.
   <cyan>fff pick --exclude build -0 | xargs -0 ls -ld</cyan>
       Act on every marked path with NUL-separated records.
-  <cyan>fff seek ~/papers --depth 4 --glob '*.pdf' --output-paths</cyan>
-      Choose PDFs from anywhere below ~/papers, without browsing.
+  <cyan>fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura</cyan>
+      Choose PDFs from anywhere below ~/papers and open them.
   <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
   <cyan>fff setup --desktop; fff setup --file-chooser</cyan>
@@ -303,10 +303,10 @@ enum Command {
     /// A static file choice: only files are listed, from every folder down to
     /// --depth; the current directory cannot change, and the query starts in
     /// Insert mode, ready to type. Rows show bare names; files sharing a name
-    /// gain the shortest distinguishing parents. Mark files with Tab. With
-    /// --output-paths, Enter prints the highlighted file and Ctrl+w the marks;
-    /// without it, fff leaves into the chosen file's folder. q and ! leave
-    /// without choosing anything.
+    /// gain the shortest distinguishing parents. Mark files with Tab; Enter
+    /// leaves into the chosen file's folder, Ctrl+w into the last mark's. q
+    /// and ! leave without choosing anything. To print files, use fff pick:
+    /// with --glob it too lists only matching files.
     Seek(SeekArgs),
     /// Answer a file dialog: choose files or a folder, or where to save
     ///
@@ -346,15 +346,6 @@ struct SeekArgs {
     /// Where to look; without any, the current directory
     #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
     roots: Vec<PathBuf>,
-    /// Print the chosen files to stdout instead of changing directory
-    #[arg(long, help_heading = "Output")]
-    output_paths: bool,
-    /// Print paths relative to the invocation directory instead of absolute
-    #[arg(long, requires = "output_paths", help_heading = "Output")]
-    relative: bool,
-    /// Terminate each output path with NUL instead of newline (for xargs -0)
-    #[arg(short = '0', long, requires = "output_paths", help_heading = "Output")]
-    null: bool,
 }
 #[derive(clap::Args)]
 struct ExplorerArgs {
@@ -482,9 +473,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         },
         Some(Command::Seek(seek)) => Mode {
             roots: seek.roots,
-            output_paths: seek.output_paths,
-            relative: seek.relative,
-            null: seek.null,
             no_dir: true,
             ..Mode::default()
         },

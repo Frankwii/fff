@@ -53,7 +53,7 @@ listed separately in the [roadmap](ROADMAP.md).
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
-  (`fff pick`, `fff seek --output-paths`) or the chosen directory (`fff roam` without `--cd-file`);
+  (`fff pick`) or the chosen directory (`fff roam` without `--cd-file`);
   programs started with gx/gX get `/dev/tty`, never fff's stdout. Relative
   output is based on the invocation directory, never the current browsing location.
 - Exactly one current directory is searched alongside ordered pinned startup

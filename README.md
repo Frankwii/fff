@@ -112,7 +112,7 @@ Enter depends on the editing mode:
   like `gX`, and any other opener starts detached, like `l`; the shell then
   changes to the file's folder (also for deep results: `notes/more/a.pdf` leaves
   you in `notes/more`). In `fff pick`, Enter on a file prints the file;
-  in `fff seek` (without `--output-paths`) it exits into its folder. With
+  in `fff seek` it exits into its folder. With
   nothing listed, Enter exits into the browsing directory. Marks are ignored.
   In the marked list Enter does the same for the highlighted mark.
 - **While typing (Insert mode):** Enter opens a directory. On a file, in
@@ -144,7 +144,8 @@ folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
 Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
-with the marks only. In `fff pick` (and `fff seek`) it returns them; in
+with the marks only. In `fff pick` it returns them, in `fff seek` it leaves
+into the last one's folder; in
 `fff roam` it **opens them and leaves**, like Normal-mode Enter on a
 file: files sharing an opener go to one invocation (three PDFs, one zathura),
 GUI openers start detached, and one terminal opener may take over this
@@ -202,11 +203,12 @@ follow them.
 `fff seek [ROOTS]` is a static file choice: it lists only the files below the
 current directory (or ROOTS), disables location changes, and never returns
 the current directory as an empty-results fallback. It takes the search
-options (`--depth`, `--glob`, `--exclude`, `--hidden`) and the output ones
-(`--output-paths`, `--relative`, `--null`):
+options (`--depth`, `--glob`, `--exclude`, `--hidden`). Choosing leaves into
+the chosen file's folder; only `fff pick` prints paths. For a printed choice
+of files, give `fff pick` a `--glob`, which lists only matching files:
 
 ```sh
-fff seek ~/papers --depth 4 --glob '*.pdf' --output-paths
+fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura
 ```
 
 Discovery still traverses directories within the depth limit, and the query

@@ -58,13 +58,11 @@ class Session:
             if "--config" not in args and "--no-config" not in args and not environment:
                 args=(*args,"--no-config")
             # A command (fff seek, fff explorer) comes before the root; the
-            # picker is fff pick, or fff seek --output-paths.
+            # picker is fff pick, the only command that prints paths.
             command = [args[0]] if args and args[0] in ("seek", "explorer", "pick") else []
             args = args[len(command):]
             if output_paths and not command:
                 command = ["pick"]
-            elif output_paths and command == ["seek"]:
-                args = (*args, "--output-paths")
             os.execv(BINARY, [BINARY, *command, *([] if implicit_root else [str(root)]), *args])
         os.close(slave)
         os.close(writer)
@@ -642,10 +640,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[49;5u")  # CSI-u: Ctrl+1
         s.send(b"\x7f\x7f\x7f\x7f", b"top.txt")
         s.send(b"\t", b"Marks (1)")
-        s.send(b"\r")
-        self.assertEqual(
-            s.finish(), (0, os.fsencode(top) + b"\n" + os.fsencode(nested) + b"\n")
-        )
+        # Ctrl+w leaves into the last mark's folder: here, so nothing to print.
+        s.send(b"\x17")
+        self.assertEqual(s.finish(), (0, b""))
 
     def test_live_bookmark_save_edit_icon_cancel_and_delete(self):
         config = self.root / "config.toml"
