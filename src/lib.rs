@@ -462,16 +462,24 @@ impl App {
     /// around. Its directory is listed again (a vanished one falls back to its
     /// nearest existing ancestor). Returns whether the directory changed.
     pub fn switch_tab(&mut self, next: bool) -> bool {
+        self.select_tab(if next {
+            (self.tab + 1) % TABS
+        } else {
+            (self.tab + TABS - 1) % TABS
+        })
+    }
+    /// Make tab `index` (from 0) the active one; like `switch_tab`, true when
+    /// the current directory changed.
+    pub fn select_tab(&mut self, index: usize) -> bool {
+        if index == self.tab || index >= TABS {
+            return false;
+        }
         self.tabs[self.tab] = Tab {
             cwd: self.cwd.clone(),
             back: std::mem::take(&mut self.back),
             forward: std::mem::take(&mut self.forward),
         };
-        self.tab = if next {
-            (self.tab + 1) % TABS
-        } else {
-            (self.tab + TABS - 1) % TABS
-        };
+        self.tab = index;
         let Tab {
             mut cwd,
             back,

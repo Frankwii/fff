@@ -169,6 +169,7 @@ fn session(
     let mut results_area = ratatui::layout::Rect::default();
     let mut mouse = Mouse::default();
     let mut buttons = Vec::new();
+    let mut tab_areas = Vec::new();
     loop {
         dirty |= status.tick(app);
         // Pop-up notifications from background work, shown for a while.
@@ -312,6 +313,7 @@ fn session(
             }
             results_area = completed.results;
             buttons = completed.buttons;
+            tab_areas = completed.tabs;
             bookmark_targets = completed.bookmark_targets;
             page = completed.page.max(1);
             dirty = false;
@@ -474,6 +476,19 @@ fn session(
             Event::Mouse(event) => {
                 app.mouse_used = true;
                 if app.normal_keys.pending() {
+                    continue;
+                }
+                // A click on a tab's number switches to it, keeping the marks.
+                let position = ratatui::layout::Position::new(event.column, event.row);
+                if event.kind == MouseEventKind::Down(MouseButton::Left)
+                    && matches!(focus, Focus::Results)
+                    && let Some(&(_, tab)) = tab_areas
+                        .iter()
+                        .find(|(area, _): &&(ratatui::layout::Rect, usize)| area.contains(position))
+                {
+                    if tab != app.tab && app.can_navigate() && app.select_tab(tab) {
+                        discovery.start(app, true);
+                    }
                     continue;
                 }
                 let button = (event.kind == MouseEventKind::Down(MouseButton::Left))

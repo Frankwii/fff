@@ -205,6 +205,32 @@ fn a_wheel_scroll_keeps_its_view_until_the_highlight_moves() {
     draw(&mut app);
     assert_eq!((app.offset, app.scrolled.clone()), (1, None));
 }
+#[test]
+fn tab_click_areas_cover_the_drawn_numbers() {
+    let mut app = fixture();
+    let mut terminal = Terminal::new(TestBackend::new(70, 10)).unwrap();
+    let mut tabs = Vec::new();
+    terminal
+        .draw(|frame| {
+            tabs = results_pane(frame, Rect::new(3, 1, 60, 8), &mut app, true).tabs;
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    assert_eq!(tabs.len(), crate::TABS);
+    for &(area, index) in &tabs {
+        let cells: String = (area.x..area.x + area.width)
+            .map(|x| buffer[(x, area.y)].symbol())
+            .collect();
+        assert_eq!(cells, format!(" {} ", index + 1));
+    }
+    app.no_dir = true;
+    terminal
+        .draw(|frame| {
+            tabs = results_pane(frame, Rect::new(3, 1, 60, 8), &mut app, true).tabs;
+        })
+        .unwrap();
+    assert!(tabs.is_empty());
+}
 fn text(buffer: &Buffer) -> String {
     (0..buffer.area.height)
         .map(|y| {

@@ -15,7 +15,7 @@ not implemented features or commitments:
 - Mouse-only use beyond the opt-in buttons (below).
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
-  list, choosers and tab strip; dragging past the pane's edge scrolling the
+  list and choosers; dragging past the pane's edge scrolling the
   results while it marks.
 - Trash with undo, and an AUR package once the project nears 1.0.
 - An optional query field (experimental, undecided): hide the query until `/`
@@ -34,7 +34,7 @@ before it could become the default:
 
 - Buttons for the other sheets: new file or directory, rename, extract, the
   scope choice, run prompts and the bookmark and palette choosers.
-- Clickable tabs in the tab strip, and depth and filter controls.
+- Depth and filter controls.
 - Turning it on automatically when fff is started as the desktop's file
   manager or a file picker.
 

@@ -1004,6 +1004,20 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    def test_clicking_a_tab_number_switches_to_it_keeping_marks(self):
+        (self.root / "alpha").mkdir()
+        (self.root / "alpha" / "inside").touch()
+        s = self.start("--depth", "1", implicit_root=True)
+        s.send(b"l", ("cwd", self.root / "alpha"))
+        s.send(b"\t", "Marks (1)")
+        lines = s.screen.text.splitlines()
+        row = next(i for i, l in enumerate(lines) if "Files" in l)
+        column = lines[row].index(" 2 ") + 2
+        s.send(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode(), ("cwd", self.root))
+        self.assertIn("Marks (1)", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_mouse_capture_can_be_turned_off(self):
         with tempfile.TemporaryDirectory(prefix="fff-mouse-") as folder:
             config = Path(folder) / "config.toml"

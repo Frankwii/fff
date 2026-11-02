@@ -29,6 +29,8 @@ pub(crate) struct Rendered {
     pub results: Rect,
     /// The button bar's buttons and where they were drawn.
     pub buttons: Vec<(Rect, crate::ui::Button)>,
+    /// Where each tab's number was drawn in the tab strip.
+    pub tabs: Vec<(Rect, usize)>,
 }
 
 fn styled(text: impl Into<String>, color: Color) -> Span<'static> {
@@ -157,6 +159,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             page: 0,
             results: Rect::default(),
             buttons: Vec::new(),
+            tabs: Vec::new(),
         };
     }
     let area = Rect::new(
@@ -303,6 +306,18 @@ fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
 /// `1 2 3` in the results' top-right corner. The active tab wears the "@"
 /// badge's colors: it is the tab showing the current directory. None with
 /// `--no-dir`, which cannot change directory.
+/// Each tab number's cell in the strip `tab_strip` draws right-aligned in the
+/// top border of `area`: a space, three-column numbers, a space, the corner.
+fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
+    let width = 3 * crate::TABS as u16 + 2;
+    if app.no_dir || area.width < width + 2 {
+        return Vec::new();
+    }
+    let start = area.x + area.width - 1 - width + 1;
+    (0..crate::TABS)
+        .map(|i| (Rect::new(start + 3 * i as u16, area.y, 3, 1), i))
+        .collect()
+}
 fn tab_strip(app: &App) -> Line<'static> {
     let theme = app.palette;
     if app.no_dir {
@@ -772,6 +787,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
         page,
         results: inner,
         buttons: Vec::new(),
+        tabs: tab_areas(app, area),
     }
 }
 /// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.

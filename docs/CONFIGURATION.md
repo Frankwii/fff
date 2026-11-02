@@ -184,6 +184,8 @@ a graphical file manager:
   where it was pressed to where it is; the highlight follows the drag.
 - The wheel scrolls the results and does nothing else; the highlight may leave
   the view, and the next key that moves it brings the view back.
+- A click on a tab's number in the results' top-right corner switches to that
+  tab, like Alt+↑/↓; the marks are kept, since tabs share them.
 
 Capturing the mouse takes it from the terminal's own text selection; most
 terminals still select with Shift held. Set `mouse = false` to leave the mouse

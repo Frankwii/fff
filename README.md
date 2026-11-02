@@ -206,6 +206,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it |
 | Drag with the button held | Mark every row from where it was pressed to where it is |
 | Mouse wheel | Scroll the results, leaving the highlight and marks alone |
+| Click a tab number | Switch to that [tab](#tabs), keeping the marks |
 | Drop files on the terminal | Copy them into the current directory, after confirmation |
 
 `q` and `!` exit with status 0. With `--output-paths` they print the launch or
