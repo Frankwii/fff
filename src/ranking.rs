@@ -97,11 +97,7 @@ impl Job {
             if keep_listed {
                 listed.push(Arc::clone(c));
             }
-            if let Some(score) = c
-                .path
-                .file_name()
-                .and_then(|name| matcher.score(&name.to_string_lossy()))
-            {
+            if let Some(score) = matcher.score_candidate(c) {
                 ranked.push((score, Arc::clone(c)));
             }
         }

@@ -148,16 +148,45 @@ pub fn score(name: &str, query: &str) -> Option<i64> {
     Matcher::new(query).score(name)
 }
 
+/// Path-aware matching: bonus for a query part naming a whole component.
+const WHOLE: i64 = 40;
+/// Path-aware matching: bonus for consecutive parts matching consecutive
+/// components (the last folder part next to the basename included).
+const NEXT: i64 = 20;
+
 /// A query lowercased once, for scoring many names.
 pub struct Matcher {
     letters: Vec<char>,
+    /// A query containing `/` matches the path below a result's root: the
+    /// parts before the last (empty ones dropped) match ancestors in order,
+    /// the last matches the basename.
+    path: Option<(Vec<Matcher>, Box<Matcher>)>,
 }
 impl Matcher {
     pub fn new(query: &str) -> Self {
+        let folded = query.to_lowercase();
+        let plain = |part: &str| Matcher {
+            letters: part.chars().collect(),
+            path: None,
+        };
+        let path = folded.rsplit_once('/').map(|(folders, last)| {
+            let folders = folders
+                .split('/')
+                .filter(|part| !part.is_empty())
+                .map(plain)
+                .collect();
+            (folders, Box::new(plain(last)))
+        });
         Self {
-            letters: query.to_lowercase().chars().collect(),
+            letters: folded.chars().collect(),
+            path,
         }
     }
+    /// Whether the query matches paths rather than basenames.
+    pub fn paths(&self) -> bool {
+        self.path.is_some()
+    }
+    /// Score `name` as a whole: a basename, a bookmark or palette name.
     pub fn score(&self, name: &str) -> Option<i64> {
         if self.letters.is_empty() {
             return Some(0);
@@ -168,6 +197,106 @@ impl Matcher {
         // Whole-string lowercasing is context-sensitive (e.g. final sigma).
         let name: Vec<char> = name.to_lowercase().chars().collect();
         self.score_chars(&name)
+    }
+    /// Score a result: its basename, or with a `/` in the query, its path
+    /// below its root.
+    pub fn score_candidate(&self, c: &Candidate) -> Option<i64> {
+        if self.path.is_none() {
+            return self.score(&c.path.file_name()?.to_string_lossy());
+        }
+        self.score_path(&relative_parts(c))
+    }
+    /// Score a path's components below its root, the basename last.
+    pub fn score_path<S: AsRef<str>>(&self, parts: &[S]) -> Option<i64> {
+        match &self.path {
+            None => self.score(parts.last()?.as_ref()),
+            Some(_) => self.assign(parts).map(|(score, _)| score),
+        }
+    }
+    /// The letters of `parts` (a path's components below its root) a path
+    /// query matches, as char indices within each component; `None` when it
+    /// does not match.
+    pub fn path_positions<S: AsRef<str>>(&self, parts: &[S]) -> Option<Vec<Vec<usize>>> {
+        let (folders, last) = self.path.as_ref()?;
+        let (_, chosen) = self.assign(parts)?;
+        let mut positions = vec![Vec::new(); parts.len()];
+        for (folder, &at) in folders.iter().zip(&chosen) {
+            positions[at] = greedy(&folder.letters, parts[at].as_ref());
+        }
+        positions[parts.len() - 1] = greedy(&last.letters, parts[parts.len() - 1].as_ref());
+        Some(positions)
+    }
+    /// The best path score and, for each folder part, the component it
+    /// matches: parts match components in order, the last part the basename.
+    fn assign<S: AsRef<str>>(&self, parts: &[S]) -> Option<(i64, Vec<usize>)> {
+        let (folders, last) = self.path.as_ref()?;
+        let (basename, ancestors) = parts.split_last()?;
+        let basename = basename.as_ref();
+        let mut total = last.score(basename)? + last.whole(basename);
+        if folders.is_empty() {
+            return Some((total, Vec::new()));
+        }
+        if folders.len() > ancestors.len() {
+            return None;
+        }
+        // best[i][j]: the best score of folder parts 0..=i with part i on
+        // ancestor j, and the ancestor part i - 1 is on.
+        let mut best: Vec<Vec<Option<(i64, usize)>>> = Vec::with_capacity(folders.len());
+        for (i, folder) in folders.iter().enumerate() {
+            let mut row = vec![None; ancestors.len()];
+            for (j, part) in ancestors.iter().enumerate() {
+                // Leave room for the parts still to place.
+                if j < i || ancestors.len() - j < folders.len() - i {
+                    continue;
+                }
+                let Some(own) = folder.score(part.as_ref()) else {
+                    continue;
+                };
+                let own = own + folder.whole(part.as_ref());
+                row[j] = if i == 0 {
+                    Some((own, 0))
+                } else {
+                    (0..j)
+                        .filter_map(|k| {
+                            let (score, _) = best[i - 1][k]?;
+                            Some((score + own + if k + 1 == j { NEXT } else { 0 }, k))
+                        })
+                        .max_by_key(|&(score, k)| (score, std::cmp::Reverse(k)))
+                };
+            }
+            best.push(row);
+        }
+        let (end, score) = best[folders.len() - 1]
+            .iter()
+            .enumerate()
+            .filter_map(|(j, cell)| {
+                let (score, _) = (*cell)?;
+                Some((j, score + if j + 1 == ancestors.len() { NEXT } else { 0 }))
+            })
+            .max_by_key(|&(j, score)| (score, std::cmp::Reverse(j)))?;
+        total += score;
+        let mut chosen = vec![end; folders.len()];
+        for i in (1..folders.len()).rev() {
+            chosen[i - 1] = best[i][chosen[i]].expect("on the best path").1;
+        }
+        Some((total, chosen))
+    }
+    /// `WHOLE` when this part names all of `name`, ignoring case.
+    fn whole(&self, name: &str) -> i64 {
+        let same = if name.is_ascii() {
+            name.len() == self.letters.len()
+                && name
+                    .bytes()
+                    .zip(&self.letters)
+                    .all(|(b, &l)| b.to_ascii_lowercase() as u32 == l as u32)
+        } else {
+            name.to_lowercase().chars().eq(self.letters.iter().copied())
+        };
+        if same && !self.letters.is_empty() {
+            WHOLE
+        } else {
+            0
+        }
     }
     fn score_chars(&self, name: &[char]) -> Option<i64> {
         let mut position = 0;
@@ -256,6 +385,45 @@ impl Listing {
         eligible(self.depth, &self.scope, &self.cwd, &self.policy, c)
             && shown(self.hide_directories, &self.policy, c)
     }
+}
+/// A result's components below its root, the basename last: its last
+/// `depth` components.
+pub fn relative_parts(c: &Candidate) -> Vec<std::borrow::Cow<'_, str>> {
+    let mut parts: Vec<_> = c
+        .path
+        .components()
+        .rev()
+        .take(c.depth.max(1))
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    parts.reverse();
+    parts
+}
+/// Char indices of `name` matching `letters` (lowercase) in order, earliest
+/// first, as drawn.
+pub(crate) fn greedy(letters: &[char], name: &str) -> Vec<usize> {
+    let mut wanted = letters.iter().peekable();
+    name.chars()
+        .enumerate()
+        .filter(|(_, c)| {
+            let matched = wanted
+                .peek()
+                .is_some_and(|&&q| c.to_lowercase().any(|lower| lower == q));
+            if matched {
+                wanted.next();
+            }
+            matched
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+/// Whether every match of the (lowercased) query `longer` is among those of
+/// `shorter`: it appends letters, but no `/`, which turns the part before it
+/// into a folder (or a basename query into a path query).
+fn narrows(shorter: &str, longer: &str) -> bool {
+    longer
+        .strip_prefix(shorter)
+        .is_some_and(|added| !added.contains('/'))
 }
 
 /// Insertions merged into the rows per budgeted round.
@@ -854,8 +1022,9 @@ impl App {
         let listing_changed =
             !self.added.is_empty() || !self.outdated.is_empty() || !self.relabel.is_empty();
         // Rows already match the previous query under the same basis. A query
-        // that only appends letters (after lowercasing, as `score` does) can only
-        // remove matches, so re-score those rows instead of every known path.
+        // that only appends letters other than `/` (after lowercasing, as `score`
+        // does; see `narrows`) can only remove matches, so re-score those rows
+        // instead of every known path.
         // Deleting letters returns to a shorter query's kept rows, or narrows
         // from the longest kept query the new one still extends.
         let base = match self.refreshed.take() {
@@ -873,7 +1042,7 @@ impl App {
                     self.keep_highlight();
                     return;
                 }
-                if folded.starts_with(query.as_str()) {
+                if narrows(&query, &folded) {
                     if self.cached_queries > 0 {
                         self.earlier.push((query, Arc::clone(&self.rows)));
                         if self.earlier.len() > self.cached_queries {
@@ -885,7 +1054,7 @@ impl App {
                     while self
                         .earlier
                         .last()
-                        .is_some_and(|(q, _)| !folded.starts_with(q.as_str()))
+                        .is_some_and(|(q, _)| !narrows(q, &folded))
                     {
                         self.earlier.pop();
                     }
@@ -1071,7 +1240,7 @@ impl App {
         let len = stale.len();
         known::discard(stale, len);
         let matcher = Matcher::new(query);
-        let score_of = |c: &Candidate| matcher.score(&c.path.file_name()?.to_string_lossy());
+        let score_of = |c: &Candidate| matcher.score_candidate(c);
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {

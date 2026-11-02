@@ -4,7 +4,6 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content search with alternating filtering (below).
-- Path-aware matching (below).
 - Option completion in the gx/gX prompt for programs with neither a man page
   nor `--help` (Tab already completes options from those two).
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
@@ -52,26 +51,6 @@ before it could become the default:
 - Depth and filter controls.
 - Turning it on automatically when fff is started as the desktop's file
   manager or a file picker.
-
-## Path-aware matching
-
-Today the query matches only basenames, so similarly named files in different
-folders (`notes/stability.tex`, `pde/notes/stability.tex`) can only be told
-apart by reading their labels. Path-aware matching would let `pde/stab` match
-`pde/notes/stability.tex`.
-
-- **Slash-triggered.** A query containing `/` matches the path relative to the
-  result's root instead of the basename. No basename contains `/`, so such a
-  query lists nothing today and no working query changes meaning; a query
-  without `/` behaves exactly as now.
-- **Segments in order.** Each `/`-separated part of the query is a
-  case-insensitive subsequence of some path component, the components in
-  order, and the last part must match the basename. Scoring favours whole
-  components and the basename, and the highlighted letters span the whole label.
-- **Ordering unchanged.** Depth stays the primary sort key, then directories
-  before files, then the score, as today.
-- **Same narrowing.** Appending letters still only narrows, so the incremental
-  re-score keeps working.
 
 ## Content search with alternating filtering
 

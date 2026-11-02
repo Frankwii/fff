@@ -1214,3 +1214,52 @@ fn export_preview(buffer: &Buffer) {
         writeln!(file, "{r},{g},{b};{br},{bg},{bb};{}", cell.symbol()).unwrap();
     }
 }
+#[test]
+fn path_queries_highlight_letters_along_the_whole_label() {
+    let mut app = App::browse("/home/frank/notes".into(), 3, crate::Policy::default());
+    for (name, directory, depth) in [
+        ("pde", true, 1),
+        ("pde/notes", true, 2),
+        ("pde/notes/stability.tex", false, 3),
+        ("notes/stability.tex", false, 2),
+    ] {
+        app.insert(
+            0,
+            Candidate {
+                path: app.cwd.join(name),
+                directory,
+                depth,
+                root: 0,
+            },
+        );
+    }
+    app.scanning = false;
+    app.query = "pde/stab".into();
+    app.refresh();
+    let (screen, targets) = draw(&mut app, 80, 14);
+    assert_eq!(
+        targets,
+        [PathBuf::from("/home/frank/notes/pde/notes/stability.tex")],
+        "{screen}"
+    );
+    let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+    let mut focus = Focus::Results;
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let row = (0..buffer.area.height)
+        .find(|&y| {
+            text(buffer)
+                .lines()
+                .nth(y as usize)
+                .unwrap()
+                .contains("stability")
+        })
+        .unwrap();
+    let underlined: String = (0..buffer.area.width)
+        .filter(|&x| buffer[(x, row)].modifier.contains(Modifier::UNDERLINED))
+        .map(|x| buffer[(x, row)].symbol())
+        .collect();
+    assert_eq!(underlined, "pdestab");
+}

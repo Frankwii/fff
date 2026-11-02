@@ -27,6 +27,13 @@ history.
 
 ### Added
 
+- **Path-aware matching.** A query containing `/` matches the path below
+  each result's root instead of its name: `pde/stab` finds
+  `pde/notes/stability.tex` but not `notes/stability.tex`, and `pde/` lists
+  what is inside folders matching `pde`. The parts match components in
+  order, the last one the name; whole and consecutive components rank
+  higher, and the matched letters are highlighted along the whole path.
+  Queries without `/` match as before.
 - **`[performance] max_paths`** (default 1,000,000) bounds the paths a view
   holds, so browsing a huge tree cannot exhaust memory. A scan that finds
   more stops there and the status line shows `◌ partial`; a lower depth shows

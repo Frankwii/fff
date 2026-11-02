@@ -157,6 +157,101 @@ fn subsequence_and_depth_before_score() {
     assert_eq!(app.rows[0].depth, 1);
 }
 #[test]
+fn a_query_with_a_slash_matches_paths_below_the_root() {
+    use fuzzy_file_finder::Matcher;
+    let matcher = Matcher::new("pde/stab");
+    assert!(
+        matcher
+            .score_path(&["pde", "notes", "stability.tex"])
+            .is_some()
+    );
+    assert!(matcher.score_path(&["notes", "stability.tex"]).is_none());
+    // The last part matches the basename, the others ancestors in order.
+    assert!(matcher.score_path(&["stab", "pde.tex"]).is_none());
+    assert!(
+        Matcher::new("notes/pde/s")
+            .score_path(&["pde", "notes", "s"])
+            .is_none()
+    );
+    // Whole components and consecutive ones score higher.
+    let no = Matcher::new("no/stab");
+    assert!(no.score_path(&["no", "stability.tex"]) > no.score_path(&["notes", "stability.tex"]));
+    assert!(
+        no.score_path(&["notes", "x", "stability.tex"])
+            < no.score_path(&["x", "notes", "stability.tex"])
+    );
+    // Empty parts are dropped; a trailing slash lists what is below.
+    assert!(
+        Matcher::new("/stab")
+            .score_path(&["stability.tex"])
+            .is_some()
+    );
+    assert!(Matcher::new("pde/").score_path(&["pde", "x"]).is_some());
+    assert!(Matcher::new("pde/").score_path(&["pde"]).is_none());
+    assert_eq!(
+        Matcher::new("pde/stab").path_positions(&["pde", "notes", "stability.tex"]),
+        Some(vec![vec![0, 1, 2], vec![], vec![0, 1, 2, 3]])
+    );
+    // Names alone never contain a slash.
+    assert!(score("pde", "pde/").is_none());
+
+    let mut app = app();
+    for (name, dir, depth) in [
+        ("pde", true, 1),
+        ("pde/notes", true, 2),
+        ("pde/notes/stability.tex", false, 3),
+        ("notes", true, 1),
+        ("notes/stability.tex", false, 2),
+        ("pdes.txt", false, 1),
+    ] {
+        app.insert(0, candidate(name, dir, depth));
+    }
+    let listed = |app: &mut App| {
+        app.refresh();
+        let rows: Vec<_> = app
+            .rows
+            .iter()
+            .map(|c| {
+                c.path
+                    .strip_prefix("/fixture")
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        // Narrowing from earlier rows gives what ranking afresh would.
+        let mut fresh = App::new(vec![PathBuf::from("/fixture")], 3, Policy::default());
+        for c in app.known.values() {
+            fresh.insert(0, (**c).clone());
+        }
+        fresh.query = app.query.clone();
+        fresh.refresh();
+        assert_eq!(fresh.rows, app.rows, "{:?}", app.query);
+        rows
+    };
+    // Typing a slash turns basename matches into path matches, so it does
+    // not narrow; the letters after it do.
+    for (query, rows) in [
+        ("pde", vec!["pde", "pdes.txt"]),
+        ("pde/", vec!["pde/notes", "pde/notes/stability.tex"]),
+        ("pde/st", vec!["pde/notes/stability.tex"]),
+        ("pde/", vec!["pde/notes", "pde/notes/stability.tex"]),
+        ("pde", vec!["pde", "pdes.txt"]),
+        (
+            "stab",
+            vec!["notes/stability.tex", "pde/notes/stability.tex"],
+        ),
+        (
+            "no/stab",
+            vec!["notes/stability.tex", "pde/notes/stability.tex"],
+        ),
+    ] {
+        app.query = query.into();
+        assert_eq!(listed(&mut app), rows, "{query:?}");
+    }
+}
+#[test]
 fn numbered_choice_zero_fallback_and_key_decoding() {
     let mut app = app();
     app.marks.push("/unrelated".into());

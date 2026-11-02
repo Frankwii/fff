@@ -116,7 +116,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
         (
             "Search",
             vec![
-                ("type".into(), "fuzzy-filter names", false),
+                ("type".into(), "fuzzy-filter names; with /, paths", false),
                 ("Esc".into(), "leave Insert, then clear query", false),
                 ("Alt+← Alt+→".into(), "search shallower / deeper", false),
                 ("Alt+.".into(), "show / hide hidden entries", false),

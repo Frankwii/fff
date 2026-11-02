@@ -104,6 +104,15 @@ depth. Default depth is **2**; immediate children are depth 1. Shallower matches
 always come first, followed within each depth by directories and fuzzy ranking.
 Matching is a case-insensitive ordered subsequence of the basename.
 
+A query containing `/` matches the path below the result's root instead, so
+`pde/stab` lists `pde/notes/stability.tex` but not `notes/stability.tex`.
+Each `/`-separated part is a subsequence of a component, the components in
+order, and the last part matches the basename: `pde/` lists everything inside
+folders matching `pde`, and a leading `/` (`/stab`) only switches to path
+ranking. Parts naming whole components, and parts on consecutive components,
+rank higher; the matched letters are highlighted along the whole label. Depth
+and directories still sort first.
+
 Enter depends on the editing mode:
 
 - **Normal mode:** Enter *finishes with* the highlighted entry. On a directory
