@@ -94,7 +94,7 @@ pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, Str
     })
 }
 /// Normal-mode Enter on `target` (or on nothing): a directory is left into;
-/// a file opens and fff leaves (default mode), is printed (`--output-paths`)
+/// a file opens and fff leaves (default mode), is printed (`fff pick`)
 /// or is left into its folder (`fff seek`); nothing leaves into the browsing
 /// directory. Marks are ignored. `None` (with the reason in the status line)
 /// when the file cannot open. With `--window` there is no shell to leave

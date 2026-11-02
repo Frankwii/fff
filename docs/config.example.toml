@@ -1,6 +1,6 @@
 # Copy to $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/config.toml when
 # XDG_CONFIG_HOME is unset), or pass --config PATH.
-# Check without opening the TUI: fff --config PATH --check-config
+# Check without opening the TUI: fff setup --config PATH --check-config
 
 [ui]
 # See PALETTES.md for built-in names and color sources.
@@ -11,8 +11,6 @@ palette = "midnight"
 icons = true
 # Seconds before red status messages clear by themselves; 0 keeps them.
 message_seconds = 4
-# Start where the last session ended (default mode without ROOTS); --here overrides.
-resume = true
 # Details on the right of each result row, any of "permissions", "size"
 # (directories: entry count) and "modified" (time since); [] shows none.
 columns = ["size", "modified"]

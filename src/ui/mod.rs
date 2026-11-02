@@ -93,7 +93,7 @@ pub(crate) enum Focus {
 pub enum Finish {
     /// Confirmed paths, or the directory of a quit key.
     Paths(Vec<PathBuf>),
-    /// Normal-mode Enter: exit into this folder (printed with --output-paths).
+    /// Normal-mode Enter: exit into this folder (printed by fff pick).
     Folder(PathBuf),
     /// Ctrl+c.
     Cancelled,
@@ -113,17 +113,13 @@ pub fn run(
 ) -> io::Result<Finish> {
     let finish = session(&mut app, keys, cache, palettes, performance);
     app.remember();
+    if app.records_session
+        && let Some(path) = crate::state::session_path()
+    {
+        let _ = crate::state::save_session(&path, &app.session());
+    }
     if let Some(path) = crate::state::path() {
-        let (from, last) = if app.records_location {
-            let from = std::env::current_dir().and_then(|d| d.canonicalize()).ok();
-            (from, Some(app.cwd.clone()))
-        } else {
-            let state = crate::state::load(&path);
-            (state.from, state.last)
-        };
         let state = crate::state::State {
-            from,
-            last,
             positions: std::mem::take(&mut app.positions),
         };
         let _ = crate::state::save(&path, &state);

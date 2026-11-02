@@ -29,11 +29,21 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
         "Keys:",
         "Alt+p",
         "[keys.normal]",
-        "--completions <SHELL>",
-        "[possible values: bash, elvish, fish, powershell, zsh]",
-        "source <(fff --completions bash)",
+        "source <(fff setup --completions bash)",
+        "Commands (without one, fff roam):",
+        "--resume",
     ] {
         assert!(long.contains(text), "missing {text:?}");
+    }
+    let setup = stdout(&fff(&["setup", "--help"], None));
+    for text in [
+        "--completions <SHELL>",
+        "[possible values: bash, elvish, fish, powershell, zsh]",
+        "--file-chooser",
+        "[alias: --browser]",
+        "--check-config",
+    ] {
+        assert!(setup.contains(text), "missing {text:?}");
     }
     assert!(!long.contains('\x1b'), "NO_COLOR help must be plain");
     let short = stdout(&fff(&["-h"], None));
@@ -61,15 +71,33 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
     for text in ["--output-paths", "--glob", "--depth"] {
         assert!(help.contains(text), "missing {text:?}");
     }
-    let old = fff(&["--no-config", "--no-dir"], None);
-    assert_eq!(old.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&old.stderr).contains("fff seek [ROOTS]"));
+    // Options that became commands say where they went.
+    for (old, new) in [
+        (&["--no-dir"][..], "fff seek [ROOTS]"),
+        (&["--output-paths"], "fff pick [ROOTS]"),
+        (&["--init", "zsh"], "fff setup --init zsh"),
+        (&["--completions", "bash"], "fff setup --completions bash"),
+        (&["--setup", "desktop"], "fff setup --desktop"),
+        (&["--check-config"], "fff setup --check-config"),
+    ] {
+        let output = fff(&[&["--no-config"], old].concat(), None);
+        assert_eq!(output.status.code(), Some(2), "{old:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(new),
+            "{old:?}"
+        );
+    }
     // Seeking does not browse, and only the picker modes print paths.
     for bad in [
         &["seek", "--window"][..],
-        &["--here", "seek"],
+        &["--resume", "seek"],
+        &["--window", "pick"],
+        &["pick", "--resume"],
         &["seek", "--relative"],
         &["explorer", "--output-paths"],
+        &["--resume", "src"],
+        &["setup"],
+        &["setup", "--desktop", "--check-config"],
     ] {
         assert_eq!(fff(bad, None).status.code(), Some(2), "{bad:?}");
     }
@@ -78,12 +106,15 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
 #[test]
 fn completion_scripts_register_for_each_shell() {
     for shell in ["bash", "zsh", "fish"] {
-        let flag = stdout(&fff(&["--completions", shell], None));
+        let flag = stdout(&fff(&["setup", "--completions", shell], None));
         let env = stdout(&fff(&[], Some(shell)));
         assert!(flag.contains("COMPLETE") && flag.contains("fff"), "{shell}");
         assert_eq!(flag, env, "{shell}: flag and COMPLETE= scripts differ");
     }
-    assert_eq!(fff(&["--completions", "tcsh"], None).status.code(), Some(2));
+    assert_eq!(
+        fff(&["setup", "--completions", "tcsh"], None).status.code(),
+        Some(2)
+    );
 }
 
 #[test]
@@ -141,7 +172,7 @@ fn init_wrappers_change_to_the_directory_fff_writes() {
         if Command::new(shell).arg("--version").output().is_err() {
             continue;
         }
-        let wrapper = stdout(&fff(&["--init", shell], None));
+        let wrapper = stdout(&fff(&["setup", "--init", shell], None));
         assert!(wrapper.contains("command fff --cd-file"), "{shell}");
         let out = Command::new(shell)
             .args(flags)
@@ -155,14 +186,14 @@ fn init_wrappers_change_to_the_directory_fff_writes() {
         let shown = String::from_utf8(out.stdout.clone()).unwrap();
         assert_eq!(shown, format!("3|{}", target.display()), "{shell}: {out:?}");
     }
-    let fish = stdout(&fff(&["--init", "fish"], None));
+    let fish = stdout(&fff(&["setup", "--init", "fish"], None));
     assert!(fish.contains("function fff") && fish.contains("command fff --cd-file"));
     std::fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
 fn output_formatting_needs_the_output_paths_mode() {
-    for flag in ["--relative", "--null"] {
+    for flag in ["--relative", "--null", "--output-paths"] {
         assert_eq!(
             fff(&["--no-config", flag], None).status.code(),
             Some(2),
@@ -188,7 +219,7 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
     std::fs::create_dir_all(&root).unwrap();
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_fff"))
-            .args(["--no-config", "--setup", "desktop"])
+            .args(["--no-config", "setup", "--desktop"])
             .env("HOME", &root)
             .env("XDG_DATA_HOME", root.join("data"))
             // No xdg-mime: setup says how to make fff the default instead.

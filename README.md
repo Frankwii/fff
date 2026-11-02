@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.8.1**.
+live search depth, pinned roots and persistent marked paths. Version **0.9.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -18,7 +18,7 @@ Or build and run directly:
 cargo build --release
 ./target/release/fff
 ./target/release/fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'
-./target/release/fff seek --output-paths --relative --null > paths.bin
+./target/release/fff pick --relative --null > paths.bin
 ```
 
 Run in a Linux/Unix terminal with `/dev/tty`. The interface uses the controlling
@@ -27,37 +27,62 @@ terminal, never stdout. Put the binary on your PATH as `fff` and add the
 shell's directory. `-h` summarizes options; `--help` includes defaults, examples
 and exit codes.
 
+## Commands
+
+| Command | What it is for |
+| --- | --- |
+| `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. `--resume` continues the last session. |
+| `fff pick [ROOTS]` | Browse and print the chosen paths, for scripts and `$(...)`. |
+| `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
+| `fff explorer [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
+| `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--desktop`, `--file-chooser`, `--check-config`. |
+
+`fff` without a command is `fff roam`. The search, interface and
+configuration options (`--depth`, `--glob`, `--palette`, `--config`, ...) work
+with every command, before or after its name.
+
 ## Shell integration
 
-fff has two modes:
+`fff roam`, the default, changes directory on exit: `q` leaves you where you
+started, `!` takes you to the directory you were browsing, Normal-mode Enter
+on a directory takes you into it, and on a file opens it and leaves you in its
+folder; Ctrl+w does the same with the marked files, leaving you in the last
+one's folder. Ctrl+number is Enter on that row.
 
-- **Default: change directory on exit.** `q` leaves you where you started, `!`
-  takes you to the directory you were browsing, Normal-mode Enter on a directory
-  takes you into it, and on a file opens it and leaves you in its folder;
-  Ctrl+w does the same with the marked files, leaving you in the last one's
-  folder. Ctrl+number is Enter on that row.
-- **`--output-paths`: print the selection.** The picker behavior for scripts and
-  command substitution, described under [returning paths](#browsing-and-returning-paths):
-  `nvim "$(fff --output-paths)"`, `fff --output-paths -0 | xargs -0 ls -ld`.
+`fff pick` prints the selection instead, for scripts and command substitution,
+as described under [returning paths](#browsing-and-returning-paths):
+`nvim "$(fff pick)"`, `fff pick -0 | xargs -0 ls -ld`.
 
 A program cannot change its parent shell's directory, so the shell does it, as
 with nnn's quitcd scripts and zoxide. Add one line to your shell's startup file:
 
 ```sh
-eval "$(fff --init zsh)"     # ~/.zshrc (or $ZDOTDIR/.zshrc)
-eval "$(fff --init bash)"    # ~/.bashrc
-fff --init fish | source     # ~/.config/fish/config.fish
+eval "$(fff setup --init zsh)"     # ~/.zshrc (or $ZDOTDIR/.zshrc)
+eval "$(fff setup --init bash)"    # ~/.bashrc
+fff setup --init fish | source     # ~/.config/fish/config.fish
 ```
 
 This defines a shell function named `fff` that runs the real binary with
 `--cd-file` (a private temporary file), then changes to the directory fff wrote
-there, if any. Arguments pass through unchanged, so `fff --output-paths` keeps
-printing paths. Without the function, the default mode prints the chosen
-directory instead, so `cd "$(command fff)"` also works.
+there, if any. Arguments pass through unchanged, so `fff pick` keeps printing
+paths. Without the function, `fff roam` prints the chosen directory instead,
+so `cd "$(command fff)"` also works.
 
-fff can also be the desktop's file manager and file chooser: `fff --setup
-desktop` opens directories from other programs in fff, and `fff --setup
-file-chooser` lets Firefox and other portal users pick files with it, through
+### Resuming a session
+
+`fff --resume` continues the last `fff roam` session as it ended: the folder
+and highlighted row, the other tabs and their back/forward history, the
+marks, the query, the depth, filters, exclusions, and the hidden-entry,
+directory and preview toggles. Only the last session is kept, wherever it was
+started, and `q` still returns to where you start the new one. Folders that
+are gone fall back to their nearest existing parent. `fff pick`, `fff seek`
+and `fff explorer` sessions are never saved. Without `--resume`, fff starts in
+the current directory, on the row last highlighted there (see [remembered
+locations](docs/CONFIGURATION.md#remembered-locations)).
+
+fff can also be the desktop's file manager and file chooser: `fff setup
+--desktop` opens directories from other programs in fff, and `fff setup
+--file-chooser` lets Firefox and other portal users pick files with it, through
 `fff explorer`, a mode for answering file dialogs. See
 [desktop integration](docs/DESKTOP.md).
 
@@ -69,12 +94,11 @@ preserves your current editing mode. See [editing](docs/EDITING.md).
 
 ## Browsing and returning paths
 
-This section describes what each confirmation returns with `--output-paths`; in
-the default mode the same keys choose a directory instead (see above).
+This section describes what each confirmation returns in `fff pick`; in
+`fff roam` the same keys choose a directory instead (see above).
 
-Without root arguments, browsing starts in the invocation directory (or, in the
-default mode, where your last session ended if it was started here too; see [remembered
-locations](docs/CONFIGURATION.md#remembered-locations)) and follows navigation. Explicit roots stay pinned: results combine their descendants with
+Without root arguments, browsing starts in the invocation directory (or, with
+`--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
 depth. Default depth is **2**; immediate children are depth 1. Shallower matches
 always come first, followed within each depth by directories and fuzzy ranking.
@@ -83,17 +107,17 @@ Matching is a case-insensitive ordered subsequence of the basename.
 Enter depends on the editing mode:
 
 - **Normal mode:** Enter *finishes with* the highlighted entry. On a directory
-  fff exits into it. On a file, in the default mode, fff **opens it and leaves**:
+  fff exits into it. On a file, in `fff roam`, fff **opens it and leaves**:
   a terminal opener (an editor, a pager) takes over this terminal in fff's place,
   like `gX`, and any other opener starts detached, like `l`; the shell then
   changes to the file's folder (also for deep results: `notes/more/a.pdf` leaves
-  you in `notes/more`). With `--output-paths`, Enter on a file prints the file;
+  you in `notes/more`). In `fff pick`, Enter on a file prints the file;
   in `fff seek` (without `--output-paths`) it exits into its folder. With
   nothing listed, Enter exits into the browsing directory. Marks are ignored.
   In the marked list Enter does the same for the highlighted mark.
-- **While typing (Insert mode):** Enter opens a directory. On a file, with
-  `--output-paths` it returns the marked paths in insertion order plus that file
-  once; in the default mode it *reveals* the file: fff moves to its folder,
+- **While typing (Insert mode):** Enter opens a directory. On a file, in
+  `fff pick` it returns the marked paths in insertion order plus that file
+  once; in `fff roam` it *reveals* the file: fff moves to its folder,
   clears the query and highlights it.
 
 To move around, use `l` (or Alt+l, or Alt+number for a labelled row): it enters
@@ -109,7 +133,7 @@ The keys that open or finish fit together:
 | `o` | The current or marked files, opened in this terminal | fff comes back |
 | Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
 | `!` | The folder you are browsing | fff leaves into it |
-| Ctrl+w | The marks: opens the marked files (default mode) or returns them (`--output-paths`) | fff leaves |
+| Ctrl+w | The marks: opens the marked files (`fff roam`) or returns them (`fff pick`) | fff leaves |
 | `q` | Nothing | fff leaves where you started |
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
@@ -120,8 +144,8 @@ folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
 Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
-with the marks only. With `--output-paths` (and in `fff seek`) it returns them; in
-the default mode it **opens them and leaves**, like Normal-mode Enter on a
+with the marks only. In `fff pick` (and `fff seek`) it returns them; in
+`fff roam` it **opens them and leaves**, like Normal-mode Enter on a
 file: files sharing an opener go to one invocation (three PDFs, one zathura),
 GUI openers start detached, and one terminal opener may take over this
 terminal. Marked directories, or files needing two different terminal programs,
@@ -145,9 +169,9 @@ are unavailable in `fff seek`.
 
 Ctrl+number is Enter on a visible row, exactly as if that row were highlighted
 and Enter pressed, in the current editing mode: in Normal mode it finishes with
-the row (opens a file and leaves, prints it with `--output-paths`, leaves into
+the row (opens a file and leaves, prints it in `fff pick`, leaves into
 a directory); while typing it enters a directory, and on a file returns the
-marks plus that file (`--output-paths`) or reveals it. Alt+number acts like `l`
+marks plus that file (`fff pick`) or reveals it. Alt+number acts like `l`
 on the same row: it enters a directory or opens a file in the background.
 Labels refer to the last fully rendered page: 1–9 select that position,
 out-of-range digits clamp to the last row, and 0 selects the last row. With no
@@ -224,8 +248,8 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (default mode), print it (`--output-paths`) or exit into its folder (`fff seek`) |
-| Enter while typing | Enter a directory; on a file, return marks + file (`--output-paths`) or reveal it in its folder |
+| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
+| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
@@ -244,7 +268,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Tab / Space in Normal | Toggle mark; advance in results |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
-| Ctrl+w | Finish with the marks, from results or the marked list: open the marked files and leave (default mode) or return them (`--output-paths`) |
+| Ctrl+w | Finish with the marks, from results or the marked list: open the marked files and leave (`fff roam`) or return them (`fff pick`) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
@@ -272,8 +296,8 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Click a tab number | Switch to that [tab](#tabs), keeping the marks |
 | Drop files on the terminal | Copy them into the current directory, after confirmation |
 
-`q` and `!` exit with status 0. With `--output-paths` they print the launch or
-current directory in the usual output format; in the default mode `!` changes
+`q` and `!` exit with status 0. In `fff pick` they print the launch or
+current directory in the usual output format; in `fff roam` `!` changes
 to the current directory and `q` changes nothing. `fff seek` makes either exit
 successfully without output. Insert mode keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
@@ -310,7 +334,7 @@ Optional TOML lives at `$XDG_CONFIG_HOME/fff/config.toml`, falling back to
 `--config FILE` selects a file; `--no-config` uses built-ins. Validate with:
 
 ```sh
-fff --config docs/config.example.toml --check-config
+fff setup --config docs/config.example.toml --check-config
 ```
 
 - [Configuration guide](docs/CONFIGURATION.md): every setting, bookmarks, icons,
@@ -342,9 +366,9 @@ is honored. Minimum working size is 36 × 12.
 With `fff` on PATH, add one line to your shell configuration:
 
 ```sh
-source <(fff --completions bash)        # ~/.bashrc
-source <(fff --completions zsh)         # ~/.zshrc, after compinit
-fff --completions fish | source         # ~/.config/fish/config.fish
+source <(fff setup --completions bash)   # ~/.bashrc
+source <(fff setup --completions zsh)    # ~/.zshrc, after compinit
+fff setup --completions fish | source    # ~/.config/fish/config.fish
 ```
 
 Elvish and PowerShell are supported too. Completion calls the running binary and

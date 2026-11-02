@@ -11,7 +11,7 @@ use std::{
 /// Environment variable that switches the binary into completion mode.
 pub const ENV_VAR: &str = "COMPLETE";
 
-/// Shells with a registration script, as accepted by `--completions`.
+/// Shells with a registration script, as accepted by `fff setup --completions`.
 pub fn shells() -> Vec<&'static str> {
     clap_complete::env::Shells::builtins().names().collect()
 }
@@ -281,7 +281,7 @@ mod tests {
     }
 }
 
-/// Shells `fff --init` can wrap.
+/// Shells `fff setup --init` can wrap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum InitShell {
     Bash,
@@ -296,7 +296,7 @@ pub fn wrapper(shell: InitShell) -> &'static str {
     match shell {
         InitShell::Bash | InitShell::Zsh => {
             r#"# fff: change to the directory chosen on exit. Load with:
-#   eval "$(fff --init zsh)"   (or bash)
+#   eval "$(fff setup --init zsh)"   (or bash)
 fff() {
     local fff_cd_file fff_dir fff_status
     fff_cd_file=$(mktemp "${TMPDIR:-/tmp}/fff-cd.XXXXXX") || return
@@ -314,7 +314,7 @@ fff() {
         }
         InitShell::Fish => {
             r#"# fff: change to the directory chosen on exit. Load with:
-#   fff --init fish | source
+#   fff setup --init fish | source
 function fff --wraps fff --description 'fff, changing directory on exit'
     set -l fff_cd_file (mktemp -t fff-cd.XXXXXX); or return
     command fff --cd-file $fff_cd_file $argv

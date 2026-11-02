@@ -4,7 +4,11 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.9.0 — 2026-11-02
+
+A text-only preview pane, `fff --resume`, and a command for each way of using
+fff: `fff pick`, `fff seek` and `fff setup` join `fff explorer`, and plain `fff`
+is `fff roam`.
 
 ### Added
 
@@ -16,27 +20,43 @@ history.
   happens in the background after the highlight rests and never holds up the
   list. `[ui] preview = true` starts with it shown; rebind it as `preview` in
   `[keys.normal]`.
+- **`fff --resume`** continues the last `fff roam` session as it ended: its
+  folder and highlighted row, tabs and their history, marks, query, depth,
+  filters, exclusions and toggles. Only the last session is kept; `fff pick`,
+  `fff seek` and `fff explorer` sessions are never saved.
 - **Alt+d (`zd` in Normal mode) hides directories**, listing only the files
   found down to the current depth; press it again to show them. Navigation
   keeps working, and the status line shows `files only` meanwhile. Rebind it
   as `directories` in `[keys.normal]`.
+- **`fff roam`** names what fff does without a command: browse, and change the
+  shell's directory on leaving. `fff` alone stays the same as `fff roam`.
 
 ### Changed
 
-- **`--no-dir` is now `fff seek`**, a command of its own like `fff explorer`:
-  `fff seek ~/papers --glob '*.pdf' --output-paths`. It behaves as `--no-dir`
-  did, except that it never resumes a remembered location and rejects
-  `--browse`, `--window` and `--here`. `--no-dir` now fails with a pointer to
-  `fff seek`.
+- **`--output-paths` is now `fff pick`**: `nvim "$(fff pick)"`,
+  `fff pick --relative -0`. It takes ROOTS and `--browse` like `fff roam`.
+- **`--no-dir` is now `fff seek`**: `fff seek ~/papers --glob '*.pdf'
+  --output-paths`. It behaves as `--no-dir` did and rejects `--browse`,
+  `--window` and `--resume`.
+- **Setting up is `fff setup`**: `--init SHELL`, `--completions SHELL`,
+  `--desktop`, `--file-chooser` (or `--browser`) and `--check-config` replace
+  `fff --init`, `--completions`, `--setup desktop`, `--setup file-chooser`
+  and `--check-config`. Update the shell lines in your startup files, e.g.
+  `eval "$(fff setup --init zsh)"` and `source <(fff setup --completions
+  zsh)`. Each moved option now fails with a pointer to its replacement.
+  Launchers and wrappers written by `fff --setup` keep working and are
+  replaced when setup runs again.
 - `--glob` and `--exclude` also work after a command: `fff explorer --glob
   '*.pdf'` lists only PDFs in a file dialog.
-- **Resuming only where you left from.** A new session resumes in the
-  directory the last one was browsing only when started from the same
-  directory as that one; started anywhere else, it starts there. State files
-  from earlier versions keep their remembered highlights; the first session
-  after upgrading does not resume.
 - **Every session's footer says how to leave**: `q quit` (`Ctrl+c quit` while
   typing) beside `F1 keys`, not only in `fff explorer`.
+
+### Removed
+
+- **Automatic resuming.** A new session starts in the current directory, on
+  the row last highlighted there; use `fff --resume` to continue the last
+  session. `[ui] resume` is still accepted and does nothing, and `--here` is
+  accepted for scripts but no longer needed.
 
 ## 0.8.1 — 2026-11-02
 

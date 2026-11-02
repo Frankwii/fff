@@ -769,3 +769,50 @@ fn highlighted_row_stays_correct_when_rows_or_highlight_change_elsewhere() {
     app.highlight = Some(Path::new("/fixture/missing").into());
     assert_eq!(app.highlighted(), None);
 }
+#[test]
+fn a_saved_session_resumes_as_it_ended() {
+    let root = std::env::temp_dir().join(format!("fff-resume-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    for dir in ["a/deep", "b", "pinned"] {
+        fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    let mut app = App::new(vec![root.join("pinned")], 2, Policy::default());
+    app.navigate(root.join("a"), false);
+    app.navigate(root.join("a/deep"), false);
+    assert!(app.switch_tab(true));
+    app.navigate(root.join("b"), false);
+    app.query = "notes".into();
+    app.depth = 4;
+    app.policy.hidden = true;
+    app.policy.ignore = false;
+    app.policy.set_rules(vec!["target".into()]).unwrap();
+    app.policy.set_filters(vec!["*.pdf".into()]).unwrap();
+    app.files_only = true;
+    app.preview.shown = true;
+    app.highlight = Some(root.join("b/notes.pdf"));
+    app.toggle(root.join("a/x"));
+    let saved = app.session();
+    // The first tab's folder is gone by the next session.
+    fs::remove_dir_all(root.join("a/deep")).unwrap();
+    let mut resumed = App::browse(root.clone(), 2, Policy::default());
+    resumed.restore(saved.clone());
+    assert_eq!(resumed.cwd, root.join("b"));
+    assert_eq!(
+        (resumed.tab, resumed.roots.clone()),
+        (1, vec![root.join("pinned")])
+    );
+    assert!(resumed.scope.contains(&root.join("pinned")));
+    assert_eq!(resumed.back, [root.join("pinned")]);
+    assert_eq!((resumed.query.as_str(), resumed.depth), ("notes", 4));
+    assert!(resumed.policy.hidden && !resumed.policy.ignore);
+    assert_eq!(resumed.policy.rules, ["target"]);
+    assert_eq!(resumed.policy.filters, ["*.pdf"]);
+    assert!(resumed.files_only && resumed.preview.shown);
+    assert_eq!(resumed.wanted, Some(root.join("b/notes.pdf")));
+    assert_eq!(resumed.marks.to_vec(), [root.join("a/x")]);
+    // Switching back finds the vanished folder's parent, with its history.
+    assert!(resumed.switch_tab(false));
+    assert_eq!(resumed.cwd, root.join("a"));
+    assert_eq!(resumed.session().tabs[1].cwd, root.join("b"));
+    fs::remove_dir_all(&root).unwrap();
+}

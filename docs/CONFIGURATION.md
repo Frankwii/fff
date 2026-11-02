@@ -7,7 +7,7 @@ the default palette is `midnight`, bookmarks start empty, and caching is enabled
 
 Save this as `$XDG_CONFIG_HOME/fff/config.toml`. Following the XDG base
 directory spec, `~/.config/fff/config.toml` is used when `XDG_CONFIG_HOME` is
-unset, empty, or not absolute. `fff --check-config` prints the file it read:
+unset, empty, or not absolute. `fff setup --check-config` prints the file it read:
 
 ```toml
 [ui]
@@ -29,11 +29,11 @@ The [commented example](config.example.toml) also shows a custom palette and all
 cache settings. From the repository, you can try it without installing a config:
 
 ```sh
-cargo run -- --config docs/config.example.toml --check-config
+cargo run -- setup --config docs/config.example.toml --check-config
 cargo run -- --config docs/config.example.toml --palette ember
 ```
 
-`--check-config` validates and exits without opening the TUI. Its status message
+`fff setup --check-config` validates and exits without opening the TUI. Its status message
 uses stderr; stdout remains empty. It checks syntax, names, colors, and limits,
 while unavailable bookmark directories are handled when you try to visit them.
 
@@ -46,7 +46,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 | `--no-config` | Ignore the default file and use built-in settings. Cannot be combined with `--config`. |
 | `--palette NAME` | Override `[ui].palette`; custom palettes still come from the selected config file. Shell completion offers built-in and custom names. |
 | `--no-icons` | Hide filetype icons for this invocation, overriding `[ui] icons`. |
-| `--check-config` | Validate the selected configuration and exit. |
+| `fff setup --check-config` | Validate the selected configuration and exit. |
 
 The config directory is always `fff`, independently of the crate name
 `fuzzy-file-finder` or the executable name. After renaming or rebuilding a local
@@ -214,7 +214,7 @@ key does:
 | Mark / Unmark | Tab, without moving: mark the highlighted row |
 | Show / Hide hidden | Alt+.: hidden entries |
 | Cancel | Ctrl+c: quit without output |
-| Select & Exit | Ctrl+w with marks (opening them in the default mode), else Normal-mode Enter on the highlighted row |
+| Select & Exit | Ctrl+w with marks (opening them in `fff roam`), else Normal-mode Enter on the highlighted row |
 
 Buttons that cannot act (Back with no history, Up and Back in `fff seek`)
 are dimmed. In the copy, move, link and delete confirmations the bar shows
@@ -318,26 +318,24 @@ message_seconds = 4   # 0..3600; 0 = never hide automatically
 Each directory remembers the entry last highlighted in it: going up highlights
 the folder you came from (even several levels up), and entering a folder again
 puts the cursor back where it was, as soon as that row is listed (moving first
-cancels this). In the default mode without ROOTS, a new session started from
-the same directory as the last one also resumes in the directory that session
-was browsing: start fff in `~`, browse to `~/papers/2026`, quit with `q`, and
-the next `fff` from `~` opens in `~/papers/2026`, while one started anywhere
-else starts there. The status line says when a session resumed, `q` still
-exits to where you started, and `--here` starts in the current directory
-instead.
-`--output-paths` and pinned ROOTS never resume, so scripts start where they ask.
+cancels this). Every session starts in the current directory (or ROOTS), on
+the row last highlighted there.
 
-```toml
-[ui]
-resume = true   # false: always start in the current directory
-```
+`fff --resume` continues the last `fff roam` session instead: its folder,
+highlighted row, tabs with their back/forward history, marks, query, depth,
+filters, exclusions and toggles (hidden entries, directories, preview pane).
+Only the last session is kept, whichever directory it was started from; the
+status line says when a session resumed, and `q` still exits to where the new
+one started. `--resume` takes no ROOTS and none of the search options, since
+the session brings its own. `fff pick`, `fff seek` and `fff explorer`
+sessions are never saved.
 
-Locations are kept in `$XDG_STATE_HOME/fff/state` (`~/.local/state/fff/state`
-when unset): where the last session started and ended, and up to 500
-directories' highlights, least
-recently used dropped first, as exact path bytes. The file is replaced
-atomically when a session ends; a missing or damaged file is ignored. Delete it
-to forget everything.
+Highlights are kept in `$XDG_STATE_HOME/fff/state` (`~/.local/state/fff/state`
+when unset): up to 500 directories' highlights, least recently used dropped
+first, as exact path bytes. The last session is in `fff/session` beside it.
+Both files are replaced atomically when a session ends; a missing or damaged
+file is ignored. Delete them to forget everything. `[ui] resume`, which
+resumed automatically in 0.8, is still accepted and does nothing.
 
 ## Bookmarks
 
@@ -564,7 +562,7 @@ Which program opens a file, by extension or name, for `l` / Alt+l / Alt+number
 ```toml
 [open]
 terminal = "st -e"   # how to run a terminal program in a new window (default)
-fff_terminal = "st -c fff-picker -e"   # fff's own window from --setup (default)
+fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup (default)
 
 [[open.rules]]
 command = "zathura"
@@ -593,10 +591,10 @@ open with `$EDITOR`, as a terminal program.
 
 `terminal` must start a terminal window running the rest of the line: `st -e`,
 `alacritty -e`, `foot`, `kitty`. `fff_terminal` does the same for fff itself
-when the desktop entry or the file chooser installed by `fff --setup` starts
+when the desktop entry or the file chooser installed by `fff setup` starts
 it; its default gives the window the class `fff-picker`, so a window manager
 rule can float it (see [desktop integration](DESKTOP.md#floating-windows)).
-`--check-config` reports opener and terminal programs that are not installed.
+`fff setup --check-config` reports opener and terminal programs that are not installed.
 
 ## Modal text editing
 
@@ -675,7 +673,7 @@ Escape, Enter, and other named keys are rejected: Alt and Ctrl chords remain fff
 shortcuts (remap those in [`[keys.map]`](#chord-remapping)).
 Sequences must be unambiguous: two actions cannot share a sequence, and one
 sequence cannot be a prefix of another, because a waiting prefix has no timeout.
-Unbound keys and unfinished prefixes still reach Neovim. `--check-config` reports
+Unbound keys and unfinished prefixes still reach Neovim. `fff setup --check-config` reports
 unknown actions and invalid or conflicting sequences. Changes take effect on the
 next invocation.
 
@@ -713,4 +711,4 @@ they are typed into fields; rebind Normal-mode letters in `[keys.normal]`.
 `--map-key` rules apply after `[keys.map]` and win for the same source.
 Translation applies everywhere, including choosers and prompts. Letters inside
 confirmation sheets (such as `c`/`s`/`a` in a scope choice) are fixed.
-`--check-config` reports invalid chords.
+`fff setup --check-config` reports invalid chords.

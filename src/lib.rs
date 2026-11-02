@@ -246,7 +246,7 @@ pub enum EnterOutcome {
 pub const TABS: usize = 3;
 /// A tab's own directory and Ctrl+o / Ctrl+i history. Marks, the query, depth
 /// and policies are shared by every tab.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Tab {
     pub cwd: PathBuf,
     pub back: Vec<PathBuf>,
@@ -320,11 +320,11 @@ pub struct App {
     /// A highlight to restore as soon as its row is listed (scans stream in),
     /// unless the user moves first.
     pub wanted: Option<PathBuf>,
-    /// Whether this session's directory is where the next one resumes.
-    pub records_location: bool,
+    /// `fff roam`: the session is saved when it ends, for `--resume`.
+    pub records_session: bool,
     /// `[open]`: which program opens a file.
     pub openers: open::OpenConfig,
-    /// `--output-paths`: Insert-mode Enter on a file returns it instead of
+    /// `fff pick` (and `fff seek --output-paths`): Insert-mode Enter on a file returns it instead of
     /// revealing it.
     pub output_paths: bool,
     /// Pop-up notifications and when each arrived.
@@ -410,7 +410,7 @@ impl App {
             status_timeout: Some(std::time::Duration::from_secs(4)),
             positions: Vec::new(),
             wanted: None,
-            records_location: false,
+            records_session: false,
             openers: open::OpenConfig::default(),
             output_paths: false,
             notices: Vec::new(),
@@ -459,6 +459,68 @@ impl App {
             .rev()
             .find(|(d, _)| d == dir)
             .map(|(_, entry)| entry.clone())
+    }
+    /// The session as it is, for `--resume`.
+    pub fn session(&self) -> state::Session {
+        let mut tabs = self.tabs.clone();
+        tabs[self.tab] = Tab {
+            cwd: self.cwd.clone(),
+            back: self.back.clone(),
+            forward: self.forward.clone(),
+        };
+        state::Session {
+            roots: self.roots.clone(),
+            tabs,
+            tab: self.tab,
+            highlight: self.highlight.clone(),
+            marks: self.marks.to_vec(),
+            query: self.query.clone(),
+            depth: self.depth,
+            filters: self.policy.filters.clone(),
+            rules: self.policy.rules.clone(),
+            ignore: self.policy.ignore,
+            hidden: self.policy.hidden,
+            files_only: self.files_only,
+            preview: self.preview.shown,
+        }
+    }
+    /// `--resume`: continues a saved session. Vanished directories fall back
+    /// to their nearest existing parent and vanished roots are dropped; marks
+    /// are kept, missing ones flagged as usual.
+    pub fn restore(&mut self, session: state::Session) {
+        let existing = |mut dir: PathBuf| {
+            while !dir.is_dir() {
+                match dir.parent() {
+                    Some(parent) => dir = parent.to_path_buf(),
+                    None => break,
+                }
+            }
+            dir
+        };
+        self.roots = session.roots.into_iter().filter(|r| r.is_dir()).collect();
+        self.tab = session.tab.min(TABS - 1);
+        let first = session.tabs[0].cwd.clone();
+        for (i, slot) in self.tabs.iter_mut().enumerate() {
+            *slot = session.tabs.get(i).cloned().unwrap_or(Tab {
+                cwd: first.clone(),
+                ..Tab::default()
+            });
+        }
+        let Tab { cwd, back, forward } = std::mem::take(&mut self.tabs[self.tab]);
+        self.go(existing(cwd), false);
+        self.back = back;
+        self.forward = forward;
+        self.depth = session.depth.max(1);
+        self.policy.hidden = session.hidden;
+        self.policy.ignore = session.ignore;
+        // Globs were valid when saved; one that no longer is drops its list.
+        let _ = self.policy.set_rules(session.rules);
+        let _ = self.policy.set_filters(session.filters);
+        self.files_only = session.files_only;
+        self.preview.shown = session.preview;
+        self.query = session.query;
+        self.marks = session.marks.into();
+        self.wanted = session.highlight;
     }
     /// Changes directory, recording the old one for Ctrl+o.
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
@@ -833,7 +895,7 @@ impl App {
             false
         }
     }
-    /// Insert-mode Enter on a file (without --output-paths): show it in its
+    /// Insert-mode Enter on a file (outside fff pick): show it in its
     /// folder with the query cleared. Returns whether the directory changed.
     pub fn reveal(&mut self, file: PathBuf) -> bool {
         let folder = file.parent().map(Path::to_path_buf);

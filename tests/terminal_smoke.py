@@ -25,7 +25,7 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 
 class Session:
     # Every text field is an embedded Neovim (fff requires it). Tests pin
-    # --output-paths (the picker mode) unless they pass output_paths=False to exercise the default directory-changing mode.
+    # fff pick (the picker mode) unless they pass output_paths=False to exercise the default directory-changing mode.
     def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True, cwd=None):
         master, slave = pty.openpty()
         self.master = master
@@ -57,11 +57,14 @@ class Session:
             if environment: os.environ.update(environment)
             if "--config" not in args and "--no-config" not in args and not environment:
                 args=(*args,"--no-config")
-            if output_paths:
-                args=(*args,"--output-paths")
-            # A command (fff seek, fff explorer) comes before the root.
-            command = [args[0]] if args and args[0] in ("seek", "explorer") else []
+            # A command (fff seek, fff explorer) comes before the root; the
+            # picker is fff pick, or fff seek --output-paths.
+            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick") else []
             args = args[len(command):]
+            if output_paths and not command:
+                command = ["pick"]
+            elif output_paths and command == ["seek"]:
+                args = (*args, "--output-paths")
             os.execv(BINARY, [BINARY, *command, *([] if implicit_root else [str(root)]), *args])
         os.close(slave)
         os.close(writer)
@@ -1728,7 +1731,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(sub) + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_directories_remember_their_cursor_and_sessions_resume(self):
+    def test_directories_remember_their_cursor_and_sessions_resume_on_request(self):
         for folder in ["one", "two"]:
             (self.root / folder).mkdir()
             for name in ["a", "b", "c"]:
@@ -1750,40 +1753,50 @@ class TerminalTests(unittest.TestCase):
         s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
         s.close()
-        # A new session resumes in the last browsed folder, on the same row.
-        s = self.session = Session(self.root, "--depth", "1",
-                                   implicit_root=True, output_paths=False)
-        s.wait_ui(("cwd", self.root / "two"))
-        s.wait_ui("› 3/0")
-        self.assertIn("Resumed where you left off", s.screen.text)
-        s.send(b"q")
-        self.assertEqual(s.finish(), (0, b""))
-        s.close()
-        # Started from another folder, a session starts there instead...
-        s = self.session = Session(self.root, "--depth", "1", implicit_root=True,
-                                   output_paths=False, cwd=self.root / "one")
-        s.wait_ui(("cwd", self.root / "one"))
-        self.assertNotIn("Resumed", s.screen.text)
-        s.send(b"q")
-        self.assertEqual(s.finish(), (0, b""))
-        s.close()
-        # ...and records that, so the next one from the root does not resume.
+        # A new session starts where it is launched, not where the last ended.
         s = self.session = Session(self.root, "--depth", "1",
                                    implicit_root=True, output_paths=False)
         s.wait_ui(("cwd", self.root))
         self.assertNotIn("Resumed", s.screen.text)
+        # Leave a session to continue: in two, the first row marked, b
+        # highlighted, hidden entries shown.
+        # (The root still remembers two as its highlighted row.)
+        s.wait_ui("› 2/0")
+        self.assertIn("two/", highlighted())
+        s.send(b"l", ("cwd", self.root / "two"))
+        s.send(b"gg", "›   1 ")
+        s.send(b"\t", "Marks (1)")
+        s.send(b".", "hidden shown")
         s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
         s.close()
-        # --here and the picker mode start where they are launched.
-        for args, kwargs in [(("--here",), {"output_paths": False}), ((), {})]:
-            s = self.session = Session(self.root, "--depth", "1",
-                                       *args, implicit_root=True, **kwargs)
-            self.assertNotIn("Resumed", s.screen.text)
-            s.wait_ui(("cwd", self.root))
-            s.send(b"\x03")
-            self.assertEqual(s.finish()[0], 130)
-            s.close()
+        # Picker sessions are never saved...
+        s = self.session = Session(self.root, "--depth", "1", implicit_root=True)
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+        s.close()
+        # ...so --resume continues the roaming one as it ended.
+        s = self.session = Session(self.root, "--resume", implicit_root=True,
+                                   output_paths=False, cwd=self.root / "one")
+        s.wait_ui(("cwd", self.root / "two"))
+        s.wait_ui("›   2 ")
+        self.assertIn("b", highlighted())
+        self.assertIn("Resumed the last session", s.screen.text)
+        self.assertIn("Marks (1)", s.screen.text)
+        self.assertIn("hidden shown", s.screen.text)
+        self.assertIn("depth 1", s.screen.text)
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        s.close()
+        # With nothing saved, --resume starts here and says so.
+        (Path(str(self.root) + "-state") / "fff" / "session").unlink()
+        s = self.session = Session(self.root, "--resume", implicit_root=True,
+                                   output_paths=False)
+        s.wait_ui("No earlier session to resume")
+        s.wait_ui(("cwd", self.root))
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+        s.close()
         # --browse starts beside a file, highlighted, instead of resuming.
         s = self.session = Session(self.root, "--depth", "1", "--browse",
                                    str(self.root / "one" / "b"),

@@ -134,7 +134,9 @@ fn cli_config_precedence_validation_and_missing_files() {
     fs::write(xdg.join("fff/config.toml"), "[ui]\npalette='light'").unwrap();
     let run = |args: &[&str], use_xdg: bool| {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_fff"));
-        cmd.args(args)
+        // Every run checks the configuration; the others are global options.
+        cmd.arg("setup")
+            .args(args)
             .env("HOME", &home)
             .env_remove("XDG_CONFIG_HOME");
         if use_xdg {
@@ -149,7 +151,7 @@ fn cli_config_precedence_validation_and_missing_files() {
         use std::os::unix::process::CommandExt;
         let renamed = Command::new(env!("CARGO_BIN_EXE_fff"))
             .arg0(name)
-            .arg("--check-config")
+            .args(["setup", "--check-config"])
             .env("HOME", &home)
             .env("XDG_CONFIG_HOME", &xdg)
             .output()
@@ -160,7 +162,7 @@ fn cli_config_precedence_validation_and_missing_files() {
                 .contains(&xdg.join("fff/config.toml").display().to_string())
         );
     }
-    // XDG_CONFIG_HOME wins over ~/.config, and --check-config names the file.
+    // XDG_CONFIG_HOME wins over ~/.config, and fff setup --check-config names the file.
     let checked = run(&["--check-config"], true);
     assert!(checked.status.success());
     assert!(

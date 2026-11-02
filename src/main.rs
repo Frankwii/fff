@@ -21,9 +21,10 @@ Interactive fuzzy file picker for the terminal.
 
 Press i to type and fuzzy-filter file and directory basenames (Neovim default),
 navigate with Enter, Alt+h and Alt+l, mark several paths with Tab, and confirm.
-The interface draws on /dev/tty. By default, leaving fff changes your shell's
-directory (with the --init shell function); --output-paths prints the selected
-paths instead, for pipes and command substitution.
+The interface draws on /dev/tty. Without a command (fff roam), leaving fff
+changes your shell's directory, with the shell function from fff setup --init;
+fff pick prints the selected paths instead, for pipes and command substitution.
+fff --resume continues the last session as it ended.
 
 With no ROOTS, browsing starts in the invocation directory and follows
 navigation. Each ROOT is pinned: its descendants stay in the results wherever
@@ -31,9 +32,10 @@ you navigate.";
 
 const AFTER_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
-  <cyan>fff</cyan>                          browse; ! or Enter on a file changes directory
-  <cyan>eval \"$(fff --init zsh)\"</cyan>     shell integration line for ~/.zshrc
-  <cyan>vim \"$(fff --output-paths)\"</cyan>  open one picked file
+  <cyan>fff</cyan>                             browse; ! or Enter on a file changes directory
+  <cyan>eval \"$(fff setup --init zsh)\"</cyan>  shell integration line for ~/.zshrc
+  <cyan>vim \"$(fff pick)\"</cyan>               open one picked file
+  <cyan>fff --resume</cyan>                    continue the last session
 
 Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 );
@@ -44,17 +46,19 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Browse from the current directory, two levels deep.
   <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'</cyan>
       Search two pinned roots for TeX and PDF files.
-  <cyan>eval \"$(fff --init zsh)\"</cyan>
+  <cyan>eval \"$(fff setup --init zsh)\"</cyan>
       In ~/.zshrc: leaving fff changes the shell's directory (bash, fish too).
-  <cyan>vim \"$(fff --output-paths --relative)\"</cyan>
+  <cyan>fff --resume</cyan>
+      Continue the last session: folders, tabs, highlight, marks and query.
+  <cyan>vim \"$(fff pick --relative)\"</cyan>
       Open the picked file using a path relative to here.
-  <cyan>fff --output-paths --exclude build -0 | xargs -0 ls -ld</cyan>
+  <cyan>fff pick --exclude build -0 | xargs -0 ls -ld</cyan>
       Act on every marked path with NUL-separated records.
   <cyan>fff seek ~/papers --depth 4 --glob '*.pdf' --output-paths</cyan>
       Choose PDFs from anywhere below ~/papers, without browsing.
   <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
-  <cyan>fff --setup desktop; fff --setup file-chooser</cyan>
+  <cyan>fff setup --desktop; fff setup --file-chooser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
   <cyan>fff explorer --save ~/Downloads/paper.pdf</cyan>
       Choose where to save a file, as a file dialog would (see fff explorer --help).
@@ -82,7 +86,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   ([ui] preview), the mouse and buttons
   ([ui] mouse, buttons), live updates ([ui] watch), Normal-mode list keys
   ([keys.normal]) and chord remapping ([keys.map], applied before --map-key).
-  <cyan>fff --check-config</cyan> validates it and prints which file was read.
+  <cyan>fff setup --check-config</cyan> validates it and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
   <cyan>0</cyan>    normal exit: a directory was chosen or paths printed (or the
@@ -93,9 +97,9 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>130</cyan>  cancelled with Ctrl+c; nothing printed, no directory change
 
 <bold><green>Shell completions:</green></bold>
-  bash  <cyan>source <<(fff --completions bash)</cyan>   in ~/.bashrc
-  zsh   <cyan>source <<(fff --completions zsh)</cyan>    in ~/.zshrc
-  fish  <cyan>fff --completions fish | source</cyan>    in ~/.config/fish/config.fish
+  bash  <cyan>source <<(fff setup --completions bash)</cyan>   in ~/.bashrc
+  zsh   <cyan>source <<(fff setup --completions zsh)</cyan>    in ~/.zshrc
+  fish  <cyan>fff setup --completions fish | source</cyan>    in ~/.config/fish/config.fish
   Completions cover options, root and config paths, palettes
   (including custom ones from the configuration) and --map-key chords."
 );
@@ -110,15 +114,13 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
     after_help = AFTER_HELP,
     after_long_help = AFTER_LONG_HELP,
     styles = STYLES,
-    max_term_width = 100
+    max_term_width = 100,
+    subcommand_value_name = "COMMAND",
+    subcommand_help_heading = "Commands (without one, fff roam)"
 )]
 struct Args {
-    /// Pinned search roots; without any, browse from the current directory
-    ///
-    /// Each ROOT's descendants stay in scope while you navigate. The current
-    /// directory is searched in addition; duplicate roots are ignored.
-    #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
-    roots: Vec<PathBuf>,
+    #[command(flatten)]
+    roam: RoamArgs,
     /// Maximum discovery depth below each scope (immediate children = 1)
     ///
     /// Change it during the session with Alt+Left / Alt+Right.
@@ -150,51 +152,12 @@ struct Args {
         help_heading = "Search"
     )]
     exclusions: Vec<String>,
-    /// Replaced by `fff seek`; kept only to say so.
-    #[arg(long, hide = true)]
-    no_dir: bool,
-    /// Start in the current directory instead of where the last session ended
-    ///
-    /// Without ROOTS and without --output-paths, a session started from the
-    /// same directory as the last one resumes in the directory that one was
-    /// browsing ([ui] resume, on by default).
-    #[arg(long, help_heading = "Search")]
-    here: bool,
-    /// Browse from the one ROOT given instead of pinning it
-    ///
-    /// A directory is where browsing starts; a file starts in its folder with
-    /// the file highlighted. Without a ROOT it is plain browsing. The desktop
-    /// entry and file chooser installed by --setup start fff this way.
-    #[arg(long, help_heading = "Search")]
-    browse: bool,
-    /// Run in a terminal window of its own, with no shell to change directory
-    ///
-    /// Normal-mode Enter on a folder enters it instead of leaving, ! replaces
-    /// fff with $SHELL in the folder being browsed, and nothing is printed.
-    /// The desktop entry installed by --setup desktop starts fff this way.
-    #[arg(long, conflicts_with = "output_paths", help_heading = "Interface")]
-    window: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
     #[arg(global = true, long, help_heading = "Search")]
     hidden: bool,
     /// Start with exclusion rules disabled; toggle with Alt+H
     #[arg(global = true, long, help_heading = "Search")]
     no_exclusions: bool,
-    /// Print the selected paths to stdout instead of changing directory
-    ///
-    /// The picker behavior for scripts and command substitution: Enter on a
-    /// file prints it (while typing, the marks and it), Ctrl+number does the
-    /// same for its row, Ctrl+w prints the marks, q the launch directory and !
-    /// the browsing directory. Without it, fff chooses a directory to change
-    /// into (see --init).
-    #[arg(long, help_heading = "Output")]
-    output_paths: bool,
-    /// Print paths relative to the invocation directory instead of absolute
-    #[arg(long, requires = "output_paths", help_heading = "Output")]
-    relative: bool,
-    /// Terminate each output path with NUL instead of newline (for xargs -0)
-    #[arg(short = '0', long, requires = "output_paths", help_heading = "Output")]
-    null: bool,
     /// Color palette for this session; overrides [ui] palette
     ///
     /// Built-in names include midnight, light, forest, nord, gruvbox-dark,
@@ -225,55 +188,116 @@ struct Args {
     /// Ignore the configuration file and use built-in defaults
     #[arg(global = true, long, help_heading = "Configuration")]
     no_config: bool,
-    /// Validate the configuration (and --palette), report the result and exit
-    #[arg(long, help_heading = "Configuration")]
-    check_config: bool,
-    /// Print the shell completion script for SHELL and exit
-    ///
-    /// Load it from your shell's startup file, e.g. `source <(fff --completions
-    /// bash)`, so it is regenerated after upgrades. `COMPLETE=SHELL fff` prints
-    /// the same script.
-    #[arg(long, value_name = "SHELL", help_heading = "Shell integration",
-        value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
-    completions: Option<String>,
-    /// Print a shell function that changes directory when fff exits, and exit
-    ///
-    /// Add `eval "$(fff --init zsh)"` (or bash) to your shell's startup file,
-    /// or `fff --init fish | source` for fish. The function is named fff and
-    /// calls the real binary with --cd-file.
-    #[arg(
-        long,
-        value_enum,
-        value_name = "SHELL",
-        help_heading = "Shell integration"
-    )]
-    init: Option<completion::InitShell>,
     /// Write the directory to change into to FILE instead of printing it
     ///
-    /// Used by the --init function. Nothing is written when the directory
-    /// would not change.
+    /// Used by the shell function from fff setup --init, which passes it
+    /// before any command. Nothing is written when the directory would not
+    /// change.
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath,
         help_heading = "Shell integration")]
     cd_file: Option<PathBuf>,
-    /// Install fff as the desktop's folder handler or file chooser, and exit
-    ///
-    /// desktop writes an fff.desktop entry, run in [open] fff_terminal, and makes
-    /// it the default for directories (xdg-open, "Show in folder").
-    /// file-chooser sets up xdg-desktop-portal-termfilechooser to pick files
-    /// with fff, for Firefox and other portal users. Files fff generated
-    /// before are replaced; other files are never overwritten.
-    #[arg(
-        long,
-        value_enum,
-        value_name = "TARGET",
-        help_heading = "Shell integration"
-    )]
-    setup: Option<fuzzy_file_finder::setup::Target>,
+    /// Options that became commands, kept only to say so.
+    #[command(flatten)]
+    moved: Moved,
     #[command(subcommand)]
     command: Option<Command>,
 }
+/// fff roam, which is also fff without a command.
+#[derive(clap::Args, Default)]
+struct RoamArgs {
+    /// Pinned search roots; without any, browse from the current directory
+    ///
+    /// Each ROOT's descendants stay in scope while you navigate. The current
+    /// directory is searched in addition; duplicate roots are ignored.
+    #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
+    roots: Vec<PathBuf>,
+    /// Browse from the one ROOT given instead of pinning it
+    ///
+    /// A directory is where browsing starts; a file starts in its folder with
+    /// the file highlighted. Without a ROOT it is plain browsing. The desktop
+    /// entry installed by fff setup --desktop starts fff this way.
+    #[arg(long, help_heading = "Search")]
+    browse: bool,
+    /// Continue the last fff roam session where it ended
+    ///
+    /// Its folders and tabs, highlight, marks, query, depth, filters,
+    /// exclusions and toggles come back as they were. Only the last session is
+    /// kept; folders that are gone fall back to their nearest parent.
+    #[arg(long, help_heading = "Search",
+        conflicts_with_all = ["roots", "browse", "depth", "glob", "exclusions", "hidden", "no_exclusions"])]
+    resume: bool,
+    /// Run in a terminal window of its own, with no shell to change directory
+    ///
+    /// Normal-mode Enter on a folder enters it instead of leaving, ! replaces
+    /// fff with $SHELL in the folder being browsed, and nothing is printed.
+    /// The desktop entry installed by fff setup --desktop starts fff this way.
+    #[arg(long, help_heading = "Interface")]
+    window: bool,
+    /// Accepted for compatibility: fff always starts here unless --resume.
+    #[arg(long, hide = true)]
+    here: bool,
+}
+impl RoamArgs {
+    fn is_empty(&self) -> bool {
+        self.roots.is_empty() && !self.browse && !self.resume && !self.window
+    }
+}
+/// Options of earlier versions, each now part of a command.
+#[derive(clap::Args)]
+struct Moved {
+    #[arg(long, hide = true)]
+    no_dir: bool,
+    #[arg(long, hide = true)]
+    output_paths: bool,
+    #[arg(long, hide = true, value_name = "SHELL")]
+    init: Option<String>,
+    #[arg(long, hide = true, value_name = "SHELL")]
+    completions: Option<String>,
+    #[arg(long, hide = true, value_name = "TARGET")]
+    setup: Option<String>,
+    #[arg(long, hide = true)]
+    check_config: bool,
+}
+impl Moved {
+    /// Where the option given went, if one was.
+    fn instead(&self) -> Option<String> {
+        let shell = |s: &Option<String>| s.clone().unwrap_or_default();
+        Some(if self.no_dir {
+            "--no-dir is now a command of its own: fff seek [ROOTS]".into()
+        } else if self.output_paths {
+            "--output-paths is now a command of its own: fff pick [ROOTS]".into()
+        } else if self.init.is_some() {
+            format!("--init is now fff setup --init {}", shell(&self.init))
+        } else if self.completions.is_some() {
+            format!(
+                "--completions is now fff setup --completions {}",
+                shell(&self.completions)
+            )
+        } else if self.setup.is_some() {
+            format!("--setup is now fff setup --{}", shell(&self.setup))
+        } else if self.check_config {
+            "--check-config is now fff setup --check-config".into()
+        } else {
+            return None;
+        })
+    }
+}
 #[derive(clap::Subcommand)]
 enum Command {
+    /// Browse folders; leaving changes your shell's directory (the default)
+    ///
+    /// What fff does without a command. q leaves you where you started, !
+    /// takes you to the folder you were browsing, and Normal-mode Enter goes
+    /// into a folder or opens a file and leaves you in its folder (with the
+    /// shell function from fff setup --init; without it, the folder is
+    /// printed).
+    Roam(RoamArgs),
+    /// Browse and print the chosen paths, for scripts and $(...)
+    ///
+    /// Enter on a file prints it (while typing, the marks and it), Ctrl+number
+    /// does the same for its row, Ctrl+w prints the marks, q the launch
+    /// directory and ! the browsing directory.
+    Pick(PickArgs),
     /// Choose files below the current directory or ROOTS, without navigating
     ///
     /// A static file choice: only files are listed, from every folder down to
@@ -287,11 +311,35 @@ enum Command {
     /// Answer a file dialog: choose files or a folder, or where to save
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
-    /// --setup file-chooser installs. Enter on a file chooses it and on a
+    /// fff setup --file-chooser installs. Enter on a file chooses it and on a
     /// folder enters it, in either mode; ! takes the folder you are in, and
     /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
     /// how to choose.
     Explorer(ExplorerArgs),
+    /// Set fff up: the desktop, file dialogs, your shell, the configuration
+    ///
+    /// Does one of these and exits.
+    Setup(SetupArgs),
+}
+#[derive(clap::Args)]
+struct PickArgs {
+    /// Pinned search roots; without any, browse from the current directory
+    #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
+    roots: Vec<PathBuf>,
+    /// Browse from the one ROOT given instead of pinning it
+    #[arg(long, help_heading = "Search")]
+    browse: bool,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+#[derive(clap::Args)]
+struct OutputArgs {
+    /// Print paths relative to the invocation directory instead of absolute
+    #[arg(long, help_heading = "Output")]
+    relative: bool,
+    /// Terminate each output path with NUL instead of newline (for xargs -0)
+    #[arg(short = '0', long, help_heading = "Output")]
+    null: bool,
 }
 #[derive(clap::Args)]
 struct SeekArgs {
@@ -325,6 +373,42 @@ struct ExplorerArgs {
     #[arg(long)]
     save: bool,
 }
+#[derive(clap::Args)]
+#[group(required = true, multiple = false)]
+struct SetupArgs {
+    /// Open folders from other programs in fff
+    ///
+    /// Writes an fff.desktop entry, run in [open] fff_terminal, and makes it
+    /// the default for directories (xdg-open, "Show in folder"). Files fff
+    /// generated before are replaced; other files are never overwritten.
+    #[arg(long)]
+    desktop: bool,
+    /// Pick files with fff in Firefox and other applications' file dialogs
+    ///
+    /// Sets up xdg-desktop-portal-termfilechooser to run fff explorer, for
+    /// every application using the desktop portal. Files fff generated before
+    /// are replaced; other files are never overwritten.
+    #[arg(long, visible_alias = "browser")]
+    file_chooser: bool,
+    /// Print a shell function that changes directory when fff exits
+    ///
+    /// Add `eval "$(fff setup --init zsh)"` (or bash) to your shell's startup
+    /// file, or `fff setup --init fish | source` for fish. The function is
+    /// named fff and calls the real binary with --cd-file.
+    #[arg(long, value_enum, value_name = "SHELL")]
+    init: Option<completion::InitShell>,
+    /// Print the shell completion script for SHELL
+    ///
+    /// Load it from your shell's startup file, e.g. `source <(fff setup
+    /// --completions bash)`, so it is regenerated after upgrades.
+    /// `COMPLETE=SHELL fff` prints the same script.
+    #[arg(long, value_name = "SHELL",
+        value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
+    completions: Option<String>,
+    /// Validate the configuration (and --palette) and report the result
+    #[arg(long)]
+    check_config: bool,
+}
 fn main() -> ExitCode {
     // Answers `COMPLETE=<shell> fff ...` requests before anything is printed.
     CompleteEnv::with_factory(Args::command)
@@ -339,26 +423,80 @@ fn main() -> ExitCode {
         }
     }
 }
+/// What kind of session a command asks for, from its arguments.
+#[derive(Default)]
+struct Mode {
+    roots: Vec<PathBuf>,
+    browse: bool,
+    resume: bool,
+    window: bool,
+    output_paths: bool,
+    relative: bool,
+    null: bool,
+    no_dir: bool,
+    explorer: Option<ExplorerArgs>,
+}
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let mut args = Args::parse();
-    // fff seek: the same session, choosing files only.
-    let no_dir = if let Some(Command::Seek(seek)) = &mut args.command {
-        args.roots.append(&mut seek.roots);
-        args.output_paths |= seek.output_paths;
-        args.relative |= seek.relative;
-        args.null |= seek.null;
-        true
-    } else {
-        false
+    let conflict = |message: &str| -> ! {
+        Args::command()
+            .error(clap::error::ErrorKind::ArgumentConflict, message)
+            .exit()
     };
-    if let Some(shell) = args.init {
-        print!("{}", completion::wrapper(shell));
-        return Ok(true);
+    if let Some(instead) = args.moved.instead() {
+        Args::command()
+            .error(clap::error::ErrorKind::UnknownArgument, instead)
+            .exit()
     }
-    if let Some(shell) = &args.completions {
-        let program = std::env::args_os().next().unwrap_or_else(|| "fff".into());
-        completion::write_registration(shell, &program, &mut io::stdout().lock())?;
-        return Ok(true);
+    // fff roam's options before another command would be ignored.
+    let roam = std::mem::take(&mut args.roam);
+    if !matches!(args.command, None | Some(Command::Roam(_))) && !roam.is_empty() {
+        conflict("roots, --browse, --resume and --window belong to fff roam");
+    }
+    let mode = match args.command.take() {
+        None => Mode {
+            roots: roam.roots,
+            browse: roam.browse,
+            resume: roam.resume,
+            window: roam.window,
+            ..Mode::default()
+        },
+        Some(Command::Roam(mut more)) => {
+            let mut roots = roam.roots;
+            roots.append(&mut more.roots);
+            Mode {
+                roots,
+                browse: roam.browse || more.browse,
+                resume: roam.resume || more.resume,
+                window: roam.window || more.window,
+                ..Mode::default()
+            }
+        }
+        Some(Command::Pick(pick)) => Mode {
+            roots: pick.roots,
+            browse: pick.browse,
+            output_paths: true,
+            relative: pick.output.relative,
+            null: pick.output.null,
+            ..Mode::default()
+        },
+        Some(Command::Seek(seek)) => Mode {
+            roots: seek.roots,
+            output_paths: seek.output_paths,
+            relative: seek.relative,
+            null: seek.null,
+            no_dir: true,
+            ..Mode::default()
+        },
+        Some(Command::Explorer(explorer)) => Mode {
+            output_paths: true,
+            explorer: Some(explorer),
+            ..Mode::default()
+        },
+        Some(Command::Setup(setup)) => return run_setup(setup, args),
+    };
+    if mode.resume && !mode.roots.is_empty() {
+        conflict("--resume continues the last session's own roots; give no ROOTS");
     }
     // Malformed argument values are usage errors (exit 2), like clap's own.
     let usage = |flag: &str, error: &dyn std::fmt::Display| -> ! {
@@ -371,22 +509,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     if let Err(e) = KeyMap::parse(&args.key_maps) {
         usage("--map-key", &e);
-    }
-    if args.no_dir {
-        Args::command()
-            .error(
-                clap::error::ErrorKind::UnknownArgument,
-                "--no-dir is now a command of its own: fff seek [ROOTS]",
-            )
-            .exit()
-    }
-    if no_dir && (args.browse || args.window || args.here) {
-        Args::command()
-            .error(
-                clap::error::ErrorKind::ArgumentConflict,
-                "fff seek does not browse: --browse, --window and --here do not apply",
-            )
-            .exit()
     }
     let mut policy = Policy {
         hidden: args.hidden,
@@ -406,27 +528,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     )?;
     // Configured [keys.map] chords first, so --map-key rules override them.
     let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
-    if let Some(target) = args.setup {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        let terminal = fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref())
-            .map_err(|e| format!("[open] fff_terminal: {e}"))?;
-        let dirs = fuzzy_file_finder::setup::Dirs::from_env()?;
-        let fff = std::env::current_exe()?;
-        fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut io::stderr())?;
-        return Ok(true);
-    }
-    if args.check_config {
-        // Openers name programs; report the ones that are not installed.
-        let missing = settings.open.missing(&std::env::current_dir()?);
-        if !missing.is_empty() {
-            return Err(format!("[open] programs not found: {}", missing.join("; ")).into());
-        }
-        match &settings.source {
-            Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
-            None => eprintln!("fff: no configuration file; using built-in settings"),
-        }
-        return Ok(true);
-    }
     let watcher = fuzzy_file_finder::reload::PaletteWatcher::start(
         args.config.clone(),
         args.no_config,
@@ -437,7 +538,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     // --browse and explorer: where to start, and the file to highlight there.
     let mut browse_from = None;
     let mut dialog = None;
-    if let Some(Command::Explorer(explorer)) = &args.command {
+    if let Some(explorer) = &mode.explorer {
         let (asked, start, highlight) = fuzzy_file_finder::explorer::Dialog::new(
             explorer.path.as_deref(),
             explorer.multiple,
@@ -449,11 +550,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         let start = start.canonicalize()?;
         let highlight = highlight.and_then(|h| h.file_name().map(|n| start.join(n)));
         browse_from = Some((start, highlight));
-    } else if args.browse {
-        if args.roots.len() > 1 {
+    } else if mode.browse {
+        if mode.roots.len() > 1 {
             usage("--browse", &"give at most one path to browse from");
         }
-        if let Some(path) = args.roots.first() {
+        if let Some(path) = mode.roots.first() {
             let full = path
                 .canonicalize()
                 .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -464,7 +565,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         }
     }
     let mut roots = Vec::new();
-    for root in args.roots.into_iter().filter(|_| !args.browse) {
+    for root in mode.roots.iter().filter(|_| !mode.browse) {
         let path = root
             .canonicalize()
             .map_err(|e| format!("{}: {e}", root.display()))?;
@@ -475,35 +576,28 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             roots.push(path);
         }
     }
-    // Interactive sessions without roots resume where the last one ended,
-    // when started where it was started; scripts (--output-paths) and pinned
-    // roots always start as asked.
     let state = fuzzy_file_finder::state::path()
         .map(|p| fuzzy_file_finder::state::load(&p))
         .unwrap_or_default();
-    let records_location = roots.is_empty() && !args.output_paths && dialog.is_none() && !no_dir;
-    let resume = (records_location
-        && settings.resume
-        && !args.here
-        && state.from.as_ref() == Some(&invocation))
-    .then_some(state.last.as_ref())
-    .flatten()
-    .filter(|last| last.is_dir() && **last != invocation)
-    .filter(|_| browse_from.is_none());
+    // fff roam sessions are saved for --resume; the other commands never are.
+    let roaming = !mode.output_paths && !mode.no_dir;
+    let session = mode
+        .resume
+        .then(fuzzy_file_finder::state::session_path)
+        .flatten()
+        .and_then(|p| fuzzy_file_finder::state::load_session(&p));
     let mut app = if let Some((start, _)) = &browse_from {
         App::browse(start.clone(), args.depth as usize, policy)
-    } else if let Some(last) = resume {
-        App::browse(last.clone(), args.depth as usize, policy)
     } else if roots.is_empty() {
         App::browse(invocation.clone(), args.depth as usize, policy)
     } else {
         App::new(roots, args.depth as usize, policy)
     };
-    app.records_location = records_location;
+    app.records_session = roaming;
     app.openers = settings.open.clone();
-    app.output_paths = args.output_paths || dialog.is_some();
+    app.output_paths = mode.output_paths;
     app.dialog = dialog.clone();
-    app.window = args.window;
+    app.window = mode.window;
     app.positions = state.positions;
     app.wanted = match &browse_from {
         Some((_, Some(file))) => Some(file.clone()),
@@ -515,7 +609,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
-    app.no_dir = no_dir;
+    app.no_dir = mode.no_dir;
     app.status_timeout = settings.message_timeout;
     app.columns = settings.columns;
     app.mouse = settings.mouse;
@@ -525,11 +619,15 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
-    if resume.is_some() {
-        app.status =
-            "Resumed where you left off; q returns to where you started, --here starts there"
-                .into();
-        app.status_success = app.status.clone();
+    if mode.resume {
+        match session {
+            Some(session) => {
+                app.restore(session);
+                app.status = "Resumed the last session; q returns to where you started".into();
+                app.status_success = app.status.clone();
+            }
+            None => app.status = "No earlier session to resume; starting here".into(),
+        }
     }
     app.bookmark_store = fuzzy_file_finder::bookmarks::Store::new(
         settings.bookmark_path,
@@ -541,7 +639,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     // confirmed entry (a directory itself for directories).
     let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
         // A window of its own has no shell to change.
-        let Some(target) = target.filter(|_| !args.window) else {
+        let Some(target) = target.filter(|_| !mode.window) else {
             return Ok(());
         };
         let dir = if target.is_dir() {
@@ -580,23 +678,23 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     }
     match finish {
         ui::Finish::Cancelled => Ok(false),
-        ui::Finish::Paths(paths) if args.output_paths => {
+        ui::Finish::Paths(paths) if mode.output_paths => {
             write_paths(
                 io::stdout().lock(),
                 &paths,
                 &invocation,
-                args.relative,
-                args.null,
+                mode.relative,
+                mode.null,
             )?;
             Ok(true)
         }
-        ui::Finish::Folder(folder) if args.output_paths => {
+        ui::Finish::Folder(folder) if mode.output_paths => {
             write_paths(
                 io::stdout().lock(),
                 &[folder],
                 &invocation,
-                args.relative,
-                args.null,
+                mode.relative,
+                mode.null,
             )?;
             Ok(true)
         }
@@ -610,12 +708,55 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         }
         ui::Finish::Exec(plan) => {
             // The wrapper changes to the browsing directory once the program ends.
-            if !args.output_paths {
+            if !mode.output_paths {
                 change_to(Some(&plan.cwd))?;
             }
             Err(format!("Could not run {}: {}", plan.name, plan.exec()).into())
         }
     }
+}
+
+/// fff setup: one integration, printed script or check, then exit.
+fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::Error>> {
+    if let Some(shell) = setup.init {
+        print!("{}", completion::wrapper(shell));
+        return Ok(true);
+    }
+    if let Some(shell) = &setup.completions {
+        let program = std::env::args_os().next().unwrap_or_else(|| "fff".into());
+        completion::write_registration(shell, &program, &mut io::stdout().lock())?;
+        return Ok(true);
+    }
+    let settings = Settings::load(
+        args.config.as_deref(),
+        args.no_config,
+        args.palette.as_deref(),
+    )?;
+    if setup.check_config {
+        KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
+        // Openers name programs; report the ones that are not installed.
+        let missing = settings.open.missing(&std::env::current_dir()?);
+        if !missing.is_empty() {
+            return Err(format!("[open] programs not found: {}", missing.join("; ")).into());
+        }
+        match &settings.source {
+            Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
+            None => eprintln!("fff: no configuration file; using built-in settings"),
+        }
+        return Ok(true);
+    }
+    let target = if setup.desktop {
+        fuzzy_file_finder::setup::Target::Desktop
+    } else {
+        fuzzy_file_finder::setup::Target::FileChooser
+    };
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let terminal = fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref())
+        .map_err(|e| format!("[open] fff_terminal: {e}"))?;
+    let dirs = fuzzy_file_finder::setup::Dirs::from_env()?;
+    let fff = std::env::current_exe()?;
+    fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut io::stderr())?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -641,15 +782,17 @@ mod tests {
     #[test]
     fn every_completable_argument_has_completion() {
         let command = Args::command();
-        let explorer = command.find_subcommand("explorer").unwrap();
-        let seek = command.find_subcommand("seek").unwrap();
+        let commands: Vec<_> = command.get_subcommands().collect();
         for arg in command
             .get_arguments()
-            .chain(explorer.get_arguments())
-            .chain(seek.get_arguments())
+            .chain(commands.iter().flat_map(|c| c.get_arguments()))
         {
             let id = arg.get_id().as_str();
-            if !arg.get_action().takes_values() || ["help", "version"].contains(&id) {
+            // Hidden options only point to their new place.
+            if !arg.get_action().takes_values()
+                || ["help", "version"].contains(&id)
+                || arg.is_hide_set()
+            {
                 continue;
             }
             let completes = arg.get::<ArgValueCompleter>().is_some()
@@ -665,7 +808,7 @@ mod tests {
     #[test]
     fn completion_offers_options_values_paths_and_palettes() {
         assert_eq!(candidates(&["fff", "--pal"], None), ["--palette"]);
-        let shells = candidates(&["fff", "--completions", ""], None);
+        let shells = candidates(&["fff", "setup", "--completions", ""], None);
         for shell in ["bash", "zsh", "fish"] {
             assert!(shells.contains(&shell.to_string()), "{shell}");
         }
@@ -683,6 +826,9 @@ mod tests {
             ["docs/"]
         );
         assert_eq!(candidates(&["fff", "seek", "do"], Some(root)), ["docs/"]);
+        assert_eq!(candidates(&["fff", "pick", "do"], Some(root)), ["docs/"]);
+        assert_eq!(candidates(&["fff", "roam", "do"], Some(root)), ["docs/"]);
+        assert!(candidates(&["fff", "setup", "--in"], None).contains(&"--init".to_string()));
         let configs = candidates(&["fff", "--config", "docs/con"], Some(root));
         assert!(
             configs.contains(&"docs/config.example.toml".to_string()),

@@ -30,14 +30,14 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
-| `src/state.rs` | Remembered locations: last directory and per-directory highlights, saved atomically. |
+| `src/state.rs` | Per-directory highlights and the last session for `--resume`, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback and deletion review. |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
 | `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
-| `src/setup.rs`, `src/setup/` | `--setup`: the desktop entry, the termfilechooser wrapper script and the configuration keys selecting them. |
+| `src/setup.rs`, `src/setup/` | `fff setup --desktop` and `--file-chooser`: the desktop entry, the termfilechooser wrapper script and the configuration keys selecting them. |
 | `src/completion.rs`, `src/icons.rs` | Dynamic shell completion and filetype glyphs. |
 
 ## Design choices
@@ -53,7 +53,7 @@ listed separately in the [roadmap](ROADMAP.md).
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
-  (`--output-paths`) or the chosen directory (default mode without `--cd-file`);
+  (`fff pick`, `fff seek --output-paths`) or the chosen directory (`fff roam` without `--cd-file`);
   programs started with gx/gX get `/dev/tty`, never fff's stdout. Relative
   output is based on the invocation directory, never the current browsing location.
 - Exactly one current directory is searched alongside ordered pinned startup

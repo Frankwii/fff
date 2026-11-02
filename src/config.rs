@@ -212,6 +212,9 @@ struct UiConfig {
     palette: String,
     icons: bool,
     message_seconds: u64,
+    /// Accepted for configuration compatibility: sessions resume only with
+    /// `fff --resume`.
+    #[allow(dead_code)]
     resume: bool,
     columns: Vec<crate::details::Column>,
     mouse: bool,
@@ -270,8 +273,6 @@ pub struct Settings {
     /// How long status messages stay visible (`[ui] message_seconds`); `None`
     /// keeps them until replaced.
     pub message_timeout: Option<std::time::Duration>,
-    /// Start where the last session ended (`[ui] resume`), in the default mode.
-    pub resume: bool,
     /// `[ui] columns`, `[ui] mouse` and `[ui] watch`.
     pub columns: Vec<crate::details::Column>,
     pub mouse: bool,
@@ -363,7 +364,6 @@ impl Settings {
             key_maps,
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
-            resume: raw.ui.resume,
             columns: raw.ui.columns,
             mouse: raw.ui.mouse,
             buttons: raw.ui.buttons,

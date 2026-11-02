@@ -28,11 +28,6 @@ not implemented features or commitments:
   highlights the file instead of only opening its folder.
 - Preview pane follow-ups: scrolling it without moving the highlight, and
   previewing the marked list's rows from the results.
-- More commands for distinct modes, as `fff seek` and `fff explorer` are:
-  `fff pick` for the `--output-paths` picker (with `--relative` and `--null`
-  only there), and `fff setup`, `fff init`, `fff completions` and
-  `fff check-config` in place of the flags that print or change something and
-  exit.
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
   list and choosers; dragging past the pane's edge scrolling the
@@ -118,5 +113,5 @@ TODO without leaving the browser.
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
 
-The current release is 0.8.1. Version 1.0 is planned once the remaining roadmap
+The current release is 0.9.0. Version 1.0 is planned once the remaining roadmap
 above is implemented. Earlier versions will not be retroactively renumbered.

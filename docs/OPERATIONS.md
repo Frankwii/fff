@@ -163,7 +163,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
   different openers run one after another. `o` refuses directories (`l` enters
   them).
 - **And leave:** Normal-mode Enter on a file, or Ctrl+w on the marked files,
-  in the default mode (not with `--output-paths` or in `fff seek`, where they
+  in `fff roam` (not in `fff pick` or `fff seek`, where they
   return paths). Files sharing an opener go to one invocation, as with `o`. GUI
   openers start detached, as with `l`; a terminal opener replaces fff in this
   terminal, like `gX`, and fff's exit status becomes the program's. Only one
@@ -222,7 +222,7 @@ program it resolved to, and the paths in argument order. **Enter** runs it;
   Enter so its error messages stay readable. While the program runs, Ctrl+c and
   Ctrl+\\ (quit) reach only the program.
 - `gX`: fff restores the terminal and replaces itself with the program, which
-  then owns the terminal; the exit status is the program's. In the default mode
+  then owns the terminal; the exit status is the program's. In `fff roam`
   the shell integration then changes to the directory you were browsing, as `!`
   would.
 
