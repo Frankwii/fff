@@ -1935,6 +1935,38 @@ class TerminalTests(unittest.TestCase):
         s.close()
         self.session = None
 
+    def test_ctrl_w_in_default_mode_opens_the_marks_and_leaves(self):
+        more = self.deep_tree()
+        (more / "b.pdf").touch()
+        cd_file = self.root / "cd"
+        edited = Path(self.tmp.name + "-edited.log")
+        self.addCleanup(lambda: edited.unlink(missing_ok=True))
+        env, config, log = self.opener_setup(rules=(
+            "[[open.rules]]\ncommand = 'viewer'\nextensions = ['pdf']\n"
+            "[[open.rules]]\ncommand = 'texted'\nextensions = ['txt']\nterminal = true\n"))
+        env = {**env, **self.run_environment(
+            "texted", f'printf "%s\\n" "$@" > "{edited}"; exit 7\n')}
+        def start(*args):
+            return self.start("--depth", "1", "--cd-file", str(cd_file), "--config", str(config),
+                              *args, implicit_root=True, output_paths=False, environment=env)
+        # Both PDFs go to one detached viewer; the text file's terminal opener
+        # takes over this terminal; the shell lands in the last mark's folder.
+        s = start("--browse", str(more))
+        s.wait_ui(("cwd", more))
+        s.send(b"m", "Marks (3)")
+        s.send(b"\x17")
+        self.assertEqual(s.finish(), (7, b""))
+        self.wait_file(log, [str(more / "a.pdf"), str(more / "b.pdf")])
+        self.assertEqual(edited.read_text().splitlines(), [str(more / "0first.txt")])
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(more))
+        s.close()
+        # Marked folders do not open: fff says so and stays.
+        s = self.session = start("--here")
+        s.send(b"m", "Marks (4)")
+        s.send(b"\x17", "Only files open this way")
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+
     def test_insert_enter_reveals_a_file_in_default_mode(self):
         more = self.deep_tree()
         s = self.start("--depth", "3", "--here", implicit_root=True, output_paths=False)

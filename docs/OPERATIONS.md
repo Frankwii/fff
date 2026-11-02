@@ -162,12 +162,16 @@ Each file type can have an **opener**, configured under `[open]` (see the
   ends. Files sharing an opener go to one invocation (three PDFs, one zathura);
   different openers run one after another. `o` refuses directories (`l` enters
   them).
-- **And leave:** Normal-mode Enter on a file, in the default mode (not with
-  `--output-paths` or `--no-dir`). A terminal opener replaces fff in this
-  terminal, like `gX`, and fff's exit status becomes the program's; a GUI
-  opener starts detached, as with `l`, and fff exits. Either way the shell
-  integration then leaves you in the file's folder. If the opener cannot start,
-  the status line says why and fff stays.
+- **And leave:** Normal-mode Enter on a file, or Ctrl+w on the marked files,
+  in the default mode (not with `--output-paths` or `--no-dir`, where they
+  return paths). Files sharing an opener go to one invocation, as with `o`. GUI
+  openers start detached, as with `l`; a terminal opener replaces fff in this
+  terminal, like `gX`, and fff's exit status becomes the program's. Only one
+  terminal program can take over, so marks needing two (say `nvim` and
+  `less`) are refused, as are marked directories. Every program is found
+  before any starts. The shell integration then leaves you in the (last)
+  file's folder. If something cannot open, the status line says why and fff
+  stays.
 
 Openers are resolved like `gx` commands: no shell, the program found on PATH
 before anything runs, and the file paths added as separate arguments.

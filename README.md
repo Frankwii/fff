@@ -33,9 +33,10 @@ fff has two modes:
 
 - **Default: change directory on exit.** `q` leaves you where you started, `!`
   takes you to the directory you were browsing, Normal-mode Enter on a directory
-  takes you into it, and on a file opens it and leaves you in its folder
-  (Ctrl+w: the last mark's folder; Ctrl+number: its target's folder, or the
-  target itself for a directory).
+  takes you into it, and on a file opens it and leaves you in its folder;
+  Ctrl+w does the same with the marked files, leaving you in the last one's
+  folder (Ctrl+number: its target's folder, or the target itself for a
+  directory).
 - **`--output-paths`: print the selection.** The picker behavior for scripts and
   command substitution, described under [returning paths](#browsing-and-returning-paths):
   `nvim "$(fff --output-paths)"`, `fff --output-paths -0 | xargs -0 ls -ld`.
@@ -109,15 +110,20 @@ The keys that open or finish fit together:
 | `o` | The current or marked files, opened in this terminal | fff comes back |
 | Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
 | `!` | The folder you are browsing | fff leaves into it |
-| Ctrl+w | The marks | fff leaves with them |
+| Ctrl+w | The marks: opens the marked files (default mode) or returns them (`--output-paths`) | fff leaves |
 | `q` | Nothing | fff leaves where you started |
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
 dialogs, keeps these meanings: Enter chooses a file and enters a folder, `!`
 takes the folder you are in, Ctrl+w the marks, and Ctrl+s saves.
 
-Tab toggles a mark; marks survive navigation and filtering. Ctrl+w returns marks
-only. Insert-mode Enter in a verified physically empty directory returns marks
+Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
+with the marks only. With `--output-paths` (and `--no-dir`) it returns them; in
+the default mode it **opens them and leaves**, like Normal-mode Enter on a
+file: files sharing an opener go to one invocation (three PDFs, one zathura),
+GUI openers start detached, and one terminal opener may take over this
+terminal. Marked directories, or files needing two different terminal programs,
+are refused with a message and fff stays; `o` opens those one after another. Insert-mode Enter in a verified physically empty directory returns marks
 plus that directory; a no-match query in a nonempty directory stays open.
 Missing marks block confirmation until unmarked.
 
@@ -208,7 +214,7 @@ Session tab shows exact paths, scopes, depth, policies, palette and marks.
 | Tab / Space in Normal | Toggle mark; advance in results |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
-| Ctrl+w | Return marks from results or the marked list |
+| Ctrl+w | Finish with the marks, from results or the marked list: open the marked files and leave (default mode) or return them (`--output-paths`) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Immediately return one visible target / last target |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |

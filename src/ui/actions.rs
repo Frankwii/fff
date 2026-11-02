@@ -37,22 +37,71 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         Err(error) => app.status = error,
     }
 }
-/// Enter on a file in the default mode: its opener, and fff leaves. A
-/// terminal program replaces fff in this terminal (like gX); any other starts
-/// detached, as with l. Either way the shell then changes to the file's
-/// folder.
-pub(super) fn open_and_leave(app: &App, path: &std::path::Path) -> Result<Finish, String> {
-    let folder = path.parent().unwrap_or(&app.cwd).to_owned();
-    let home = app.home.as_deref();
-    let opener = app.openers.opener(path)?;
-    if !opener.terminal {
-        let plan = crate::open::background_plan(&app.openers, path, &folder, home)?;
-        crate::open::launch(&plan)?;
-        return Ok(Finish::Folder(folder));
+/// Normal-mode Enter on a file, or Ctrl+w on the marks, in the default mode:
+/// their openers, and fff leaves. Files sharing an opener go to one
+/// invocation, as with o. GUI openers start detached, as with l; one terminal
+/// opener may replace fff in this terminal (like gX), and more than one is
+/// refused, since only one can. Every program is resolved before any starts.
+/// The shell then changes to the last file's folder.
+pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, String> {
+    let last = paths.last().ok_or("Nothing to open")?;
+    if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
+        return Err(format!(
+            "Only files open this way, not directories like {}",
+            dir.file_name().unwrap_or_default().to_string_lossy()
+        ));
     }
-    let mut plan = crate::open::plan(&opener.line, vec![path.to_owned()], &folder, home)?;
-    plan.exit = true;
-    Ok(Finish::Exec(plan))
+    let folder = last.parent().unwrap_or(&app.cwd).to_owned();
+    let home = app.home.as_deref();
+    let mut groups: Vec<(crate::open::Opener, Vec<PathBuf>)> = vec![];
+    for path in paths {
+        let opener = app.openers.opener(path)?;
+        match groups.iter_mut().find(|(o, _)| *o == opener) {
+            Some((_, files)) => files.push(path.clone()),
+            None => groups.push((opener, vec![path.clone()])),
+        }
+    }
+    let mut detached = vec![];
+    let mut here: Option<crate::run::Plan> = None;
+    for (opener, files) in groups {
+        let plan = crate::open::plan(&opener.line, files, &folder, home)?;
+        if !opener.terminal {
+            detached.push(plan);
+        } else if let Some(other) = &here {
+            return Err(format!(
+                "These files need two terminal programs, {} and {}, and only one can take \
+                 over this terminal; o opens them one after another",
+                other.name, plan.name
+            ));
+        } else {
+            here = Some(plan);
+        }
+    }
+    for plan in &detached {
+        crate::open::launch(plan)?;
+    }
+    Ok(match here {
+        Some(mut plan) => {
+            plan.exit = true;
+            Finish::Exec(plan)
+        }
+        None => Finish::Folder(folder),
+    })
+}
+/// Ctrl+w: the marks are returned, except in the default mode, where they open
+/// and fff leaves. `None` (with the reason in the status line) when they
+/// cannot open.
+pub(super) fn leave_with_marks(app: &mut App, marks: Vec<PathBuf>) -> Option<Finish> {
+    if app.output_paths || app.no_dir || app.dialog.is_some() {
+        return Some(Finish::Paths(marks));
+    }
+    match open_and_leave(app, &marks) {
+        Ok(finish) => Some(finish),
+        Err(error) => {
+            app.status = error;
+            None
+        }
+    }
 }
 /// fff explorer --save, Ctrl+s or !: saves under the typed name (else the
 /// suggested one) in the folder being browsed.
@@ -750,7 +799,8 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
         Button::Dismiss | Button::Confirm => {}
         Button::Select => {
             if !app.marks.is_empty() {
-                return app.confirm(None).map(Finish::Paths);
+                let marks = app.confirm(None)?;
+                return leave_with_marks(app, marks);
             }
             let target = app.highlight.clone()?;
             if app.ready_path(&target) {

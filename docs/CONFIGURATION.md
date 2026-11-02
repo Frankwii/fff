@@ -213,7 +213,7 @@ key does:
 | Mark / Unmark | Tab, without moving: mark the highlighted row |
 | Show / Hide hidden | Alt+.: hidden entries |
 | Cancel | Ctrl+c: quit without output |
-| Select & Exit | Ctrl+w with marks, else Ctrl+number on the highlighted row |
+| Select & Exit | Ctrl+w with marks (opening them in the default mode), else Ctrl+number on the highlighted row |
 
 Buttons that cannot act (Back with no history, Up and Back with `--no-dir`)
 are dimmed. In the copy, move, link and delete confirmations the bar shows

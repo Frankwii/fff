@@ -1450,7 +1450,9 @@ fn session(
                     && key.code == K::Char('w')
                     && let Some(p) = app.confirm(None)
                 {
-                    return Ok(Finish::Paths(p));
+                    if let Some(finish) = leave_with_marks(app, p) {
+                        return Ok(finish);
+                    }
                 } else if key.code == K::Enter
                     && let Some(mark) = rows.get(*index)
                 {
@@ -1467,7 +1469,7 @@ fn session(
                     // Like Normal-mode Enter in the results: a file opens and
                     // fff leaves, a directory is left into.
                     if !app.output_paths && !app.no_dir && !mark.is_dir() {
-                        match open_and_leave(app, mark) {
+                        match open_and_leave(app, std::slice::from_ref(mark)) {
                             Ok(finish) => return Ok(finish),
                             Err(error) => {
                                 app.status = error;
@@ -1491,8 +1493,10 @@ fn session(
                     }
                 }
                 (K::Char('w'), true, _) => {
-                    if let Some(p) = app.confirm(None) {
-                        return Ok(Finish::Paths(p));
+                    if let Some(p) = app.confirm(None)
+                        && let Some(finish) = leave_with_marks(app, p)
+                    {
+                        return Ok(finish);
                     }
                 }
                 // Dialogs: save here, or choose this folder, while typing too.
@@ -1635,7 +1639,7 @@ fn session(
                             && !app.no_dir
                             && app.ready_path(&file.path)
                         {
-                            match open_and_leave(app, &file.path) {
+                            match open_and_leave(app, std::slice::from_ref(&file.path)) {
                                 Ok(finish) => return Ok(finish),
                                 Err(error) => {
                                     app.status = error;

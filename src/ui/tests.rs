@@ -242,7 +242,9 @@ fn buttons_do_what_their_keys_do() {
     press(&mut app, &mut discovery, Button::Mark);
     assert_eq!(app.marks, [root.join("file")]);
     assert_eq!(Button::Mark.label(&app), "Unmark");
-    // With marks, Select returns them like Ctrl+w.
+    // With marks, Select returns them like Ctrl+w (when picking paths; the
+    // default mode opens them, covered by the PTY tests).
+    app.output_paths = true;
     app.highlight = Some(root.join("dir"));
     assert!(matches!(
         press(&mut app, &mut discovery, Button::Select),
