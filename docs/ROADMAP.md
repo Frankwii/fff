@@ -8,6 +8,9 @@ not implemented features or commitments:
   man page or `--help`.
 - Launching a program in the background while browsing continues, for GUI
   programs that should not pause fff.
+- Resuming only when the last directory was the current one: a new session
+  should restore its remembered location only when started from the
+  directory that was being browsed last, instead of always jumping there.
 - A preview pane, trash with undo, and an AUR package
   once the project nears 1.0.
 
