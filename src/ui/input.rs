@@ -250,9 +250,9 @@ pub(super) fn normal_list_key(
         let can_quit = app.normal_keys.pending()
             || matches!(focus, Focus::Marks { .. })
             || app.edit_view.as_ref().is_some_and(|v| v.normal());
-        // fff seek cannot navigate: it has no tabs, and lists only files with
-        // no preview toggle, so those keys act as unbound (Up and Down move the
-        // highlight, d and P reach Neovim).
+        // fff seek cannot navigate and lists only files: it has no tabs and
+        // nothing to hide, so those keys act as unbound (Up and Down move the
+        // highlight, d and D reach Neovim).
         let navigation = !app.no_dir;
         match app.normal_keys.feed(key, |a| {
             actions.contains(&a)
@@ -264,7 +264,6 @@ pub(super) fn normal_list_key(
                             | ListAction::NextTab
                             | ListAction::Directories
                             | ListAction::Files
-                            | ListAction::Preview
                     ))
         }) {
             Step::Pass => return NormalKey::Pass(key),

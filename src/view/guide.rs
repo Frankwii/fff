@@ -198,7 +198,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 (normal(Hidden), "show / hide hidden entries", false),
                 (normal(Directories), "hide / show directories", true),
                 (normal(Files), "hide / show files", true),
-                (normal(Preview), "show / hide the preview pane", true),
+                (normal(Preview), "show / hide the preview pane", false),
                 (normal(GoTo), "go to a path, bookmark or zoxide", true),
                 (normal(Bookmarks), "open a bookmark", true),
                 (

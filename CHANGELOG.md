@@ -24,9 +24,9 @@ history.
   key instead of refusing to start, so a configuration with `delete = "D"`
   keeps working and `files` is then left unbound.
 - **`fff seek` has no tabs at all:** Up / Down in Normal mode move the
-  highlight there instead of reporting that navigation is disabled. Like
-  the other keys of modes that navigate, `d`, `D` and `P` are not bound
-  there either and reach Neovim.
+  highlight there instead of reporting that navigation is disabled. Since
+  it lists only files, `d` and `D` are not bound there either and reach
+  Neovim; `P` shows the preview pane as elsewhere.
 
 ### Fixed
 
@@ -71,7 +71,9 @@ history.
   the flicker are left to listings that really take a while. Quiet rescans
   after live updates no longer flash the label either.
 - Tab in the Alt+g prompt no longer crashes on a path ending in `/.` after
-  a name with accented letters.
+  a name with accented letters, and completes after the text as typed:
+  `~` and `..` complete inside those folders, and `only/.` offers hidden
+  folders, instead of gluing a name onto the text.
 - Long result names shortened to fit a narrow window no longer crash the
   match highlighter.
 

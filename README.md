@@ -289,7 +289,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |
-| Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d, D and P reach Neovim there) |
+| Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d and D reach Neovim there) |
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Alt+H | Toggle exclusion enforcement |
