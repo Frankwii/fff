@@ -26,6 +26,7 @@ pub mod watch;
 
 use globset::{GlobBuilder, GlobMatcher};
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
@@ -266,6 +267,9 @@ pub struct App {
     pub cached_queries: usize,
     pub rows: Vec<Arc<Candidate>>,
     pub highlight: Option<PathBuf>,
+    /// Where `highlight` was last found in `rows`. Anything may change either,
+    /// so it is checked before use; moving and drawing then skip the search.
+    highlight_hint: Cell<usize>,
     /// After a bookmark jump, the highlight follows the first row while the
     /// scan streams in and the query changes, until the user moves it.
     pub highlight_top: bool,
@@ -358,6 +362,7 @@ impl App {
             rows: Vec::new(),
             highlight: None,
             highlight_top: false,
+            highlight_hint: Cell::new(0),
             marks: marks::Marks::default(),
             rendered: Vec::new(),
             offset: 0,
@@ -682,12 +687,7 @@ impl App {
             self.highlight = self.wanted.take();
             return;
         }
-        if self.highlight_top
-            || !self
-                .rows
-                .iter()
-                .any(|c| Some(&c.path) == self.highlight.as_ref())
-        {
+        if self.highlight_top || self.highlighted().is_none() {
             self.highlight = self.rows.first().map(|c| c.path.clone());
         }
     }
@@ -697,23 +697,30 @@ impl App {
         if self.rows.is_empty() {
             return;
         }
-        let i = self
-            .rows
-            .iter()
-            .position(|c| Some(&c.path) == self.highlight.as_ref())
-            .unwrap_or(0);
+        let i = self.highlighted().unwrap_or(0);
         let i = i.saturating_add_signed(amount).min(self.rows.len() - 1);
         self.highlight = Some(self.rows[i].path.clone());
+        self.highlight_hint.set(i);
         self.highlight_top = false;
+    }
+    /// The highlighted row's index, when it is listed.
+    pub fn highlighted(&self) -> Option<usize> {
+        let path = self.highlight.as_ref()?;
+        let hint = self.highlight_hint.get();
+        if self.rows.get(hint).is_some_and(|c| &c.path == path) {
+            return Some(hint);
+        }
+        let i = self.rows.iter().position(|c| &c.path == path)?;
+        self.highlight_hint.set(i);
+        Some(i)
+    }
+    pub fn highlighted_row(&self) -> Option<&Arc<Candidate>> {
+        self.highlighted().map(|i| &self.rows[i])
     }
     /// One row down or up, wrapping from the last row to the first and back.
     pub fn step(&mut self, forward: bool) {
         let last = self.rows.len().saturating_sub(1);
-        match self
-            .rows
-            .iter()
-            .position(|c| Some(&c.path) == self.highlight.as_ref())
-        {
+        match self.highlighted() {
             Some(i) if forward && i == last => self.move_by(-(last as isize)),
             Some(0) if !forward => self.move_by(last as isize),
             _ => self.move_by(if forward { 1 } else { -1 }),
@@ -760,9 +767,7 @@ impl App {
     }
     pub fn navigate_highlighted(&mut self) -> bool {
         let target = self
-            .rows
-            .iter()
-            .find(|c| Some(&c.path) == self.highlight.as_ref())
+            .highlighted_row()
             .filter(|c| c.directory)
             .map(|c| c.path.clone());
         if let Some(path) = target {

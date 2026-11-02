@@ -632,10 +632,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
     }
     if page > 0
         && app.scrolled.is_none()
-        && let Some(i) = app
-            .rows
-            .iter()
-            .position(|c| Some(&c.path) == app.highlight.as_ref())
+        && let Some(i) = app.highlighted()
     {
         if i < app.offset {
             app.offset = i;

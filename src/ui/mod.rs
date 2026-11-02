@@ -1502,11 +1502,7 @@ fn session(
                     }
                 }
                 (K::Enter, _, _) => {
-                    let target = app
-                        .rows
-                        .iter()
-                        .find(|c| Some(&c.path) == app.highlight.as_ref())
-                        .map(|c| crate::Candidate::clone(c));
+                    let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
                     // Normal mode: exit into the entry's folder (a directory
                     // itself), like l then !, but for deep results too.
                     if app.edit_view.as_ref().is_some_and(|v| v.normal()) {

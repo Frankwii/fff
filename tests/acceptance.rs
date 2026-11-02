@@ -744,3 +744,28 @@ fn tabs_keep_their_own_directory_and_history_and_share_marks() {
     assert!(!app.switch_tab(false));
     assert_eq!((app.tab, &app.cwd), (1, &f.0));
 }
+#[test]
+fn highlighted_row_stays_correct_when_rows_or_highlight_change_elsewhere() {
+    let mut app = app();
+    for name in ["a1", "a2", "b1", "b2", "c1"] {
+        app.insert(0, candidate(name, false, 1));
+    }
+    app.refresh();
+    let position = |a: &App| {
+        a.rows
+            .iter()
+            .position(|c| Some(&c.path) == a.highlight.as_ref())
+    };
+    app.move_by(3);
+    assert_eq!(app.highlighted(), position(&app));
+    // Set directly, as clicks and jumps do.
+    app.highlight = Some(Path::new("/fixture/a2").into());
+    assert_eq!(app.highlighted(), Some(1));
+    app.move_by(2);
+    assert_eq!(app.highlighted(), position(&app));
+    app.query = "1".into();
+    app.refresh();
+    assert_eq!(app.highlighted(), position(&app));
+    app.highlight = Some(Path::new("/fixture/missing").into());
+    assert_eq!(app.highlighted(), None);
+}

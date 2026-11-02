@@ -490,9 +490,8 @@ pub(super) fn palette_reloaded(
 /// background.
 pub(super) fn activate_highlighted(app: &mut App, discovery: &mut Discovery) {
     let file = app
-        .rows
-        .iter()
-        .find(|c| Some(&c.path) == app.highlight.as_ref() && !c.directory)
+        .highlighted_row()
+        .filter(|c| !c.directory)
         .map(|c| c.path.clone());
     match file {
         Some(path) => open_in_background(app, &path),
