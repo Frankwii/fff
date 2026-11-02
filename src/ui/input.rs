@@ -159,6 +159,7 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             Bookmarks,
             Hidden,
             Directories,
+            Files,
             Preview,
             GoTo,
             PrevTab,
@@ -249,9 +250,12 @@ pub(super) fn normal_list_key(
         let can_quit = app.normal_keys.pending()
             || matches!(focus, Focus::Marks { .. })
             || app.edit_view.as_ref().is_some_and(|v| v.normal());
+        // fff seek has no tabs: their keys (Up and Down) move the highlight.
+        let tabs = !app.no_dir;
         match app.normal_keys.feed(key, |a| {
             actions.contains(&a)
                 && (can_quit || !matches!(a, ListAction::Quit | ListAction::QuitCurrent))
+                && (tabs || !matches!(a, ListAction::PrevTab | ListAction::NextTab))
         }) {
             Step::Pass => return NormalKey::Pass(key),
             Step::Pending => return NormalKey::Consumed,

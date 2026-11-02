@@ -274,7 +274,7 @@ unavailable or a directory cannot be watched, fff works as with
 
 ## Preview pane
 
-Alt+v (`zp` in Normal mode, the key ranger uses) shows or hides a pane with
+Alt+v (`P` in Normal mode) shows or hides a pane with
 the highlighted entry, or the highlighted mark in the marked list. It is text
 only: no images or terminal graphics protocols, so it looks the same in st
 and any other terminal.
@@ -686,15 +686,16 @@ shallower = "<left>" # Search one level shallower, like Alt+Left (results)
 deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
 hidden = "."         # Show/hide hidden entries, like Alt+. (results)
-directories = "zd"   # Hide/show directories, like Alt+d (results)
-preview = "zp"       # Show/hide the preview pane, like Alt+v (results)
+directories = "d"    # Hide/show directories, like Alt+d (results)
+files = "D"          # Hide/show files, like Alt+D (results)
+preview = "P"        # Show/hide the preview pane, like Alt+v (results)
 go_to = "/"          # Go-to prompt, like Alt+g (results)
 next_tab = "<up>"     # Next tab, like Alt+Up (results)
 prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
-`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `preview`, `go_to`, the tab
+`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`, `preview`, `go_to`, the tab
 actions and the depth digits work only in Normal-mode results; the Alt chords keep working in every mode. With
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.
@@ -721,6 +722,8 @@ Escape, Enter, and other named keys are rejected: Alt and Ctrl chords remain fff
 shortcuts (remap those in [`[keys.map]`](#chord-remapping)).
 Sequences must be unambiguous: two actions cannot share a sequence, and one
 sequence cannot be a prefix of another, because a waiting prefix has no timeout.
+Only sequences you set are checked against each other: one that takes a
+default action's key (say `delete = "D"`) leaves that action without it.
 Unbound keys and unfinished prefixes still reach Neovim. `fff setup --check-config` reports
 unknown actions and invalid or conflicting sequences. Changes take effect on the
 next invocation.

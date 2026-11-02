@@ -365,13 +365,34 @@ fn eligible(depth: usize, scope: &[PathBuf], cwd: &Path, policy: &Policy, c: &Ca
 }
 /// Whether an eligible `c` passes `fff seek` (files only) and the file
 /// filters, which hide directories whenever any is set.
-fn shown(hide_directories: bool, policy: &Policy, c: &Candidate) -> bool {
-    !(hide_directories && c.directory)
-        && (policy.globs.is_empty()
-            || !c.directory
-                && c.path
-                    .file_name()
-                    .is_some_and(|name| policy.admits(Path::new(name.to_string_lossy().as_ref()))))
+/// Which kinds of entry the results list.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kinds {
+    #[default]
+    All,
+    /// Alt+d / `d`, and always in `fff seek`.
+    Files,
+    /// Alt+D / `D`: folders only. File filters do not apply.
+    Directories,
+}
+impl Kinds {
+    /// `kinds` after toggling `only` on or off.
+    pub fn toggled(self, only: Kinds) -> Kinds {
+        if self == only { Kinds::All } else { only }
+    }
+}
+fn shown(kinds: Kinds, policy: &Policy, c: &Candidate) -> bool {
+    match kinds {
+        Kinds::Directories => c.directory,
+        Kinds::Files if c.directory => false,
+        _ => {
+            policy.globs.is_empty()
+                || !c.directory
+                    && c.path.file_name().is_some_and(|name| {
+                        policy.admits(Path::new(name.to_string_lossy().as_ref()))
+                    })
+        }
+    }
 }
 /// `App::listed` with its own copy of what it depends on.
 struct Listing {
@@ -379,12 +400,12 @@ struct Listing {
     scope: Vec<PathBuf>,
     cwd: PathBuf,
     policy: Policy,
-    hide_directories: bool,
+    kinds: Kinds,
 }
 impl Listing {
     fn listed(&self, c: &Candidate) -> bool {
         eligible(self.depth, &self.scope, &self.cwd, &self.policy, c)
-            && shown(self.hide_directories, &self.policy, c)
+            && shown(self.kinds, &self.policy, c)
     }
 }
 /// A result's components below its root, the basename last: its last
@@ -453,7 +474,7 @@ struct RefreshBasis {
     rules: Vec<String>,
     filters: Vec<String>,
     no_dir: bool,
-    files_only: bool,
+    kinds: Kinds,
     short_labels: bool,
 }
 impl RefreshBasis {
@@ -468,7 +489,7 @@ impl RefreshBasis {
             rules: app.policy.rules.clone(),
             filters: app.policy.filters.clone(),
             no_dir: app.no_dir,
-            files_only: app.files_only,
+            kinds: app.kinds,
             short_labels: app.short_labels,
         }
     }
@@ -559,9 +580,9 @@ pub struct App {
     /// `fff seek`: a static file choice. Directories are never listed, entered,
     /// or returned, and the current directory cannot change.
     pub no_dir: bool,
-    /// Alt+d / `zd`: directories are hidden from the results for now; unlike
-    /// `fff seek`, navigation still works.
-    pub files_only: bool,
+    /// Alt+d / `d` hide directories and Alt+D / `D` files for now; unlike
+    /// `fff seek`, navigation still works. See `listed_kinds` for seek.
+    pub kinds: Kinds,
     /// `fff pick` and `fff seek`: rows show bare names, with only the parents
     /// that tell apart entries sharing one (`labels`).
     pub short_labels: bool,
@@ -609,7 +630,7 @@ pub struct App {
     /// `[ui] buttons`, and whether the mouse has been used this session.
     pub buttons: config::Buttons,
     pub mouse_used: bool,
-    /// The preview pane (Alt+v, `zp`) and what it shows.
+    /// The preview pane (Alt+v, `P`) and what it shows.
     pub preview: preview::Pane,
     /// `[ui] watch`: follow changes to the current directory as they happen.
     pub watch: bool,
@@ -674,7 +695,7 @@ impl App {
                 .collect(),
             normal_keys: normal_keys::NormalKeys::default(),
             no_dir: false,
-            files_only: false,
+            kinds: Kinds::All,
             short_labels: false,
             labels: HashMap::new(),
             names: HashMap::new(),
@@ -754,7 +775,7 @@ impl App {
             rules: self.policy.rules.clone(),
             ignore: self.policy.ignore,
             hidden: self.policy.hidden,
-            files_only: self.files_only,
+            kinds: self.kinds,
             preview: self.preview.shown,
         }
     }
@@ -790,7 +811,7 @@ impl App {
         // Globs were valid when saved; one that no longer is drops its list.
         let _ = self.policy.set_rules(session.rules);
         let _ = self.policy.set_filters(session.filters);
-        self.files_only = session.files_only;
+        self.kinds = session.kinds;
         self.preview.shown = session.preview;
         self.query = session.query;
         self.marks = session.marks.into();
@@ -967,7 +988,19 @@ impl App {
     /// Rows an empty query would list: eligible, and passing `fff seek` (files only) and the
     /// file filters, which hide directories whenever any is set.
     fn listed(&self, c: &Candidate) -> bool {
-        self.eligible(c) && shown(self.no_dir || self.files_only, &self.policy, c)
+        self.eligible(c) && shown(self.listed_kinds(), &self.policy, c)
+    }
+    /// The kinds listed: `fff seek` lists only files whatever `kinds` says.
+    pub fn listed_kinds(&self) -> Kinds {
+        if self.no_dir {
+            Kinds::Files
+        } else {
+            self.kinds
+        }
+    }
+    /// `fff pick`, as opposed to `fff explorer`, which prints paths too.
+    pub fn picking(&self) -> bool {
+        self.output_paths && self.dialog.is_none()
     }
     /// What decides which known paths are listed, for ranking elsewhere.
     fn listing(&self) -> Listing {
@@ -976,7 +1009,7 @@ impl App {
             scope: self.scope.clone(),
             cwd: self.cwd.clone(),
             policy: self.policy.clone(),
-            hide_directories: self.no_dir || self.files_only,
+            kinds: self.listed_kinds(),
         }
     }
     /// The query rows are filtered by. A save dialog's query is the file

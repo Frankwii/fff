@@ -52,6 +52,8 @@ pub enum ListAction {
     Hidden,
     /// Same as Alt+d in the results: hide or show directories.
     Directories,
+    /// Same as Alt+D in the results: hide or show files.
+    Files,
     /// Same as Alt+v in the results: show or hide the preview pane.
     Preview,
     /// Same as Alt+g in the results: the go-to prompt.
@@ -62,7 +64,7 @@ pub enum ListAction {
     NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 32] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -90,6 +92,7 @@ impl ListAction {
         Self::Bookmarks,
         Self::Hidden,
         Self::Directories,
+        Self::Files,
         Self::Preview,
         Self::GoTo,
         Self::PrevTab,
@@ -126,6 +129,7 @@ impl ListAction {
             Self::Bookmarks => 'b',
             Self::Hidden => '.',
             Self::Directories => 'd',
+            Self::Files => 'D',
             Self::Preview => 'v',
             Self::GoTo => 'g',
             Self::First
@@ -304,6 +308,7 @@ pub struct NormalKeysConfig {
     pub bookmarks: Sequences,
     pub hidden: Sequences,
     pub directories: Sequences,
+    pub files: Sequences,
     pub preview: Sequences,
     pub go_to: Sequences,
     pub prev_tab: Sequences,
@@ -341,8 +346,9 @@ impl Default for NormalKeysConfig {
             deeper: one("<right>"),
             bookmarks: one("b"),
             hidden: one("."),
-            directories: one("zd"),
-            preview: one("zp"),
+            directories: one("d"),
+            files: one("D"),
+            preview: one("P"),
             go_to: one("/"),
             prev_tab: one("<down>"),
             next_tab: one("<up>"),
@@ -380,6 +386,7 @@ impl NormalKeysConfig {
             ListAction::Bookmarks => ("bookmarks", &self.bookmarks),
             ListAction::Hidden => ("hidden", &self.hidden),
             ListAction::Directories => ("directories", &self.directories),
+            ListAction::Files => ("files", &self.files),
             ListAction::Preview => ("preview", &self.preview),
             ListAction::GoTo => ("go_to", &self.go_to),
             ListAction::PrevTab => ("prev_tab", &self.prev_tab),
@@ -387,10 +394,19 @@ impl NormalKeysConfig {
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
+        let defaults = Self::default();
+        let is_default =
+            |action| self.sequences(action).1.list() == defaults.sequences(action).1.list();
+        // Configured actions first: a default sequence they take over is
+        // dropped instead of refusing a configuration written before it
+        // existed (`delete = "D"` predates `files`).
+        let (configured, default): (Vec<_>, Vec<_>) =
+            ListAction::ALL.into_iter().partition(|&a| !is_default(a));
         let mut bindings: Vec<(Vec<KeyEvent>, ListAction, &str)> = Vec::new();
-        for action in ListAction::ALL {
+        let mut names = Vec::new();
+        for action in configured.into_iter().chain(default) {
             let (name, value) = self.sequences(action);
-            for text in value.list() {
+            'sequences: for text in value.list() {
                 let keys = parse_sequence(text).map_err(|e| format!("keys.normal.{name}: {e}"))?;
                 if self.depth_digits
                     && matches!(keys[0].code, KeyCode::Char(c) if c.is_ascii_digit() && c != '0')
@@ -406,18 +422,17 @@ impl NormalKeysConfig {
                         .zip(&other[..shorter])
                         .all(|(a, b)| same(*a, *b))
                     {
+                        if is_default(action) {
+                            continue 'sequences;
+                        }
                         return Err(format!(
                             "keys.normal.{name}: {text:?} conflicts with a keys.normal.{other_name} sequence (equal or prefix)"
                         ));
                     }
                 }
                 bindings.push((keys, action, name));
+                names.push((action, text.to_string()));
             }
-        }
-        let mut names = Vec::new();
-        for action in ListAction::ALL {
-            let (_, value) = self.sequences(action);
-            names.extend(value.list().into_iter().map(|s| (action, s.to_string())));
         }
         Ok(NormalKeys {
             depth_digits: self.depth_digits,
@@ -507,14 +522,15 @@ mod tests {
             k.feed(arrow(KeyCode::Right), all),
             Step::Action(ListAction::Deeper)
         );
+        let alt = |code| Some(KeyEvent::new(code, KeyModifiers::ALT));
         assert_eq!(k.feed(key('b'), all), Step::Action(ListAction::Bookmarks));
         assert_eq!(k.feed(key('.'), all), Step::Action(ListAction::Hidden));
-        assert_eq!(k.feed(key('z'), all), Step::Pending);
         assert_eq!(k.feed(key('d'), all), Step::Action(ListAction::Directories));
-        assert_eq!(k.feed(key('z'), all), Step::Pending);
-        assert_eq!(k.feed(key('p'), all), Step::Action(ListAction::Preview));
+        assert_eq!(k.feed(key('D'), all), Step::Action(ListAction::Files));
+        assert_eq!(k.feed(key('P'), all), Step::Action(ListAction::Preview));
+        assert_eq!(k.feed(key('p'), all), Step::Action(ListAction::Copy));
+        assert_eq!(ListAction::Files.alt_key(), alt(KeyCode::Char('D')));
         assert_eq!(k.feed(key('/'), all), Step::Action(ListAction::GoTo));
-        let alt = |code| Some(KeyEvent::new(code, KeyModifiers::ALT));
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
         assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
         assert_eq!(k.describe(ListAction::Deeper), "→");
@@ -575,7 +591,7 @@ mod tests {
         assert_eq!(k.feed(key('t'), all), Step::Action(ListAction::First));
         for bad in [
             "first='g'\nlast='gg'",
-            "down='j'\nup='j'",
+            "down='J'\nup='J'",
             "first='<tab>'",
             "first='<g'",
         ] {
@@ -583,5 +599,10 @@ mod tests {
             assert!(config.build().is_err(), "{bad}");
         }
         assert!(toml::from_str::<NormalKeysConfig>("top='g'").is_err());
+        // A configured sequence takes over a default one instead of failing.
+        let config: NormalKeysConfig = toml::from_str("delete='D'").unwrap();
+        let mut k = config.build().unwrap();
+        assert_eq!(k.feed(key('D'), all), Step::Action(ListAction::Delete));
+        assert_eq!(k.describe(ListAction::Files), "");
     }
 }

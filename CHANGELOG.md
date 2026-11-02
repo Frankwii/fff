@@ -4,6 +4,47 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **D hides files**, listing only folders (Alt+D while typing); again to show
+  them. `d` and `D` switch between files only and folders only. Not in
+  `fff pick` or `fff seek`, which list files. Configurable as `files` in
+  `[keys.normal]`.
+
+### Changed
+
+- **Shorter Normal-mode keys:** `d` hides directories (was `zd`) and `P`
+  shows the preview pane (was `zp`); `p` still copies. In the results, `d`,
+  `D` and `P` no longer reach Neovim as delete and put.
+- A key set in `[keys.normal]` takes over a default binding of the same
+  key instead of refusing to start, so a configuration with `delete = "D"`
+  keeps working and `files` is then left unbound.
+- **`fff seek` has no tabs at all:** Up / Down in Normal mode move the
+  highlight there instead of reporting that navigation is disabled.
+
+### Fixed
+
+- **Renaming many entries no longer quits fff.** Saving a rename list larger
+  than about 64 KiB (thousands of rows, as in a deep `fff pick` or
+  `fff seek`) ended the session with "Neovim stopped: Neovim RPC
+  disconnected"; such lists now rename like short ones. Any large multiline
+  field closed with ZZ or `:wq` had the same problem.
+### Fixed
+
+- **Small folders open in one frame, complete.** Entering a folder, going up
+  or starting fff no longer draws the location first empty or from the cache
+  (with `◌ cached · refreshing`) and then again a moment later: a scan that
+  finishes within about a frame is shown only once it has, so the label and
+  the flicker are left to listings that really take a while. Quiet rescans
+  after live updates no longer flash the label either.
+- Tab in the Alt+g prompt no longer crashes on a path ending in `/.` after
+  a name with accented letters.
+
+- Long result names shortened to fit a narrow window no longer crash the
+  match highlighter.
+
 ## 0.9.1 — 2026-11-02
 
 Path-aware matching, "Show in folder" with the file highlighted, live updates
@@ -58,17 +99,6 @@ responsive while they load and re-rank.
   holds, so browsing a huge tree cannot exhaust memory. A scan that finds
   more stops there and the status line shows `◌ partial`; a lower depth shows
   the rest.
-
-### Fixed
-
-- **Small folders open in one frame, complete.** Entering a folder, going up
-  or starting fff no longer draws the location first empty or from the cache
-  (with `◌ cached · refreshing`) and then again a moment later: a scan that
-  finishes within about a frame is shown only once it has, so the label and
-  the flicker are left to listings that really take a while. Quiet rescans
-  after live updates no longer flash the label either.
-- Tab in the Alt+g prompt no longer crashes on a path ending in `/.` after
-  a name with accented letters.
 
 ## 0.9.0 — 2026-11-02
 

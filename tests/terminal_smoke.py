@@ -223,7 +223,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "top.txt").touch()
         s = self.start("--depth", "2", implicit_root=True, output_paths=False)
         s.wait_ui("Files · 3")
-        s.send(b"zd", "files only")
+        s.send(b"d", "files only")
         s.wait_ui("Files · 2")
         self.assertIn("dir/deep.txt", s.screen.text)
         self.assertNotIn("dir/ ", s.screen.text)
@@ -238,6 +238,36 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_files_hide_and_show_except_in_pick_and_seek(self):
+        (self.root / "dir").mkdir()
+        (self.root / "dir" / "deep.txt").touch()
+        (self.root / "top.txt").touch()
+        s = self.start("--depth", "2", implicit_root=True, output_paths=False)
+        s.wait_ui("Files · 3")
+        s.send(b"D", "folders only")
+        s.wait_ui("Files · 1")
+        self.assertNotIn("top.txt", s.screen.text)
+        # d swaps to files only; Alt+D, also while typing, to folders again.
+        s.send(b"d", "files only")
+        s.wait_ui("Files · 2")
+        s.send(b"i", "INSERT")
+        s.send(b"\x1bD", "folders only")
+        s.send(b"\x1bD")
+        s.wait_absent("folders only")
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+        self.session.close()
+        for command in ("pick", "seek"):
+            s = self.start(command, "--depth", "2", implicit_root=True)
+            s.send(b"\x1b", "NORMAL")
+            s.send(b"D", f"fff {command} lists files")
+            self.assertNotIn("folders only", s.screen.text)
+            s.send(b"\x03")
+            s.finish()
+            self.session.close()
+        self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_preview_pane_follows_the_highlight(self):
         (self.root / "a.txt").write_text("first\tline\nsecond line\n")
         (self.root / "b").mkdir()
@@ -245,7 +275,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "c.bin").write_bytes(b"\x00\x01\x02")
         s = self.start("--depth", "1", implicit_root=True, size=(40, 120))
         s.wait_ui("Files · 3")
-        s.send(b"zp", "Preview")
+        s.send(b"P", "Preview")
         # Folders come first: b's entries show once the highlight rests.
         s.wait_ui("Preview · directory · 1 entry")
         self.assertIn("inside.md", s.screen.text)
@@ -643,6 +673,29 @@ class TerminalTests(unittest.TestCase):
         # Ctrl+w leaves into the last mark's folder: here, so nothing to print.
         s.send(b"\x17")
         self.assertEqual(s.finish(), (0, b""))
+
+    def test_no_dir_has_no_tabs_so_normal_arrows_move_the_highlight(self):
+        (self.root / "folder").mkdir()
+        (self.root / "folder" / "nested.txt").touch()
+        (self.root / "top.txt").touch()
+        s = self.start("seek", "--depth", "2", implicit_root=True)
+        s.send(b"", b"nested.txt")
+        def highlight(name):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if any("›" in l and name in l for l in s.screen.text.splitlines()):
+                    return
+                if select.select([s.master], [], [], 0.05)[0]:
+                    s.take(os.read(s.master, 65536))
+            raise AssertionError(f"{name} is not highlighted:\n{s.screen.text}")
+        highlight("top.txt")
+        # Normal-mode Up and Down switch tabs elsewhere; here they move rows.
+        s.send(b"\x1b", "NORMAL")
+        s.send(b"\x1b[B")
+        highlight("nested.txt")
+        s.send(b"\x1b[A")
+        highlight("top.txt")
+        self.assertNotIn("disabled in fff seek", s.screen.text)
 
     def test_live_bookmark_save_edit_icon_cancel_and_delete(self):
         config = self.root / "config.toml"
@@ -1173,7 +1226,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start()
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"0dw", "❯ world")
+        s.send(b"0ctw\x1b[27u", "❯ world")  # d hides folders in Normal mode
         s.send(b"u", "❯ hello world")
         s.send(b"\x12", "❯ world")
         s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
@@ -1293,7 +1346,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"$ge", "NORMAL")  # plain e would stay on the last letter
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"dl", "❯ gamma")
+        s.send(b"ctg\x1b[27u", "❯ gamma")
         s.send(b"i", "Query · INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "gamma") + b"\n"))
@@ -2398,7 +2451,7 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("NORMAL", s.screen.text)
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"0dw", "❯ world")
+        s.send(b"0ctw\x1b[27u", "❯ world")  # d hides folders in Normal mode
         # Normal-mode Enter prints the highlighted file.
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))

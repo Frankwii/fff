@@ -1,4 +1,4 @@
-//! The preview pane (Alt+v, `zp`): the highlighted entry's first lines, or a
+//! The preview pane (Alt+v, `P`): the highlighted entry's first lines, or a
 //! summary of what it is. Text only, so it looks the same in any terminal.
 //!
 //! Reading never slows the list: it starts on a thread of its own once the

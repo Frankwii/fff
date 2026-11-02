@@ -271,6 +271,37 @@ fn closing_fields_preserves_final_text_and_keeps_engine_alive() {
 }
 
 #[test]
+fn closing_a_buffer_larger_than_a_pipe_keeps_its_text() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    // Rename lists every row: far more than a pipe holds when Neovim exits.
+    let text = (0..20_000)
+        .map(|i| format!("folder{}/file{i}.txt", i / 200))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for command in ["ZZ", "ZQ"] {
+        e.reset(Field::Operation);
+        e.activate(Field::Operation, &text).unwrap();
+        chars(&mut e, Field::Operation, "Ax");
+        e.input(Field::Operation, Key::new(K::Esc, M::NONE))
+            .unwrap();
+        let (closed, view) = e
+            .input(Field::Operation, Key::new(K::Char('Z'), M::NONE))
+            .and_then(|_| {
+                let quit = command.chars().nth(1).unwrap();
+                e.input(Field::Operation, Key::new(K::Char(quit), M::NONE))
+            })
+            .unwrap();
+        assert!(view.closed, "{command}: {view:?}");
+        assert_eq!(view.saved, command == "ZZ", "{command}");
+        assert_eq!(closed.lines().count(), 20_000, "{command}");
+        assert!(closed.ends_with("file19999.txtx"), "{command}");
+        assert!(e.activate(Field::Query, "kept").unwrap().normal());
+    }
+}
+
+#[test]
 fn close_distinguishes_written_contents_from_unsaved_edits() {
     let Some(mut e) = engine() else {
         return;

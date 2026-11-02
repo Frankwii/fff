@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fuzzy_file_finder::{
-    App, Candidate, Policy, discovery::Scan, glob, keys::KeyMap, relative_to, score,
+    App, Candidate, Kinds, Policy, discovery::Scan, glob, keys::KeyMap, relative_to, score,
     ui::numbered_key, write_paths,
 };
 use std::{
@@ -882,7 +882,7 @@ fn a_saved_session_resumes_as_it_ended() {
     app.policy.ignore = false;
     app.policy.set_rules(vec!["target".into()]).unwrap();
     app.policy.set_filters(vec!["*.pdf".into()]).unwrap();
-    app.files_only = true;
+    app.kinds = Kinds::Files;
     app.preview.shown = true;
     app.highlight = Some(root.join("b/notes.pdf"));
     app.toggle(root.join("a/x"));
@@ -902,7 +902,7 @@ fn a_saved_session_resumes_as_it_ended() {
     assert!(resumed.policy.hidden && !resumed.policy.ignore);
     assert_eq!(resumed.policy.rules, ["target"]);
     assert_eq!(resumed.policy.filters, ["*.pdf"]);
-    assert!(resumed.files_only && resumed.preview.shown);
+    assert!(resumed.kinds == Kinds::Files && resumed.preview.shown);
     assert_eq!(resumed.wanted, Some(root.join("b/notes.pdf")));
     assert_eq!(resumed.marks.to_vec(), [root.join("a/x")]);
     // Switching back finds the vanished folder's parent, with its history.
@@ -1071,7 +1071,7 @@ fn large_rankings_run_in_the_background_and_match_ranking_in_place() {
         assert_eq!(rows(&background), rows(&here));
         // Paths found meanwhile join the rows once the ranking is installed.
         background.query.clear();
-        background.files_only = true;
+        background.kinds = Kinds::Files;
         background.refresh();
         assert!(background.ranking_pending());
         background.insert(0, candidate("late", false, 1));
@@ -1080,7 +1080,7 @@ fn large_rankings_run_in_the_background_and_match_ranking_in_place() {
         background.finish_ranking();
         background.refresh();
         here.query.clear();
-        here.files_only = true;
+        here.kinds = Kinds::Files;
         here.insert(0, candidate("late", false, 1));
         here.refresh();
         assert_eq!(rows(&background), rows(&here));

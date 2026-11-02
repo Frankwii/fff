@@ -74,7 +74,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> delete with size review.
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
-  <cyan>Alt+v</cyan> (<cyan>zp</cyan>) preview pane; <cyan>Alt+d</cyan> (<cyan>zd</cyan>) hide directories.
+  <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
   <cyan>E</cyan> open current/marked paths in $EDITOR. Each folder remembers its cursor.
   <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.

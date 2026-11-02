@@ -117,8 +117,8 @@ pub struct Session {
     /// Exclusions enforced (Alt+H).
     pub ignore: bool,
     pub hidden: bool,
-    /// Directories hidden (Alt+d).
-    pub files_only: bool,
+    /// Directories (Alt+d) or files (Alt+D) hidden.
+    pub kinds: crate::Kinds,
     /// The preview pane shown (Alt+v).
     pub preview: bool,
 }
@@ -164,7 +164,11 @@ pub fn save_session(path: &Path, session: &Session) -> std::io::Result<()> {
     }
     put("ignore", flag(session.ignore));
     put("hidden", flag(session.hidden));
-    put("files_only", flag(session.files_only));
+    put("files_only", flag(session.kinds == crate::Kinds::Files));
+    put(
+        "directories_only",
+        flag(session.kinds == crate::Kinds::Directories),
+    );
     put("preview", flag(session.preview));
     write(path, &bytes)
 }
@@ -207,7 +211,8 @@ pub fn load_session(path: &Path) -> Option<Session> {
             b"exclude" => session.rules.push(text(value)),
             b"ignore" => session.ignore = value == b"1",
             b"hidden" => session.hidden = value == b"1",
-            b"files_only" => session.files_only = value == b"1",
+            b"files_only" if value == b"1" => session.kinds = crate::Kinds::Files,
+            b"directories_only" if value == b"1" => session.kinds = crate::Kinds::Directories,
             b"preview" => session.preview = value == b"1",
             _ => {}
         }
@@ -283,7 +288,7 @@ mod tests {
             rules: vec!["target".into(), "build".into()],
             ignore: false,
             hidden: true,
-            files_only: true,
+            kinds: crate::Kinds::Directories,
             preview: true,
         };
         save_session(&file, &session).unwrap();

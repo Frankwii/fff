@@ -115,6 +115,7 @@ Digits are query text in Insert mode. In Normal-mode results 1–9 set the
 search depth (`depth_digits` in `[keys.normal]`); elsewhere in Normal mode they
 are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results
+(in `fff seek`, which has no tabs, they move the highlight there too)
 (Alt+Up/Alt+Down: next/previous tab, in every mode); they move choosers' highlights (in
 the bookmark chooser they reorder bookmarks); in exclusions, filters and during
 command-line editing they go to Neovim.
@@ -140,10 +141,9 @@ editing behavior. Alt bindings remain available in every mode.
 
 Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
 unmatched continuation sends both keys to Neovim, preserving commands such as
-`gU`, `ge`, `gu` and `g~`. `z` is a prefix too (`zd` hides directories), so
-Neovim's own `z` commands, which do nothing in a one-line field, are only
-reached through an unmatched continuation. Escape after a lone `g` or `z`
-cancels it without clearing the query. Configure sequences in [keys.normal](CONFIGURATION.md#normal-mode-keys).
+`gU`, `ge`, `gu` and `g~`. Escape after a lone `g` cancels it without
+clearing the query. The default `d`, `D` and `P` replace Neovim's delete and
+put commands in the results, which have little use in a one-line query. Configure sequences in [keys.normal](CONFIGURATION.md#normal-mode-keys).
 
 ## Isolation and terminal behavior
 

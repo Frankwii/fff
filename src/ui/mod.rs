@@ -1827,8 +1827,19 @@ fn session(
                 (K::Char('d'), _, true) if app.no_dir => {
                     app.status = "fff seek lists only files".into();
                 }
-                (K::Char('d'), _, true) => {
-                    app.files_only = !app.files_only;
+                (K::Char('D'), _, true) if app.no_dir || app.picking() => {
+                    app.status = format!(
+                        "fff {} lists files; it cannot hide them",
+                        if app.no_dir { "seek" } else { "pick" }
+                    );
+                }
+                (K::Char(c @ ('d' | 'D')), _, true) => {
+                    let only = if c == 'd' {
+                        crate::Kinds::Files
+                    } else {
+                        crate::Kinds::Directories
+                    };
+                    app.kinds = app.kinds.toggled(only);
                     app.offset = 0;
                     app.refresh();
                 }

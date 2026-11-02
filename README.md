@@ -174,8 +174,8 @@ while marks, the query, depth, hidden entries, exclusions and filters are
 shared. Mark files in one tab, switch, browse somewhere far away, then move
 or copy them there with `v` / `p`. Switching to a tab in another directory lists
 it again with an empty query; a tab whose directory vanished falls back to the
-nearest existing parent. F1's session details list every tab's directory; tabs
-are unavailable in `fff seek`.
+nearest existing parent. F1's session details list every tab's directory. `fff seek`, which cannot
+change directory, has no tabs: Up / Down in Normal mode move the highlight there.
 
 Ctrl+number is Enter on a visible row, exactly as if that row were highlighted
 and Enter pressed, in the current editing mode: in Normal mode it finishes with
@@ -232,7 +232,7 @@ only the parents that tell same-named files apart, as in `fff pick`.
 
 ### Preview pane
 
-Alt+v (`zp` in Normal mode) shows the highlighted entry in the bottom half of
+Alt+v (`P` in Normal mode) shows the highlighted entry in the bottom half of
 the screen: a text file's first lines, a folder's entries, an archive's
 contents, a PDF's facts and first pages' text, an image's size, a song's or a
 video's duration, streams and tags. It is text only, reads in the background
@@ -265,8 +265,8 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`) or reveal it in its folder |
-| Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
-| Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |
+| Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
+| Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs), except in `fff seek`; use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
 | gg / G | First / last row in Normal-mode lists |
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
@@ -289,8 +289,9 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |
-| Alt+d / zd in Normal | Hide directories, listing only files; again to show them |
-| Alt+v / zp in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
+| Alt+d / d in Normal | Hide directories, listing only files; again to show them |
+| Alt+D / D in Normal | Hide files, listing only folders; again to show them (not in `fff pick` or `fff seek`) |
+| Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
 | Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |

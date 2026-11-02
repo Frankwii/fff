@@ -22,7 +22,7 @@ mouse = true
 buttons = "off"
 # Follow files created, removed or changed in the listed folders.
 watch = true
-# Start with the preview pane shown (Alt+v or zp toggles it).
+# Start with the preview pane shown (Alt+v or P toggles it).
 preview = false
 
 [palettes.ember]
@@ -112,8 +112,9 @@ shallower = "<left>" # Results only: same as Alt+Left / Alt+Right (depth),
 deeper = "<right>"
 bookmarks = "b"  # Alt+b (bookmark chooser),
 hidden = "."     # Alt+. (hidden entries),
-directories = "zd" # Alt+d (hide / show directories),
-preview = "zp"   # Alt+v (preview pane),
+directories = "d" # Alt+d (hide / show directories),
+files = "D"       # Alt+D (hide / show files),
+preview = "P"     # Alt+v (preview pane),
 go_to = "/"      # Alt+g (go-to prompt),
 next_tab = "<up>"   # and Alt+Up / Alt+Down (next / previous tab).
 prev_tab = "<down>"

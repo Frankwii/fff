@@ -187,7 +187,7 @@ impl Nvim {
             _G.fff_channel=channel
             local function close(b)
                 if vim.b[b].fff_field then
-                    vim.rpcnotify(channel, 'fff_closed', b,
+                    vim.rpcrequest(channel, 'fff_closed', b,
                         vim.api.nvim_buf_get_lines(b, 0, -1, false))
                 end
             end
@@ -235,25 +235,38 @@ impl Nvim {
             let Some(parts) = value.as_array() else {
                 continue;
             };
-            if parts.len() == 3
-                && parts[0].as_u64() == Some(2)
-                && matches!(parts[1].as_str(), Some("fff_closed" | "fff_written"))
-                && let Some(args) = parts[2].as_array()
-                && args.len() == 2
-                && let Some(buffer) = self
-                    .buffers
-                    .values_mut()
-                    .find(|b| b.id == args[0] && Some(b.view.field) == self.active)
-                && let Some(lines) = args[1].as_array()
+            // Fields report writes and closes as requests: Neovim waits for
+            // the answer, so a quit cannot cut the text off at the pipe's
+            // capacity the way an unanswered notification is when it exits.
+            if parts.len() == 4
+                && parts[0].as_u64() == Some(0)
+                && let Some(event) = parts[2]
+                    .as_str()
+                    .filter(|e| ["fff_closed", "fff_written"].contains(e))
             {
-                buffer.text = lines.iter().map(line).collect::<Vec<_>>().join("\n");
-                if parts[1].as_str() == Some("fff_written") {
-                    buffer.saved = Some(buffer.text.clone());
-                    buffer.view.written = true;
-                    continue;
+                let _ = rmpv::encode::write_value(
+                    &mut self.input,
+                    &arr([1.into(), parts[1].clone(), Value::Nil, Value::Nil]),
+                );
+                let _ = self.input.flush();
+                if let Some(args) = parts[3].as_array()
+                    && args.len() == 2
+                    && let Some(buffer) = self
+                        .buffers
+                        .values_mut()
+                        .find(|b| b.id == args[0] && Some(b.view.field) == self.active)
+                    && let Some(lines) = args[1].as_array()
+                {
+                    buffer.text = lines.iter().map(line).collect::<Vec<_>>().join("\n");
+                    if event == "fff_written" {
+                        buffer.saved = Some(buffer.text.clone());
+                        buffer.view.written = true;
+                        continue;
+                    }
+                    buffer.view.closed = true;
+                    return Err("Neovim field closed".into());
                 }
-                buffer.view.closed = true;
-                return Err("Neovim field closed".into());
+                continue;
             }
             if parts.len() == 4 && parts[0].as_u64() == Some(1) && parts[1].as_u64() == Some(id) {
                 if parts[2] != Value::Nil {
@@ -327,7 +340,7 @@ impl Nvim {
                 -- would close an unmodified buffer without writing (a discard).
                 vim.keymap.set('n','ZZ','<Cmd>wq<CR>',{buffer=b,noremap=true})
                 vim.api.nvim_create_autocmd('BufWriteCmd', {buffer=b, callback=function()
-                    vim.rpcnotify(fff_channel, 'fff_written', b, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+                    vim.rpcrequest(fff_channel, 'fff_written', b, vim.api.nvim_buf_get_lines(b, 0, -1, false))
                     vim.bo[b].modified=false
                 end})
                 return b
