@@ -1,6 +1,6 @@
 [package]
 name = "fuzzy-file-finder"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 description = "Interactive terminal file finder with fuzzy filtering, directory navigation and Neovim editing"
 readme = "README.md"
