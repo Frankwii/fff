@@ -146,3 +146,57 @@ fn output_formatting_needs_the_output_paths_mode() {
         );
     }
 }
+
+#[test]
+fn browse_takes_at_most_one_path() {
+    assert_eq!(
+        fff(&["--no-config", "--browse", "src", "docs"], None)
+            .status
+            .code(),
+        Some(2)
+    );
+}
+
+#[test]
+fn desktop_setup_writes_an_entry_without_touching_stdout() {
+    let root = std::env::temp_dir().join(format!("fff-setup-cli-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_fff"))
+            .args(["--no-config", "--setup", "desktop"])
+            .env("HOME", &root)
+            .env("XDG_DATA_HOME", root.join("data"))
+            // No xdg-mime: setup says how to make fff the default instead.
+            .env("PATH", &root)
+            .output()
+            .unwrap()
+    };
+    let output = run();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("xdg-mime default fff.desktop inode/directory"),
+        "{stderr}"
+    );
+    let entry = std::fs::read_to_string(root.join("data/applications/fff.desktop")).unwrap();
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_fff")).unwrap();
+    assert!(
+        entry.contains(&format!("Exec=st -e {} --browse %f", exe.display())),
+        "{entry}"
+    );
+    assert!(
+        String::from_utf8(run().stderr)
+            .unwrap()
+            .contains("unchanged")
+    );
+    // A desktop entry fff did not write is left alone.
+    std::fs::write(
+        root.join("data/applications/fff.desktop"),
+        "[Desktop Entry]\n",
+    )
+    .unwrap();
+    assert_eq!(run().status.code(), Some(1));
+    std::fs::remove_dir_all(&root).unwrap();
+}

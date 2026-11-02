@@ -9,6 +9,7 @@ unless the user requests a change; tests provide regression coverage.
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): TOML settings and discovery/cache behavior.
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): file operations, safety guarantees and archive safety.
 - [docs/EDITING.md](docs/EDITING.md): Neovim integration and input routing.
+- [docs/DESKTOP.md](docs/DESKTOP.md): `--setup`, the desktop entry and the portal file chooser.
 - [docs/PALETTES.md](docs/PALETTES.md): palette catalog and sources.
 - [docs/ROADMAP.md](docs/ROADMAP.md): possible future work, not current requirements.
 

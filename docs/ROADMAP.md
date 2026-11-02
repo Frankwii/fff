@@ -8,7 +8,6 @@ not implemented features or commitments:
 - A text-only preview pane (below).
 - Option completion in the gx/gX prompt for programs with neither a man page
   nor `--help` (Tab already completes options from those two).
-- Becoming the desktop's file manager (below).
 - Resuming only when the last directory was the current one: a new session
   should restore its remembered location only when started from the
   directory that was being browsed last, instead of always jumping there.
@@ -28,6 +27,10 @@ not implemented features or commitments:
   Cheap on local disks, but a slow network or FUSE mount stalls the frame;
   these should read from the details cache, refreshed in the background.
 - Mouse-only use beyond the opt-in buttons (below).
+- Desktop follow-ups to `--setup` (see [desktop integration](DESKTOP.md)):
+  answering `org.freedesktop.FileManager1` over D-Bus, so "Show in folder"
+  highlights the file instead of only opening its folder, and a hint in the
+  file chooser saying which keys choose.
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
   list and choosers; dragging past the pane's edge scrolling the
@@ -52,24 +55,6 @@ before it could become the default:
 - Depth and filter controls.
 - Turning it on automatically when fff is started as the desktop's file
   manager or a file picker.
-
-## Desktop file manager
-
-The aim is for fff to be the machine's main file explorer, not only a launcher
-from the shell.
-
-- **A desktop entry.** Install an `fff.desktop` (`Terminal=true`,
-  `MimeType=inode/directory`) so `xdg-mime default fff.desktop inode/directory`
-  makes `xdg-open`, application launchers and "Show in folder" actions open
-  fff in a terminal at that directory.
-- **Firefox and other file pickers.** Browsers that use the
-  xdg-desktop-portal FileChooser (Firefox with
-  `widget.use-xdg-desktop-portal.file-picker = 1`) could use fff through
-  [xdg-desktop-portal-termfilechooser](https://github.com/GermainZ/xdg-desktop-portal-termfilechooser),
-  which runs a wrapper script in a terminal. fff would need a wrapper that maps
-  the portal's open, open-multiple, directory and save requests onto
-  `--output-paths` (marks for multiple files) and a save-name prompt, and
-  writes the chosen paths where the portal reads them.
 
 ## Path-aware matching
 

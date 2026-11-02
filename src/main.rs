@@ -48,6 +48,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Act on every marked path with NUL-separated records.
   <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
+  <cyan>fff --setup desktop; fff --setup file-chooser</cyan>
+      Open folders from other programs, and Firefox's file dialogs, in fff.
 
 <bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide; Tab there shows session details)
   <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
@@ -142,6 +144,13 @@ struct Args {
     /// you were last browsing ([ui] resume, on by default).
     #[arg(long, help_heading = "Search")]
     here: bool,
+    /// Browse from the one ROOT given instead of pinning it
+    ///
+    /// A directory is where browsing starts; a file starts in its folder with
+    /// the file highlighted. Without a ROOT it is plain browsing. The desktop
+    /// entry and file chooser installed by --setup start fff this way.
+    #[arg(long, help_heading = "Search")]
+    browse: bool,
     /// Show hidden (dot) entries from the start; Alt+. toggles them
     #[arg(long, help_heading = "Search")]
     hidden: bool,
@@ -222,6 +231,20 @@ struct Args {
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath,
         help_heading = "Shell integration")]
     cd_file: Option<PathBuf>,
+    /// Install fff as the desktop's folder handler or file chooser, and exit
+    ///
+    /// desktop writes an fff.desktop entry, run in [open] terminal, and makes
+    /// it the default for directories (xdg-open, "Show in folder").
+    /// file-chooser sets up xdg-desktop-portal-termfilechooser to pick files
+    /// with fff, for Firefox and other portal users. Files fff generated
+    /// before are replaced; other files are never overwritten.
+    #[arg(
+        long,
+        value_enum,
+        value_name = "TARGET",
+        help_heading = "Shell integration"
+    )]
+    setup: Option<fuzzy_file_finder::setup::Target>,
 }
 fn main() -> ExitCode {
     // Answers `COMPLETE=<shell> fff ...` requests before anything is printed.
@@ -278,6 +301,15 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     )?;
     // Configured [keys.map] chords first, so --map-key rules override them.
     let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
+    if let Some(target) = args.setup {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let terminal = fuzzy_file_finder::run::split(&settings.open.terminal, home.as_deref())
+            .map_err(|e| format!("[open] terminal: {e}"))?;
+        let dirs = fuzzy_file_finder::setup::Dirs::from_env()?;
+        let fff = std::env::current_exe()?;
+        fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut io::stderr())?;
+        return Ok(true);
+    }
     if args.check_config {
         // Openers name programs; report the ones that are not installed.
         let missing = settings.open.missing(&std::env::current_dir()?);
@@ -297,8 +329,24 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         fuzzy_file_finder::reload::PaletteState::from_settings(&settings),
     );
     let invocation = std::env::current_dir()?.canonicalize()?;
+    // --browse: where to start, and the file to highlight there.
+    let mut browse_from = None;
+    if args.browse {
+        if args.roots.len() > 1 {
+            usage("--browse", &"give at most one path to browse from");
+        }
+        if let Some(path) = args.roots.first() {
+            let full = path
+                .canonicalize()
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            browse_from = Some(match full.parent() {
+                Some(parent) if !full.is_dir() => (parent.to_owned(), Some(full.clone())),
+                _ => (full, None),
+            });
+        }
+    }
     let mut roots = Vec::new();
-    for root in args.roots {
+    for root in args.roots.into_iter().filter(|_| !args.browse) {
         let path = root
             .canonicalize()
             .map_err(|e| format!("{}: {e}", root.display()))?;
@@ -318,8 +366,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let resume = (records_location && settings.resume && !args.here)
         .then_some(state.last.as_ref())
         .flatten()
-        .filter(|last| last.is_dir() && **last != invocation);
-    let mut app = if let Some(last) = resume {
+        .filter(|last| last.is_dir() && **last != invocation)
+        .filter(|_| browse_from.is_none());
+    let mut app = if let Some((start, _)) = &browse_from {
+        App::browse(start.clone(), args.depth as usize, policy)
+    } else if let Some(last) = resume {
         App::browse(last.clone(), args.depth as usize, policy)
     } else if roots.is_empty() {
         App::browse(invocation.clone(), args.depth as usize, policy)
@@ -330,7 +381,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.openers = settings.open.clone();
     app.output_paths = args.output_paths;
     app.positions = state.positions;
-    app.wanted = app.remembered(&app.cwd.clone());
+    app.wanted = match &browse_from {
+        Some((_, Some(file))) => Some(file.clone()),
+        _ => app.remembered(&app.cwd.clone()),
+    };
     app.apply_palette(fuzzy_file_finder::reload::PaletteState::from_settings(
         &settings,
     ));

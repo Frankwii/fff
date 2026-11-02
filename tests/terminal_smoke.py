@@ -1668,6 +1668,17 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish()[0], 130)
             s.close()
+        # --browse starts beside a file, highlighted, instead of resuming.
+        s = self.session = Session(self.root, "--depth", "1", "--browse",
+                                   str(self.root / "one" / "b"),
+                                   implicit_root=True, output_paths=False)
+        s.wait_ui(("cwd", self.root / "one"))
+        s.wait_ui("Files · 3")
+        self.assertRegex(highlighted(), r"›\s+2\s.*\sb\s")
+        self.assertNotIn("Resumed", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+        s.close()
         self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")

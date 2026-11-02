@@ -54,6 +54,11 @@ there, if any. Arguments pass through unchanged, so `fff --output-paths` keeps
 printing paths. Without the function, the default mode prints the chosen
 directory instead, so `cd "$(command fff)"` also works.
 
+fff can also be the desktop's file manager and file chooser: `fff --setup
+desktop` opens directories from other programs in fff, and `fff --setup
+file-chooser` lets Firefox and other portal users pick files with it. See
+[desktop integration](docs/DESKTOP.md).
+
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
 except prompts made for typing (new names, the go-to prompt, the gx/gX command)
 and the query of a `--no-dir` session, which start in **Insert mode**.
@@ -255,6 +260,7 @@ fff --config docs/config.example.toml --check-config
 - [Commented example](docs/config.example.toml): a complete starting configuration.
 - [Palette catalog](docs/PALETTES.md): built-ins, live switching and color sources.
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
+- [Desktop integration](docs/DESKTOP.md): fff as the file manager and Firefox's file chooser.
 
 In the bookmark editor, Enter saves and Escape cancels, Tab switches fields and
 Space on the icon row opens a searchable Nerd Font icon picker. In the chooser,

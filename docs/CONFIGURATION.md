@@ -506,6 +506,7 @@ Which program opens a file, by extension or name, for `l` / Alt+l / Alt+number
 ```toml
 [open]
 terminal = "st -e"   # how to run a terminal program in a new window (default)
+                     # also fff's own window from --setup (see DESKTOP.md)
 
 [[open.rules]]
 command = "zathura"
