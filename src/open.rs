@@ -20,7 +20,7 @@ use std::{
 pub struct OpenConfig {
     /// Prefix that runs a command in a new terminal window, e.g. `st -e`.
     pub terminal: String,
-    /// Prefix for fff's own windows, which `--setup` installs (the desktop
+    /// Prefix for fff's own windows, which `fff setup` installs (the desktop
     /// entry, the file chooser): a class a window manager can float.
     pub fff_terminal: String,
     /// `[[open.rules]]`, first match wins.

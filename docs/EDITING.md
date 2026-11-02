@@ -43,6 +43,13 @@ Fields have separate scratch buffers, cursors and undo histories. Pending input
 such as `f` or `r` shows **PENDING** without blocking fff; switching fields
 cancels transient pending input or selection.
 
+The table lists Neovim's own keys, as they work in fields without fff
+bindings (exclusions, filters, rename lists, prompts). In the results' query,
+Normal-mode keys bound to [list actions](#normal-mode-list-keys) act on the
+results instead: `b`, `d`, `p`, `P`, `v` and `x`, for example, are not
+editing commands there, while `c` operators (`cw`, `ciw`, `C`), `0`, `$`, `w`,
+`u` and Ctrl+r still edit the query.
+
 | Action | Keys in Normal mode |
 | --- | --- |
 | Enter text | `i`, `a`, `I`, `A` |
@@ -56,8 +63,8 @@ cancels transient pending input or selection.
 | Edit exclusion lines | `o`, `O`, motions and line operators |
 | Substitute text | `:s/old/new/`, then Enter |
 
-For example, type `ihello world`, press Escape, then `0dw`: the query becomes
-`world`. `u` restores it and Ctrl+r reapplies the deletion.
+For example, type `ihello world`, press Escape, then `0cwbye` and Escape: the
+query becomes `bye world`. `u` restores it and Ctrl+r reapplies the change.
 
 ## Application keys and Escape
 
@@ -114,11 +121,11 @@ It never exits the session.
 Digits are query text in Insert mode. In Normal-mode results 1–9 set the
 search depth (`depth_digits` in `[keys.normal]`); elsewhere in Normal mode they
 are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
-the results highlight while typing and switch tabs in Normal-mode results
-(in `fff seek`, which has no tabs, they move the highlight there too)
-(Alt+Up/Alt+Down: next/previous tab, in every mode); they move choosers' highlights (in
-the bookmark chooser they reorder bookmarks); in exclusions, filters and during
-command-line editing they go to Neovim.
+the results highlight while typing and switch tabs in Normal-mode results,
+except in `fff seek`, which has no tabs, where they move the highlight too;
+Alt+Up/Alt+Down switch to the next/previous tab in every mode. Up/Down move
+choosers' highlights (in the bookmark chooser they reorder bookmarks); in
+exclusions, filters and during command-line editing they go to Neovim.
 
 ## Normal-mode list keys
 

@@ -474,15 +474,19 @@ max_paths = 1000000     # paths the current view may hold (1000..100000000)
    `fresh_seconds` appears immediately without another scan. The age is measured
    from verification; revisiting, changing the query, and checkpointing do not
    renew it. Empty directories are still verified before Enter can confirm them.
-2. **Older or partial snapshot.** It appears immediately and receives its own
-   frame before background discovery reconciles it. Snapshots truncated by the
-   path limit never qualify for skipping a scan. If there is no snapshot, eligible
+2. **Older or partial snapshot.** Its rows are loaded at once while background
+   discovery reconciles them: a scan that finishes within the first-frame wait
+   (below) is drawn once, complete; a slower one shows the snapshot first, with
+   `◌ cached · refreshing`. Snapshots truncated by the path limit never qualify
+   for skipping a scan. If there is no snapshot, eligible
    already-known paths can seed the new view; depths and roots are recomputed.
    Such reused prefixes always remain provisional. Seeding examines at most
    16,384 old rows/index entries and copies at most `max_candidates` paths.
-3. **Uncached first visit.** The first frame gives the worker up to 4 ms to finish
-   an ordinary small listing. Filesystem calls stay off the UI thread; a slow or
-   large view streams normally after that bounded wait. Input and discovery share
+3. **Uncached first visit.** The first frame after a scan starts waits up to
+   12 ms for it to finish, still reading keys meanwhile, so an ordinary small
+   listing is drawn once, complete, rather than first empty and then again.
+   Filesystem calls stay off the UI thread; a slow or large view streams
+   normally after that bounded wait. Input and discovery share
    coalesced wake notifications, so ready results no longer wait for a 30 ms
    keyboard-poll timeout.
 4. **Quiet updates.** While staying in a view, depth-1 listings refresh every

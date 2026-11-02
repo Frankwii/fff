@@ -304,7 +304,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | E in Normal | Open the current or marked paths in `$EDITOR`, then come back |
-| q / ! in Normal | Exit to the launch / current directory, ignoring marks |
+| q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |
 | Drag with the button held | Mark every row from where it was pressed to where it is; past the top or bottom edge, keep scrolling and marking |
@@ -368,7 +368,7 @@ Up/Down reorder bookmarks. Saves update the active TOML file; `--no-config`
 keeps edits for this session only.
 
 Discovery is asynchronous and breadth first. Ready results wake the UI immediately;
-small uncached directories get up to 4 ms to complete before their first frame.
+a folder whose scan finishes within 12 ms is drawn once, complete.
 Recent complete snapshots skip redundant scans for 3 seconds by default. Depth-1
 views refresh about every 3 seconds and can prefetch a child after a 500 ms
 highlight dwell; recursive views reuse known descendants and refresh every

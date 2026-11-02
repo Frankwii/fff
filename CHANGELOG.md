@@ -35,8 +35,6 @@ history.
   `fff seek`) ended the session with "Neovim stopped: Neovim RPC
   disconnected"; such lists now rename like short ones. Any large multiline
   field closed with ZZ or `:wq` had the same problem.
-### Fixed
-
 - **Small folders open in one frame, complete.** Entering a folder, going up
   or starting fff no longer draws the location first empty or from the cache
   (with `◌ cached · refreshing`) and then again a moment later: a scan that
@@ -45,7 +43,6 @@ history.
   after live updates no longer flash the label either.
 - Tab in the Alt+g prompt no longer crashes on a path ending in `/.` after
   a name with accented letters.
-
 - Long result names shortened to fit a narrow window no longer crash the
   match highlighter.
 
