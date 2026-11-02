@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.7.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.8.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -336,7 +336,8 @@ After `gX`, fff's process becomes the program, so the exit status is the
 program's.
 
 See [development](docs/DEVELOPMENT.md) for the code map and verification commands.
-Possible extensions are listed in the [roadmap](docs/ROADMAP.md).
+Possible extensions are listed in the [roadmap](docs/ROADMAP.md); what changed
+in each release is in the [changelog](CHANGELOG.md).
 
 ## Install from crates.io
 

@@ -13,6 +13,11 @@ unless the user requests a change; tests provide regression coverage.
 - [docs/PALETTES.md](docs/PALETTES.md): palette catalog and sources.
 - [docs/ROADMAP.md](docs/ROADMAP.md): possible future work, not current requirements.
 
+Record user-visible changes in [CHANGELOG.md](CHANGELOG.md) as they are made,
+under an "Unreleased" heading that becomes the version's section at release:
+what changed for users, grouped as Added / Changed / Removed / Fixed, not a
+commit list.
+
 Keep documentation current when behavior changes. Update the relevant guide rather
 than appending chronological decisions or maintaining a separate historical spec.
 Keep stdout limited to selected paths (`--output-paths`) or the chosen directory
