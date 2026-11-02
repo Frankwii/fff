@@ -1303,13 +1303,8 @@ fn session(
                 K::PageUp => *offset = offset.saturating_sub(page),
                 _ => {}
             },
-            Focus::Exclusions(_) | Focus::Filters(_) => {
-                if key.code == K::Esc {
-                    focus = Focus::Results;
-                } else {
-                    deliver(app, &mut focus, &mut editor, key);
-                }
-            }
+            // Their keys all went to Neovim above (`buffer_input`).
+            Focus::Exclusions(_) | Focus::Filters(_) => {}
             Focus::Command(prompt) => {
                 if key.code == K::Enter {
                     // An unknown command or bad quoting aborts with the reason.

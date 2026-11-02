@@ -25,9 +25,9 @@ users (see `git log`).
 
 Keep documentation current when behavior changes. Update the relevant guide rather
 than appending chronological decisions or maintaining a separate historical spec.
-Keep stdout limited to selected paths (`fff pick`) or the chosen directory
-(`fff roam` without `--cd-file`), and preserve original filesystem paths
-independently of abbreviated display labels.
+Keep stdout limited to what each mode outputs (see [behavior to
+preserve](docs/DEVELOPMENT.md#behavior-to-preserve)), and preserve original
+filesystem paths independently of abbreviated display labels.
 
 When adding or changing a CLI argument whose values make sense to complete
 (paths, enumerations, palette or other names, structured values like key chords),

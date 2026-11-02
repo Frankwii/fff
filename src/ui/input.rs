@@ -126,7 +126,8 @@ impl PalettePreview {
 }
 /// Opt-in hook for Normal-mode list keys: the actions a list view supports.
 /// Unsupported actions behave as unbound, so their keys still reach Neovim.
-/// Each list view has an arm here, in `jump_to_end` and in `focused_text`;
+/// List views with rows also have an arm in `jump_to_end`, and those with a
+/// text field one in `focused_text`;
 /// actions with an `alt_key` are replayed as the view's own chord handling.
 pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
     use ListAction::*;

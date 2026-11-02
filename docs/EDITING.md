@@ -92,9 +92,6 @@ the stored data alone. Validation errors keep the
 previous data, close the editor, and show a short error at the bottom. Exclusion
 errors include the line number; blank lines are ignored.
 
-File operation details and safety guarantees are described in
-[the operation guide](OPERATIONS.md).
-
 Apart from that `ZZ` mapping, these editors have no fff Escape or Ctrl+s
 bindings in Neovim: those keys go to Neovim, including its native `ZQ` (quit
 without writing). Escape in Normal mode leaves the editor open. Exclusions and
@@ -105,8 +102,7 @@ are not buffer-lifecycle editors: Enter applies and Escape in Normal mode
 cancels, like the location prompt. Validation errors keep them open. Escape from Insert/Visual mode
 and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
 and `ZQ`/`:q!` also apply or cancel. In bookmark forms, Tab/Shift+Tab or
-Up/Down switch fields and Space on the icon row opens the icon chooser. Rebind list marking with `[keys.normal] mark`; the legacy
-`apply` setting is accepted but ignored.
+Up/Down switch fields and Space on the icon row opens the icon chooser.
 
 Enter in results navigates or confirms; in locations/bookmarks it navigates; in
 bookmark forms it saves; in palettes it applies the selected palette. Pending Neovim input and command-line
@@ -136,7 +132,7 @@ and always in the marked list, which has no text field:
 | --- | --- | --- | --- |
 | `j` / `k` | Next / previous result | Next / previous entry | Next / previous mark |
 | `h` | Parent directory | Neovim motion | No action |
-| `l` | Enter highlighted directory | Neovim motion | No action |
+| `l` | Enter the highlighted directory, or open the file in the background | Neovim motion | No action |
 | `gg` / `G` | First / last result | First / last entry | First / last mark |
 | `m` / `M` | Mark all results / invert their marks | Neovim command | Mark all rows / invert their marks |
 

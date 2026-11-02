@@ -19,7 +19,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui/mod.rs` | The session: focus states, wakeups and key dispatch. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
-| `src/ui/input.rs` | Normal-mode list dispatch, text-field editing and paste, status timing, numbered keys. |
+| `src/ui/input.rs` | Normal-mode list dispatch; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/actions.rs` | Scope choice, file operations as background jobs (checks, progress, undo), running programs and their messages, bookmark/palette saves, the mouse. |
 | `src/view/mod.rs` | Ratatui frame layout: query, location line, results and tab strip, marks, footer, display paths. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
@@ -58,7 +58,8 @@ listed separately in the [roadmap](ROADMAP.md).
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
-  (`fff pick`) or the chosen directory (`fff roam` without `--cd-file`);
+  (`fff pick`), the chosen directory (`fff roam` and `fff seek` without
+  `--cd-file`) or a file dialog's answer (`fff explorer`);
   programs started with gx/gX get `/dev/tty`, never fff's stdout. Relative
   output is based on the invocation directory, never the current browsing location.
 - Exactly one current directory is searched alongside ordered pinned startup
@@ -88,7 +89,6 @@ listed separately in the [roadmap](ROADMAP.md).
   stays session-only. `tests/bookmarks.rs` covers persistence and failures.
 - Original paths remain separate from display abbreviations and icons. Keep
   palette attribution and [third-party notices](THIRD_PARTY_NOTICES.md).
-
 - File operations must pass through `Engine`; no UI branch may mutate a user
   path directly. Validate the full batch, bind destructive steps to confirmed
   snapshots, stage, then publish with no-replace semantics, rolling back on
