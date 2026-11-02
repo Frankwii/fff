@@ -27,6 +27,8 @@ pub(crate) struct Rendered {
     pub page: usize,
     /// Where the result rows were drawn, for mouse clicks; one row per target.
     pub results: Rect,
+    /// The button bar's buttons and where they were drawn.
+    pub buttons: Vec<(Rect, crate::ui::Button)>,
 }
 
 fn styled(text: impl Into<String>, color: Color) -> Span<'static> {
@@ -154,6 +156,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             bookmark_targets: Vec::new(),
             page: 0,
             results: Rect::default(),
+            buttons: Vec::new(),
         };
     }
     let area = Rect::new(
@@ -163,6 +166,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         area.height,
     );
     let location = location_lines(app, area.width as usize);
+    let bar = u16::from(app.buttons_shown() && crate::ui::Button::sets(focus).is_some());
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -179,6 +183,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             ),
             Constraint::Length(location.len() as u16),
             Constraint::Min(3),
+            Constraint::Length(bar),
             Constraint::Length(1),
         ])
         .split(area);
@@ -207,7 +212,10 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     };
     let mut result = results_pane(frame, results, app, matches!(focus, Focus::Results));
     marks_pane(frame, marks, app, focus);
-    footer(frame, layout[3], app, focus);
+    if bar > 0 {
+        result.buttons = button_bar(frame, layout[3], app, focus);
+    }
+    footer(frame, layout[4], app, focus);
     match focus {
         Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
@@ -763,6 +771,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
         bookmark_targets: Vec::new(),
         page,
         results: inner,
+        buttons: Vec::new(),
     }
 }
 /// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.
@@ -836,6 +845,7 @@ fn row_details(
                 .count(&candidate.path)
                 .map(details::entries)
                 .unwrap_or_default(),
+            (Column::Size, Some(i)) if i.broken() => String::new(),
             (Column::Size, Some(i)) => details::size(i.size),
             (Column::Modified, Some(i)) => {
                 i.modified.map(|m| details::age(m, now)).unwrap_or_default()
@@ -1034,6 +1044,57 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     ));
     spans.extend(help);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+/// The button bar: in the results, navigation and marking on the left, Cancel
+/// and Select & Exit on the right; in a confirmation, Cancel and Confirm. Left
+/// buttons that do not fit are left out.
+fn button_bar(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    focus: &Focus,
+) -> Vec<(Rect, crate::ui::Button)> {
+    use crate::ui::Button;
+    let Some((left_set, right_set)) = Button::sets(focus) else {
+        return Vec::new();
+    };
+    let theme = app.palette;
+    let width = |b: Button| b.label(app).width() as u16 + 2;
+    let right_width: u16 = right_set.iter().map(|&b| width(b) + 1).sum();
+    let mut left = Vec::new();
+    let mut used = 0;
+    for &button in left_set {
+        if used + width(button) + 1 + right_width > area.width {
+            break;
+        }
+        left.push(button);
+        used += width(button) + 1;
+    }
+    let mut placed = Vec::new();
+    let mut x = area.x;
+    for button in left {
+        placed.push((Rect::new(x, area.y, width(button), 1), button));
+        x += width(button) + 1;
+    }
+    let mut x = (area.x + area.width).saturating_sub(right_width.saturating_sub(1));
+    for &button in right_set {
+        placed.push((Rect::new(x, area.y, width(button), 1), button));
+        x += width(button) + 1;
+    }
+    for &(rect, button) in &placed {
+        let (fg, bg) = if !button.available(app) {
+            (theme.muted, theme.panel)
+        } else if matches!(button, Button::Select | Button::Confirm) {
+            (theme.background, theme.accent)
+        } else {
+            (theme.text, theme.selection)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(pill(button.label(app), fg, bg))),
+            rect,
+        );
+    }
+    placed
 }
 /// The footer's details of `path`, as (gap, value) span pairs in order of
 /// importance: a link's target, size or entry count, modification time,

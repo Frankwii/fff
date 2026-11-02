@@ -1457,6 +1457,8 @@ pub struct TransferPlan {
     pub sources: Vec<(PathBuf, u64)>,
     pub overwrites: Vec<(PathBuf, u64)>,
     snapshots: Vec<Snapshot>,
+    /// Files dropped onto the terminal: the marks play no part and are kept.
+    pub dropped: bool,
 }
 impl TransferPlan {
     pub fn new(kind: Transfer, sources: Vec<PathBuf>, directory: PathBuf) -> Result<Self> {
@@ -1501,6 +1503,7 @@ impl TransferPlan {
             sources: listed,
             overwrites,
             snapshots,
+            dropped: false,
         })
     }
     pub fn request(&self) -> Result<Request> {

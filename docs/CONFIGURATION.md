@@ -189,6 +189,47 @@ Capturing the mouse takes it from the terminal's own text selection; most
 terminals still select with Shift held. Set `mouse = false` to leave the mouse
 to the terminal.
 
+### Buttons
+
+For mouse-only use, fff can show a bar of buttons above the footer. It is
+opt-in:
+
+```toml
+[ui]
+buttons = "mouse"   # "off" (default), "mouse" (once the mouse is used) or "always"
+```
+
+With `"mouse"`, keyboard-only sessions look exactly as without buttons; the bar
+appears after the first click, drag or wheel step. Each button does what its
+key does:
+
+| Button | Key |
+| --- | --- |
+| ← Back | Ctrl+o: the tab's previous directory |
+| ↑ Up | Alt+h: the parent directory |
+| Open | `l`: enter the directory or open the file in the background |
+| Mark / Unmark | Tab, without moving: mark the highlighted row |
+| Show / Hide hidden | Alt+.: hidden entries |
+| Cancel | Ctrl+c: quit without output |
+| Select & Exit | Ctrl+w with marks, else Ctrl+number on the highlighted row |
+
+Buttons that cannot act (Back with no history, Up and Back with `--no-dir`)
+are dimmed. In the copy, move, link and delete confirmations the bar shows
+Cancel and Confirm (Esc and Enter). A narrow bar leaves out buttons from the
+end of the left group. `buttons` other than `"off"` needs `mouse = true`.
+
+### Dropping files
+
+Terminals with drag and drop (kitty, foot, alacritty, WezTerm, Konsole, GNOME
+Terminal, and st with the [drag-n-drop patch](https://st.suckless.org/patches/drag-n-drop/))
+paste the paths of files dropped onto them. When such a paste arrives while
+browsing (the query in Normal mode) and it consists only of existing absolute
+paths (shell-quoted or backslash-escaped, or `file://` URIs), fff offers to copy
+them into the current directory, with the usual confirmation and conflict
+checks; the marks are left as they were. While typing, a paste is only text
+for the query. Vanilla st has no drag and drop. Drops are ignored with
+`--no-dir`.
+
 ## Live updates
 
 With `[ui] watch = true` (the default), fff watches the current directory with

@@ -254,6 +254,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("double click".into(), "like Alt+l", true),
                 ("drag".into(), "mark the rows it spans", false),
                 ("wheel".into(), "scroll the results", false),
+                ("drop files".into(), "copy them here (Normal)", true),
             ],
         ),
     ];

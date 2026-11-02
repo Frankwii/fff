@@ -34,6 +34,7 @@ pub const DEFAULT_COLUMNS: [Column; 2] = [Column::Size, Column::Modified];
 pub struct Info {
     /// `st_mode`, file type bits included.
     pub mode: u32,
+    /// The size in bytes; a link's is its target's (0 when broken).
     pub size: u64,
     pub modified: Option<SystemTime>,
     pub uid: u32,
@@ -46,13 +47,17 @@ pub struct Info {
 impl Info {
     pub fn read(path: &Path) -> Option<Self> {
         let m = fs::symlink_metadata(path).ok()?;
+        let resolved = m.is_symlink().then(|| fs::metadata(path).ok()).flatten();
         let link = m.is_symlink().then(|| {
             let target = fs::read_link(path).unwrap_or_default();
-            (target, fs::metadata(path).is_ok())
+            (target, resolved.is_some())
         });
         Some(Self {
             mode: m.mode(),
-            size: m.len(),
+            size: match (&link, resolved) {
+                (None, _) => m.len(),
+                (Some(_), resolved) => resolved.map_or(0, |r| r.len()),
+            },
             modified: m.modified().ok(),
             uid: m.uid(),
             gid: m.gid(),
@@ -402,6 +407,8 @@ mod tests {
         assert_eq!(good.link, Some(("sub".into(), true)));
         assert!(good.directory && !good.broken());
         assert!(details.info(&dir.join("bad")).unwrap().broken());
+        std::os::unix::fs::symlink("sub/a", dir.join("file-link")).unwrap();
+        assert_eq!(details.info(&dir.join("file-link")).unwrap().size, 3);
         assert_eq!(details.info(&dir.join("sub/a")).unwrap().size, 3);
         assert_eq!(details.info(&dir.join("nothing")), None);
         assert_eq!(details.count(&dir.join("sub")), None);

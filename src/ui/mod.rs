@@ -27,6 +27,7 @@ mod input;
 mod screen;
 #[cfg(test)]
 mod tests;
+pub(crate) use actions::Button;
 pub use actions::ScopedAction;
 use actions::*;
 use input::*;
@@ -167,6 +168,7 @@ fn session(
     let mut bookmark_targets = Vec::new();
     let mut results_area = ratatui::layout::Rect::default();
     let mut mouse = Mouse::default();
+    let mut buttons = Vec::new();
     loop {
         dirty |= status.tick(app);
         // Pop-up notifications from background work, shown for a while.
@@ -309,6 +311,7 @@ fn session(
                 app.rendered = completed.targets;
             }
             results_area = completed.results;
+            buttons = completed.buttons;
             bookmark_targets = completed.bookmark_targets;
             page = completed.page.max(1);
             dirty = false;
@@ -344,6 +347,24 @@ fn session(
             // A held-back Normal-mode prefix reaches Neovim before the paste.
             for pending in app.normal_keys.take_pending() {
                 deliver(app, &mut focus, &mut editor, pending);
+            }
+            // Terminals paste the paths of files dropped onto them. While
+            // browsing (Normal mode), existing paths are copied here after
+            // confirmation; while typing, a paste is only text.
+            if matches!(focus, Focus::Results)
+                && !app.no_dir
+                && app.edit_view.as_ref().is_some_and(|v| v.normal())
+                && let Some(paths) = dropped_paths(&text, app.home.as_deref())
+            {
+                use crate::operations::{Transfer, TransferPlan};
+                match TransferPlan::new(Transfer::Copy, paths, app.cwd.clone()) {
+                    Ok(mut plan) => {
+                        plan.dropped = true;
+                        focus = Focus::TransferConfirm(plan);
+                    }
+                    Err(error) => app.status = error,
+                }
+                continue;
             }
             let field = text_field(app, &focus).map(|(field, _)| field);
             if let Some(field) = field {
@@ -448,12 +469,40 @@ fn session(
             }
             continue;
         }
-        if let Event::Mouse(event) = event {
-            if matches!(focus, Focus::Results) && !app.normal_keys.pending() {
-                mouse_results(app, &mut discovery, event, results_area, &mut mouse);
+        // A button that stands for a key goes on as that key.
+        let event = match event {
+            Event::Mouse(event) => {
+                app.mouse_used = true;
+                if app.normal_keys.pending() {
+                    continue;
+                }
+                let button = (event.kind == MouseEventKind::Down(MouseButton::Left))
+                    .then(|| {
+                        buttons.iter().find(|(area, _)| {
+                            area.contains(ratatui::layout::Position::new(event.column, event.row))
+                        })
+                    })
+                    .flatten();
+                match button {
+                    Some(&(_, button)) => match button.key() {
+                        Some(key) => Event::Key(key),
+                        None => {
+                            if let Some(finish) = press(app, &mut discovery, button) {
+                                return Ok(finish);
+                            }
+                            continue;
+                        }
+                    },
+                    None => {
+                        if matches!(focus, Focus::Results) {
+                            mouse_results(app, &mut discovery, event, results_area, &mut mouse);
+                        }
+                        continue;
+                    }
+                }
             }
-            continue;
-        }
+            event => event,
+        };
         let Event::Key(key) = event else {
             continue;
         };
@@ -967,10 +1016,14 @@ fn session(
             Focus::TransferConfirm(plan) => match key.code {
                 K::Enter => {
                     let request = plan.request();
+                    let marks = plan.dropped.then(|| app.marks.clone());
                     focus = Focus::Results;
                     match request {
                         Ok(r) => perform_operation(app, &mut discovery, r),
                         Err(e) => app.status = e,
+                    }
+                    if let Some(marks) = marks {
+                        app.marks = marks;
                     }
                 }
                 K::Esc => {

@@ -322,6 +322,9 @@ pub struct App {
     pub details: details::Details,
     /// `[ui] mouse`: clicks and the wheel act on the results.
     pub mouse: bool,
+    /// `[ui] buttons`, and whether the mouse has been used this session.
+    pub buttons: config::Buttons,
+    pub mouse_used: bool,
     /// `[ui] watch`: follow changes to the current directory as they happen.
     pub watch: bool,
 }
@@ -392,7 +395,17 @@ impl App {
             columns: details::DEFAULT_COLUMNS.to_vec(),
             details: details::Details::default(),
             mouse: true,
+            buttons: config::Buttons::Off,
+            mouse_used: false,
             watch: true,
+        }
+    }
+    /// The button bar is shown: always, or once the mouse has been used.
+    pub fn buttons_shown(&self) -> bool {
+        match self.buttons {
+            config::Buttons::Off => false,
+            config::Buttons::Mouse => self.mouse_used,
+            config::Buttons::Always => true,
         }
     }
     /// Records the current directory's highlight, as most recently used.

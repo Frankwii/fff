@@ -67,9 +67,9 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
   config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
-  file icons ([ui] icons), row details ([ui] columns), the mouse ([ui] mouse),
-  live updates ([ui] watch), Normal-mode list keys ([keys.normal]) and chord
-  remapping ([keys.map], applied before --map-key).
+  file icons ([ui] icons), row details ([ui] columns), the mouse and buttons
+  ([ui] mouse, buttons), live updates ([ui] watch), Normal-mode list keys
+  ([keys.normal]) and chord remapping ([keys.map], applied before --map-key).
   <cyan>fff --check-config</cyan> validates it and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
@@ -341,6 +341,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.status_timeout = settings.message_timeout;
     app.columns = settings.columns;
     app.mouse = settings.mouse;
+    app.buttons = settings.buttons;
     app.watch = settings.watch;
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())

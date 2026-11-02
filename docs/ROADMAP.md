@@ -12,7 +12,7 @@ not implemented features or commitments:
   directory that was being browsed last, instead of always jumping there.
 - Progress for large copies and moves: bytes copied, speed, and Ctrl+c to
   cancel safely within the staged-operation guarantees.
-- Mouse-only use, planned for 0.7.0 (below).
+- Mouse-only use beyond the opt-in buttons (below).
 - Follow-ups to 0.7.0: live updates for deeper results and pinned roots
   (only the current directory is watched today); the mouse in the marked
   list, choosers and tab strip; dragging past the pane's edge scrolling the
@@ -28,21 +28,15 @@ choices](DEVELOPMENT.md#design-choices).
 
 ## Mouse-only use
 
-Planned for 0.7.0, before it is published: everything needed to pick files and
-leave fff with the mouse alone, as when it opens as the desktop's file manager
-or a file picker. fff stays keyboard-first: the buttons are hidden until the
-mouse is used in the session (the first click, drag or wheel step), so
-keyboard-only sessions look exactly as today.
+The opt-in button bar (`[ui] buttons`, see [buttons](CONFIGURATION.md#buttons))
+covers the results and the transfer and delete confirmations. Still to do
+before it could become the default:
 
-- **Buttons on demand.** Once the mouse has been used, a small row of buttons
-  appears, for example "Go back" (parent directory, or Ctrl+o's history),
-  "Select & Exit" (return the marked or highlighted paths, like Ctrl+w or
-  Enter) and "Cancel", plus whatever else mouse-only use turns out to need
-  (tabs, hidden entries, depth).
-- **Keyboard actions unchanged.** Each button does exactly what its key does,
-  so output, confirmation and directory-change rules stay the same.
-- **Out of the way.** The buttons take a row only while shown; a setting could
-  keep them always on or always off.
+- Buttons for the other sheets: new file or directory, rename, extract, the
+  scope choice, run prompts and the bookmark and palette choosers.
+- Clickable tabs in the tab strip, and depth and filter controls.
+- Turning it on automatically when fff is started as the desktop's file
+  manager or a file picker.
 
 ## Desktop file manager
 
@@ -101,7 +95,7 @@ when the work is requested.
 File operations shipped in 0.3.0; running programs (gx/gX, E), the shell
 integration and remembered locations in 0.4.0; tabs and plain Normal-mode keys
 in 0.5.0; openers, the Enter rules and Neovim-only editing in 0.6.0; result
-details, the richer footer, visible links, live updates and the mouse in 0.7.0.
+details, the richer footer, visible links, live updates, the mouse, opt-in buttons and dropped files in 0.7.0.
 See [the operation guide](OPERATIONS.md).
 
 The current release is 0.7.0. Version 1.0 is planned once the remaining roadmap

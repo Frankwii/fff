@@ -595,3 +595,171 @@ pub(super) fn mouse_results(
         _ => {}
     }
 }
+/// The button bar (`[ui] buttons`): each button does what its key does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Button {
+    /// Ctrl+o: the previous directory of this tab.
+    Back,
+    /// Alt+h: the parent directory.
+    Up,
+    /// l: enter the highlighted directory or open the highlighted file.
+    Open,
+    /// Tab without moving: mark or unmark the highlighted row.
+    Mark,
+    /// Alt+.: show or hide hidden entries.
+    Hidden,
+    /// Ctrl+c.
+    Cancel,
+    /// Ctrl+w with marks, else Ctrl+number on the highlighted row.
+    Select,
+    /// Esc in a confirmation.
+    Dismiss,
+    /// Enter in a confirmation.
+    Confirm,
+}
+impl Button {
+    /// Left to right; the bar drops buttons from the end of the first group
+    /// when it is narrow, never Cancel or Select.
+    /// The buttons for `focus` (left and right groups); `None` hides the bar.
+    pub(crate) fn sets(focus: &Focus) -> Option<(&'static [Self], &'static [Self])> {
+        match focus {
+            Focus::Results => Some((
+                &[Self::Back, Self::Up, Self::Open, Self::Mark, Self::Hidden],
+                &[Self::Cancel, Self::Select],
+            )),
+            Focus::TransferConfirm(_) | Focus::DeleteConfirm(_) => {
+                Some((&[], &[Self::Dismiss, Self::Confirm]))
+            }
+            _ => None,
+        }
+    }
+    /// The key a button stands for, where the key's handling is all it does.
+    pub(crate) fn key(self) -> Option<KeyEvent> {
+        match self {
+            Self::Dismiss => Some(KeyEvent::new(K::Esc, M::NONE)),
+            Self::Confirm => Some(KeyEvent::new(K::Enter, M::NONE)),
+            _ => None,
+        }
+    }
+    pub(crate) fn label(self, app: &App) -> &'static str {
+        match self {
+            Self::Back => "← Back",
+            Self::Up => "↑ Up",
+            Self::Open => "Open",
+            Self::Mark => match &app.highlight {
+                Some(path) if app.marks.contains(path) => "Unmark",
+                _ => "Mark",
+            },
+            Self::Hidden if app.policy.hidden => "Hide hidden",
+            Self::Hidden => "Show hidden",
+            Self::Cancel | Self::Dismiss => "Cancel",
+            Self::Select => "Select & Exit",
+            Self::Confirm => "Confirm",
+        }
+    }
+    /// Unavailable buttons are drawn dimmed and ignore clicks.
+    pub(crate) fn available(self, app: &App) -> bool {
+        match self {
+            Self::Back => !app.no_dir && !app.back.is_empty(),
+            Self::Up => !app.no_dir && app.cwd.parent().is_some(),
+            Self::Open | Self::Mark => app.highlight.is_some(),
+            Self::Select => !app.marks.is_empty() || app.highlight.is_some(),
+            Self::Hidden | Self::Cancel | Self::Dismiss | Self::Confirm => true,
+        }
+    }
+}
+/// A click on `button`; `Some` ends the session.
+pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) -> Option<Finish> {
+    if !button.available(app) {
+        return None;
+    }
+    match button {
+        Button::Back => {
+            if app.can_navigate() && app.jump(true) {
+                discovery.start(app, true);
+            }
+        }
+        Button::Up => {
+            if app.can_navigate()
+                && let Some(parent) = app.cwd.parent().map(PathBuf::from)
+            {
+                app.navigate(parent, true);
+                discovery.start(app, true);
+            }
+        }
+        Button::Open => {
+            discovery.checkpoint(app);
+            activate_highlighted(app, discovery);
+        }
+        Button::Mark => {
+            if let Some(path) = app.highlight.clone() {
+                app.toggle(path);
+            }
+        }
+        Button::Hidden => {
+            app.policy.hidden = !app.policy.hidden;
+            discovery.start(app, false);
+        }
+        Button::Cancel => return Some(Finish::Cancelled),
+        // Delivered as their keys by the session.
+        Button::Dismiss | Button::Confirm => {}
+        Button::Select => {
+            if !app.marks.is_empty() {
+                return app.confirm(None).map(Finish::Paths);
+            }
+            let target = app.highlight.clone()?;
+            if app.ready_path(&target) {
+                return Some(Finish::Paths(vec![target]));
+            }
+        }
+    }
+    None
+}
+/// The files a terminal pasted for a drop: shell-quoted paths separated by
+/// spaces, or `file://` URIs one per line. `None` unless every one is an
+/// existing absolute path, so ordinary text is still pasted as text.
+pub(super) fn dropped_paths(text: &str, home: Option<&std::path::Path>) -> Option<Vec<PathBuf>> {
+    let text = text.trim();
+    let words = if text.starts_with("file://") {
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(String::from)
+            .collect()
+    } else {
+        crate::run::split(text, home).ok()?
+    };
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for word in words {
+        let path = match word.strip_prefix("file://") {
+            // A host, if any, comes before the path: file://host/path.
+            Some(uri) => uri_path(&uri[uri.find('/')?..])?,
+            None => PathBuf::from(word),
+        };
+        if !path.is_absolute() || std::fs::symlink_metadata(&path).is_err() {
+            return None;
+        }
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    (!paths.is_empty()).then_some(paths)
+}
+/// A URI's percent-encoded path as raw path bytes.
+fn uri_path(encoded: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let bytes = encoded.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Some(std::ffi::OsString::from_vec(decoded).into())
+}

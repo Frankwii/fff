@@ -209,7 +209,18 @@ struct UiConfig {
     resume: bool,
     columns: Vec<crate::details::Column>,
     mouse: bool,
+    buttons: Buttons,
     watch: bool,
+}
+/// `[ui] buttons`: when the button bar is shown (opt-in).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Buttons {
+    #[default]
+    Off,
+    /// Once the mouse has been used in the session.
+    Mouse,
+    Always,
 }
 impl Default for UiConfig {
     fn default() -> Self {
@@ -220,6 +231,7 @@ impl Default for UiConfig {
             resume: true,
             columns: crate::details::DEFAULT_COLUMNS.to_vec(),
             mouse: true,
+            buttons: Buttons::Off,
             watch: true,
         }
     }
@@ -255,6 +267,8 @@ pub struct Settings {
     /// `[ui] columns`, `[ui] mouse` and `[ui] watch`.
     pub columns: Vec<crate::details::Column>,
     pub mouse: bool,
+    /// `[ui] buttons`.
+    pub buttons: Buttons,
     pub watch: bool,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
@@ -277,6 +291,9 @@ impl Settings {
         }
         if raw.ui.message_seconds > 3600 {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());
+        }
+        if raw.ui.buttons != Buttons::Off && !raw.ui.mouse {
+            return Err("ui.buttons needs ui.mouse = true: buttons are clicked".into());
         }
         let normal_keys = raw.keys.normal.build()?;
         raw.open.validate()?;
@@ -336,6 +353,7 @@ impl Settings {
             resume: raw.ui.resume,
             columns: raw.ui.columns,
             mouse: raw.ui.mouse,
+            buttons: raw.ui.buttons,
             watch: raw.ui.watch,
             open: raw.open,
             source: None,

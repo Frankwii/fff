@@ -947,6 +947,63 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
+    def test_buttons_appear_once_the_mouse_is_used_and_select_exits(self):
+        (self.root / "only").touch()
+        with tempfile.TemporaryDirectory(prefix="fff-buttons-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text('[ui]\nbuttons = "mouse"\n')
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            self.assertNotIn("Select & Exit", s.screen.text)
+            s.send(b"\x1b[<65;5;5M", "Select & Exit")  # a wheel step
+            lines = s.screen.text.splitlines()
+            row = next(i for i, l in enumerate(lines) if "Select & Exit" in l)
+            column = lines[row].index("Select & Exit") + 1
+            s.send(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
+            self.assertEqual(s.finish(), (0, os.fsencode(self.root / "only") + b"\n"))
+
+    def test_buttons_stay_hidden_by_default(self):
+        s = self.start("--depth", "1", implicit_root=True)
+        s.send(b"\x1b[<65;5;5M")
+        s.send(b"j")
+        self.assertNotIn("Select & Exit", s.screen.text)
+
+    def test_dropped_files_are_copied_here_after_confirmation(self):
+        (self.root / "here").mkdir()
+        with tempfile.TemporaryDirectory(prefix="fff-drop-") as folder:
+            dropped = Path(folder) / "dropped file"
+            dropped.write_text("content")
+            (self.root / "here" / "mark").touch()
+            s = self.start("--depth", "1", implicit_root=True)
+            s.send(b"l", ("cwd", self.root / "here"))
+            s.send(b"\t", "Marks (1)")
+            s.send(b"\x1b[200~'" + os.fsencode(dropped) + b"'\x1b[201~", "Copy here")
+            s.send(b"\r", "dropped file")
+            self.assertEqual((self.root / "here" / "dropped file").read_text(), "content")
+            self.assertTrue(dropped.exists())
+            self.assertIn("Marks (1)", s.screen.text)
+            # While typing, the same paste is only text in the query.
+            s.send(b"i", "Query · INSERT")
+            s.send(b"\x1b[200~" + os.fsencode(dropped) + b"\x1b[201~", "fff-drop-")
+            self.assertNotIn("Copy here", s.screen.text)
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
+    def test_a_drop_is_confirmed_with_the_mouse_alone(self):
+        with tempfile.TemporaryDirectory(prefix="fff-drop-") as folder:
+            dropped = Path(folder) / "picture.png"
+            dropped.write_text("pixels")
+            config = Path(folder) / "config.toml"
+            config.write_text('[ui]\nbuttons = "always"\n')
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            s.send(b"\x1b[200~file://" + os.fsencode(dropped) + b"\r\n\x1b[201~", "Confirm")
+            lines = s.screen.text.splitlines()
+            row = next(i for i, l in enumerate(lines) if "Confirm" in l)
+            column = lines[row].index("Confirm") + 1
+            s.send(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode(), "picture.png")
+            self.assertEqual((self.root / "picture.png").read_text(), "pixels")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
     def test_mouse_capture_can_be_turned_off(self):
         with tempfile.TemporaryDirectory(prefix="fff-mouse-") as folder:
             config = Path(folder) / "config.toml"
