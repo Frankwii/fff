@@ -247,7 +247,7 @@ Each result row ends with the entry's size (a directory's entry count) and the
 time since it was modified; the footer adds the highlighted entry's exact size,
 date, permissions and owner, and a symbolic link's target. Links show `→ target`
 after their name, broken ones in the error color. When files appear, disappear
-or change in the current directory, the results follow without F5. See
+or change anywhere in the results, the results follow without F5. See
 [result details](docs/CONFIGURATION.md#result-details) for `[ui] columns`,
 `[ui] mouse`, `[ui] buttons` (an opt-in button bar for mouse-only use) and
 `[ui] watch`.

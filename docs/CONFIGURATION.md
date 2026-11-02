@@ -240,14 +240,22 @@ reinstall st. The patch also puts the dropped paths in the PRIMARY selection.
 
 ## Live updates
 
-With `[ui] watch = true` (the default), fff watches the current directory with
-inotify. Entries created, removed or renamed there trigger a quiet rescan after
-a short pause (bursts such as an extraction are coalesced), keeping the rows and
-highlight while it reconciles; entries written to update their details in place.
-Only the current directory's own entries are watched, not deeper results or
-pinned roots, which still follow the [freshness](#discovery-cache-and-performance)
-rules and F5. Where inotify is unavailable or a directory cannot be watched,
-fff works as with `watch = false`.
+With `[ui] watch = true` (the default), fff watches with inotify the current
+directory, the pinned roots, and every listed folder whose entries are listed
+too (those shallower than the depth), so deeper results follow changes as
+well. Entries created, removed or renamed in any of them trigger a quiet
+rescan after a short pause (bursts such as an extraction are coalesced, and a
+change during a rescan waits for it to finish), keeping the rows and highlight
+while it reconciles; entries written to update their details in place, and a
+folder's entry count follows what is added to or removed from it. Folders that
+appear are watched once the rescan lists them.
+
+At most 4096 folders are watched, the roots first and then the shallowest
+listed folders, leaving the system's inotify watches (often 8192 per user) to
+other programs too; folders beyond that, or past the system's limit, follow the
+[freshness](#discovery-cache-and-performance) rules and F5. Where inotify is
+unavailable or a directory cannot be watched, fff works as with
+`watch = false`.
 
 ## Preview pane
 

@@ -20,7 +20,7 @@ mouse = true
 # A button bar for mouse-only use: "off", "mouse" (shown once the mouse is
 # used in a session) or "always". Needs mouse = true.
 buttons = "off"
-# Follow files created, removed or changed in the current directory.
+# Follow files created, removed or changed in the listed folders.
 watch = true
 # Start with the preview pane shown (Alt+v or zp toggles it).
 preview = false

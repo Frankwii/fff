@@ -969,6 +969,27 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    def test_deeper_folders_and_pinned_roots_update_live(self):
+        (self.root / "sub" / "inner").mkdir(parents=True)
+        with tempfile.TemporaryDirectory(prefix="fff-watch-") as folder:
+            pinned = Path(folder) / "pinned"
+            (pinned / "shelf").mkdir(parents=True)
+            config = Path(folder) / "config.toml"
+            config.write_text("[cache]\nfresh_seconds=60\nttl_seconds=3600\nprefetch=false\n")
+            s = self.start(str(pinned), "--depth", "3", "--config", str(config))
+            s.wait_ui("inner/")
+            (self.root / "sub" / "inner" / "deep-arrival").touch()
+            s.wait_ui("deep-arrival")
+            (pinned / "shelf" / "pinned-arrival").touch()
+            s.wait_ui("pinned-arrival")
+            # A folder that appears is watched once the rescan lists it.
+            (self.root / "sub" / "fresh").mkdir()
+            s.wait_ui("fresh/")
+            (self.root / "sub" / "fresh" / "inside-fresh").touch()
+            s.wait_ui("inside-fresh")
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+
     def test_unwatched_directory_waits_for_a_rescan(self):
         with tempfile.TemporaryDirectory(prefix="fff-watch-") as folder:
             config = Path(folder) / "config.toml"

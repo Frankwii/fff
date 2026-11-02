@@ -130,6 +130,41 @@ fn types_query(app: &App, focus: &Focus, event: &Event) -> bool {
             _ => false,
         }
 }
+/// The directories live updates watch: the current directory and the pinned
+/// roots, then the folders whose entries are listed, shallowest first. While
+/// a scan runs, those already watched stay if still in reach.
+fn watched_dirs(app: &App, watch: &crate::watch::Watch) -> Vec<PathBuf> {
+    let mut dirs = vec![app.cwd.clone()];
+    dirs.extend(app.scope.iter().filter(|r| **r != app.cwd).cloned());
+    // Folders below `depth - 1` have their entries beyond the depth.
+    let within = |dir: &std::path::Path| {
+        app.scope.iter().any(|root| {
+            dir.strip_prefix(root)
+                .is_ok_and(|rest| (1..app.depth).contains(&rest.components().count()))
+        })
+    };
+    let mut deeper: Vec<(usize, PathBuf)> = if app.scanning {
+        watch
+            .watched()
+            .filter(|dir| within(dir))
+            .map(|dir| (dir.components().count(), dir.to_path_buf()))
+            .collect()
+    } else {
+        app.known
+            .values()
+            .filter(|c| c.directory && c.depth < app.depth && app.eligible(c))
+            .map(|c| (c.depth, c.path.clone()))
+            .collect()
+    };
+    deeper.sort_unstable();
+    dirs.extend(
+        deeper
+            .into_iter()
+            .map(|(_, dir)| dir)
+            .take(crate::watch::MOST.saturating_sub(dirs.len())),
+    );
+    dirs
+}
 /// Runs a session, then remembers where it was for the next one.
 pub fn run(
     mut app: App,
@@ -176,6 +211,7 @@ fn session(
     app.cached_queries = performance.cached_queries;
     app.details.set_waker(wake.clone());
     let mut watch = app.watch.then(crate::watch::Watch::new).flatten();
+    let mut watch_basis = None;
     // When a change to the current directory's listing is reconciled.
     let mut relist_at: Option<std::time::Instant> = None;
     let mut details_generation = app.generation;
@@ -231,7 +267,14 @@ fn session(
             }
         }
         if let Some(watch) = &mut watch {
-            watch.follow(&app.cwd);
+            // While a scan streams paths in, only the roots change.
+            let known = if app.scanning { 0 } else { app.known.len() };
+            let basis = (app.generation, app.scanning, app.depth, known);
+            if watch_basis != Some(basis) {
+                watch_basis = Some(basis);
+                let dirs = watched_dirs(app, watch);
+                watch.follow(&dirs.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+            }
             let changes = watch.poll();
             for path in &changes.touched {
                 app.details.touched(path);
@@ -241,7 +284,9 @@ fn session(
             if changes.listing && relist_at.is_none() {
                 relist_at = Some(now + RELIST_DELAY);
             }
-            if relist_at.is_some_and(|at| now >= at) {
+            // A change during a rescan waits for it, so that a busy folder
+            // cannot keep restarting it.
+            if relist_at.is_some_and(|at| now >= at) && !app.scanning {
                 relist_at = None;
                 discovery.changed(app);
             }

@@ -8,6 +8,12 @@ history.
 
 ### Changed
 
+- **Live updates reach deeper results and pinned roots.** With `[ui] watch`,
+  files created, removed or renamed in any listed folder (not only the
+  current directory) or in a pinned root appear and disappear without F5, and
+  a folder's entry count follows. Up to 4096 folders are watched, shallowest
+  first.
+
 - **Browsing stays responsive while huge trees load.** Moving the highlight
   during a scan of hundreds of thousands of paths (say `$HOME` with hidden
   files at depth 9) no longer stalls for a second at a time: keys are handled

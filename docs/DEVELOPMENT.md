@@ -27,7 +27,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/guide.rs` | The F1 key guide and session details. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/details.rs` | Visible rows' details (lstat, link targets, owners), background entry counts and their formats. |
-| `src/watch.rs` | inotify on the current directory for live updates. |
+| `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
