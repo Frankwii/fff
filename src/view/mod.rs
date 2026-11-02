@@ -65,7 +65,7 @@ fn display_path(path: &Path, base: &Path) -> String {
         safe(relative.display().to_string())
     }
 }
-/// `--no-dir` result label: the bare name, or the shortest distinguishing
+/// `fff seek` result label: the bare name, or the shortest distinguishing
 /// trailing path when another listed file shares it. Presentation only.
 fn no_dir_label(app: &App, path: &Path) -> String {
     match app.labels.get(path) {
@@ -305,8 +305,8 @@ fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
 }
 
 /// `1 2 3` in the results' top-right corner. The active tab wears the "@"
-/// badge's colors: it is the tab showing the current directory. None with
-/// `--no-dir`, which cannot change directory.
+/// badge's colors: it is the tab showing the current directory. None
+/// in `fff seek`, which cannot change directory.
 /// Each tab number's cell in the strip `tab_strip` draws right-aligned in the
 /// top border of `area`: a space, three-column numbers, a space, the corner.
 fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
@@ -754,7 +754,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
             let info = app.details.info(&c.path);
-            // Labels are relative to the current directory (or, with --no-dir,
+            // Labels are relative to the current directory (or, in fff seek,
             // as short as a shared name allows); the footer and F1 show the rest.
             let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
             let fixed = (prefix.width() + "● ".width() + kind.width()) as u16;

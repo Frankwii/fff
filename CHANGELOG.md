@@ -8,6 +8,13 @@ history.
 
 ### Changed
 
+- **`--no-dir` is now `fff seek`**, a command of its own like `fff explorer`:
+  `fff seek ~/papers --glob '*.pdf' --output-paths`. It behaves as `--no-dir`
+  did, except that it never resumes a remembered location and rejects
+  `--browse`, `--window` and `--here`. `--no-dir` now fails with a pointer to
+  `fff seek`.
+- `--glob` and `--exclude` also work after a command: `fff explorer --glob
+  '*.pdf'` lists only PDFs in a file dialog.
 - **Resuming only where you left from.** A new session resumes in the
   directory the last one was browsing only when started from the same
   directory as that one; started anywhere else, it starts there. State files

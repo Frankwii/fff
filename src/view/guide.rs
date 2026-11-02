@@ -47,7 +47,7 @@ pub(super) fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize,
 
 /// A titled group of (keys, description, needs navigation) rows in the F1 guide.
 pub(super) type GuideSection = (&'static str, Vec<(String, &'static str, bool)>);
-/// Every binding, grouped. Navigation keys are dimmed with `--no-dir`, and the
+/// Every binding, grouped. Navigation keys are dimmed in `fff seek`, and the
 /// Normal-mode section shows the configured `[keys.normal]` sequences.
 pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
     use crate::normal_keys::ListAction::*;
@@ -271,7 +271,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
     let column = |section: &GuideSection, width: usize| {
         let mut lines = vec![vec![bold(section.0.to_uppercase(), theme.marked)]];
         if app.no_dir && section.1.iter().any(|entry| entry.2) {
-            lines.push(vec![styled("crossed out: off with --no-dir", theme.muted)]);
+            lines.push(vec![styled("crossed out: off in fff seek", theme.muted)]);
         }
         for (keys, description, navigation) in &section.1 {
             let description = elide(description, width.saturating_sub(key_width));
@@ -410,7 +410,7 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
             app.policy.hidden,
             app.policy.ignore,
             if app.no_dir {
-                " · files only (--no-dir)"
+                " · files only (fff seek)"
             } else {
                 ""
             }

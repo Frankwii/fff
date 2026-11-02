@@ -280,7 +280,7 @@ fn buttons_do_what_their_keys_do() {
     assert_eq!(app.cwd, root.join("dir"));
     app.navigate(root.clone(), false);
     app.window = false;
-    // --no-dir cannot change directory.
+    // fff seek cannot change directory.
     app.no_dir = true;
     assert!(!Button::Up.available(&app) && !Button::Back.available(&app));
     std::fs::remove_dir_all(&root).unwrap();

@@ -156,7 +156,7 @@ fn session(
     discovery.start(app, true);
     app.status = notice;
     let mut editor = start_editor("nvim")?;
-    // A --no-dir session is a file choice: start ready to type the query.
+    // An fff seek session is a file choice: start ready to type the query.
     if app.no_dir {
         editor.reset_insert(Field::Query);
     }
@@ -856,7 +856,7 @@ fn session(
                 app.highlight_top = false;
                 app.wanted = None;
             } else if app.no_dir {
-                // Static (--no-dir) sessions never fall back to the current
+                // Static (fff seek) sessions never fall back to the current
                 // directory.
                 app.nothing_to_enter();
                 continue;

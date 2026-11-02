@@ -299,10 +299,10 @@ pub struct App {
     pub palette_name: String,
     pub palettes: Vec<(String, config::Palette)>,
     pub normal_keys: normal_keys::NormalKeys,
-    /// `--no-dir`: a static file choice. Directories are never listed, entered,
+    /// `fff seek`: a static file choice. Directories are never listed, entered,
     /// or returned, and the current directory cannot change.
     pub no_dir: bool,
-    /// `--no-dir` row labels for files whose basename another listed file shares
+    /// `fff seek` row labels for files whose basename another listed file shares
     /// (presentation only); other rows show their bare name.
     pub labels: HashMap<PathBuf, PathBuf>,
     /// Home directory, shown as `~` in the location line (presentation only).
@@ -598,7 +598,7 @@ impl App {
             self.known_version += 1;
         }
     }
-    /// Rows an empty query would list: eligible, and passing `--no-dir` and the
+    /// Rows an empty query would list: eligible, and passing `fff seek` (files only) and the
     /// file filters, which hide directories whenever any is set.
     fn listed(&self, c: &Candidate) -> bool {
         self.eligible(c)
@@ -797,10 +797,10 @@ impl App {
             .cloned()
             .unwrap_or_else(|| self.cwd.clone())
     }
-    /// Whether the current directory may change; false with `--no-dir`.
+    /// Whether the current directory may change; false in `fff seek`.
     pub fn can_navigate(&mut self) -> bool {
         if self.no_dir {
-            self.status = "Navigation is disabled with --no-dir".into();
+            self.status = "Navigation is disabled in fff seek".into();
         }
         !self.no_dir
     }

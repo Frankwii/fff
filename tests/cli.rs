@@ -52,6 +52,27 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
 }
 
 #[test]
+fn seek_is_a_command_and_no_dir_points_to_it() {
+    let help = stdout(&fff(&["seek", "--help"], None));
+    assert!(help.contains("Usage: fff seek [OPTIONS] [ROOTS]..."), "{help}");
+    for text in ["--output-paths", "--glob", "--depth"] {
+        assert!(help.contains(text), "missing {text:?}");
+    }
+    let old = fff(&["--no-config", "--no-dir"], None);
+    assert_eq!(old.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&old.stderr).contains("fff seek [ROOTS]"));
+    // Seeking does not browse, and only the picker modes print paths.
+    for bad in [
+        &["seek", "--window"][..],
+        &["--here", "seek"],
+        &["seek", "--relative"],
+        &["explorer", "--output-paths"],
+    ] {
+        assert_eq!(fff(bad, None).status.code(), Some(2), "{bad:?}");
+    }
+}
+
+#[test]
 fn completion_scripts_register_for_each_shell() {
     for shell in ["bash", "zsh", "fish"] {
         let flag = stdout(&fff(&["--completions", shell], None));

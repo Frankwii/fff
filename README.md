@@ -18,7 +18,7 @@ Or build and run directly:
 cargo build --release
 ./target/release/fff
 ./target/release/fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'
-./target/release/fff --output-paths --no-dir --relative --null > paths.bin
+./target/release/fff seek --output-paths --relative --null > paths.bin
 ```
 
 Run in a Linux/Unix terminal with `/dev/tty`. The interface uses the controlling
@@ -63,7 +63,7 @@ file-chooser` lets Firefox and other portal users pick files with it, through
 
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
 except prompts made for typing (new names, the go-to prompt, the gx/gX command)
-and the query of a `--no-dir` session, which start in **Insert mode**.
+and the query of `fff seek`, which start in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. See [editing](docs/EDITING.md).
 
@@ -88,7 +88,7 @@ Enter depends on the editing mode:
   like `gX`, and any other opener starts detached, like `l`; the shell then
   changes to the file's folder (also for deep results: `notes/more/a.pdf` leaves
   you in `notes/more`). With `--output-paths`, Enter on a file prints the file;
-  with `--no-dir` (and no `--output-paths`) it exits into its folder. With
+  in `fff seek` (without `--output-paths`) it exits into its folder. With
   nothing listed, Enter exits into the browsing directory. Marks are ignored.
   In the marked list Enter does the same for the highlighted mark.
 - **While typing (Insert mode):** Enter opens a directory. On a file, with
@@ -120,7 +120,7 @@ folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
 Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
-with the marks only. With `--output-paths` (and `--no-dir`) it returns them; in
+with the marks only. With `--output-paths` (and in `fff seek`) it returns them; in
 the default mode it **opens them and leaves**, like Normal-mode Enter on a
 file: files sharing an opener go to one invocation (three PDFs, one zathura),
 GUI openers start detached, and one terminal opener may take over this
@@ -141,7 +141,7 @@ shared. Mark files in one tab, switch, browse somewhere far away, then move
 or copy them there with `v` / `p`. Switching to a tab in another directory lists
 it again with an empty query; a tab whose directory vanished falls back to the
 nearest existing parent. F1's session details list every tab's directory; tabs
-are unavailable with `--no-dir`.
+are unavailable in `fff seek`.
 
 Ctrl+number is Enter on a visible row, exactly as if that row were highlighted
 and Enter pressed, in the current editing mode: in Normal mode it finishes with
@@ -152,15 +152,7 @@ on the same row: it enters a directory or opens a file in the background.
 Labels refer to the last fully rendered page: 1–9 select that position,
 out-of-range digits clamp to the last row, and 0 selects the last row. With no
 visible rows, Ctrl+number is Enter with nothing highlighted (in Normal mode,
-the current directory; with `--no-dir`, nothing) and Alt+number does nothing.
-
-`--no-dir` provides static file selection: it hides directories, disables location
-changes, and never returns the current directory as an empty-results fallback.
-Discovery still traverses directories within the depth limit, and the query
-starts in Insert mode, ready to type. Result rows show
-bare file names; when listed files share a name, each gains the fewest trailing
-parent directories that tell it apart (`folder1/main.pdf`, `folder2/main.pdf`),
-independently of the query. The footer still shows the highlighted file's path.
+the current directory; in `fff seek`, nothing) and Alt+number does nothing.
 
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
@@ -180,6 +172,24 @@ The status line shows `filters on` and `exclusions on` only while filters or
 enforced exclusion rules exist; F1's session details list their globs.
 Symlink directories can be selected or entered; recursive discovery does not
 follow them.
+
+### Choosing files: `fff seek`
+
+`fff seek [ROOTS]` is a static file choice: it lists only the files below the
+current directory (or ROOTS), disables location changes, and never returns
+the current directory as an empty-results fallback. It takes the search
+options (`--depth`, `--glob`, `--exclude`, `--hidden`) and the output ones
+(`--output-paths`, `--relative`, `--null`):
+
+```sh
+fff seek ~/papers --depth 4 --glob '*.pdf' --output-paths
+```
+
+Discovery still traverses directories within the depth limit, and the query
+starts in Insert mode, ready to type. Result rows show
+bare file names; when listed files share a name, each gains the fewest trailing
+parent directories that tell it apart (`folder1/main.pdf`, `folder2/main.pdf`),
+independently of the query. The footer still shows the highlighted file's path.
 
 ### Details and live updates
 
@@ -203,7 +213,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (default mode), print it (`--output-paths`) or exit into its folder (`--no-dir`) |
+| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (default mode), print it (`--output-paths`) or exit into its folder (`fff seek`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`--output-paths`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs); use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs); use j) |
@@ -251,7 +261,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 
 `q` and `!` exit with status 0. With `--output-paths` they print the launch or
 current directory in the usual output format; in the default mode `!` changes
-to the current directory and `q` changes nothing. `--no-dir` makes either exit
+to the current directory and `q` changes nothing. `fff seek` makes either exit
 successfully without output. Insert mode keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 

@@ -1067,13 +1067,13 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
         "{screen}"
     );
     assert!(screen.contains("Alt+e") && screen.contains("one glob per line"));
-    assert!(!screen.contains("off with --no-dir"));
+    assert!(!screen.contains("off in fff seek"));
     app.no_dir = true;
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let buffer = terminal.backend().buffer();
-    assert!(text(buffer).contains("crossed out: off with --no-dir"));
+    assert!(text(buffer).contains("crossed out: off in fff seek"));
     let (x, y) = (0..buffer.area.height)
         .find_map(|y| {
             let line: String = (0..buffer.area.width)

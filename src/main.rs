@@ -50,6 +50,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Open the picked file using a path relative to here.
   <cyan>fff --output-paths --exclude build -0 | xargs -0 ls -ld</cyan>
       Act on every marked path with NUL-separated records.
+  <cyan>fff seek ~/papers --depth 4 --glob '*.pdf' --output-paths</cyan>
+      Choose PDFs from anywhere below ~/papers, without browsing.
   <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
       Add Emacs-style movement keys.
   <cyan>fff --setup desktop; fff --setup file-chooser</cyan>
@@ -127,22 +129,27 @@ struct Args {
     /// still traversed. Uses globset syntax (*, ?, [abc], {a,b}); quote it so
     /// the shell does not expand it. Edit the filters during the session with
     /// Alt+f.
-    #[arg(short, long, value_name = "GLOB", help_heading = "Search")]
+    #[arg(
+        global = true,
+        short,
+        long,
+        value_name = "GLOB",
+        help_heading = "Search"
+    )]
     glob: Vec<String>,
     /// Exclude a basename or root-relative glob; repeat for several rules
     ///
     /// A matching directory prunes its whole subtree. Edit the rules during the
     /// session with Alt+e and toggle enforcement with Alt+H.
-    #[arg(long = "exclude", value_name = "GLOB", help_heading = "Search")]
+    #[arg(
+        global = true,
+        long = "exclude",
+        value_name = "GLOB",
+        help_heading = "Search"
+    )]
     exclusions: Vec<String>,
-    /// Static file choice: hide directories and disable navigation
-    ///
-    /// Only files below the current directory (or the pinned ROOTS) are listed,
-    /// down to --depth. Directory keys (Enter on a directory, Alt+h/Alt+l, the
-    /// Alt+g location prompt, Alt+b bookmarks) are disabled, and the current
-    /// directory is never returned. Mark files with Tab, then confirm. Rows show
-    /// bare names; files sharing a name gain the shortest distinguishing parents.
-    #[arg(long, help_heading = "Search")]
+    /// Replaced by `fff seek`; kept only to say so.
+    #[arg(long, hide = true)]
     no_dir: bool,
     /// Start in the current directory instead of where the last session ended
     ///
@@ -265,6 +272,16 @@ struct Args {
 }
 #[derive(clap::Subcommand)]
 enum Command {
+    /// Choose files below the current directory or ROOTS, without navigating
+    ///
+    /// A static file choice: only files are listed, from every folder down to
+    /// --depth; the current directory cannot change, and the query starts in
+    /// Insert mode, ready to type. Rows show bare names; files sharing a name
+    /// gain the shortest distinguishing parents. Mark files with Tab. With
+    /// --output-paths, Enter prints the highlighted file and Ctrl+w the marks;
+    /// without it, fff leaves into the chosen file's folder. q and ! leave
+    /// without choosing anything.
+    Seek(SeekArgs),
     /// Answer a file dialog: choose files or a folder, or where to save
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
@@ -273,6 +290,21 @@ enum Command {
     /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
     /// how to choose.
     Explorer(ExplorerArgs),
+}
+#[derive(clap::Args)]
+struct SeekArgs {
+    /// Where to look; without any, the current directory
+    #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
+    roots: Vec<PathBuf>,
+    /// Print the chosen files to stdout instead of changing directory
+    #[arg(long, help_heading = "Output")]
+    output_paths: bool,
+    /// Print paths relative to the invocation directory instead of absolute
+    #[arg(long, requires = "output_paths", help_heading = "Output")]
+    relative: bool,
+    /// Terminate each output path with NUL instead of newline (for xargs -0)
+    #[arg(short = '0', long, requires = "output_paths", help_heading = "Output")]
+    null: bool,
 }
 #[derive(clap::Args)]
 struct ExplorerArgs {
@@ -306,7 +338,17 @@ fn main() -> ExitCode {
     }
 }
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    // fff seek: the same session, choosing files only.
+    let no_dir = if let Some(Command::Seek(seek)) = &mut args.command {
+        args.roots.append(&mut seek.roots);
+        args.output_paths |= seek.output_paths;
+        args.relative |= seek.relative;
+        args.null |= seek.null;
+        true
+    } else {
+        false
+    };
     if let Some(shell) = args.init {
         print!("{}", completion::wrapper(shell));
         return Ok(true);
@@ -327,6 +369,22 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     };
     if let Err(e) = KeyMap::parse(&args.key_maps) {
         usage("--map-key", &e);
+    }
+    if args.no_dir {
+        Args::command()
+            .error(
+                clap::error::ErrorKind::UnknownArgument,
+                "--no-dir is now a command of its own: fff seek [ROOTS]",
+            )
+            .exit()
+    }
+    if no_dir && (args.browse || args.window || args.here) {
+        Args::command()
+            .error(
+                clap::error::ErrorKind::ArgumentConflict,
+                "fff seek does not browse: --browse, --window and --here do not apply",
+            )
+            .exit()
     }
     let mut policy = Policy {
         hidden: args.hidden,
@@ -421,7 +479,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let state = fuzzy_file_finder::state::path()
         .map(|p| fuzzy_file_finder::state::load(&p))
         .unwrap_or_default();
-    let records_location = roots.is_empty() && !args.output_paths && dialog.is_none();
+    let records_location = roots.is_empty() && !args.output_paths && dialog.is_none() && !no_dir;
     let resume = (records_location
         && settings.resume
         && !args.here
@@ -455,7 +513,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
-    app.no_dir = args.no_dir;
+    app.no_dir = no_dir;
     app.status_timeout = settings.message_timeout;
     app.columns = settings.columns;
     app.mouse = settings.mouse;
@@ -581,7 +639,12 @@ mod tests {
     fn every_completable_argument_has_completion() {
         let command = Args::command();
         let explorer = command.find_subcommand("explorer").unwrap();
-        for arg in command.get_arguments().chain(explorer.get_arguments()) {
+        let seek = command.find_subcommand("seek").unwrap();
+        for arg in command
+            .get_arguments()
+            .chain(explorer.get_arguments())
+            .chain(seek.get_arguments())
+        {
             let id = arg.get_id().as_str();
             if !arg.get_action().takes_values() || ["help", "version"].contains(&id) {
                 continue;
@@ -616,6 +679,7 @@ mod tests {
             candidates(&["fff", "explorer", "--no-config", "do"], Some(root)),
             ["docs/"]
         );
+        assert_eq!(candidates(&["fff", "seek", "do"], Some(root)), ["docs/"]);
         let configs = candidates(&["fff", "--config", "docs/con"], Some(root));
         assert!(
             configs.contains(&"docs/config.example.toml".to_string()),

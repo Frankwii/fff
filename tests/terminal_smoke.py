@@ -59,7 +59,10 @@ class Session:
                 args=(*args,"--no-config")
             if output_paths:
                 args=(*args,"--output-paths")
-            os.execv(BINARY, [BINARY, *([] if implicit_root else [str(root)]), *args])
+            # A command (fff seek, fff explorer) comes before the root.
+            command = [args[0]] if args and args[0] in ("seek", "explorer") else []
+            args = args[len(command):]
+            os.execv(BINARY, [BINARY, *command, *([] if implicit_root else [str(root)]), *args])
         os.close(slave)
         os.close(writer)
         self.ui = b""
@@ -243,7 +246,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_no_dir_starts_in_insert_and_quit_returns_no_directory(self):
         (self.root / "file").touch()
-        s = self.start("--no-dir")
+        s = self.start("seek")
         # A file choice starts ready to type: "!" is query text here.
         s.send(b"", "Query · INSERT")
         s.send(b"!", "❯ !")
@@ -563,10 +566,10 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-status-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\nmessage_seconds=1\n")
-            s = self.start("--no-dir", "--config", str(config))
-            s.send(b"\x1bh", "disabled with --no-dir")
+            s = self.start("seek", "--config", str(config))
+            s.send(b"\x1bh", "disabled in fff seek")
             started = time.monotonic()
-            s.wait_absent("disabled with --no-dir", timeout=4)
+            s.wait_absent("disabled in fff seek", timeout=4)
             self.assertGreaterEqual(time.monotonic() - started, 0.8)
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -578,13 +581,13 @@ class TerminalTests(unittest.TestCase):
         nested.touch()
         top = self.root / "top.txt"
         top.touch()
-        s = self.start("--no-dir", "--depth", "2", implicit_root=True)
+        s = self.start("seek", "--depth", "2", implicit_root=True)
         s.send(b"", b"nested.txt")
         self.assertNotIn("folder/ ", s.screen.text)
         # Parent, location and bookmarks all stay put with a notice. (Every
         # row is a file, so Alt+l would open it rather than enter anything.)
         for key in (b"\x1bh", b"\x1bg", b"\x1bb"):
-            s.send(key, "disabled with --no-dir")
+            s.send(key, "disabled in fff seek")
             self.assertTrue(any(" ".join(l.split()).startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
             self.assertNotIn("Go to directory", s.screen.text)
             self.assertNotIn("Bookmarks ·", s.screen.text)

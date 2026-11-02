@@ -515,7 +515,7 @@ fn no_dir_hides_directories_and_never_navigates_or_returns_them() {
         app.enter(Some(candidate("alpha", true, 1))),
         fuzzy_file_finder::EnterOutcome::Stay
     );
-    assert!(app.status.contains("--no-dir"));
+    assert!(app.status.contains("fff seek"));
     assert!(!app.navigate_highlighted());
     assert_eq!(app.cwd, Path::new("/fixture"));
     // An empty directory never returns itself.

@@ -11,7 +11,7 @@ is the only engine.
 The query, exclusions, file filters, bookmark name/path, bookmark and icon
 filters, and palette filter all initially start in **Normal mode**. New
 file/directory naming buffers, the go-to prompt (Alt+g), the gx/gX command
-prompt and the query of a `--no-dir` session start in **Insert mode**, ready for
+prompt and the query of `fff seek` start in **Insert mode**, ready for
 typing; rename and extraction buffers start in Normal.
 Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
@@ -63,7 +63,7 @@ For example, type `ihello world`, press Escape, then `0dw`: the query becomes
 
 In Normal mode, `q` exits and returns the invocation directory; `!` exits and
 returns the current browsing directory. Both ignore marks and use the normal
-path output format (`--relative` and `--null` apply). With `--no-dir`, they exit
+path output format (`--relative` and `--null` apply). In `fff seek`, they exit
 successfully without output. They also work in the marked list. Insert-mode
 fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]`.
 

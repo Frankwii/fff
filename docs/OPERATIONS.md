@@ -163,7 +163,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
   different openers run one after another. `o` refuses directories (`l` enters
   them).
 - **And leave:** Normal-mode Enter on a file, or Ctrl+w on the marked files,
-  in the default mode (not with `--output-paths` or `--no-dir`, where they
+  in the default mode (not with `--output-paths` or in `fff seek`, where they
   return paths). Files sharing an opener go to one invocation, as with `o`. GUI
   openers start detached, as with `l`; a terminal opener replaces fff in this
   terminal, like `gX`, and fff's exit status becomes the program's. Only one

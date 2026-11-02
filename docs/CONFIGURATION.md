@@ -216,7 +216,7 @@ key does:
 | Cancel | Ctrl+c: quit without output |
 | Select & Exit | Ctrl+w with marks (opening them in the default mode), else Normal-mode Enter on the highlighted row |
 
-Buttons that cannot act (Back with no history, Up and Back with `--no-dir`)
+Buttons that cannot act (Back with no history, Up and Back in `fff seek`)
 are dimmed. In the copy, move, link and delete confirmations the bar shows
 Cancel and Confirm (Esc and Enter). A narrow bar leaves out buttons from the
 end of the left group. `buttons` other than `"off"` needs `mouse = true`.
@@ -230,7 +230,7 @@ browsing (the query in Normal mode) and it consists only of existing absolute
 paths (shell-quoted or backslash-escaped, or `file://` URIs), fff offers to copy
 them into the current directory, with the usual confirmation and conflict
 checks; the marks are left as they were. While typing, a paste is only text
-for the query. Drops are ignored with `--no-dir`.
+for the query. Drops are ignored in `fff seek`.
 
 Vanilla st has no drag and drop. With the drag-n-drop patch, st pastes dropped
 paths backslash-escaped and separated by spaces through its usual bracketed
@@ -251,7 +251,7 @@ fff works as with `watch = false`.
 
 ## Status messages
 
-Notices such as "Navigation is disabled with --no-dir" or a failed palette reload
+Notices such as "Navigation is disabled in fff seek" or a failed palette reload
 appear in red on the bottom line, or inside an open prompt. They clear on their
 own after `message_seconds` (default 4). Triggering the same notice again restarts
 the timer; `0` keeps each message until another replaces it.
@@ -608,7 +608,7 @@ sequence such as `delete = "D"`, because two actions cannot share a sequence.
 `run` and `run_exit` work in results and the marked list; see
 [running programs](OPERATIONS.md#running-programs). Quit actions work in
 Normal-mode fields and in the marked list, ignoring marks;
-`--no-dir` exits without returning a directory. Insert mode keeps literal
+`fff seek` exits without returning a directory. Insert mode keeps literal
 `q` and `!`. Disable `quit` before reusing `q` as a prefix for another action.
 
 Marking is active only in results and the marked list. Buffer editors use
