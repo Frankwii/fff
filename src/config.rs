@@ -207,6 +207,9 @@ struct UiConfig {
     icons: bool,
     message_seconds: u64,
     resume: bool,
+    columns: Vec<crate::details::Column>,
+    mouse: bool,
+    watch: bool,
 }
 impl Default for UiConfig {
     fn default() -> Self {
@@ -215,6 +218,9 @@ impl Default for UiConfig {
             icons: true,
             message_seconds: 4,
             resume: true,
+            columns: crate::details::DEFAULT_COLUMNS.to_vec(),
+            mouse: true,
+            watch: true,
         }
     }
 }
@@ -246,6 +252,10 @@ pub struct Settings {
     pub message_timeout: Option<std::time::Duration>,
     /// Start where the last session ended (`[ui] resume`), in the default mode.
     pub resume: bool,
+    /// `[ui] columns`, `[ui] mouse` and `[ui] watch`.
+    pub columns: Vec<crate::details::Column>,
+    pub mouse: bool,
+    pub watch: bool,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
     /// The file that was read; `None` without a config file.
@@ -324,6 +334,9 @@ impl Settings {
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
             resume: raw.ui.resume,
+            columns: raw.ui.columns,
+            mouse: raw.ui.mouse,
+            watch: raw.ui.watch,
             open: raw.open,
             source: None,
             bookmark_path: None,

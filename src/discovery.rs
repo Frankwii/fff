@@ -288,6 +288,14 @@ impl Discovery {
         self.key = Some(key);
         self.stored = fresh;
     }
+    /// The current directory changed on disk: reconcile with a quiet rescan
+    /// that keeps the rows, and stop replaying the outdated snapshot.
+    pub fn changed(&mut self, app: &App) {
+        let key = crate::cache::Key::of(app);
+        self.cache.invalidate(&key);
+        self.prefetch.invalidate(&key);
+        self.refresh_at = Some(Instant::now());
+    }
     /// Preserve the verification age: navigation/query changes do not renew it.
     pub fn checkpoint(&mut self, app: &App) {
         if let Some(key) = &self.key

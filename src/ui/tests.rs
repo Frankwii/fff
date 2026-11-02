@@ -135,3 +135,81 @@ fn m_marks_every_listed_row_and_shift_m_inverts_them() {
     press(&mut app, 'M');
     assert_eq!(app.marks, [&other, &a, &c].map(Clone::clone));
 }
+
+#[test]
+fn clicks_highlight_drags_mark_double_clicks_enter_and_the_wheel_only_scrolls() {
+    let root = std::env::temp_dir().join(format!("fff-mouse-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("dir")).unwrap();
+    let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+    let names = ["dir", "a", "b", "c", "d", "e", "f", "g"];
+    for name in names {
+        app.insert(
+            0,
+            crate::Candidate {
+                path: root.join(name),
+                directory: name == "dir",
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    app.scanning = false;
+    // Six rows on screen, starting at y = 5.
+    app.rendered = app.rows.iter().take(6).map(|c| c.path.clone()).collect();
+    let mut discovery = Discovery::new(Default::default());
+    let area = ratatui::layout::Rect::new(2, 5, 40, 6);
+    let mut state = Mouse::default();
+    let mut mouse = |app: &mut App, kind, column, row| {
+        let event = MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: M::NONE,
+        };
+        mouse_results(app, &mut discovery, event, area, &mut state);
+    };
+    let (left, drag, up) = (
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Drag(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    );
+    let path = |name: &str| root.join(name);
+    let marked = vec![path("f"), path("g")];
+    app.marks = marked.clone();
+    // Outside the rows, past the last one, or another button: nothing changes.
+    mouse(&mut app, left, 1, 8);
+    mouse(&mut app, left, 10, 30);
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Right), 10, 8);
+    assert_eq!(app.marks, marked);
+    // The wheel scrolls the view, keeping the highlight and the marks.
+    app.highlight = Some(path("a"));
+    mouse(&mut app, MouseEventKind::ScrollDown, 0, 0);
+    assert_eq!((app.offset, app.highlight.clone()), (2, Some(path("a"))));
+    mouse(&mut app, MouseEventKind::ScrollUp, 0, 0);
+    assert_eq!(app.offset, 0);
+    assert_eq!(app.marks, marked);
+    // A click clears the marks and highlights; a drag marks the rows it spans.
+    mouse(&mut app, left, 10, 7);
+    assert_eq!(app.highlight, Some(path("b")));
+    assert!(app.marks.is_empty());
+    mouse(&mut app, drag, 10, 7);
+    assert!(app.marks.is_empty());
+    mouse(&mut app, drag, 10, 9);
+    assert_eq!(app.marks, [path("b"), path("c"), path("d")]);
+    assert_eq!(app.highlight, Some(path("d")));
+    // Upwards, past the top: back to the first row, in drag order.
+    mouse(&mut app, drag, 10, 2);
+    assert_eq!(app.marks, [path("b"), path("a"), path("dir")]);
+    mouse(&mut app, up, 10, 2);
+    mouse(&mut app, drag, 10, 9);
+    assert_eq!(app.marks, [path("b"), path("a"), path("dir")]);
+    // A second click on the same row enters the directory.
+    mouse(&mut app, left, 10, 5);
+    assert!(app.marks.is_empty());
+    assert_eq!(app.cwd, root);
+    mouse(&mut app, left, 10, 5);
+    assert_eq!(app.cwd, root.join("dir"));
+    std::fs::remove_dir_all(&root).unwrap();
+}

@@ -145,6 +145,61 @@ icons = false
 or pass `--no-icons` for one invocation. Icons never affect matching, numbering,
 or output paths, and the row layout has the same width either way.
 
+## Result details
+
+Each result row ends with details of the entry, right-aligned so they line up:
+
+```toml
+[ui]
+columns = ["size", "modified"]   # any of "permissions", "size", "modified"; [] for none
+```
+
+- `permissions`: like `ls -l`, `drwxr-xr-x`.
+- `size`: a file's size (`812B`, `4.2K`, `13M`); a directory's number of
+  entries (`12`, `9999+` past ten thousand, `?` when unreadable).
+- `modified`: time since the last change: `now`, `5m`, `3h`, `2d`, `3w`,
+  `4mo`, `2y`.
+
+Names come first: in a narrow pane, columns are dropped from the left until a
+name has room. The footer shows the highlighted entry's path followed by a
+link's target, its size (exact bytes) or entry count, modification date,
+permissions and `user:group`, dropping the last ones first when space runs out.
+Symbolic links show `→ target` after their name, in the `link` color; broken
+links use the `error` color.
+
+Only rows on screen are inspected, so discovery stays as fast as before:
+one `lstat` per visible row, read again after each scan. Directory entry counts
+come from a background thread, so a huge or slow directory never delays a frame;
+the column stays blank until its count arrives.
+
+## Mouse
+
+With `[ui] mouse = true` (the default), the mouse works in the results like in
+a graphical file manager:
+
+- A click highlights a row and clears the marks.
+- A double click acts like `l`: it enters a directory or opens a file in the
+  background.
+- Dragging with the button held clears the marks, then marks every row from
+  where it was pressed to where it is; the highlight follows the drag.
+- The wheel scrolls the results and does nothing else; the highlight may leave
+  the view, and the next key that moves it brings the view back.
+
+Capturing the mouse takes it from the terminal's own text selection; most
+terminals still select with Shift held. Set `mouse = false` to leave the mouse
+to the terminal.
+
+## Live updates
+
+With `[ui] watch = true` (the default), fff watches the current directory with
+inotify. Entries created, removed or renamed there trigger a quiet rescan after
+a short pause (bursts such as an extraction are coalesced), keeping the rows and
+highlight while it reconciles; entries written to update their details in place.
+Only the current directory's own entries are watched, not deeper results or
+pinned roots, which still follow the [freshness](#discovery-cache-and-performance)
+rules and F5. Where inotify is unavailable or a directory cannot be watched,
+fff works as with `watch = false`.
+
 ## Status messages
 
 Notices such as "Navigation is disabled with --no-dir" or a failed palette reload

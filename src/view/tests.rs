@@ -39,8 +39,10 @@ fn result_names_are_colored_by_file_kind() {
     std::fs::set_permissions(root.join("script"), std::fs::Permissions::from_mode(0o755)).unwrap();
     std::os::unix::fs::symlink("plain", root.join("link")).unwrap();
     std::os::unix::fs::symlink("folder", root.join("dirlink")).unwrap();
+    std::os::unix::fs::symlink("gone", root.join("broken")).unwrap();
     let mut app = App::browse(root.clone(), 1, crate::Policy::default());
     for (name, directory) in [
+        ("broken", false),
         ("empty", false),
         ("plain", false),
         ("script", false),
@@ -72,10 +74,11 @@ fn result_names_are_colored_by_file_kind() {
     let color_of = |name: &str| {
         let row = (0..buffer.area.height)
             .find(|&y| {
-                (0..buffer.area.width)
+                let line = (0..buffer.area.width)
                     .map(|x| buffer[(x, y)].symbol())
-                    .collect::<String>()
-                    .contains(&format!(" {name}"))
+                    .collect::<String>();
+                // A link's row also shows its target's name.
+                line.contains(&format!(" {name}")) && !line.contains(&format!("→ {name}"))
             })
             .unwrap_or_else(|| panic!("{name} not shown"));
         let line = (0..buffer.area.width)
@@ -92,7 +95,115 @@ fn result_names_are_colored_by_file_kind() {
     assert_eq!(color_of("link"), theme.link);
     assert_eq!(color_of("dirlink/"), theme.link);
     assert_eq!(color_of("folder/"), theme.accent);
+    assert_eq!(color_of("broken"), theme.error);
+    let shown = text(buffer);
+    assert!(shown.contains("link → plain"), "{shown}");
+    assert!(shown.contains("dirlink/ → folder"), "{shown}");
+    assert!(shown.contains("broken → gone"), "{shown}");
     std::fs::remove_dir_all(&root).unwrap();
+}
+#[test]
+fn rows_and_footer_show_details_that_fit() {
+    let root = std::env::temp_dir().join(format!("fff-columns-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("folder/inner")).unwrap();
+    std::fs::write(root.join("folder/one"), b"").unwrap();
+    std::fs::write(root.join("data.bin"), vec![0u8; 4300]).unwrap();
+    let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+    for (name, directory) in [("data.bin", false), ("folder", true)] {
+        app.insert(
+            0,
+            Candidate {
+                path: root.join(name),
+                directory,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    app.scanning = false;
+    app.highlight = Some(root.join("data.bin"));
+    app.columns = vec![Column::Permissions, Column::Size, Column::Modified];
+    let draw = |app: &mut App, width: u16| {
+        let mut terminal = Terminal::new(TestBackend::new(width, 8)).unwrap();
+        terminal
+            .draw(|frame| {
+                results_pane(frame, Rect::new(0, 0, width, 7), app, true);
+                footer(frame, Rect::new(0, 7, width, 1), app, &Focus::Results);
+            })
+            .unwrap();
+        text(terminal.backend().buffer())
+    };
+    // The entry count arrives from the worker; until then the column is blank.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let _ = draw(&mut app, 100);
+    while !app.details.drain() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let wide = draw(&mut app, 100);
+    let row = |shown: &str, name: &str| {
+        shown
+            .lines()
+            .find(|l| l.contains(name))
+            .unwrap_or_else(|| panic!("{name} missing in {shown}"))
+            .to_string()
+    };
+    let data = row(&wide, "data.bin");
+    assert!(data.contains("-rw"), "{data}");
+    assert!(data.contains(" 4.2K   now"), "{data}");
+    let folder = row(&wide, "folder/");
+    assert!(folder.contains("drwx"), "{folder}");
+    assert!(folder.contains("     2   now"), "{folder}");
+    let footer = wide.lines().last().unwrap();
+    assert!(footer.contains("data.bin  4.2K (4,300 B)  "), "{footer}");
+    assert!(footer.contains("-rw"), "{footer}");
+    // Narrow panes drop permissions first; the name keeps its room.
+    let narrow = draw(&mut app, 46);
+    let data = row(&narrow, "data.bin");
+    assert!(!data.contains("-rw") && data.contains("4.2K"), "{data}");
+    let footer = narrow.lines().last().unwrap();
+    assert!(
+        footer.contains("data.bin") && !footer.contains(":"),
+        "{footer}"
+    );
+    app.columns.clear();
+    let bare = draw(&mut app, 100);
+    assert!(!row(&bare, "data.bin").contains("4.2K"), "{bare}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+#[test]
+fn a_wheel_scroll_keeps_its_view_until_the_highlight_moves() {
+    let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+    for i in 0..20 {
+        app.insert(
+            0,
+            Candidate {
+                path: format!("/fixture/f{i:02}").into(),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    app.scanning = false;
+    app.highlight = Some("/fixture/f00".into());
+    let mut terminal = Terminal::new(TestBackend::new(60, 7)).unwrap();
+    let mut draw = |app: &mut App| {
+        terminal
+            .draw(|frame| {
+                results_pane(frame, frame.area(), app, true);
+            })
+            .unwrap();
+    };
+    app.offset = 9;
+    app.scrolled = Some(app.highlight.clone());
+    draw(&mut app);
+    assert_eq!(app.offset, 9);
+    app.move_by(1);
+    draw(&mut app);
+    assert_eq!((app.offset, app.scrolled.clone()), (1, None));
 }
 fn text(buffer: &Buffer) -> String {
     (0..buffer.area.height)

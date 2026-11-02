@@ -1,5 +1,5 @@
 //! Terminal presentation. Rendering returns the exact numbered targets in a frame.
-use crate::{App, Candidate, config::Palette, editor::Field, ui::Focus};
+use crate::{App, Candidate, config::Palette, details::Column, editor::Field, ui::Focus};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -25,6 +25,8 @@ pub(crate) struct Rendered {
     pub targets: Vec<PathBuf>,
     pub bookmark_targets: Vec<usize>,
     pub page: usize,
+    /// Where the result rows were drawn, for mouse clicks; one row per target.
+    pub results: Rect,
 }
 
 fn styled(text: impl Into<String>, color: Color) -> Span<'static> {
@@ -151,6 +153,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             targets: Vec::new(),
             bookmark_targets: Vec::new(),
             page: 0,
+            results: Rect::default(),
         };
     }
     let area = Rect::new(
@@ -624,7 +627,11 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
     );
     let inner = block.inner(area);
     let page = inner.height as usize;
+    if app.scrolled.as_ref().is_some_and(|at| *at != app.highlight) {
+        app.scrolled = None;
+    }
     if page > 0
+        && app.scrolled.is_none()
         && let Some(i) = app
             .rows
             .iter()
@@ -685,6 +692,8 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             inner,
         );
     } else {
+        let columns = fitting_columns(&app.columns, inner.width as usize);
+        let now = std::time::SystemTime::now();
         for (i, c) in visible.iter().enumerate() {
             let row = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
             let selected = Some(&c.path) == app.highlight.as_ref();
@@ -713,28 +722,36 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
             }
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
+            let info = app.details.info(&c.path);
             // Labels are relative to the current directory (or, with --no-dir,
             // as short as a shared name allows); the footer and F1 show the rest.
-            let meta = " ";
             let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
-            let available = inner.width.saturating_sub(
-                (prefix.width() + "● ".width() + kind.width() + meta.width()) as u16,
-            ) as usize;
+            let fixed = (prefix.width() + "● ".width() + kind.width()) as u16;
+            let room = inner.width.saturating_sub(fixed) as usize;
+            let meta = row_details(app, c, info.as_ref(), &columns, now);
+            let available = room.saturating_sub(meta.width());
             let name = elide(&name, available);
-            let gap = available.saturating_sub(name.width());
             let mut spans = vec![
                 styled(prefix, if selected { theme.accent } else { theme.muted }),
                 styled(if marked { "● " } else { "  " }, theme.marked),
                 styled(kind, icon_color(theme, group)),
             ];
-            spans.extend(filename_spans(
-                app.palette,
-                &name,
-                c,
-                &app.query,
-                name_color(theme, c),
-            ));
-            spans.push(styled(" ".repeat(gap) + meta, theme.muted));
+            let color = info_color(theme, info.as_ref(), c.directory);
+            spans.extend(filename_spans(app.palette, &name, c, &app.query, color));
+            let mut used = name.width();
+            // A link's target follows its name while there is room for it.
+            if let Some((target, _)) = info.as_ref().and_then(|i| i.link.as_ref()) {
+                let arrow = " → ";
+                let space = available.saturating_sub(used + arrow.width() + 1);
+                if space >= 3 {
+                    let target = elide(&safe(target.to_string_lossy()), space);
+                    used += arrow.width() + target.width();
+                    spans.push(styled(arrow, color));
+                    spans.push(styled(target, theme.muted));
+                }
+            }
+            let gap = available.saturating_sub(used);
+            spans.push(styled(" ".repeat(gap) + &meta, theme.muted));
             frame.render_widget(
                 Paragraph::new(Line::from(spans)).style(Style::default().bg(bg)),
                 row,
@@ -745,6 +762,7 @@ fn results_pane(frame: &mut Frame, area: Rect, app: &mut App, focused: bool) -> 
         targets: visible.iter().map(|c| c.path.clone()).collect(),
         bookmark_targets: Vec::new(),
         page,
+        results: inner,
     }
 }
 /// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.
@@ -758,21 +776,75 @@ fn icon_color(theme: Palette, group: crate::icons::Group) -> Color {
         Group::Config | Group::Other => theme.muted,
     }
 }
-/// Links, then directories, empty files and executables get their own roles.
-/// Only visible rows are inspected, so discovery stays free of extra stats.
-fn name_color(theme: Palette, candidate: &Candidate) -> Color {
-    path_color(theme, &candidate.path, candidate.directory)
-}
-fn path_color(theme: Palette, path: &Path, directory: bool) -> Color {
-    match std::fs::symlink_metadata(path) {
-        Ok(m) if m.is_symlink() => theme.link,
+/// Broken links, links, then directories, empty files and executables get
+/// their own roles. Only visible rows are inspected, so discovery stays free of
+/// extra stats.
+fn info_color(theme: Palette, info: Option<&crate::details::Info>, directory: bool) -> Color {
+    let file = |i: &crate::details::Info| i.mode & libc::S_IFMT == libc::S_IFREG;
+    match info {
+        Some(i) if i.broken() => theme.error,
+        Some(i) if i.link.is_some() => theme.link,
         _ if directory => theme.accent,
-        Ok(m) if m.is_file() && m.len() == 0 => theme.empty,
-        Ok(m) if m.is_file() && std::os::unix::fs::MetadataExt::mode(&m) & 0o111 != 0 => {
-            theme.executable
-        }
+        Some(i) if file(i) && i.size == 0 => theme.empty,
+        Some(i) if file(i) && i.mode & 0o111 != 0 => theme.executable,
         _ => theme.text,
     }
+}
+fn path_color(theme: Palette, path: &Path, directory: bool) -> Color {
+    info_color(theme, crate::details::Info::read(path).as_ref(), directory)
+}
+/// Each column's width, so that columns line up from row to row.
+fn column_width(column: Column) -> usize {
+    match column {
+        Column::Permissions => 10,
+        Column::Size => 5,
+        Column::Modified => 4,
+    }
+}
+/// Names come first: columns are dropped from the left until a name has at
+/// least `NAME_ROOM` columns.
+const NAME_ROOM: usize = 20;
+fn fitting_columns(columns: &[Column], width: usize) -> Vec<Column> {
+    let mut columns = columns.to_vec();
+    let total = |c: &[Column]| c.iter().map(|&c| column_width(c) + 2).sum::<usize>();
+    // The row prefix, mark and icon take about 10 columns.
+    while !columns.is_empty() && width.saturating_sub(10 + total(&columns)) < NAME_ROOM {
+        columns.remove(0);
+    }
+    columns
+}
+/// The right-hand details of a result row, each column right-aligned, with a
+/// trailing space; blank where a value is unknown (yet).
+fn row_details(
+    app: &App,
+    candidate: &Candidate,
+    info: Option<&crate::details::Info>,
+    columns: &[Column],
+    now: std::time::SystemTime,
+) -> String {
+    use crate::details;
+    if columns.is_empty() {
+        return " ".into();
+    }
+    let mut text = String::new();
+    for &column in columns {
+        let value = match (column, info) {
+            (_, None) => String::new(),
+            (Column::Permissions, Some(i)) => details::permissions(i.mode),
+            (Column::Size, Some(i)) if candidate.directory || i.directory => app
+                .details
+                .count(&candidate.path)
+                .map(details::entries)
+                .unwrap_or_default(),
+            (Column::Size, Some(i)) => details::size(i.size),
+            (Column::Modified, Some(i)) => {
+                i.modified.map(|m| details::age(m, now)).unwrap_or_default()
+            }
+        };
+        text.push_str(&format!("  {value:>0$}", column_width(column)));
+    }
+    text.push(' ');
+    text
 }
 fn filename_spans(
     theme: Palette,
@@ -923,13 +995,25 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         let path = selected
             .map(|p| display_path(p, &app.cwd))
             .unwrap_or_else(|| ".".into());
-        let path = elide(&path, available);
+        // The path keeps the room it needs, up to `NAME_ROOM`; details fill
+        // the rest, the least important dropped first.
+        let mut details = selected.map(|p| footer_details(app, p)).unwrap_or_default();
+        let wanted = path.width().min(NAME_ROOM);
+        let width = |d: &[Span]| d.iter().map(Span::width).sum::<usize>();
+        while !details.is_empty() && available.saturating_sub(width(&details)) < wanted {
+            details.pop();
+            details.pop();
+        }
+        let room = available.saturating_sub(width(&details));
+        let path = elide(&path, room);
         let split = path.rfind('/').map(|i| i + 1).unwrap_or(0);
-        vec![
+        let mut spans = vec![
             Span::raw(" "),
             styled(path[..split].to_string(), theme.muted),
             styled(path[split..].to_string(), theme.text),
-        ]
+        ];
+        spans.extend(details);
+        spans
     } else if app.status == app.status_success {
         vec![
             Span::raw(" "),
@@ -950,6 +1034,54 @@ fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     ));
     spans.extend(help);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+/// The footer's details of `path`, as (gap, value) span pairs in order of
+/// importance: a link's target, size or entry count, modification time,
+/// permissions and owner.
+fn footer_details(app: &App, path: &Path) -> Vec<Span<'static>> {
+    use crate::details;
+    let theme = app.palette;
+    let Some(info) = app.details.info(path) else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    if let Some((target, resolves)) = &info.link {
+        let target = format!("→ {}", safe(target.to_string_lossy()));
+        values.push(if *resolves {
+            styled(target, theme.link)
+        } else {
+            styled(target + " (broken)", theme.error)
+        });
+    }
+    if info.directory {
+        if let Some(count) = app.details.count(path) {
+            let text = match count {
+                details::Count::Entries(1) => "1 entry".into(),
+                details::Count::Entries(_) => format!("{} entries", details::entries(count)),
+                details::Count::Unreadable => "unreadable".into(),
+            };
+            values.push(styled(text, theme.muted));
+        }
+    } else if info.link.is_none() {
+        let exact = details::exact(info.size);
+        values.push(styled(
+            if info.size < 1000 {
+                format!("{exact} B")
+            } else {
+                format!("{} ({exact} B)", details::size(info.size))
+            },
+            theme.muted,
+        ));
+    }
+    if let Some(modified) = info.modified {
+        values.push(styled(details::timestamp(modified), theme.muted));
+    }
+    values.push(styled(details::permissions(info.mode), theme.muted));
+    values.push(styled(app.details.owner(&info), theme.muted));
+    values
+        .into_iter()
+        .flat_map(|value| [Span::raw("  "), value])
+        .collect()
 }
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut rows = vec![String::new()];
