@@ -127,7 +127,8 @@ Enter depends on the editing mode:
 - **While typing (Insert mode):** Enter opens a directory. On a file, in
   `fff pick` it returns the marked paths in insertion order plus that file
   once; in `fff roam` it *reveals* the file: fff moves to its folder,
-  clears the query and highlights it.
+  clears the query and highlights it. `fff seek`, which never moves, exits
+  into the file's folder, as in Normal mode.
 
 To move around, use `l` (or Alt+l, or Alt+number for a labelled row): it enters
 a directory, and **opens a file** with its [opener](docs/OPERATIONS.md#opening-files)
@@ -264,7 +265,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
-| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`) or reveal it in its folder |
+| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`), exit into its folder (`fff seek`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs), except in `fff seek`; use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |

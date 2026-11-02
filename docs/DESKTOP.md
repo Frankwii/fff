@@ -278,7 +278,7 @@ differs:
 | `q` (Normal mode) | Cancels, as everywhere: nothing is chosen. |
 | Ctrl+c | Cancels. |
 | Ctrl+w | Chooses the marks. |
-| Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving. |
+| Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving, also while typing a name to save under. |
 | Double click | Enter on that row, as Ctrl+number (a normal session acts like `l`). |
 | `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says to press Enter on it or Ctrl+number on its row, to choose it or, when saving, to replace it. In folder dialogs a file opens in the background, as in a normal session. |
 | `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |

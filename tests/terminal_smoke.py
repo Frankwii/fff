@@ -686,6 +686,27 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x17")
         self.assertEqual(s.finish(), (0, b""))
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_seek_enter_while_typing_leaves_into_the_files_folder(self):
+        deep = self.root / "work" / "notes"
+        deep.mkdir(parents=True)
+        (deep / "plan.docx").touch()
+        (self.root / "other.txt").touch()
+        # Straight away, in Insert mode, as when typing a filter and then
+        # without one: Enter chooses, as in Normal mode, instead of trying to
+        # reveal the file in its folder (seek never navigates).
+        for typed in [b"", b"plan"]:
+            s = self.session = Session(self.root, "seek", "--glob", "*.docx", "--depth", "4",
+                                       implicit_root=True)
+            s.wait_ui("plan.docx")
+            self.assertIn("INSERT", s.screen.text)
+            if typed:
+                s.send(typed, "❯ plan")
+            s.send(b"\r")
+            self.assertEqual(s.finish(), (0, os.fsencode(deep) + b"\n"))
+            s.close()
+        self.session = None
+
     def test_no_dir_has_no_tabs_so_normal_arrows_move_the_highlight(self):
         (self.root / "folder").mkdir()
         (self.root / "folder" / "nested.txt").touch()
@@ -1121,6 +1142,44 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("inside")
         double_click("inside")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "alpha" / "inside") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_while_typing_a_name_to_save_ctrl_number_and_double_click_act_on_their_row(self):
+        docs = self.root / "docs"
+        (docs / "sub").mkdir(parents=True)
+        (docs / "a.pdf").write_text("a")
+        (docs / "other.txt").write_text("o")
+        def save():
+            s = self.session = Session(self.root, "explorer", "--save", str(docs / "a.pdf"),
+                                       implicit_root=True, output_paths=False)
+            s.wait_ui("Save as a.pdf · NORMAL")
+            s.send(b"inew.pdf", "Save as new.pdf · INSERT")
+            return s
+        # Ctrl+3 is Enter on other.txt: it offers to replace that file, not
+        # to save under the typed name.
+        s = save()
+        s.send(b"\x1b[51;5u", "other.txt already exists")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "other.txt") + b"\n"))
+        s.close()
+        # Ctrl+1 is Enter on the folder: it goes into it.
+        s = save()
+        s.send(b"\x1b[49;5u", ("cwd", docs / "sub"))
+        s.send(b"\x13")
+        status, output = s.finish()
+        self.assertEqual(status, 0)
+        self.assertEqual(os.path.dirname(output.strip()), os.fsencode(docs / "sub"))
+        s.close()
+        # So is a double click.
+        s = save()
+        lines = s.screen.text.splitlines()
+        row = next(i for i, l in enumerate(lines) if " other.txt" in l and "@" not in l)
+        x, y = lines[row].index("other.txt") + 1, row + 1
+        click = f"\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m".encode()
+        s.send(click)
+        s.send(click, "other.txt already exists")
+        s.close()
+        self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_enter_with_no_matches_says_so(self):
@@ -1771,6 +1830,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_u_undoes_moves_renames_copies_and_new_entries_newest_first(self):
         (self.root / "alpha").write_text("a")
+        (self.root / "folder").mkdir()
         target = self.root / "target"
         target.mkdir()
         s = self.start(implicit_root=True)
@@ -1787,7 +1847,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"n", "Press f to create a file")
         s.send(b"f", "New file · INSERT")
         s.send(b"fresh\x1b[27u:wq\r", "Created file fresh")
-        self.assertEqual(sorted(os.listdir(self.root)), ["fresh", "renamed", "target"])
+        self.assertEqual(sorted(os.listdir(self.root)), ["folder", "fresh", "renamed", "target"])
         s.send(b"u", "Undid: Created file fresh")
         self.assertFalse((self.root / "fresh").exists())
         s.send(b"u", "Undid: Renamed alpha")
@@ -1798,7 +1858,6 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.trash() / "files")), ["alpha", "fresh"])
         s.send(b"u", "Nothing to undo")
         # A move is undone too, but never out from under the browsing directory.
-        (self.root / "folder").mkdir()
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"ifolder", "❯ folder")
         s.send(b"\x1b[27u\t", "Marks (1)")

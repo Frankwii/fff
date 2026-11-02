@@ -55,6 +55,14 @@ history.
 
 ### Fixed
 
+- **Enter while typing in `fff seek` chooses the file**, leaving into its
+  folder as in Normal mode. It tried to reveal the file in its folder
+  instead, which seek forbids, so a file below the starting folder only got
+  "Navigation is disabled in fff seek" until Esc left Insert mode.
+- **Ctrl+number and double clicks act on their row while typing a name in
+  `fff explorer --save`.** They saved under the typed name instead, so Ctrl+1
+  on a folder saved in the current one and Ctrl+number on a file did not
+  offer to replace it.
 - **Operations on large folders no longer freeze fff afterwards.** With live
   updates on, the thousands of changes from deleting, copying or extracting a
   large tree took seconds to process, during which the screen stood still.

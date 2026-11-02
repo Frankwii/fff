@@ -665,6 +665,9 @@ fn session(
             }
             continue;
         }
+        // Enter on a row the user pointed at (a double click, Ctrl+number),
+        // rather than the Enter key itself.
+        let mut on_row = false;
         // A button that stands for a key goes on as that key.
         let event = match event {
             Event::Mouse(event) => {
@@ -734,6 +737,7 @@ fn session(
                                     &mut mouse,
                                 )
                             {
+                                on_row = true;
                                 Event::Key(KeyEvent::new(K::Enter, M::NONE))
                             } else {
                                 continue;
@@ -1078,6 +1082,7 @@ fn session(
                 app.highlight = Some(app.numbered(digit));
                 app.highlight_top = false;
                 app.wanted = None;
+                on_row = true;
             } else if app.no_dir {
                 // Static (fff seek) sessions never fall back to the current
                 // directory.
@@ -1938,8 +1943,9 @@ fn session(
                         .map(|c| crate::Candidate::clone(c));
                     let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
                     // Typing a name to save under: Enter saves it, as in any
-                    // name field.
-                    if !normal && app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
+                    // name field. Ctrl+number and a double click still act
+                    // on their row.
+                    if !normal && !on_row && app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
                         if let Some(finish) = save_here(app, &mut focus) {
                             return Ok(finish);
                         }
@@ -1957,6 +1963,13 @@ fn session(
                         continue;
                     }
                     match target {
+                        // fff seek never navigates, so there is nothing to
+                        // reveal: typing, Enter chooses the file too.
+                        Some(file) if !file.directory && app.no_dir && app.dialog.is_none() => {
+                            if let Some(finish) = finish_with(app, &mut discovery, Some(&file)) {
+                                return Ok(finish);
+                            }
+                        }
                         // Typing: a file is revealed in its folder, unless
                         // fff is picking paths for a script.
                         Some(file) if !file.directory && !app.output_paths => {
