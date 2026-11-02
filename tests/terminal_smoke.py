@@ -280,6 +280,31 @@ class TerminalTests(unittest.TestCase):
         s.finish()
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_seek_never_falls_back_to_its_folder_or_hands_ctrl_o_to_neovim(self):
+        (self.root / "only.txt").touch()
+        s = self.start("seek", implicit_root=True, output_paths=False)
+        # Ctrl+o says why it does nothing; the next letter is still text.
+        s.send(b"\x1b[111;5u", "Navigation is disabled in fff seek")
+        s.send(b"zzz", "❯ zzz")
+        # Normal-mode Enter with nothing listed stays instead of leaving.
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\r", "Nothing matches")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_marked_list_enter_refuses_a_mark_that_no_longer_exists(self):
+        gone = self.root / "gone.txt"
+        gone.touch()
+        s = self.start("--depth", "1", implicit_root=True)
+        s.send(b"\t", "Marks (1)")
+        gone.unlink()
+        s.send(b"\x1b ", "› ●")
+        s.send(b"\r", "This mark no longer exists")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_preview_pane_follows_the_highlight(self):
         (self.root / "a.txt").write_text("first\tline\nsecond line\n")
         (self.root / "b").mkdir()
@@ -2512,6 +2537,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r")
         s.wait_absent("❯ 0f")
         self.wait_highlight(s, "0first.txt")
+        # Still typing, as after moving to another folder: letters are text.
+        s.wait_ui("Query · INSERT")
+        s.send(b"zz", "❯ zz")
         self.assertIn(str(more), next(l for l in s.screen.text.splitlines() if l.lstrip().startswith("@ ")))
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))

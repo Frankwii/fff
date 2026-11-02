@@ -97,6 +97,27 @@ history.
   resolving them against wherever the new session runs; a relative tab
   folder makes the file count as damaged.
 - An unknown palette's error lists every built-in palette, not three.
+- **Normal-mode Enter on a cached row whose entry was deleted stays** and
+  says so, until the refresh drops the row. It left into the entry's folder,
+  which `fff pick` printed although nobody chose it.
+- **Insert-mode Enter that reveals a file in the current folder keeps
+  Insert mode**, as revealing one elsewhere does. The query dropped to
+  Normal mode, so the next letters acted as commands (`x` trashed the file).
+- Enter on a marked-list row whose path was deleted says so instead of
+  printing (`fff pick`) or opening the missing path.
+- In `fff seek`, Normal-mode Enter with nothing listed stays instead of
+  leaving into the starting folder, and Ctrl+o / Ctrl+i say navigation is
+  disabled instead of reaching Neovim, where Ctrl+o made the next letter a
+  command.
+- Ctrl+number or a double click on a row that a just-finished re-sort
+  removed does nothing, instead of acting as Enter with nothing highlighted.
+- fff no longer keeps a core busy while a large listing is re-sorted on
+  another thread, or during a scan after a change on disk.
+- The preview pane no longer fails on a file holding only a SQLite header,
+  and shows the line count of a text file of exactly 64 KiB.
+- PageDown at the end of the results keeps a full page in view.
+- Ctrl+s in the new-name and extraction prompts keeps them open on a
+  validation error, as Enter does.
 - The remembered-locations and session files are readable only by you; they
   hold your folders, marks and queries.
 - **Lowering the depth after `max_paths` stopped a scan lists the shallower

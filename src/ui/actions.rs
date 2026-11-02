@@ -97,26 +97,28 @@ pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, Str
 /// Normal-mode Enter on `target` (or on nothing): a directory is left into;
 /// a file opens and fff leaves (default mode), is printed (`fff pick`)
 /// or is left into its folder (`fff seek`); nothing leaves into the browsing
-/// directory. Marks are ignored. `None` (with the reason in the status line)
-/// when the file cannot open. With `--window` there is no shell to leave
-/// into: a directory is entered instead, and nothing stays.
+/// directory, except in `fff seek`. Marks are ignored. `None` (with the
+/// reason in the status line) when the entry is a cached one that is gone or
+/// the file cannot open. With `--window` there is no shell to leave into: a
+/// directory is entered instead, and nothing stays.
 pub(super) fn finish_with(
     app: &mut App,
     discovery: &mut Discovery,
     target: Option<&crate::Candidate>,
 ) -> Option<Finish> {
     match target {
+        Some(entry) if !app.ready_path(&entry.path) => None,
         Some(dir) if app.window && dir.directory => {
             if app.enter(Some(crate::Candidate::clone(dir))) == EnterOutcome::Navigated {
                 discovery.start(app, true);
             }
             None
         }
-        None if app.window => {
+        None if app.window || app.no_dir => {
             app.nothing_to_enter();
             None
         }
-        Some(file) if !file.directory && app.ready_path(&file.path) => {
+        Some(file) if !file.directory => {
             if app.output_paths {
                 return Some(Finish::Paths(vec![file.path.clone()]));
             }
@@ -133,10 +135,6 @@ pub(super) fn finish_with(
                 file.path.parent().unwrap_or(&app.cwd).to_owned(),
             ))
         }
-        Some(file) if !file.directory && !app.window => Some(Finish::Folder(
-            file.path.parent().unwrap_or(&app.cwd).to_owned(),
-        )),
-        Some(file) if !file.directory => None,
         Some(dir) => Some(Finish::Folder(dir.path.clone())),
         None => Some(Finish::Folder(app.cwd.clone())),
     }

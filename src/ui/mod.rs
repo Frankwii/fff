@@ -478,7 +478,10 @@ fn session(
         } else {
             250
         };
+        // A relist due during a scan waits for it to finish, which wakes
+        // the loop; counting it here would spin until then.
         let wait = relist_at
+            .filter(|_| !app.scanning)
             .map(|at| at.saturating_duration_since(std::time::Instant::now()))
             .map_or(wait, |delay| wait.min(delay.as_millis() as u64));
         let wait = palette_preview
@@ -1129,16 +1132,9 @@ fn session(
                 // Neovim's Insert/Visual Escape and command-line Enter.
                 if key.code == K::Esc {
                     focus = Focus::Results;
-                } else if key.code == K::Enter && !draft.multiline() {
+                } else if key.code == K::Enter || (ctrl && key.code == K::Char('s')) {
                     // Validation errors keep the buffer open for correction.
                     match draft.request() {
-                        Ok(r) => perform_operation(app, &mut discovery, &mut focus, r, None),
-                        Err(e) => app.status = e,
-                    }
-                } else if ctrl && key.code == K::Char('s') {
-                    let request = draft.request();
-                    focus = Focus::Results;
-                    match request {
                         Ok(r) => perform_operation(app, &mut discovery, &mut focus, r, None),
                         Err(e) => app.status = e,
                     }
@@ -1390,6 +1386,10 @@ fn session(
                 } else if key.code == K::Enter
                     && let Some(mark) = rows.get(*index)
                 {
+                    if std::fs::symlink_metadata(mark).is_err() {
+                        app.status = "This mark no longer exists; Tab unmarks it".into();
+                        continue;
+                    }
                     if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) && !mark.is_dir() {
                         let mark = mark.clone();
                         if let Some(finish) = save_as(app, &mut focus, mark) {
@@ -1457,7 +1457,8 @@ fn session(
                 }
                 // Ctrl+i needs a terminal that tells it apart from Tab (Kitty
                 // keyboard protocol); elsewhere it arrives as Tab and marks.
-                (K::Char('o' | 'i'), true, false) if app.can_navigate() => {
+                (K::Char('o' | 'i'), true, false) if !app.can_navigate() => {}
+                (K::Char('o' | 'i'), true, false) => {
                     if app.jump(key.code == K::Char('o')) {
                         discovery.start(app, true);
                     } else {
@@ -1535,7 +1536,7 @@ fn session(
                     app.offset = app
                         .offset
                         .saturating_add(page)
-                        .min(app.rows.len().saturating_sub(1));
+                        .min(app.rows.len().saturating_sub(page));
                 }
                 (K::PageUp, _, _) => {
                     app.move_by(-(page as isize));
@@ -1587,6 +1588,12 @@ fn session(
                         .highlighted_row()
                         .filter(|_| !unnumbered)
                         .map(|c| crate::Candidate::clone(c));
+                    // The row pointed at is gone (a ranking that was pending
+                    // landed): never substitute the browsing directory.
+                    if on_row && target.is_none() {
+                        app.status = "That row is no longer listed".into();
+                        continue;
+                    }
                     let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
                     // Typing a name to save under: Enter saves it, as in any
                     // name field. Ctrl+number and a double click still act
@@ -1621,6 +1628,10 @@ fn session(
                         Some(file) if !file.directory && !app.output_paths => {
                             if app.reveal(file.path) {
                                 discovery.start(app, true);
+                            } else {
+                                // The query was cleared here, not by moving:
+                                // keep typing, as after a move.
+                                editor.reset_preserving_mode(Field::Query);
                             }
                         }
                         // Saving over a file asks first; with nothing listed

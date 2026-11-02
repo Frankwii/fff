@@ -635,3 +635,34 @@ fn single_steps_wrap_and_wheel_steps_stop_at_the_ends() {
     assert_eq!(wheel_step(None, 3, false), None);
     assert_eq!(wheel_step(Some(0), 0, true), None);
 }
+
+#[test]
+fn normal_enter_on_a_cached_entry_that_is_gone_stays() {
+    let root = std::env::temp_dir().join(format!("fff-stale-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut discovery = Discovery::new(Default::default());
+    let gone = |directory| crate::Candidate {
+        path: root.join(if directory { "old-dir" } else { "old.txt" }),
+        directory,
+        depth: 1,
+        root: 0,
+    };
+    for output_paths in [true, false] {
+        let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+        app.output_paths = output_paths;
+        // Rows replayed from the cache, not yet confirmed by a scan.
+        app.cache_pending = true;
+        for directory in [false, true] {
+            assert!(finish_with(&mut app, &mut discovery, Some(&gone(directory))).is_none());
+            assert!(app.status.contains("no longer exists"), "{}", app.status);
+        }
+    }
+    // fff seek never leaves into its folder for want of a row.
+    let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+    app.no_dir = true;
+    app.scanning = false;
+    assert!(finish_with(&mut app, &mut discovery, None).is_none());
+    assert_eq!(app.status, "Nothing listed here");
+    std::fs::remove_dir_all(&root).unwrap();
+}

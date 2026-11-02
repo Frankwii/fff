@@ -177,7 +177,10 @@ impl Scan {
             .last_refresh
             .is_none_or(|t| t.elapsed() >= self.refresh_every);
         let finishing = self.done.is_some() || self.completed;
+        // A ranking on another thread wakes the loop when it is done; until
+        // then a refresh would only find it pending.
         if (self.pending || !app.settled())
+            && !app.ranking_pending()
             && (finishing || due || app.unmerged() >= BACKLOG)
             && !input(self)
         {
@@ -457,9 +460,11 @@ impl Discovery {
         app.scanning || self.scan.as_ref().is_some_and(Scan::pending)
     }
     /// The rows are behind what was found and the next drain merges more,
-    /// whatever `refresh_ms` says.
+    /// whatever `refresh_ms` says. Not while a ranking runs elsewhere: the
+    /// drain could not merge, and its thread wakes the loop when done.
     pub fn catching_up(&self, app: &App) -> bool {
         !app.settled()
+            && !app.ranking_pending()
             && self
                 .scan
                 .as_ref()

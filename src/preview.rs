@@ -301,15 +301,22 @@ fn file(path: &Path, meta: &fs::Metadata, cancel: &AtomicBool, preview: &mut Pre
         Some(Sniff::Elf) => elf(&head, meta, preview),
         Some(Sniff::Sqlite) => {
             preview.kind = "SQLite 3 database".into();
-            let size = u16::from_be_bytes([head[16], head[17]]);
-            let page = if size == 1 { 65536 } else { size as u64 };
-            if let Some(pages) = meta.len().checked_div(page) {
-                preview.fact("Pages", pages.to_string());
+            // The page size follows the 16-byte magic, if the file goes on.
+            if let Some(&[high, low]) = head.get(16..18) {
+                let size = u16::from_be_bytes([high, low]);
+                let page = if size == 1 { 65536 } else { size as u64 };
+                if let Some(pages) = meta.len().checked_div(page) {
+                    preview.fact("Pages", pages.to_string());
+                }
             }
         }
         Some(Sniff::Other(name)) => preview.kind = name.into(),
         None => match text(&head) {
-            Some(text) => lines(&text, head.len() < HEAD, preview),
+            Some(text) => lines(
+                &text,
+                head.len() < HEAD || meta.len() <= HEAD as u64,
+                preview,
+            ),
             None => preview.kind = "binary data".into(),
         },
     }
@@ -976,7 +983,10 @@ fn archive(path: &Path, format: &str, cancel: &AtomicBool, preview: &mut Preview
         (false, 1) => format!("{format} · 1 entry"),
         (false, n) => format!("{format} · {n} entries"),
     };
-    let total: u64 = entries.iter().map(|(_, _, size)| size).sum();
+    // Sizes are what the archive declares, so they may be absurd.
+    let total = entries
+        .iter()
+        .fold(0u64, |total, (_, _, size)| total.saturating_add(*size));
     if !more && total > 0 {
         preview.fact("Unpacked", crate::details::size(total));
     }
@@ -1063,6 +1073,19 @@ mod tests {
         fs::write(&long, "x".repeat(HEAD + 10)).unwrap();
         assert_eq!(preview(&long).kind, "text · first 64 KiB");
         assert_eq!(preview(&long).lines[0].0.chars().count(), LINE_CHARS);
+        // A file of exactly 64 KiB was read whole.
+        fs::write(&long, "x\n".repeat(HEAD / 2)).unwrap();
+        assert_eq!(preview(&long).kind, format!("text · {} lines", HEAD / 2));
+        // A database cut short after its magic has no page size to read.
+        let db = dir.join("db");
+        fs::write(&db, b"SQLite format 3\0").unwrap();
+        assert_eq!(preview(&db).kind, "SQLite 3 database");
+        fs::write(
+            &db,
+            [&b"SQLite format 3\0"[..], &[16, 0], &[0; 4094]].concat(),
+        )
+        .unwrap();
+        assert_eq!(preview(&db).facts, [("Pages".to_string(), "1".to_string())]);
         let binary = dir.join("blob");
         fs::write(&binary, b"\x00\x01\x02garbage").unwrap();
         let p = preview(&binary);

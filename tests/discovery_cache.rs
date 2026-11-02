@@ -590,3 +590,37 @@ fn a_small_tree_is_complete_after_the_first_drain() {
         d.checkpoint(&app);
     }
 }
+#[test]
+fn a_ranking_on_another_thread_leaves_the_loop_idle_until_it_is_done() {
+    let f = Fixture::new();
+    f.file("a");
+    let mut app = f.app();
+    let mut d = Discovery::new(always_refresh());
+    d.start(&mut app, false);
+    complete(&mut d, &mut app);
+    // Enough rows for a ranking on its own thread.
+    for i in 0..20_000 {
+        app.insert(
+            app.generation,
+            fuzzy_file_finder::Candidate {
+                path: f.0.join(format!("f{i}")),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    let (wake, woken) = std::sync::mpsc::sync_channel(1);
+    app.set_waker(wake);
+    app.kinds = fuzzy_file_finder::Kinds::Files;
+    app.refresh();
+    assert!(app.ranking_pending());
+    // Nothing to merge or draw until the ranking thread wakes the loop.
+    assert!(!d.catching_up(&app));
+    assert!(!d.drain(&mut app));
+    woken.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(app.poll_ranking());
+    assert!(!d.catching_up(&app) && app.settled());
+    assert_eq!(app.rows.len(), 20_001);
+}
