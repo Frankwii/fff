@@ -49,16 +49,21 @@ time, keeping everything else.
 
 `fff --setup desktop`:
 
-1. Writes `$XDG_DATA_HOME/applications/fff.desktop` (`~/.local/share/...` by
-   default), an application for `inode/directory` whose command is
-   `FFF_TERMINAL fff --browse %f`, with the terminal's own output discarded
-(st, for one, logs every escape sequence it does not support, and that log
-would otherwise land in the shell that ran `xdg-open`).
-2. Refreshes the desktop database with `update-desktop-database` when it is
+1. Writes `$XDG_DATA_HOME/fff/open-folder` (`~/.local/share/...` by default),
+   a launcher script running `FFF_TERMINAL fff --browse FOLDER` with the
+   terminal's own output discarded (st, for one, logs escape sequences it does
+   not support, and that log would otherwise land in the shell that ran
+   `xdg-open`).
+2. Writes `$XDG_DATA_HOME/applications/fff.desktop`, an application for
+   `inode/directory` whose command is that script. A script keeps the entry's
+   `Exec` line free of quoting: `xdg-open` outside a desktop environment
+   splits it at spaces and does not understand quotes.
+3. Refreshes the desktop database with `update-desktop-database` when it is
    installed.
-3. Makes it the default for directories with
-   `xdg-mime default fff.desktop inode/directory`, naming the previous default
-   and how to restore it. Without `xdg-mime`, it prints that command instead.
+4. Makes it the default for directories with
+   `xdg-mime default fff.desktop inode/directory`, checks that it took effect,
+   and names the previous default and how to restore it. Without `xdg-mime`,
+   it prints that command instead.
 
 `--browse` starts fff at the path it is given rather than pinning it as a
 search root; given a file, fff starts in its folder with the file highlighted.
@@ -133,31 +138,17 @@ it back to undo.
 
 ### Using the dialog
 
-Each dialog runs `fff explorer`, a mode made for answering file dialogs. It
-starts beside the file or in the folder the application suggests (`$HOME` when
-it suggests none), and the empty query line says how to choose. Enter on a
-folder enters it and Enter on a file chooses it, in Normal and Insert mode
-alike; `q` and Ctrl+c cancel.
+Each dialog runs [`fff explorer`](#fff-explorer), a mode made for answering
+file dialogs. In short:
 
-| Dialog | How to choose | Received |
+| Dialog | How to choose | The application receives |
 | --- | --- | --- |
 | Open a file (attach, upload) | Enter on a file | That file. |
-| Open several files | Tab to mark, then Enter on a file or Ctrl+w | The marks and the file. |
-| Choose a folder | Navigate into it and press `!`, or mark folders and Ctrl+w | Folders only. |
-| Save (a download, a PDF from the viewer) | Navigate to the folder and press `!` | The suggested name in that folder. |
+| Open several files | Tab to mark, then Enter on a file (or Ctrl+w) | The marks and that file. |
+| Choose a folder | Go into it and press `!` | That folder. |
+| Save (a download, a PDF from the viewer) | Go to the folder and press `!` | The suggested name in that folder. |
 
-Saving needs no typing: `!` saves under the name the application suggests in
-the folder you are browsing. When a file of that name exists, the new one is
-numbered instead (`paper (1).pdf`); to replace a file, press Enter on it.
-To use another name, rename the file afterwards (`r` in fff).
-
-`fff explorer` works on its own too, printing the chosen paths one per line:
-
-```sh
-fff explorer ~/Downloads                 # choose one file
-fff explorer --multiple --directory      # choose folders
-fff explorer --save ~/Downloads/a.pdf    # where to save a.pdf
-```
+`q` or Ctrl+c cancels. The empty query line repeats how to choose.
 
 ### The wrapper
 
@@ -178,3 +169,114 @@ the command to an existing server and returns at once cancels every dialog).
 The script needs bash. With the portal's log level at debug
 (`--loglevel=DEBUG`), it traces its commands in the
 portal's log.
+
+## fff explorer
+
+```
+fff explorer [--multiple] [--directory] [--save] [PATH]
+```
+
+Answers one file dialog and prints the answer: each chosen path, absolute,
+followed by a newline. The file chooser installed by `--setup file-chooser`
+runs it for every dialog, but it works anywhere a script needs a file, a folder
+or a place to save. The general options (`--depth`, `--hidden`,
+`--no-exclusions`, `--palette`, `--map-key`, `--no-icons`, `--config`,
+`--no-config`) apply as usual and may follow the subcommand.
+
+### Kinds of dialog
+
+| Flags | Dialog | Answer |
+| --- | --- | --- |
+| none | Open one file | One file. |
+| `--multiple` | Open several files | One or more files. |
+| `--directory` | Choose a folder | One folder. |
+| `--directory --multiple` | Choose folders | One or more folders. |
+| `--save` | Save a file | One file path, which may not exist yet. |
+
+`--directory` and `--save` cannot be combined.
+
+### Where it starts
+
+| PATH | Starts in | Highlighted |
+| --- | --- | --- |
+| none | The current directory | — |
+| A folder | That folder | — |
+| An existing file | Its folder | That file |
+| A file that does not exist (usual when saving) | Its folder, if that exists; else the current directory | — |
+
+A relative PATH is taken from the current directory. The session never resumes
+where the last one ended and is not remembered as the place to resume, so
+dialogs do not disturb your own sessions. Browsing is otherwise the usual:
+navigation, filtering, depth, hidden entries, tabs and bookmarks all work.
+
+When saving, the suggested name is PATH's file name; without a PATH, or when
+PATH is a folder, it is `untitled`.
+
+### Keys
+
+Everything that returns paths from a normal session still does, and the
+answer is then taken from those paths (see [the answer](#the-answer)). What
+differs from a normal session:
+
+| Key | In `fff explorer` |
+| --- | --- |
+| Enter on a folder | Enters it, in Normal and Insert mode alike (a normal session leaves into it from Normal mode). |
+| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file, save) it is that file whatever is marked; with `--multiple`, the marks and that file. |
+| Enter in the marked list | Chooses that mark. |
+| `!` (Normal mode) | Chooses the folder being browsed: the answer to a folder dialog, or where to save. |
+| `q` (Normal mode) | Cancels (a normal session returns the launch directory). |
+| Ctrl+c | Cancels. |
+| Ctrl+w | Chooses the marks. |
+| Ctrl+number, Alt+number | Choose that row, as in a normal session. |
+| `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |
+
+File operations (move, copy, delete, rename, new file or folder, extract)
+remain available, so a dialog can also make the folder to save into.
+
+The query line, while empty, shows how to choose instead of `type to filter
+names…`:
+
+| Dialog | Hint |
+| --- | --- |
+| Open one file | `Enter chooses a file · q cancels` |
+| Open several | `Enter chooses a file · Tab marks several · Ctrl+w the marks · q cancels` |
+| Folder | `! chooses the folder you are in · q cancels` |
+| Save | `! saves NAME here · Enter on a file replaces it · q cancels` |
+
+### The answer
+
+The paths a key returned become the answer as follows:
+
+- **Open:** folders are dropped, so a folder returned by `!` or Ctrl+w counts
+  as nothing. Without `--multiple`, only the last remaining path is kept: the
+  file Enter was pressed on, or the last mark.
+- **Folder:** files are dropped. Without `--multiple`, only the last folder is
+  kept.
+- **Save:** only the last path counts. A folder means saving into it under the
+  suggested name; when a file or link of that name is already there, the first
+  free `NAME (1).EXT`, `NAME (2).EXT`, ... is used instead (`paper (1).pdf`; a
+  name without an extension, or starting with a dot, is numbered at its end).
+  A file means replacing that file.
+
+Paths containing a newline are left out of open and folder answers, since the
+answer has one path per line.
+
+Nothing is written for a cancelled dialog or an empty answer.
+
+### Exit status
+
+| Code | Meaning |
+| --- | --- |
+| 0 | An answer was printed. |
+| 1 | Startup, configuration or I/O error. |
+| 2 | Invalid usage, e.g. `--directory` with `--save`. |
+| 130 | Cancelled, or nothing chosen fits the dialog; nothing printed. |
+
+### Examples
+
+```sh
+fff explorer ~/Downloads                     # choose one file, starting in Downloads
+fff explorer --multiple | xargs -d '\n' ls -l
+fff explorer --directory --multiple          # choose folders
+fff explorer --save ~/Downloads/paper.pdf    # where to save paper.pdf
+```

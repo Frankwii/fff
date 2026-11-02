@@ -181,13 +181,19 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
         "{stderr}"
     );
     let entry = std::fs::read_to_string(root.join("data/applications/fff.desktop")).unwrap();
-    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_fff")).unwrap();
+    let launcher = root.join("data/fff/open-folder");
     assert!(
-        entry.contains(&format!(
-            " sh st -c fff-picker -e {} --browse %f",
+        entry.contains(&format!("\nExec={} %f\n", launcher.display())),
+        "{entry}"
+    );
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_fff")).unwrap();
+    let script = std::fs::read_to_string(&launcher).unwrap();
+    assert!(
+        script.contains(&format!(
+            "exec 'st' '-c' 'fff-picker' '-e' '{}' '--browse' \"$@\" >/dev/null 2>&1",
             exe.display()
         )),
-        "{entry}"
+        "{script}"
     );
     assert!(
         String::from_utf8(run().stderr)

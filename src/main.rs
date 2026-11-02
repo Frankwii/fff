@@ -368,9 +368,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let mut browse_from = None;
     let mut dialog = None;
     if let Some(Command::Explorer(explorer)) = &args.command {
-        if !args.roots.is_empty() {
-            usage("explorer", &"give the starting PATH after explorer");
-        }
         let (asked, start, highlight) = fuzzy_file_finder::explorer::Dialog::new(
             explorer.path.as_deref(),
             explorer.multiple,

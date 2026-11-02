@@ -1697,6 +1697,20 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs" / "a.pdf") + b"\n"))
         s.close()
+        # One answer: Enter takes that file even when other files are marked
+        # after it.
+        s = self.session = Session(self.root, "explorer", "--depth", "1",
+                                   implicit_root=True, output_paths=False)
+        s.send(b"j", "› 2/0")
+        s.send(b"\t", "Marks (1)")
+        s.send(b"k")
+        s.send(b"\r", ("cwd", self.root / "docs"))
+        s.send(b"\t", "Marks (2)")
+        s.send(b"h", ("cwd", self.root))
+        s.send(b"j", "  b.txt  1 B")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "b.txt") + b"\n"))
+        s.close()
         # q cancels instead of returning the launch directory.
         s = self.session = Session(self.root, "explorer", implicit_root=True,
                                    output_paths=False)

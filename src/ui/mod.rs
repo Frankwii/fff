@@ -1596,6 +1596,15 @@ fn session(
                                 discovery.start(app, true);
                             }
                         }
+                        // A dialog with one answer takes this file, whatever
+                        // is marked.
+                        Some(file)
+                            if !file.directory
+                                && app.dialog.as_ref().is_some_and(|d| !d.multiple)
+                                && app.ready_path(&file.path) =>
+                        {
+                            return Ok(Finish::Paths(vec![file.path]));
+                        }
                         target => match app.enter(target) {
                             EnterOutcome::Selected(paths) => return Ok(Finish::Paths(paths)),
                             EnterOutcome::Navigated => discovery.start(app, true),
