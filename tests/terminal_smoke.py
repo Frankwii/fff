@@ -273,6 +273,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"0D", "❯ type to filter")
         self.assertNotIn("folders only", s.screen.text)
         s.send(b"\x1bD", "fff seek lists only files")
+        s.send(b"\x1bv", "fff seek has no preview pane")
         s.send(b"\x03")
         s.finish()
 

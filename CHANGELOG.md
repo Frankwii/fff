@@ -27,6 +27,8 @@ history.
   highlight there instead of reporting that navigation is disabled. Like
   the other keys of modes that navigate, `d`, `D` and `P` are not bound
   there either and reach Neovim.
+- **`fff seek` has no preview pane:** `[ui] preview = true` does not show
+  it there, and Alt+v only says so, like Alt+d.
 
 ### Fixed
 
