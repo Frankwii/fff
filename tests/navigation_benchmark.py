@@ -48,6 +48,8 @@ def main():
         elapsed = []
         loading_frames = 0
         try:
+            # Sessions start in Normal mode; the mode carries across locations.
+            session.send(b"i", "INSERT")
             for n in range(args.visits):
                 name = f"d{n:03}"
                 child = root / name

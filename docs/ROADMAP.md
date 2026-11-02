@@ -4,6 +4,8 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content search with alternating filtering (below).
+- Path-aware matching (below).
+- A text-only preview pane (below).
 - Tab completion of program options in the gx/gX prompt for programs without a
   man page or `--help`.
 - Becoming the desktop's file manager (below).
@@ -23,7 +25,7 @@ not implemented features or commitments:
   more Normal-mode keys available; a flag or setting would start with the
   query visible.
 
-There is deliberately no preview pane: see [design
+There will be no image previews: see [design
 choices](DEVELOPMENT.md#design-choices).
 
 ## Mouse-only use
@@ -61,6 +63,46 @@ from the shell.
   the portal's open, open-multiple, directory and save requests onto
   `--output-paths` (marks for multiple files) and a save-name prompt, and
   writes the chosen paths where the portal reads them.
+
+## Path-aware matching
+
+Today the query matches only basenames, so similarly named files in different
+folders (`notes/stability.tex`, `pde/notes/stability.tex`) can only be told
+apart by reading their labels. Path-aware matching would let `pde/stab` match
+`pde/notes/stability.tex`.
+
+- **Slash-triggered.** A query containing `/` matches the path relative to the
+  result's root instead of the basename. No basename contains `/`, so such a
+  query lists nothing today and no working query changes meaning; a query
+  without `/` behaves exactly as now.
+- **Segments in order.** Each `/`-separated part of the query is a
+  case-insensitive subsequence of some path component, the components in
+  order, and the last part must match the basename. Scoring favours whole
+  components and the basename, and the highlighted letters span the whole label.
+- **Ordering unchanged.** Depth stays the primary sort key, then directories
+  before files, then the score, as today.
+- **Same narrowing.** Appending letters still only narrows, so the incremental
+  re-score keeps working.
+
+## Text-only preview pane
+
+An optional pane beside the results showing the highlighted entry. **Text
+only**: no images, sixel, kitty graphics or other terminal image protocols, so
+it works the same in st and any other plain terminal.
+
+- **What it shows.** The first lines of a text file (tabs expanded, control
+  characters made safe, long lines cut), PDF text through `pdftotext` when it
+  is installed, a directory's first entries, and for anything else (binary
+  files, images, archives) a short metadata summary: type, size, modification
+  time, permissions, link target.
+- **Never slows the list.** Reading happens in a worker, bounded by bytes and
+  lines, and starts only once the highlight has rested briefly (like the
+  palette preview's wait); moving again cancels it. The frame never waits for a
+  preview, and stale previews are dropped.
+- **Off by default.** A key toggles it and a setting can start with it shown;
+  on narrow terminals it stacks below the results, as the marks do.
+- **With content search.** A content match could preview the lines around it
+  and E would open `$EDITOR` there.
 
 ## Content search with alternating filtering
 

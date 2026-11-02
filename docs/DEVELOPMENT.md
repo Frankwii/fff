@@ -38,10 +38,11 @@ listed separately in the [roadmap](ROADMAP.md).
 
 ## Design choices
 
-- **No preview pane.** fff targets plain terminals such as st, where image
-  protocols (kitty, sixel) are unavailable or poor, and its speed is
-  non-negotiable: rendering previews would cost reads and redraws on every
-  highlight change. Use `l` (background opener) or `o` to look at a file.
+- **No image previews.** fff targets plain terminals such as st, where image
+  protocols (kitty, sixel) are unavailable or poor. There is no preview pane
+  today; use `l` (background opener) or `o` to look at a file. A text-only pane
+  is on the [roadmap](ROADMAP.md#text-only-preview-pane): its speed is
+  non-negotiable, so reads must never block a frame or a highlight change.
 
 ## Behavior to preserve
 
