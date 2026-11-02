@@ -34,6 +34,13 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/completion.rs`, `src/icons.rs` | Dynamic shell completion and filetype glyphs. |
 
+## Design choices
+
+- **No preview pane.** fff targets plain terminals such as st, where image
+  protocols (kitty, sixel) are unavailable or poor, and its speed is
+  non-negotiable: rendering previews would cost reads and redraws on every
+  highlight change. Use `l` (background opener) or `o` to look at a file.
+
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
