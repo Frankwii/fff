@@ -100,7 +100,21 @@ systemctl --user restart xdg-desktop-portal
 ```
 
 and in Firefox, open `about:config` and set
-`widget.use-xdg-desktop-portal.file-picker` to `1`. File dialogs then open fff.
+`widget.use-xdg-desktop-portal.file-picker` to `1`, then restart Firefox: it
+reads the setting only when it starts. File dialogs then open fff.
+
+If they still do not, check the portal on its own; this opens fff as Firefox
+would:
+
+```sh
+gdbus call --session --dest org.freedesktop.portal.Desktop \
+  --object-path /org/freedesktop/portal/desktop \
+  --method org.freedesktop.portal.FileChooser.OpenFile "" "Test" "{}"
+```
+
+No fff window means the portal is the problem (`journalctl --user -u
+xdg-desktop-portal` says which implementation it chose for the FileChooser);
+a window means Firefox is not using the portal.
 
 Setup changes three files under `$XDG_CONFIG_HOME` (`~/.config`):
 

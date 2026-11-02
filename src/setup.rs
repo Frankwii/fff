@@ -245,7 +245,8 @@ fn file_chooser(
         out,
         "fff: next, restart the portal:\n  \
          systemctl --user restart xdg-desktop-portal\n\
-         and in Firefox's about:config set widget.use-xdg-desktop-portal.file-picker to 1"
+         and in Firefox's about:config set widget.use-xdg-desktop-portal.file-picker to 1,\n\
+         then restart Firefox"
     )
 }
 
