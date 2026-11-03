@@ -855,8 +855,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "type a function's name")
         # In Normal mode, r and a key writes the key's name: what it does.
         s.send(b"r", "press the key to search")
-        s.send(b"\x1b ", "What Alt+Space does")  # Alt+Space
-        self.assertIn("toggle_marked_list", s.screen.text)
+        s.send(b"\x1b ", "toggle_marked_list")  # Alt+Space: the Keys view
+        self.assertIn("Keys · ", s.screen.text)
+        # Tab goes back to the Functions view.
+        s.send(b"\t", "Functions · ")
         s.send(b"\x1b[27u", "type a function's name")
         s.send(b"\x1bOQ", "CURRENT DIRECTORY")  # F2
         s.send(b"\x1bOP", "showing what works")

@@ -867,12 +867,15 @@ what the screen's own keys do. It lists the functions that work in the
 program and list you opened it from (`showing what works in fff roam ·
 results`); Ctrl+a shows every function, and the fixed keys too.
 
-The query is a Neovim field like the results' own, ready to type: it
-searches names, descriptions and key names. A query that is exactly a key's
-name (`Enter`, `Alt+Space`, `gg`, or in Vim's notation `<CR>`) lists what
-that key does instead, one row per place, those that apply where you opened
-the screen first and the others in grey. In Normal mode, `r` and then a key
-writes that key's name into the query, for keys you cannot type there.
+The query is a Neovim field like the results' own, ready to type. Tab
+switches between two views of the same keys: **Functions**, a row per
+function with its keys in Insert and Normal mode, searched by name,
+description and key names; and **Keys**, a row per key and place, with
+columns for the key, the function, the mode, the programs, the lists and
+the highlights, searched by key name (an exact name first, as typed or in
+Vim's notation such as `<CR>`) or function name. In Normal mode, `r` and
+then a key writes that key's name into the query and shows the Keys view,
+for keys you cannot type there.
 
 Your own keys work here as they do in the results: `highlight_previous` and
 `highlight_next` (Alt+k/Alt+j in Insert mode, `k`/`j` in Normal mode), the
@@ -884,7 +887,7 @@ other `highlight_` functions, `scroll_preview_down` and `scroll_preview_up`
 Where a key applies is shown the same way everywhere: as **checklists**, a
 column each for the mode, the program, the list and what is highlighted,
 with a value ticked `●` or not `○`. The key applies wherever a tick of each
-column meets. A value crossed out `✗` cannot apply with the other columns'
+column meets. A value crossed out `×` cannot apply with the other columns'
 ticks: the function does not work there, or the key cannot be bound in that
 mode (a key typed as text in Insert mode, `i` or `a` in Normal mode). Ticking
 a program can cross out a highlight, and so on. Where columns are shown in
@@ -906,8 +909,9 @@ The same three keys work at every level: **Space goes a level deeper**
   then Enter goes on to where it applies. A digit for `search_to_depth`,
   `open_row` or `confirm_row` stands for every digit. `d` deletes the
   highlighted row, `R` puts the function's default keys back.
-- **Where a key applies:** the checklists, to change. Arrows (or
-  `h`/`j`/`k`/`l`) move, Space ticks, Enter is done, Escape goes back
+- **Where a key applies:** the checklists, to change. Tab and Shift+Tab go
+  to the next and previous column, arrows (or `h`/`j`/`k`/`l`) move, Space
+  ticks, Enter is done, Escape goes back
   unchanged. When the key clashes with another function's, the sheet says
   where: untick until nothing clashes, or `u` keeps it only where nothing
   else has it, or `t` takes it from the others there (they keep it
@@ -923,8 +927,8 @@ something must leave fff (`cancel`, or `quit` in Normal mode) everywhere in
 the results, something must leave the marked list (`toggle_marked_list`),
 Insert-mode keys cannot start with a key typed as text, nor be Escape, and
 Normal-mode keys cannot start with `i`, `a`, `I`, `A` or `:`, which reach
-Insert mode and Neovim's command line. Space, Enter, `r` and Ctrl+a on the
-screen, and the sheets' own keys, are fixed.
+Insert mode and Neovim's command line. Space, Enter, Tab, `r` and Ctrl+a on
+the screen, and the sheets' own keys, are fixed.
 
 ### `keys.toml`
 

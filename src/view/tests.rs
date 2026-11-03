@@ -1400,17 +1400,18 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("save_here"), "{screen}");
-    // A query naming a key lists what it does, place by place.
+    // The Keys view lists keys with what they do, place by place.
     let Focus::Keys(keys) = &mut focus else {
         unreachable!()
     };
     keys.query = "Enter".into();
+    keys.keys = true;
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(
-        screen.contains("What Enter does")
+        screen.contains("Keys · ")
             && screen.contains("quit_into_highlighted")
             && screen.contains("open_and_quit"),
         "{screen}"

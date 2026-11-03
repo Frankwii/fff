@@ -70,7 +70,7 @@ fn heading(theme: Palette, text: impl Into<String>) -> Span<'static> {
 }
 
 /// The checklists of a place: a column per dimension with each value
-/// ticked (`●`) or not (`○`), or crossed out (`✗`) where it cannot apply
+/// ticked (`●`) or not (`○`), or crossed out (`×`) where it cannot apply
 /// with the other columns' ticks: the function does not work there, or its
 /// keys cannot be bound in that mode. `cursor` is (column, row). Narrow,
 /// the programs take one side and the other three the other.
@@ -111,7 +111,7 @@ fn checklists(
                     let here = cursor == Some((c, r));
                     let can = workable(function, keys, modes, scope, c, *bit);
                     let (marker, color) = if !can {
-                        ("✗", theme.error)
+                        ("×", theme.error)
                     } else if set & bit != 0 {
                         ("●", theme.accent)
                     } else {
@@ -169,6 +169,14 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
         hints.push(styled(format!(" {what}    "), theme.muted));
     };
     hint("Space".into(), "or Enter: edit");
+    hint(
+        "Tab".into(),
+        if screen.keys {
+            "Functions view"
+        } else {
+            "Keys view"
+        },
+    );
     hint("r".into(), "then a key: search it (Normal mode)");
     hint(
         "Ctrl+a".into(),
@@ -192,7 +200,11 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
     let (list, details) = if main.width >= 100 {
         let columns = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .constraints(if screen.keys {
+                [Constraint::Percentage(68), Constraint::Percentage(32)]
+            } else {
+                [Constraint::Percentage(60), Constraint::Percentage(40)]
+            })
             .spacing(1)
             .split(main);
         (columns[0], columns[1])
@@ -309,9 +321,9 @@ fn list_pane(
     rows: &[Listed],
 ) -> usize {
     let theme = app.palette;
-    let keys = matches!(rows.first(), Some(Listed::Key(_)));
+    let keys = screen.keys;
     let title = if keys {
-        format!(" What {} does · {} ", screen.query.trim(), rows.len())
+        format!(" Keys · {} ", rows.len())
     } else {
         format!(" Functions · {} ", rows.len())
     };
@@ -335,6 +347,7 @@ fn list_pane(
     let width = inner.width.saturating_sub(2) as usize;
     let columns: Vec<(&str, usize)> = if keys {
         vec![
+            ("KEY", 12),
             ("FUNCTION", 28),
             ("MODE", 8),
             ("PROGRAM", 21),
@@ -435,11 +448,17 @@ fn row_line(app: &App, screen: &KeysScreen, row: &Listed, width: usize) -> Line<
         }
         Listed::Key(place) => {
             let dim = !screen.applies_here(place);
-            let mut spans = vec![bold(
-                cell(place.function.name(), 28),
-                if dim { theme.muted } else { theme.text },
-            )];
-            spans.extend(place_spans(theme, place, width.saturating_sub(28), dim));
+            let mut spans = vec![
+                bold(
+                    cell(&place.display(), 12),
+                    if dim { theme.muted } else { theme.accent },
+                ),
+                bold(
+                    cell(place.function.name(), 28),
+                    if dim { theme.muted } else { theme.text },
+                ),
+            ];
+            spans.extend(place_spans(theme, place, width.saturating_sub(40), dim));
             Line::from(spans)
         }
     }
@@ -757,7 +776,7 @@ fn where_sheet(
     body.push(Line::default());
     body.push(Line::from(vec![
         styled("● applies   ○ does not   ", theme.muted),
-        styled("✗", theme.error),
+        styled("×", theme.error),
         styled(
             format!(
                 " cannot, with the other columns' ticks: {} does not work there, or {shown} cannot be bound in that mode",
@@ -801,10 +820,16 @@ fn where_sheet(
         )));
     }
     let keys_hints: &[(&str, &str)] = if clashes.is_empty() {
-        &[("space", "Tick"), ("enter", "Done"), ("esc", "Back")]
+        &[
+            ("space", "Tick"),
+            ("tab", "Next column"),
+            ("enter", "Done"),
+            ("esc", "Back"),
+        ]
     } else {
         &[
             ("space", "Tick"),
+            ("tab", "Next column"),
             ("u", "Only where free"),
             ("t", "Take"),
             ("enter", "Done"),

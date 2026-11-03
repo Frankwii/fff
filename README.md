@@ -327,9 +327,9 @@ or change anywhere in the results, the results follow without F5. See
 
 F1 opens the **Keys screen**, a picker laid out like the results: every
 function fff has, with its keys in Insert and Normal mode and where each
-applies. Type to search names and descriptions, or a key's name to see what
-it does (in Normal mode, `r` then a key writes its name); your own keys move
-through the list. Space goes a level deeper, Enter is done and Escape goes
+applies. Type to search names and descriptions; Tab switches to the Keys
+view, a row per key with what it does and where (in Normal mode, `r` then a
+key searches for it there); your own keys move through the list. Space goes a level deeper, Enter is done and Escape goes
 back: Space on a function opens its keys, to add (`n`), delete or reset
 them, and Space on a key opens where it applies, as checklists of modes,
 programs, lists and highlights; Enter then saves them to `keys.toml`.

@@ -19,6 +19,8 @@ pub(crate) struct KeysScreen {
     pub here: Cell,
     /// Every function, not only those that work where F1 was pressed.
     pub everywhere: bool,
+    /// The Keys view: a row per key and place, instead of per function.
+    pub keys: bool,
     pub query: String,
     /// `r` was pressed: the next key's name goes into the query.
     pub recording: bool,
@@ -222,6 +224,7 @@ impl KeysScreen {
         Self {
             here,
             everywhere: false,
+            keys: false,
             query: String::new(),
             recording: false,
             index: 0,
@@ -244,22 +247,12 @@ impl KeysScreen {
             .iter()
             .any(|b| b.reach().into_iter().any(|s| self.reaches(s)))
     }
-    /// The picker's rows: the places of the key the query names, or the
-    /// functions (and fixed keys) matching it.
+    /// The picker's rows: in the Keys view, every key's places matching
+    /// the query; otherwise the functions (and fixed keys) matching it.
     pub fn listed(&self, keymap: &Keymap) -> Vec<Listed> {
         let query = self.query.trim();
-        let named = |p: &Place| p.display() == query || crate::keymap::notation(&p.keys) == query;
-        if !query.is_empty() {
-            let mut keys: Vec<Place> = Function::ALL
-                .iter()
-                .flat_map(|&f| places(keymap, f))
-                .filter(named)
-                .collect();
-            if !keys.is_empty() {
-                // Those that apply here first.
-                keys.sort_by_key(|p| !self.applies_here(p));
-                return keys.into_iter().map(Listed::Key).collect();
-            }
+        if self.keys {
+            return self.listed_keys(keymap, query);
         }
         let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
         let labels = |f: Function| {
@@ -310,6 +303,43 @@ impl KeysScreen {
         }
         rows.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
         rows.into_iter().map(|(_, row)| row).collect()
+    }
+}
+impl KeysScreen {
+    /// The Keys view's rows: places whose key's name holds the query (an
+    /// exact name first, then one starting with it), or whose function's
+    /// name does.
+    fn listed_keys(&self, keymap: &Keymap, query: &str) -> Vec<Listed> {
+        let lower = query.to_lowercase();
+        let mut rows: Vec<(u8, usize, Place)> = Function::ALL
+            .iter()
+            .flat_map(|&f| places(keymap, f))
+            .filter(|p| self.everywhere || self.applies_here(p))
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let name = p.display();
+                let notation = crate::keymap::notation(&p.keys);
+                let rank = if query.is_empty() || name == query || notation == query {
+                    0
+                } else if name.to_lowercase().starts_with(&lower) {
+                    1
+                } else if name.to_lowercase().contains(&lower)
+                    || notation.to_lowercase().contains(&lower)
+                {
+                    2
+                } else if p.function.name().contains(&lower.replace(' ', "_")) {
+                    3
+                } else {
+                    return None;
+                };
+                Some((rank, i, p))
+            })
+            .collect();
+        // Ranked, then by key, so a key's places stay together.
+        rows.sort_by(|a, b| {
+            (a.0, a.2.display().to_lowercase(), a.1).cmp(&(b.0, b.2.display().to_lowercase(), b.1))
+        });
+        rows.into_iter().map(|(_, _, p)| Listed::Key(p)).collect()
     }
 }
 impl Editor {
@@ -417,6 +447,8 @@ impl Session {
                 screen.query.push(' ');
             }
             screen.query += &name;
+            // A key's name is a search for keys.
+            screen.keys = true;
             screen.index = 0;
             screen.details = 0;
             return Ok(None);
@@ -459,6 +491,13 @@ impl Session {
         if key.code == K::Char('a') && key.modifiers == M::CONTROL {
             screen.everywhere = !screen.everywhere;
             screen.index = 0;
+            return Ok(None);
+        }
+        // Tab switches between the Functions and the Keys view.
+        if key.code == K::Tab && key.modifiers.is_empty() {
+            screen.keys = !screen.keys;
+            screen.index = 0;
+            screen.details = 0;
             return Ok(None);
         }
         // Enter, or Space where it is not typed, goes a level deeper.
@@ -678,6 +717,17 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
             let dims = dimensions();
             let left = key.code == K::Left || (plain && key.code == K::Char('h'));
             let right = key.code == K::Right || (plain && key.code == K::Char('l'));
+            // Tab and Shift+Tab go round the columns.
+            if matches!(key.code, K::Tab | K::BackTab) {
+                let count = dims.len();
+                *column = if key.code == K::Tab {
+                    (*column + 1) % count
+                } else {
+                    (*column + count - 1) % count
+                };
+                *row = (*row).min(dims[*column].1.len() - 1);
+                return false;
+            }
             let replaced = replaces
                 .as_ref()
                 .map(|p| p.bindings.clone())

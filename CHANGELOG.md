@@ -61,8 +61,9 @@ choose where each key applies.
   function fff has, by name, with its keys in Insert and Normal mode, and the
   highlighted one's details beside (Ctrl+j/Ctrl+k scroll them). The query
   searches names, descriptions and keys, and your own keys move through it
-  (Alt+j/Alt+k, `j`/`k`, Escape clears the query); a query that is a key's
-  name lists what that key does, and `r` then a key writes its name there.
+  (Alt+j/Alt+k, `j`/`k`, Escape clears the query); Tab switches to the Keys
+  view, a row per key with its function, mode, programs, lists and
+  highlights, and `r` then a key searches for that key there.
   It shows what works where you opened it; Ctrl+a shows everything. Space
   goes a level deeper at every level, Enter is done and Escape goes back:
   Space opens a function's keys in a sheet like the bookmark form (`n` adds,
@@ -70,10 +71,11 @@ choose where each key applies.
   Enter saves to `keys.toml` while Escape drops the changes. F1 closes the
   screen.
 - **Where a key applies is four checklists**: the mode, the program, the
-  list and what is highlighted, ticked `●` or not `○`, and crossed out `✗`
+  list and what is highlighted, ticked `●` or not `○`, and crossed out `×`
   where the key cannot apply with the other ticks. Columns say `all`, a list
   or `all but` a list, whichever is shorter. A key that applies in places
   one set of ticks cannot say is given again, and its rows read "or".
+  Tab and Shift+Tab move between the columns.
 - **Functions are named a verb and what it acts on** (`highlight_next`,
   `go_to_parent`, `go_to_highlighted`, `toggle_hidden`, `show_bookmarks`,
   `print_highlighted`, `quit_into_highlighted`...), and each description
