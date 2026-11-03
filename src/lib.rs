@@ -66,6 +66,10 @@ struct Pending {
     query: String,
     result: mpsc::Receiver<ranking::Ranked>,
     cancel: Arc<AtomicBool>,
+    /// What the rows on screen were ranked for, restored on cancelling so
+    /// that the next query narrows them instead of ranking (and labelling)
+    /// every known path again.
+    shown: Option<(RefreshBasis, String)>,
 }
 
 /// How long the progress marker stays after discovery completes.
@@ -976,7 +980,8 @@ impl App {
         // instead of every known path.
         // Deleting letters returns to a shorter query's kept rows, or narrows
         // from the longest kept query the new one still extends.
-        let base = match self.refreshed.take() {
+        let shown = self.refreshed.take();
+        let base = match shown.clone() {
             Some((previous, query)) if previous == basis => {
                 if listing_changed {
                     // Kept queries' rows predate the change; only the current
@@ -992,7 +997,10 @@ impl App {
                     return;
                 }
                 if narrows(&query, &folded) {
-                    if self.cached_queries > 0 {
+                    // A cancelled ranking leaves these rows kept already.
+                    if self.cached_queries > 0
+                        && self.earlier.last().is_none_or(|(q, _)| *q != query)
+                    {
                         self.earlier.push((query, Arc::clone(&self.rows)));
                         if self.earlier.len() > self.cached_queries {
                             self.earlier.remove(0);
@@ -1038,7 +1046,9 @@ impl App {
                     labels: Some(self.no_dir || self.short_labels),
                     by_score: self.by_score(),
                 };
-                self.start_ranking(job, basis, folded);
+                // This job takes over the additions and removals discarded
+                // above, so the rows on screen cannot be narrowed after it.
+                self.start_ranking(job, basis, folded, None);
                 return;
             }
         };
@@ -1058,11 +1068,17 @@ impl App {
                 by_score: self.by_score(),
             },
         };
-        self.start_ranking(job, basis, folded);
+        self.start_ranking(job, basis, folded, shown);
     }
     /// Run `job` here when it is small (or nothing can be woken when it is
     /// done), otherwise on its own thread.
-    fn start_ranking(&mut self, job: ranking::Job, basis: RefreshBasis, query: String) {
+    fn start_ranking(
+        &mut self,
+        job: ranking::Job,
+        basis: RefreshBasis,
+        query: String,
+        shown: Option<(RefreshBasis, String)>,
+    ) {
         if job.base.len() >= ranking::BACKGROUND_AT
             && let Some(waker) = self.waker.clone()
         {
@@ -1081,6 +1097,7 @@ impl App {
                     query,
                     result,
                     cancel,
+                    shown,
                 });
                 return;
             }
@@ -1117,6 +1134,7 @@ impl App {
     fn cancel_ranking(&mut self) {
         if let Some(pending) = self.ranking.take() {
             pending.cancel.store(true, Ordering::Relaxed);
+            self.refreshed = self.refreshed.take().or(pending.shown);
         }
     }
     /// The rows are being ranked again on another thread; meanwhile they are

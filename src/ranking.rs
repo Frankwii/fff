@@ -1,6 +1,8 @@
 //! Ranking rows away from the input thread: a large listing is scored and
 //! sorted from a snapshot, in parallel pieces, while the previous rows stay on
 //! screen. Small ones are ranked in place, exactly the same way.
+#[cfg(test)]
+use crate::score;
 use crate::{Candidate, Listing, Matcher, disambiguate, rank};
 use std::{
     collections::HashMap,
@@ -197,4 +199,42 @@ fn label(listed: Vec<Arc<Candidate>>, cancel: &AtomicBool) -> Option<(Names, Lab
         labels.extend(disambiguate(group.iter().map(|c| c.path.as_path())));
     }
     Some((names, labels))
+}
+
+#[cfg(test)]
+#[test]
+fn typing_over_a_pending_ranking_narrows_the_rows_shown() {
+    use crate::{App, Policy};
+    let mut app = App::new(vec!["/fixture".into()], 1, Policy::default());
+    for i in 0..BACKGROUND_AT {
+        app.insert(
+            0,
+            Candidate {
+                path: format!("/fixture/f{i}").into(),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    let (waker, _woken) = std::sync::mpsc::sync_channel(1);
+    app.set_waker(waker);
+    app.refresh();
+    app.finish_ranking();
+    app.query = "f1".into();
+    app.refresh();
+    assert!(app.ranking_pending());
+    // Typed before "f1" is ranked: "f12" narrows the rows of "" on screen
+    // instead of ranking and labelling every known path again.
+    app.query = "f12".into();
+    app.refresh();
+    let pending = app.ranking.as_ref().expect("ranked in the background");
+    assert_eq!(pending.shown.as_ref().map(|(_, q)| q.as_str()), Some(""));
+    app.finish_ranking();
+    assert!(!app.rows.is_empty());
+    assert!(
+        app.rows
+            .iter()
+            .all(|c| score(&c.path.to_string_lossy(), "f12").is_some())
+    );
 }

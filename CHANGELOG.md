@@ -14,6 +14,13 @@ history.
   and a key's further places read `or Enter` instead of a bare `or`. Hints,
   prose and checklists line up with the rows they explain.
 
+### Fixed
+
+- **Typing in a large listing no longer waits for every keystroke's
+  ranking.** A letter typed before the previous one was ranked used to rank
+  and relabel every known path again: over 600,000 paths, the match took 1.5
+  seconds to show, and now 0.15.
+
 ### Removed
 
 - **`enlarge_font` and `shrink_font`**, and their keys (Alt+=, Alt++,
