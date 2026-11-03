@@ -160,5 +160,22 @@ shows the highlighted entry's `user:group`; this would make them a quick
 toggle for every row rather than a configuration change, with owner and
 group as columns of their own, and could show octal modes too.
 
+### Faster scanning
+
+Listing a large tree takes about ten times as long as `fd`: 1.6 seconds for
+the 620,000 entries of `/usr`, against 0.14, so a query typed at once waits
+for the scan to reach its match. Measured, the time splits in halves:
+
+- The walk reads one folder at a time on one thread. Reading each depth's
+  folders on several threads, one depth after another, would keep what the
+  scan guarantees today: shallower entries arrive first, and `max_paths`
+  still stops at the shallowest ones.
+- The walker then waits about as long for the interface thread, which merges
+  every batch into the fully sorted rows. Kept as fzf keeps its input,
+  in chunks sorted on their own and merged only as far as the screen shows,
+  a batch would cost little more than appending it. Whatever needs every row
+  in order (`G`, the count, `m`, batch rename, the printed marks) would
+  finish the merge first, so nothing changes in what fff lists or does.
+
 The current release is 0.15.0. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.
