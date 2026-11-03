@@ -4,7 +4,9 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.11.0 — 2026-11-03
+
+The preview pane is shown from the start.
 
 ### Changed
 
