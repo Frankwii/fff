@@ -507,50 +507,56 @@ fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     kept
 }
 
-/// Session state as pills on the filter's bottom border: discovery progress and
-/// depth always, then only settings that differ from the defaults. Narrow frames
-/// drop trailing pills and shorten the progress label; F1 lists everything.
+/// Session state on the filter's bottom border, written like a title
+/// (`✓ complete · depth 2`): discovery progress and depth always, then only
+/// settings that differ from the defaults. Narrow frames drop trailing items and
+/// shorten the progress label; F1 lists everything.
 fn status_line(app: &App, width: usize) -> Line<'static> {
     let theme = app.palette;
-    let bg = theme.selection;
     let (scan, color) = if app.cache_pending && app.scanning {
-        (["◌ cached · refreshing", "◌ incomplete"], theme.marked)
+        (["◌ cached, refreshing", "◌ incomplete"], theme.marked)
     } else if app.scanning {
-        (["◌ scanning · incomplete", "◌ incomplete"], theme.marked)
+        (["◌ scanning, incomplete", "◌ incomplete"], theme.marked)
     } else if app.ranking_pending() {
         (["◌ sorting", "◌ sorting"], theme.marked)
     } else if app.truncated {
-        (["◌ partial · max paths", "◌ partial"], theme.marked)
+        (["◌ partial: max paths", "◌ partial"], theme.marked)
     } else {
-        (["● complete"; 2], theme.success)
+        (["✓ complete"; 2], theme.success)
     };
     let mut optional = Vec::new();
-    // Filters and exclusions only get a pill while they hide something; their
+    // Filters and exclusions are only named while they hide something; their
     // globs are listed in the editors (Alt+f, Alt+e) and in F1's details.
     if !app.policy.filters.is_empty() {
-        optional.push(pill("filters on", theme.accent, bg));
+        optional.push(styled("filters on", theme.accent));
     }
     match app.listed_kinds() {
-        crate::Kinds::Files => optional.push(pill("files only", theme.accent, bg)),
-        crate::Kinds::Directories => optional.push(pill("folders only", theme.accent, bg)),
+        crate::Kinds::Files => optional.push(styled("files only", theme.accent)),
+        crate::Kinds::Directories => optional.push(styled("folders only", theme.accent)),
         crate::Kinds::All => {}
     }
     if app.policy.hidden {
-        optional.push(pill("hidden shown", theme.accent, bg));
+        optional.push(styled("hidden shown", theme.accent));
     }
     if app.policy.ignore && !app.policy.rules.is_empty() {
-        optional.push(pill("exclusions on", theme.accent, bg));
+        optional.push(styled("exclusions on", theme.accent));
     }
-    let depth = pill(format!("depth {}", app.depth), theme.text, bg);
+    let depth = styled(format!("depth {}", app.depth), theme.text);
     let mut keep = optional.len();
     let mut label = 0;
     loop {
-        let spans: Vec<Span<'static>> = [pill(scan[label], color, bg), depth.clone()]
+        let mut spans = vec![Span::raw(" ")];
+        for (i, item) in [styled(scan[label], color), depth.clone()]
             .into_iter()
             .chain(optional[..keep].iter().cloned())
-            .flat_map(|p| [Span::raw(" "), p])
-            .chain([Span::raw(" ")])
-            .collect();
+            .enumerate()
+        {
+            if i > 0 {
+                spans.push(styled(" · ", theme.muted));
+            }
+            spans.push(item);
+        }
+        spans.push(Span::raw(" "));
         let used = spans.iter().map(|s| s.width()).sum::<usize>();
         if used <= width || (keep == 0 && label == 1) {
             return Line::from(spans);

@@ -1367,9 +1367,9 @@ pub(crate) enum Button {
     Confirm,
 }
 impl Button {
-    /// Left to right; the bar drops buttons from the end of the first group
-    /// when it is narrow, never Cancel or Select.
-    /// The buttons for `focus` (left and right groups); `None` hides the bar.
+    /// The buttons for `focus` (left and right groups, left to right); `None`
+    /// hides the bar. A narrow bar drops buttons from the end of the first
+    /// group, never Cancel or Select.
     pub(crate) fn sets(focus: &Focus) -> Option<(&'static [Self], &'static [Self])> {
         match focus {
             Focus::Results => Some((
@@ -1382,7 +1382,6 @@ impl Button {
             _ => None,
         }
     }
-    /// The key a button stands for, where the key's handling is all it does.
     /// The key a button stands for, which the session handles as that key;
     /// Select in a file dialog is Enter on the highlighted row (unless it
     /// returns marks), so saving over a file asks and folders are entered.

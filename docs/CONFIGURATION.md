@@ -496,7 +496,7 @@ max_paths = 1000000     # paths the current view may hold (1000..100000000)
 2. **Older or partial snapshot.** Its rows are loaded at once while background
    discovery reconciles them: a scan that finishes within the first-frame wait
    (below) is drawn once, complete; a slower one shows the snapshot first, with
-   `◌ cached · refreshing`. Snapshots truncated by the path limit never qualify
+   `◌ cached, refreshing`. Snapshots truncated by the path limit never qualify
    for skipping a scan. If there is no snapshot, eligible
    already-known paths can seed the new view; depths and roots are recomputed.
    Such reused prefixes always remain provisional. Seeding examines at most
@@ -652,9 +652,10 @@ patterns = ["Makefile", "*.tar.gz"]   # globs on the file name
 terminal = true                       # needs a terminal: a new window in the background
 ```
 
-Rules are tried in order and the first match wins. `extensions` are compared
-without the dot and ignoring case; `patterns` are globs matched against the file
-name. `command` is a program and its arguments, split like a typed command
+Rules are tried in order and the first match wins. `extensions` end the file
+name after its first character, ignoring case and a leading dot, so `"tar.gz"`
+matches `notes.tar.gz` (as `"gz"` does) but not a file named `.tar.gz`;
+`patterns` are globs matched against the file name. `command` is a program and its arguments, split like a typed command
 (quotes and backslashes work, no shell); the files are added after it. A rule
 needs a command and at least one extension or pattern. Files no rule matches
 open with `$EDITOR`, as a terminal program.

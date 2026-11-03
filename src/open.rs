@@ -40,7 +40,7 @@ impl Default for OpenConfig {
 pub struct Rule {
     /// The program and its arguments; the files are added after them.
     pub command: String,
-    /// Case-insensitive extensions without the dot: `["pdf", "djvu"]`.
+    /// Case-insensitive extensions, the dot optional: `["pdf", "tar.gz"]`.
     #[serde(default)]
     pub extensions: Vec<String>,
     /// Globs matched against the file name: `["Makefile", "*.tar.gz"]`.
@@ -81,6 +81,15 @@ impl OpenConfig {
             if rule.extensions.is_empty() && rule.patterns.is_empty() {
                 return Err(format!("{at}: give extensions or patterns to match"));
             }
+            if rule
+                .extensions
+                .iter()
+                .any(|e| e.trim_start_matches('.').is_empty())
+            {
+                return Err(format!(
+                    "{at}: an extension is empty; match names without one with patterns"
+                ));
+            }
             for pattern in &rule.patterns {
                 crate::glob(pattern).map_err(|e| format!("{at}: pattern {pattern:?}: {e}"))?;
             }
@@ -112,14 +121,9 @@ impl OpenConfig {
             .file_name()
             .map(|n| n.to_string_lossy())
             .unwrap_or_default();
-        let extension = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
+        let lowercase = name.to_lowercase();
         let matched = self.rules.iter().find(|rule| {
-            rule.extensions
-                .iter()
-                .any(|e| e.trim_start_matches('.').eq_ignore_ascii_case(&extension))
+            rule.extensions.iter().any(|e| has_extension(&lowercase, e))
                 || rule
                     .patterns
                     .iter()
@@ -238,6 +242,16 @@ pub fn background_plan(
     Ok(outer)
 }
 
+/// Whether the lowercase file name `name` ends with `.extension` after a
+/// nonempty stem: `tar.gz` and `gz` match `x.tar.gz`, `pdf` matches `b.pdf`,
+/// and nothing matches the whole of a hidden name such as `.pdf`.
+fn has_extension(name: &str, extension: &str) -> bool {
+    let extension = extension.trim_start_matches('.').to_lowercase();
+    name.strip_suffix(extension.as_str())
+        .and_then(|rest| rest.strip_suffix('.'))
+        .is_some_and(|stem| !stem.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +279,24 @@ mod tests {
         assert_eq!(line("/a/b.djvu").unwrap(), ("zathura".into(), false));
         assert_eq!(line("/a/Makefile").unwrap(), ("nvim".into(), true));
         assert_eq!(line("/a/x.tar.gz").unwrap(), ("nvim".into(), true));
+        // Extensions may have several parts, and match only after a name.
+        let archives = config(
+            "[[rules]]\ncommand = \"tar tf\"\nextensions = [\"tar.gz\", \".TGZ\"]\n\
+             [[rules]]\ncommand = \"gunzip\"\nextensions = [\"gz\"]",
+        );
+        archives.validate().unwrap();
+        let opener = |p: &str| archives.opener(Path::new(p)).map(|o| o.line).ok();
+        assert_eq!(opener("/a/x.TAR.GZ").as_deref(), Some("tar tf"));
+        assert_eq!(opener("/a/x.tgz").as_deref(), Some("tar tf"));
+        assert_eq!(opener("/a/x.gz").as_deref(), Some("gunzip"));
+        assert_eq!(opener("/a/.tar.gz").as_deref(), Some("gunzip"));
+        assert_ne!(opener("/a/xtar.gz").as_deref(), Some("tar tf"));
+        assert_ne!(opener("/a/.gz").as_deref(), Some("gunzip"));
+        assert!(
+            config("[[rules]]\ncommand = \"x\"\nextensions = [\".\"]")
+                .validate()
+                .is_err()
+        );
         // Unmatched files fall back to $EDITOR, as a terminal program.
         if let Ok(editor) = std::env::var("EDITOR")
             && !editor.trim().is_empty()

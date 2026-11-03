@@ -62,6 +62,10 @@ history.
   shorter sentence. `x` or `X` with nothing to act on says "Nothing to
   delete", and refusals to change or undo around the current directory say
   to go up first.
+- **The status on the query box's border reads like its title**,
+  `✓ complete · depth 2 · hidden shown`, instead of shaded boxes that cut
+  through the border; the finished scan shows a check mark rather than a dot
+  that small fonts drew as `·`.
 
 ### Removed
 
@@ -75,6 +79,9 @@ history.
 
 ### Fixed
 
+- **`[[open.rules]]` extensions with several parts match**: `"tar.gz"` never
+  matched anything, since only the part after the last dot was compared.
+  An empty extension is now refused when the configuration loads.
 - **Enter while typing in `fff seek` chooses the file**, leaving into its
   folder as in Normal mode. It tried to reveal the file in its folder
   instead, which seek forbids, so a file below the starting folder only got

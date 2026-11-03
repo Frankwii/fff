@@ -73,7 +73,7 @@ class Session:
         self.status = None
         if not ready:
             return
-        self.wait_ui("● complete" if size[0] >= 12 and size[1] >= 36 else " complete")
+        self.wait_ui("✓ complete" if size[0] >= 12 and size[1] >= 36 else " complete")
 
     def wait_ui(self, token, after=None, timeout=5):
         deadline = time.monotonic() + timeout
@@ -83,7 +83,7 @@ class Session:
             if location is not None:
                 # The integrated "@" line sits between the filter and results.
                 at = [l for l in self.screen.text.splitlines() if l.lstrip().startswith("@ ")]
-                return any(str(location) in l for l in at) and "● complete" in self.screen.text
+                return any(str(location) in l for l in at) and "✓ complete" in self.screen.text
             return token in self.screen.text
         if after is None and matches():
             return
@@ -426,7 +426,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "build" / "log").touch()
         (self.root / "main.tex").touch()
         s = self.start("--depth", "1", "--exclude", "build")
-        s.send(b"\x1b[1;3C", "depth 2   exclusions on")  # Alt+Right
+        s.send(b"\x1b[1;3C", "depth 2 · exclusions on")  # Alt+Right
         s.send(b"\x1bH")
         s.wait_absent("exclusions on")
         s.send(b"\x1be", b"one glob per line")
@@ -1020,7 +1020,7 @@ class TerminalTests(unittest.TestCase):
         self.session = s
         lines = s.screen.text.splitlines()
         self.assertIn("Query", lines[0])
-        self.assertIn("● complete   depth 1", lines[2])
+        self.assertIn("✓ complete · depth 1", lines[2])
         self.assertNotIn("hidden", lines[2])
         self.assertTrue(" ".join(lines[3].split()).startswith(f"@ {self.root / 'notes'} "), s.screen.text)
         self.assertTrue(lines[3].rstrip().endswith("pinned  notes  papers"), s.screen.text)
@@ -1046,7 +1046,7 @@ class TerminalTests(unittest.TestCase):
         new.touch()
         s.send(b"\x1bl", ("cwd", directory))
         self.assertIn("old", s.screen.text)  # recent snapshot intentionally stays usable
-        s.send(b"\x1b[15~", "● complete")  # F5 forces freshness
+        s.send(b"\x1b[15~", "✓ complete")  # F5 forces freshness
         self.assertIn("new", s.screen.text)
         s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
         s.send(b"\r")

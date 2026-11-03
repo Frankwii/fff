@@ -1112,9 +1112,9 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
     let lines: Vec<_> = screen.lines().collect();
     assert!(lines[0].contains("Query"));
     assert!(lines[1].contains("❯ type to filter"));
-    // Progress and depth always; only non-default settings get a pill.
+    // Progress and depth always; only non-default settings are named.
     assert!(
-        lines[2].trim_end().ends_with("● complete   depth 3  ╯"),
+        lines[2].trim_end().ends_with("✓ complete · depth 3 ╯"),
         "{screen}"
     );
     assert!(!lines[2].contains("hidden"));
@@ -1128,7 +1128,7 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
     let (screen, _) = draw(&mut app, 120, 26);
     // Filters and exclusions are named, not spelled out, and only while active.
     assert!(
-        screen.contains("◌ scanning · incomplete   depth 3   filters on   exclusions on"),
+        screen.contains("◌ scanning, incomplete · depth 3 · filters on · exclusions on"),
         "{screen}"
     );
     assert!(!screen.contains("*.tex"), "{screen}");
@@ -1138,7 +1138,7 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
     // The minimum frame keeps depth and an explicit incomplete label.
     let (screen, targets) = draw(&mut app, 36, 12);
     let status = screen.lines().nth(2).unwrap();
-    assert!(status.contains("◌ incomplete   depth 3"), "{screen}");
+    assert!(status.contains("◌ incomplete · depth 3"), "{screen}");
     assert!(
         screen
             .lines()
@@ -1228,7 +1228,7 @@ fn location_line_stays_distinct_without_color() {
     assert_eq!(buffer[(2, 3)].symbol(), "@");
     assert!(buffer[(2, 3)].modifier.contains(Modifier::BOLD));
     assert!(buffer[(17, 3)].modifier.contains(Modifier::BOLD));
-    assert!(text(buffer).contains("● complete"));
+    assert!(text(buffer).contains("✓ complete"));
 }
 #[test]
 fn icons_keep_columns_elision_and_numbered_targets_aligned() {
@@ -1538,7 +1538,7 @@ fn pinned_roots_that_do_not_fit_are_counted() {
     assert!(text(fit_spans(spans(&roots), 10)).width() <= 10);
 }
 #[test]
-fn status_pills_drop_from_the_end_before_the_label_shortens() {
+fn status_items_drop_from_the_end_before_the_label_shortens() {
     let mut app = fixture();
     app.scanning = true;
     app.policy.set_filters(vec!["*.tex".into()]).unwrap();
@@ -1551,23 +1551,23 @@ fn status_pills_drop_from_the_end_before_the_label_shortens() {
             .collect::<String>()
     };
     let full = text(200);
-    for pill in [
-        "◌ scanning · incomplete",
+    for item in [
+        "◌ scanning, incomplete",
         "depth 3",
         "filters on",
         "hidden shown",
     ] {
-        assert!(full.contains(pill), "{pill:?} in {full:?}");
+        assert!(full.contains(item), "{item:?} in {full:?}");
     }
     let shortest = text(0);
-    assert_eq!(shortest.trim(), "◌ incomplete   depth 3");
+    assert_eq!(shortest.trim(), "◌ incomplete · depth 3");
     for width in 0..200 {
         let shown = text(width);
         assert!(
             shown.width() <= width || shown == shortest,
             "{width}: {shown:?}"
         );
-        // Later pills go first, and the label shortens only once they are gone.
+        // Later items go first, and the label shortens only once they are gone.
         assert!(!shown.contains("hidden shown") || shown.contains("filters on"));
         assert!(
             shown.contains("scanning") || !shown.contains("filters on"),
