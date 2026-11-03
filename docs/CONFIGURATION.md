@@ -138,12 +138,13 @@ color for that role. Unspecified roles are inherited.
 | `link` | Result names of symbolic links, including links to directories. Built-ins use a vivid blue distinct from `accent`. |
 | `executable` | Result names of regular files with any execute bit. Built-ins reuse `success`. |
 | `empty` | Result names of empty (zero-byte) regular files. Built-ins reuse `error`. |
+| `function` | Function names on the Keys screen (F1), in the `:` picker and where a key clashes. Built-ins reuse `error`. |
 
 Result names use the first matching role: `link`, `accent` for directories,
 `empty`, `executable`, then `text`. Only visible rows are inspected, so the
 colors follow the file's current state without slowing discovery. A custom
-palette that overrides `success` or `error` keeps the inherited `executable` and
-`empty` colors unless it sets them too.
+palette that overrides `success` or `error` keeps the inherited `executable`,
+`empty` and `function` colors unless it sets them too.
 
 `NO_COLOR` is honored. Labels, selection arrows, bold focus borders, and textual
 progress/missing indicators remain useful without color.
@@ -903,19 +904,28 @@ The same three keys work at every level: **Space goes a level deeper**
   session and `keys.toml`), Escape drops them, and F1 closes the screen
   dropping them too.
 - **A function's keys:** one row per place: its key, mode, programs, lists
-  and highlights, with the highlighted row's checklists below. Space edits
-  where the highlighted key applies. `n` adds a key: press it (the first key
-  may be any key, more may follow for a sequence; Backspace takes one back),
-  then Enter goes on to where it applies. A digit for `search_to_depth`,
-  `open_row` or `confirm_row` stands for every digit. `d` deletes the
-  highlighted row, `R` puts the function's default keys back.
+  and highlights, with the highlighted row's checklists below (left out when
+  the sheet would not fit otherwise). Moving past the last row goes round to
+  the first, and back. Space edits where the highlighted key applies. `n`
+  adds a key: press it (the first key may be any key, more may follow for a
+  sequence; Backspace takes one back), then Enter goes on to where it
+  applies. `R` replaces the highlighted key: press the new one, and Enter
+  puts it where the old one applied, at once when nothing else has it there,
+  else through where it applies, with the clash shown. A digit for
+  `search_to_depth`, `open_row` or `confirm_row` stands for every digit. `d`
+  deletes the highlighted row, and `D` puts the function's default keys
+  back, after asking.
 - **Where a key applies:** the checklists, to change. Tab and Shift+Tab go
   to the next and previous column, arrows (or `h`/`j`/`k`/`l`) move, Space
   ticks, Enter is done, Escape goes back
-  unchanged. When the key clashes with another function's, the sheet says
-  where: untick until nothing clashes, or `u` keeps it only where nothing
-  else has it, or `t` takes it from the others there (they keep it
-  elsewhere).
+  unchanged. When the key clashes with another function's, the sheet lists
+  the keys it clashes with, their functions and where they meet, and marks
+  the ticked values they share: untick until nothing clashes, or `u` keeps
+  it only where nothing else has it, or `t` takes it from the others there
+  (they keep it elsewhere).
+
+A sheet that does not fit the terminal is not cut: fff says how large the
+terminal must be until it is, or until the sheet is left.
 
 One row is one set of ticks. For places one set cannot say, such as in
 `fff pick` anywhere, or in `fff roam` on a directory, give the function the

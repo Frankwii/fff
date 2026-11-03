@@ -210,7 +210,7 @@ fn places_table(
         for (c, text) in row.iter().enumerate().skip(1) {
             let color = match (dim, c == 1 && with_function) {
                 (true, _) => theme.muted,
-                (false, true) => theme.text,
+                (false, true) => theme.function,
                 (false, false) if c == widths.len() - 4 => theme.text,
                 _ => theme.muted,
             };
@@ -228,7 +228,8 @@ fn places_table(
 /// The checklists of a place: a column per dimension with each value
 /// ticked (`●`) or not (`○`), or crossed out (`×`) where it cannot apply
 /// with the other columns' ticks: the function does not work there, or its
-/// keys cannot be bound in that mode. `cursor` is (column, row), shown in
+/// keys cannot be bound in that mode. Ticked values in `clashing` (bits by
+/// column) are marked as clashing there. `cursor` is (column, row), shown in
 /// the `gutter`. Columns are as wide as their values and share out the rest
 /// of `width`; when four do not fit, the programs take one side and the
 /// other three the other.
@@ -242,6 +243,7 @@ fn checklists(
     cursor: Option<(usize, usize)>,
     width: usize,
     gutter: usize,
+    clashing: [u16; 4],
 ) -> Vec<Line<'static>> {
     let theme = app.palette;
     let dims = dimensions();
@@ -299,6 +301,8 @@ fn checklists(
                     let can = workable(function, keys, modes, scope, c, *bit);
                     let (marker, color) = if !can {
                         ("×", theme.error)
+                    } else if set & clashing[c] & bit != 0 {
+                        ("●", theme.error)
                     } else if set & bit != 0 {
                         ("●", theme.accent)
                     } else {
@@ -344,21 +348,45 @@ fn checklists(
         .collect()
 }
 
+/// Hints of keys and what they do, spread over lines `width` wide: as many
+/// to a line as fit, with even gaps.
+fn hint_lines(theme: Palette, hints: Vec<(String, &str)>, width: usize) -> Vec<Line<'static>> {
+    let room = width.saturating_sub(2);
+    let size = |(key, what): &(String, &str)| key.width() + 2 + what.width();
+    let mut groups: Vec<Vec<(String, &str)>> = vec![Vec::new()];
+    let mut used = 0;
+    for hint in hints {
+        let last = groups.last_mut().unwrap();
+        if !last.is_empty() && used + 3 + size(&hint) > room {
+            used = size(&hint);
+            groups.push(vec![hint]);
+        } else {
+            used += size(&hint) + if last.is_empty() { 0 } else { 3 };
+            last.push(hint);
+        }
+    }
+    groups
+        .into_iter()
+        .map(|group| {
+            let used: usize = group.iter().map(size).sum();
+            let gap = (room.saturating_sub(used) / group.len().max(1)).clamp(3, 8);
+            let mut spans = vec![Span::raw("  ")];
+            for (i, (key, what)) in group.into_iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::raw(" ".repeat(gap)));
+                }
+                spans.push(bold(key, theme.accent));
+                spans.push(styled(format!(": {what}"), theme.muted));
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
 /// The whole screen; returns the rows a page moves.
 pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &KeysScreen) -> usize {
     let theme = app.palette;
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Min(3),
-            Constraint::Length(1),
-        ])
-        .split(area);
-    query_box(frame, layout[0], app, screen);
     // What the screen's own keys do, as the sheets' borders say theirs,
-    // spread over the line.
+    // spread over the line, or over more lines where one is too short.
     let mut hints: Vec<(String, &str)> = vec![
         ("Space/Enter".into(), "edit"),
         (
@@ -369,16 +397,19 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
                 "Keys view"
             },
         ),
-        ("r, then a key".into(), "search for it (Normal mode)"),
-        (
-            "Ctrl+a".into(),
-            if screen.everywhere {
-                "only what works here"
-            } else {
-                "every function"
-            },
-        ),
     ];
+    // `r` is typed into the query in Insert mode.
+    if app.mode() == Mode::Normal {
+        hints.push(("r, then a key".into(), "search for it"));
+    }
+    hints.push((
+        "Ctrl+a".into(),
+        if screen.everywhere {
+            "only what works here"
+        } else {
+            "every function"
+        },
+    ));
     if let (Some(down), Some(up)) = (
         app.bound_in(Function::ScrollPreviewDown, app.mode()),
         app.bound_in(Function::ScrollPreviewUp, app.mode()),
@@ -388,19 +419,18 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
     if let Some(close) = app.bound(Function::ShowKeys) {
         hints.push((close, "close"));
     }
-    let used: usize = hints.iter().map(|(k, w)| k.width() + 2 + w.width()).sum();
-    let gap =
-        ((layout[1].width as usize).saturating_sub(used + 2) / hints.len().max(1)).clamp(3, 8);
-    let mut spans = vec![Span::raw("  ")];
-    for (i, (key, what)) in hints.into_iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::raw(" ".repeat(gap)));
-        }
-        spans.push(bold(key, theme.accent));
-        spans.push(styled(format!(": {what}"), theme.muted));
-    }
-    let hints = spans;
-    frame.render_widget(Paragraph::new(Line::from(hints)), layout[1]);
+    let hint_lines = hint_lines(theme, hints, area.width as usize);
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(hint_lines.len() as u16),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(area);
+    query_box(frame, layout[0], app, screen);
+    frame.render_widget(Paragraph::new(hint_lines), layout[1]);
     let main = layout[2];
     let (list, details) = if main.width >= 100 {
         let columns = Layout::default()
@@ -595,7 +625,7 @@ fn functions_table(
                     let changed = Mode::ALL.into_iter().any(|m| app.keymap.is_custom(*f, m));
                     spans.extend(fit(
                         vec![
-                            bold(f.name(), theme.text),
+                            bold(f.name(), theme.function),
                             bold(if changed { " •" } else { "" }, theme.marked),
                         ],
                         widths[0],
@@ -648,12 +678,18 @@ fn details_pane(
         Some(Listed::Key(place)) => Some(place.function),
         _ => None,
     };
-    let title = match (function, row) {
-        (Some(f), _) => format!(" {} ", f.name()),
-        (None, Some(Listed::Fixed(_))) => " Fixed key ".into(),
-        _ => " Details ".into(),
-    };
-    let block = panel(theme, title, false, theme.accent).padding(Padding::horizontal(1));
+    let block = match (function, row) {
+        (Some(f), _) => panel_with(
+            theme,
+            " ",
+            vec![bold(f.name(), theme.function), Span::raw(" ")],
+            false,
+            theme.accent,
+        ),
+        (None, Some(Listed::Fixed(_))) => panel(theme, " Fixed key ", false, theme.accent),
+        _ => panel(theme, " Details ", false, theme.accent),
+    }
+    .padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -676,7 +712,17 @@ fn details_pane(
             }
             lines.push(Line::default());
             lines.push(Line::from(heading(theme, "WORKS")));
-            lines.extend(checklists(app, f, None, 0b11, Scope::ALL, None, width, 0));
+            lines.extend(checklists(
+                app,
+                f,
+                None,
+                0b11,
+                Scope::ALL,
+                None,
+                width,
+                0,
+                [0; 4],
+            ));
         }
         (None, Some(Listed::Fixed(i))) => {
             let (keys, place, what) = FIXED[*i];
@@ -768,16 +814,20 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             ("backspace", "Undo key"),
             ("esc", "Back"),
         ],
+        EditStep::Defaults => &[("enter", "Restore"), ("esc", "Back")],
         _ => &[
             ("space", "Edit"),
+            ("R", "Replace"),
             ("n", "New"),
             ("d", "Delete"),
-            ("R", "Defaults"),
+            ("D", "Defaults"),
             ("enter", "Save"),
             ("esc", "Discard"),
         ],
     };
-    // Everything sets in by the rows' marker, so that it lines up.
+    // Everything sets in by the rows' marker, so that it lines up. What
+    // only explains, or repeats the highlighted row, goes first when the
+    // sheet does not fit (`more`).
     let inside = width.saturating_sub(2);
     let mut body: Vec<Line<'static>> = indented(
         prose(theme, theme.accent, function.description(), inside),
@@ -794,10 +844,15 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
         ));
     }
     body.push(Line::default());
+    let mut more: Vec<Line<'static>> = Vec::new();
     match &editor.step {
-        EditStep::Capture { keys } => {
+        EditStep::Capture { keys, replaces } => {
+            let label = match replaces {
+                Some(place) => format!("  Replace {} with:  ", place.display()),
+                None => "  New key:  ".into(),
+            };
             body.push(Line::from(vec![
-                styled("  New key:  ", theme.text),
+                styled(label, theme.text),
                 bold(
                     if keys.is_empty() {
                         "press it…".to_string()
@@ -807,11 +862,26 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
                     theme.accent,
                 ),
             ]));
+            let help = match replaces {
+                Some(place) => format!(
+                    "The first key can be any key, and more may follow for a sequence. *Enter* puts it where {} applied; where it clashes with another key, you choose where it applies next. *Backspace* takes one back and *Esc* gives up.",
+                    place.display()
+                ),
+                None => "The first key can be any key, and more may follow for a sequence. *Enter* goes on to where it applies, *Backspace* takes one back and *Esc* gives up.".into(),
+            };
+            body.extend(indented(prose(theme, theme.accent, &help, inside), 2));
+        }
+        EditStep::Defaults => {
+            body.push(Line::from(vec![
+                styled("  Put back the default keys of ", theme.text),
+                bold(function.name(), theme.function),
+                styled("?", theme.text),
+            ]));
             body.extend(indented(
                 prose(
                     theme,
                     theme.accent,
-                    "The first key can be any key, and more may follow for a sequence. *Enter* goes on to where it applies, *Backspace* takes one back and *Esc* gives up.",
+                    "Your keys for it go, in both modes. *Enter* puts the defaults back, staged until the sheet is saved; *Esc* keeps your keys.",
                     inside,
                 ),
                 2,
@@ -819,12 +889,12 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
         }
         _ => {
             if let Some(place) = rows.get(editor.index) {
-                body.push(Line::from(vec![
+                more.push(Line::from(vec![
                     heading(theme, "  WHERE "),
                     bold(place.display(), theme.accent),
                     heading(theme, " APPLIES IN THE HIGHLIGHTED ROW"),
                 ]));
-                body.extend(checklists(
+                more.extend(checklists(
                     app,
                     function,
                     Some(&place.keys),
@@ -833,10 +903,11 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
                     None,
                     width,
                     2,
+                    [0; 4],
                 ));
-                body.push(Line::default());
+                more.push(Line::default());
             }
-            body.extend(indented(
+            more.extend(indented(
                 prose(
                     theme,
                     theme.muted,
@@ -847,12 +918,17 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             ));
         }
     }
-    if let Some((text, error)) = &editor.message {
-        body.push(Line::from(styled(
+    let message = editor.message.as_ref().map(|(text, error)| {
+        Line::from(styled(
             format!("  {}", truncate(&safe(text), width.saturating_sub(2))),
             if *error { theme.error } else { theme.success },
-        )));
+        ))
+    });
+    let needs = (body.len() + usize::from(message.is_some()) + 2) as u16;
+    if needs + more.len() as u16 <= main.height {
+        body.extend(more);
     }
+    body.extend(message);
     let inner = sheet(
         frame,
         main,
@@ -869,12 +945,11 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             summary: Some(saves_to(app)),
         },
     );
-    // A tall body keeps its end, where the step's prompt is, in view.
-    let scroll = (body.len() as u16).saturating_sub(inner.height);
-    frame.render_widget(Paragraph::new(body).scroll((scroll, 0)), inner);
+    frame.render_widget(Paragraph::new(body), inner);
 }
 /// Where one key applies, to change: its checklists with a cursor, and the
-/// clashes left to settle. Its size does not change as you move.
+/// clashes left to settle, each value they share marked in the checklists.
+/// Its size does not change as you move, where there is room.
 #[allow(clippy::too_many_arguments)]
 fn where_sheet(
     frame: &mut Frame,
@@ -890,20 +965,28 @@ fn where_sheet(
     let function = editor.function;
     let width = main.width.saturating_sub(4) as usize;
     let shown = crate::keymap::display(keys);
+    let drafts = crate::ui::keys::bindings_of(function, keys, modes, scope);
+    let replaced = replaces.map(|p| p.bindings.clone()).unwrap_or_default();
+    let clashes = editor.clashes(&drafts, &replaced);
     let mut body: Vec<Line<'static>> = vec![
         Line::from(vec![
             Span::raw("  "),
             bold(shown.clone(), theme.accent),
-            styled(
-                format!(
-                    " does {} wherever a tick of each column meets.",
-                    function.name()
-                ),
-                theme.text,
-            ),
+            styled(" does ", theme.text),
+            bold(function.name(), theme.function),
+            styled(" wherever a tick of each column meets.", theme.text),
         ]),
         Line::default(),
     ];
+    // The values a clash takes in each column: modes, then the box.
+    let shared: [u16; 4] = clashes.iter().fold([0; 4], |bits, (other, at)| {
+        [
+            bits[0] | other.mode.bit(),
+            bits[1] | at.programs,
+            bits[2] | at.places,
+            bits[3] | at.highlights,
+        ]
+    });
     body.extend(checklists(
         app,
         function,
@@ -913,54 +996,48 @@ fn where_sheet(
         Some(cursor),
         width,
         0,
+        shared,
     ));
     body.push(Line::default());
-    body.extend(indented(
-        vec![
-            Line::from(vec![
-                styled("●", theme.accent),
-                styled(" applies there    ", theme.muted),
-                styled("○", theme.muted),
-                styled(" does not    ", theme.muted),
-                styled("×", theme.error),
-                styled(" cannot, with the other columns' ticks:", theme.muted),
-            ]),
-            Line::from(styled(
-                format!(
-                    "  {} does not work there, or {shown} cannot be bound in that mode",
-                    function.name()
-                ),
-                theme.muted,
-            )),
-        ],
-        2,
-    ));
-    let drafts = crate::ui::keys::bindings_of(function, keys, modes, scope);
-    let replaced = replaces.map(|p| p.bindings.clone()).unwrap_or_default();
-    let clashes = editor.clashes(&drafts, &replaced);
-    for (other, at) in clashes.iter().take(3) {
-        body.push(Line::from(styled(
-            truncate(
-                &format!(
-                    "  {} is already {}'s key in {} mode, in {} · {} · {}",
-                    other.display(),
-                    other.function.name(),
-                    other.mode.title(),
-                    compact(1, at.programs),
-                    compact(2, at.places),
-                    compact(3, at.highlights)
-                ),
-                width,
-            ),
-            theme.error,
-        )));
-    }
+    let mut legend = vec![
+        styled("●", theme.accent),
+        styled(" applies there   ", theme.muted),
+        styled("○", theme.muted),
+        styled(" does not   ", theme.muted),
+    ];
     if !clashes.is_empty() {
+        legend.extend([
+            styled("●", theme.error),
+            styled(" clashes there   ", theme.muted),
+        ]);
+    }
+    legend.extend([
+        styled("×", theme.error),
+        styled(" cannot, with the other columns' ticks", theme.muted),
+    ]);
+    body.extend(indented(vec![Line::from(legend)], 2));
+    if !clashes.is_empty() {
+        body.push(Line::default());
+        body.push(Line::from(vec![
+            Span::raw("  "),
+            bold(
+                format!(
+                    "{shown} CLASHES WITH {}",
+                    if clashes.len() == 1 {
+                        "ANOTHER KEY".into()
+                    } else {
+                        format!("{} KEYS", clashes.len())
+                    }
+                ),
+                theme.error,
+            ),
+        ]));
+        body.extend(clash_table(theme, &clashes, width, 3));
         body.extend(indented(
             prose(
                 theme,
                 theme.accent,
-                "Untick until nothing clashes, or press *u* to keep this key only where nothing else has it, or *t* to take it from the others there.",
+                "Untick a marked value until nothing clashes, or press *u* to keep this key only where nothing else has it, or *t* to take it from the others there.",
                 width.saturating_sub(2),
             ),
             2,
@@ -989,13 +1066,16 @@ fn where_sheet(
             ("esc", "Back"),
         ]
     };
-    // As tall as with three clashes, so the sheet stays put.
-    let height = (dimensions()[1].1.len() + 15) as u16;
-    let inner = sheet(
+    // As tall as with three clashes where there is room, so the sheet stays
+    // put as ticks change; never shorter than what it shows.
+    let needs = body.len() as u16 + 2;
+    let height = needs.max((dimensions()[1].1.len() + 17) as u16);
+    let inner = sheet_needing(
         frame,
         main,
         app,
-        height,
+        height.min(main.height).max(needs),
+        needs,
         Sheet {
             title: format!(" Where {shown} applies "),
             accent: theme.marked,
@@ -1004,4 +1084,49 @@ fn where_sheet(
         },
     );
     frame.render_widget(Paragraph::new(body), inner);
+}
+/// The keys a key clashes with: each one's key, function and where they
+/// meet, up to `most` rows and a line counting the rest.
+fn clash_table(
+    theme: Palette,
+    clashes: &[(crate::keymap::Binding, Scope)],
+    width: usize,
+    most: usize,
+) -> Vec<Line<'static>> {
+    let headings = ["KEY", "FUNCTION", "MODE", "PROGRAM", "LIST", "HIGHLIGHT"];
+    let texts: Vec<Vec<String>> = clashes
+        .iter()
+        .take(most)
+        .map(|(other, at)| {
+            vec![
+                other.display(),
+                other.function.name().into(),
+                other.mode.title().into(),
+                compact(1, at.programs),
+                compact(2, at.places),
+                compact(3, at.highlights),
+            ]
+        })
+        .collect();
+    let widths = widths(&headings, &texts, width.saturating_sub(2), 3);
+    let mut lines = vec![headings_line(theme, &headings, &widths, 2)];
+    for row in &texts {
+        let mut spans = vec![Span::raw("  ")];
+        for (c, text) in row.iter().enumerate() {
+            let span = match c {
+                0 => bold(text.clone(), theme.accent),
+                1 => bold(text.clone(), theme.function),
+                _ => styled(text.clone(), theme.text),
+            };
+            spans.extend(fit(vec![span], widths[c]));
+        }
+        lines.push(Line::from(spans));
+    }
+    if clashes.len() > most {
+        lines.push(Line::from(styled(
+            format!("  and {} more", clashes.len() - most),
+            theme.muted,
+        )));
+    }
+    lines
 }

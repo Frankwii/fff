@@ -25,6 +25,8 @@ pub struct Palette {
     pub link: Color,
     pub executable: Color,
     pub empty: Color,
+    /// Function names, wherever keys are shown or changed.
+    pub function: Color,
 }
 impl Default for Palette {
     fn default() -> Self {
@@ -69,6 +71,7 @@ impl Palette {
             link: rgb(crate::palettes::link(name)),
             executable: c[7],
             empty: c[8],
+            function: c[8],
         })
     }
     fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
@@ -100,6 +103,7 @@ impl Palette {
             "link" => &mut self.link,
             "executable" => &mut self.executable,
             "empty" => &mut self.empty,
+            "function" => &mut self.function,
             _ => return Err(format!("Unknown palette color: {key}")),
         } = color;
         Ok(())

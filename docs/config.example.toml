@@ -38,7 +38,8 @@ current_directory = "#623a28"
 current_directory_text = "#fff3df"
 # All color roles accept "#RRGGBB" or "default" for the terminal's own color.
 # Other roles: background, panel, text, muted, border, success, error, selection,
-# link (symlink names), executable (default: success) and empty (default: error).
+# link (symlink names), executable (default: success), empty (default: error)
+# and function (function names on the Keys screen; default: error).
 
 [[bookmarks]]
 name = "Home"

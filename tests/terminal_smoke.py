@@ -959,7 +959,8 @@ class TerminalTests(unittest.TestCase):
             # n and a key: where it applies opens, Normal mode only for a
             # letter; q is quit's there, so saying where it applies clashes.
             s.send(b"nq\r", "Where q applies")
-            self.assertIn("is already quit's key", s.screen.text)
+            self.assertIn("q CLASHES WITH ANOTHER KEY", s.screen.text)
+            self.assertIn("quit ", s.screen.text)
             s.send(b"t", "taken from the others")
             self.assertFalse(keys.exists())  # staged until Enter
             s.send(b"\r", "Keys saved to")
@@ -977,6 +978,35 @@ class TerminalTests(unittest.TestCase):
             s.send(b"q", "hidden shown")
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_keys_editor_replaces_a_key_restores_defaults_on_confirmation_and_wraps(self):
+        (self.root / "file").touch()
+        s = self.start("--no-config")
+        s.send(b"\x1bOP", "showing what works")
+        # Typing, r is text: its hint shows in Normal mode only.
+        self.assertNotIn("r, then a key", s.screen.text)
+        s.send(b"\x1b[27u", "r, then a key")
+        s.send(b"ihidden", "❯ hidden")
+        s.send(b"\r", "Keys of toggle_hidden")
+        # A key that cannot be bound where the highlighted one applies
+        # says so; R and a free key otherwise take its place.
+        s.send(b"RZ\r", "Z cannot be bound where Alt+. applies")
+        s.send(b"j")
+        s.send(b"RZ\r", ". replaced by Z; Enter saves")
+        self.assertIn("› Z ", s.screen.text)
+        # A key that clashes opens where it applies, with the clash.
+        s.send(b"Rq\r", "Where q applies")
+        self.assertIn("q CLASHES WITH ANOTHER KEY", s.screen.text)
+        s.send(b"\x1b[27u", "R: Replace")
+        # D asks before putting the defaults back.
+        s.send(b"D", "Put back the default keys of toggle_hidden?")
+        s.send(b"\r", "Default keys back; Enter saves")
+        self.assertIn("› Alt+.", s.screen.text)
+        # Moving up from the first key goes round to the last.
+        s.send(b"k", "WHERE . APPLIES")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
 
     def test_status_messages_fade_after_configured_seconds(self):
         (self.root / "file").touch()

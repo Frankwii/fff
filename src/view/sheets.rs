@@ -12,6 +12,20 @@ pub(super) struct Sheet<'a> {
     pub(super) summary: Option<String>,
 }
 pub(super) fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet: Sheet) -> Rect {
+    sheet_needing(frame, main, app, height, height, sheet)
+}
+/// A sheet `height` rows tall where there is room, shorter down to `needs`
+/// rows (a list in it shows fewer rows); with less room than that, the
+/// frame asks for a larger terminal instead (`lacking`).
+pub(super) fn sheet_needing(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    height: u16,
+    needs: u16,
+    sheet: Sheet,
+) -> Rect {
+    lacking(needs.min(height).saturating_sub(main.height));
     let Sheet {
         title,
         accent,
@@ -215,11 +229,13 @@ pub(super) fn listing(
     let body = prose(theme, accent, text, width);
     // Borders, prose, a blank line, then as many rows as fit.
     let height = (body.len() + rows.len() + 3) as u16;
-    let inner = sheet(
+    let needs = (body.len() + rows.len().min(3) + 3) as u16;
+    let inner = sheet_needing(
         frame,
         main,
         app,
         height,
+        needs,
         Sheet {
             title: format!(" {title} "),
             accent,
@@ -525,11 +541,12 @@ pub(super) fn run_prompt(frame: &mut Frame, main: Rect, app: &App, prompt: &crat
     // Borders, prose, blank, input, the program line, candidates, a status row.
     let height = body.len() as u16 + 6 + shown;
     let title = if prompt.exit { "Run and exit" } else { "Run" };
-    let inner = sheet(
+    let inner = sheet_needing(
         frame,
         main,
         app,
         height,
+        height - shown + shown.min(1),
         Sheet {
             title: mode_title(app, Field::Command, title),
             accent: theme.marked,
@@ -624,11 +641,12 @@ pub(super) fn location_sheet(
     let shown = matches.len().min(8);
     // Borders, prose, blank, input, suggestions, and a row for commands/errors.
     let height = (body.len() + shown + 5) as u16;
-    let inner = sheet(
+    let inner = sheet_needing(
         frame,
         main,
         app,
         height,
+        (body.len() + shown.min(1) + 5) as u16,
         Sheet {
             title: mode_title(app, Field::Location, "Go to directory"),
             accent: theme.marked,
@@ -776,16 +794,18 @@ pub(super) fn run_confirmation(frame: &mut Frame, main: Rect, app: &App, plan: &
         ),
     ]);
     let height = (body.len() + plan.paths.len() + 5) as u16;
+    let needs = (body.len() + plan.paths.len().min(3) + 5) as u16;
     let title = if plan.exit {
         "Run and exit"
     } else {
         "Run here"
     };
-    let inner = sheet(
+    let inner = sheet_needing(
         frame,
         main,
         app,
         height,
+        needs,
         Sheet {
             title: format!(" {title} "),
             accent: theme.marked,

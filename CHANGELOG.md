@@ -12,11 +12,28 @@ history.
   only the parent folders that tell same-named entries apart
   (`folder1/main.pdf`), or by their path below the folder searched. The
   choice stays when `gm` changes program.
+- **`R` replaces a key on the Keys screen**: in a function's keys, press the
+  new key and it takes the highlighted one's place, at once when nothing
+  else has it there; where it clashes, where it applies opens with the clash.
+- **A `function` palette color** for function names on the Keys screen, in
+  the `:` picker and where a key clashes; each built-in palette's red.
 
 ### Changed
 
 - **`fff seek` labels rows by their path** below the folder searched, as
   `fff roam` does; `fff pick` and `fff grep` keep names. `gd` switches.
+- **Putting a function's default keys back is `D`** (was `R`), and asks
+  first.
+- **Clashes read as a table** where a key applies: the keys it clashes with,
+  their functions and where they meet, and the ticked values they share are
+  marked in the checklists.
+- **A function's keys go round**: moving past the last row comes back to the
+  first, and before the first to the last.
+- **The Keys screen's `r` hint shows in Normal mode only**, where `r` works,
+  and its hints take a second line rather than being cut.
+- **A sheet too tall for the terminal asks for a larger one** instead of
+  being cut, as fff does below 36 × 12; a function's keys first leave out
+  the checklists that repeat the highlighted row.
 
 ## 0.15.0 — 2026-11-03
 

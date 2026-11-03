@@ -184,40 +184,72 @@ fn panel_with(
         ))
 }
 
+thread_local! {
+    /// Rows the frame being drawn lacks to show a sheet whole (`lacking`).
+    static LACKING: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
+}
+/// A sheet needs `rows` more rows than the frame has: rather than cut it,
+/// the frame asks for a larger terminal.
+pub(super) fn lacking(rows: u16) {
+    LACKING.with(|lacking| lacking.set(lacking.get().max(rows)));
+}
+/// Asks for a terminal of at least `width` × `height`, drawing nothing
+/// else: no invisible row may acquire a numbered target or a click.
+fn too_small(frame: &mut Frame, app: &App, width: u16, height: u16) -> Rendered {
+    let theme = app.palette;
+    let area = frame.area();
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.background).fg(theme.text)),
+        area,
+    );
+    let text = Text::from(vec![
+        Line::from(bold(" fff", theme.accent)),
+        Line::from(styled(
+            format!(" Resize terminal to at least {width} × {height}"),
+            theme.muted,
+        )),
+        Line::from(styled(
+            if app.scanning {
+                " scanning…"
+            } else {
+                " complete"
+            },
+            theme.muted,
+        )),
+    ]);
+    frame.render_widget(Paragraph::new(text), area);
+    Rendered {
+        targets: Vec::new(),
+        bookmark_targets: Vec::new(),
+        page: 0,
+        results: Rect::default(),
+        buttons: Vec::new(),
+        tabs: Vec::new(),
+        marks_pane: Rect::default(),
+        marks: Vec::new(),
+        choices: Vec::new(),
+    }
+}
 pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendered {
+    let area = frame.area();
+    if area.width < 36 || area.height < 12 {
+        return too_small(frame, app, 36, 12);
+    }
+    LACKING.with(|lacking| lacking.set(0));
+    let rendered = render_screen(frame, app, focus);
+    match LACKING.with(|lacking| lacking.get()) {
+        0 => rendered,
+        rows => too_small(frame, app, area.width, area.height + rows),
+    }
+}
+fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendered {
     let theme = app.palette;
     let area = frame.area();
     frame.render_widget(
         Block::default().style(Style::default().bg(theme.background).fg(theme.text)),
         area,
     );
-    // No invisible result rows may acquire numbered targets in a tiny terminal.
-    if area.width < 36 || area.height < 12 {
-        let text = Text::from(vec![
-            Line::from(bold(" fff", theme.accent)),
-            Line::from(styled(" Resize terminal to at least 36 × 12", theme.muted)),
-            Line::from(styled(
-                if app.scanning {
-                    " scanning…"
-                } else {
-                    " complete"
-                },
-                theme.muted,
-            )),
-        ]);
-        frame.render_widget(Paragraph::new(text), area);
-        return Rendered {
-            targets: Vec::new(),
-            bookmark_targets: Vec::new(),
-            page: 0,
-            results: Rect::default(),
-            buttons: Vec::new(),
-            tabs: Vec::new(),
-            marks_pane: Rect::default(),
-            marks: Vec::new(),
-            choices: Vec::new(),
-        };
-    }
     let area = Rect::new(
         area.x + 1,
         area.y,

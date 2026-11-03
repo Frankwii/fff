@@ -737,7 +737,7 @@ pub(super) fn commands(
                 .map(|b| b.display())
                 .unwrap_or_default();
             ListItem::new(Line::from(vec![
-                bold(format!("{:<28}", f.name()), theme.text),
+                bold(format!("{:<28}", f.name()), theme.function),
                 bold(format!("{:<12}", truncate(&key, 11)), theme.accent),
                 styled(
                     truncate(f.description(), room.saturating_sub(40)),

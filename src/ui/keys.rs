@@ -76,10 +76,14 @@ pub(crate) struct Editor {
 }
 pub(crate) enum EditStep {
     Browse,
-    /// `n`: the keys of a new place, as pressed.
+    /// `n`: the keys of a new place, as pressed; `R`: the keys to put in
+    /// place of `replaces`'s, where it applied.
     Capture {
         keys: Vec<Key>,
+        replaces: Option<Place>,
     },
+    /// `D`: whether to put the function's default keys back.
+    Defaults,
     /// Where a key applies: a column per dimension, a row per value; the
     /// cursor is on value `row` of column `column`.
     Where {
@@ -343,7 +347,7 @@ impl KeysScreen {
     }
 }
 impl Editor {
-    fn new(keymap: &Keymap, function: Function, index: usize) -> Self {
+    pub(crate) fn new(keymap: &Keymap, function: Function, index: usize) -> Self {
         Self {
             function,
             custom: keymap.custom().to_vec(),
@@ -614,8 +618,8 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                 return true;
             }
             K::Enter => return !editor.changed(&app.keymap) || save(app, editor),
-            _ if up => editor.index = editor.index.saturating_sub(1),
-            _ if down => editor.index = (editor.index + 1).min(rows.len().saturating_sub(1)),
+            // Round the rows, from the last back to the first.
+            _ if up || down => editor.index = cycle(editor.index, rows.len(), down),
             // Space goes a level deeper: where the key applies.
             K::Char(' ') => {
                 if let Some(place) = rows.get(editor.index) {
@@ -632,7 +636,19 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
             }
             K::Char('n') => {
                 editor.message = None;
-                editor.step = EditStep::Capture { keys: Vec::new() };
+                editor.step = EditStep::Capture {
+                    keys: Vec::new(),
+                    replaces: None,
+                };
+            }
+            K::Char('R') => {
+                if let Some(place) = rows.get(editor.index) {
+                    editor.message = None;
+                    editor.step = EditStep::Capture {
+                        keys: Vec::new(),
+                        replaces: Some(place.clone()),
+                    };
+                }
             }
             K::Char('d') => {
                 if let Some(place) = rows.get(editor.index).cloned() {
@@ -642,16 +658,32 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                         Some((format!("{} removed; Enter saves", place.display()), false));
                 }
             }
-            K::Char('R') => {
+            K::Char('D') => {
+                if editor.custom.iter().any(|((f, _), _)| *f == function) {
+                    editor.message = None;
+                    editor.step = EditStep::Defaults;
+                } else {
+                    editor.message = Some((
+                        format!("{} already has its default keys", function.name()),
+                        false,
+                    ));
+                }
+            }
+            _ => {}
+        },
+        EditStep::Defaults => match key.code {
+            K::Enter | K::Char('y') => {
                 editor.custom.retain(|((f, _), _)| *f != function);
                 editor.index = 0;
+                editor.step = EditStep::Browse;
                 editor.message = Some(("Default keys back; Enter saves".into(), false));
             }
+            K::Esc | K::Char('n') => editor.step = EditStep::Browse,
             _ => {}
         },
         // The first key may be any key; after it, Enter goes on to where
         // the key applies, Backspace takes the last back and Escape gives up.
-        EditStep::Capture { keys } => {
+        EditStep::Capture { keys, replaces } => {
             if keys.is_empty() {
                 let mut pressed = Key::press(key);
                 if takes_digits(function)
@@ -667,6 +699,12 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                 K::Esc => editor.step = EditStep::Browse,
                 K::Backspace => {
                     keys.pop();
+                }
+                K::Enter if replaces.is_some() => {
+                    let keys = std::mem::take(keys);
+                    let place = replaces.take().unwrap();
+                    editor.step = EditStep::Browse;
+                    replace_keys(editor, place, keys);
                 }
                 K::Enter => {
                     let keys = std::mem::take(keys);
@@ -842,6 +880,48 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
         }
     }
     false
+}
+/// `R`: `keys` in place of `place`'s, where it applied. Where they clash,
+/// where they apply opens to settle it; elsewhere they are staged at once.
+fn replace_keys(editor: &mut Editor, place: Place, keys: Vec<Key>) {
+    let function = editor.function;
+    let (old, new) = (place.display(), crate::keymap::display(&keys));
+    if keys == place.keys {
+        editor.message = Some((format!("{new} is the key already"), false));
+        return;
+    }
+    let drafts = bindings_of(function, &keys, place.modes, place.scope);
+    let modes = drafts.iter().fold(0, |bits, b| bits | b.mode.bit());
+    if drafts.is_empty() {
+        editor.message = Some((format!("{new} cannot be bound where {old} applies"), true));
+        return;
+    }
+    if !editor.clashes(&drafts, &place.bindings).is_empty() {
+        editor.message = Some((format!("{new} clashes where {old} applied"), true));
+        editor.step = EditStep::Where {
+            keys,
+            modes,
+            scope: place.scope,
+            replaces: Some(place),
+            column: 0,
+            row: 0,
+        };
+        return;
+    }
+    editor.replace(&place.bindings, drafts);
+    // The highlight follows the key to its row.
+    editor.index = editor
+        .rows()
+        .iter()
+        .position(|p| p.keys == keys)
+        .unwrap_or(editor.index);
+    let lost = place.modes & !modes;
+    let only = Mode::ALL
+        .into_iter()
+        .filter(|m| lost & m.bit() != 0)
+        .map(|m| format!("; {new} cannot be bound in {} mode", m.title()))
+        .collect::<String>();
+    editor.message = Some((format!("{old} replaced by {new}{only}; Enter saves"), false));
 }
 /// Saves the staged keys: applied to the session and written to
 /// `keys.toml`. A keymap that clashes or locks you in is refused and the

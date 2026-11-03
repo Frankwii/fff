@@ -1848,3 +1848,42 @@ fn preview_lines_wrap_at_spaces_and_inside_words_only_when_they_fill_a_line() {
             .contains(Modifier::BOLD)
     );
 }
+#[test]
+fn a_sheet_that_does_not_fit_asks_for_a_larger_terminal_instead_of_being_cut() {
+    let mut app = fixture();
+    let mut screen = keys_screen(&app);
+    screen.editor = Some(crate::ui::Editor::new(
+        &app.keymap,
+        crate::keymap::Function::HighlightPrevious,
+        0,
+    ));
+    let mut focus = Focus::Keys(screen);
+    let mut frame = |height| {
+        let mut terminal = Terminal::new(TestBackend::new(100, height)).unwrap();
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        text(terminal.backend().buffer())
+    };
+    // Room for all of it.
+    let screen = frame(40);
+    assert!(screen.contains("Keys of highlight_previous"), "{screen}");
+    assert!(
+        screen.contains("APPLIES IN THE HIGHLIGHTED ROW"),
+        "{screen}"
+    );
+    // Less: what repeats the highlighted row goes first.
+    let screen = frame(24);
+    assert!(screen.contains("Keys of highlight_previous"), "{screen}");
+    assert!(
+        !screen.contains("APPLIES IN THE HIGHLIGHTED ROW"),
+        "{screen}"
+    );
+    // Too little for its keys: nothing is drawn but what size it needs.
+    let screen = frame(14);
+    assert!(!screen.contains("Keys of"), "{screen}");
+    assert!(
+        screen.contains("Resize terminal to at least 100 × "),
+        "{screen}"
+    );
+}
