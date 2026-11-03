@@ -4,8 +4,6 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content search with alternating filtering (below).
-- Option completion in the gx/gX prompt for programs with neither a man page
-  nor `--help` (Tab already completes options from those two).
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
   them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
@@ -19,7 +17,6 @@ not implemented features or commitments:
   checks every mark twice per frame, and confirmation lists stat their rows.
   Cheap on local disks, but a slow network or FUSE mount stalls the frame;
   these should read from the details cache, refreshed in the background.
-- Mouse-only use beyond the opt-in buttons (below).
 - Preview pane follow-ups: scrolling it without moving the highlight, and
   previewing the marked list's rows from the results.
 - An AUR package once the project nears 1.0.
@@ -30,18 +27,6 @@ not implemented features or commitments:
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
-
-## Mouse-only use
-
-The opt-in button bar (`[ui] buttons`, see [buttons](CONFIGURATION.md#buttons))
-covers the results and the transfer and delete confirmations. Still to do
-before it could become the default:
-
-- Buttons for the other sheets: new file or directory, rename, extract, the
-  scope choice, run prompts and the bookmark and palette choosers.
-- Depth and filter controls.
-- Turning it on automatically when fff is started as the desktop's file
-  manager or a file picker.
 
 ## Content search with alternating filtering
 
