@@ -103,7 +103,7 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         sections.push((String::new(), theme.text));
         sections.push(("HIGHLIGHTED PATH".into(), theme.accent));
         sections.push((safe(path.display().to_string()), theme.text));
-        if let Some(candidate) = app.rows.iter().find(|c| &c.path == path) {
+        if let Some(candidate) = app.shown().iter().find(|c| &c.path == path) {
             let root = &app.scope[candidate.root];
             sections.push((
                 format!(

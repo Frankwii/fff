@@ -230,11 +230,9 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(
-                if app
-                    .edit_view
-                    .as_ref()
-                    .is_some_and(|v| v.field == Field::Query && v.mode.starts_with('c'))
-                {
+                if app.edit_view.as_ref().is_some_and(|v| {
+                    matches!(v.field, Field::Query | Field::Contents) && v.mode.starts_with('c')
+                }) {
                     4
                 } else {
                     3
@@ -635,30 +633,100 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
 }
 fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let theme = app.palette;
-    let block = panel(
-        app.palette,
-        mode_title(
+    let status = status_line(app, area.width.saturating_sub(4) as usize).right_aligned();
+    // fff grep: the contents query, wider, beside the names query; the one
+    // typed into has the accent border and the cursor.
+    if let Some(grep) = &app.grep {
+        let halves = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(area);
+        let mut summary = vec![Span::raw(" ")];
+        if let Some((done, total)) = grep.progress() {
+            summary.push(styled(format!("searching {done}/{total}"), theme.marked));
+        } else if grep.active() {
+            let (matches, files) = grep.summary();
+            summary.push(styled(
+                format!(
+                    "{matches} match{} in {files} file{}",
+                    if matches == 1 { "" } else { "es" },
+                    if files == 1 { "" } else { "s" }
+                ),
+                theme.muted,
+            ));
+        }
+        for tool in &grep.missing {
+            summary.push(styled(" · ", theme.muted));
+            summary.push(styled(format!("{tool} not installed"), theme.error));
+        }
+        summary.push(Span::raw(" "));
+        let summary = Line::from(summary);
+        field_box(
+            frame,
+            halves[0],
             app,
-            Field::Query,
-            &app.dialog
-                .as_ref()
-                .map_or_else(|| "Query".into(), |d| d.title(&app.query)),
-        ),
+            (Field::Contents, "Contents", &grep.text),
+            "type to search contents…".into(),
+            focused && grep.editing,
+            vec![summary],
+        );
+        field_box(
+            frame,
+            halves[1],
+            app,
+            (Field::Query, "Names", &app.query),
+            "type to filter names…".into(),
+            focused && !grep.editing,
+            vec![status],
+        );
+        return;
+    }
+    let title = app
+        .dialog
+        .as_ref()
+        .map_or_else(|| "Query".into(), |d| d.title(&app.query));
+    let hint = match &app.dialog {
+        Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal()), app),
+        None => "type to filter names…".into(),
+    };
+    field_box(
+        frame,
+        area,
+        app,
+        (Field::Query, &title, &app.query),
+        hint,
+        focused,
+        vec![status],
+    );
+}
+/// A query's box: its title and mode, its text (or `hint` while empty),
+/// the cursor when `focused`, and `bottom` in the lower border.
+fn field_box(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    (field, title, text): (Field, &str, &str),
+    hint: String,
+    focused: bool,
+    bottom: Vec<Line<'static>>,
+) {
+    let theme = app.palette;
+    let mut block = panel(
+        app.palette,
+        mode_title(app, field, title),
         focused,
         theme.accent,
     )
-    .padding(Padding::horizontal(1))
-    .title_bottom(status_line(app, area.width.saturating_sub(4) as usize).right_aligned());
+    .padding(Padding::horizontal(1));
+    for line in bottom {
+        block = block.title_bottom(line);
+    }
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let prefix = "❯ ";
     let available = inner.width.saturating_sub(prefix.width() as u16) as usize;
-    let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
-    if app.query.is_empty() {
-        let hint = match &app.dialog {
-            Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal()), app),
-            None => "type to filter names…".into(),
-        };
+    let (mut line, cursor) = editable_line(app, field, text, 0, available);
+    if text.is_empty() {
         line = Line::from(styled(hint, theme.muted));
     }
     line.spans.insert(0, bold(prefix, theme.accent));
@@ -670,7 +738,7 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         command_line(
             frame,
             app,
-            Field::Query,
+            field,
             Rect::new(inner.x, inner.y + 1, inner.width, 1),
         );
     }

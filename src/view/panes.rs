@@ -144,6 +144,11 @@ pub(super) fn marks_pane(
 pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
     use crate::preview::Tone;
     let theme = app.palette;
+    if let Some(i) = app.highlighted()
+        && let Some(hit) = app.hit(i)
+    {
+        return match_preview(frame, area, app, i, hit);
+    }
     let current = app.preview.current();
     let title = match current {
         Some(p) if !p.kind.is_empty() => format!(" Preview · {} ", safe(&p.kind)),
@@ -198,6 +203,51 @@ pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
             }
         }
     }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+/// `fff grep`: the lines around the highlighted row's match, the match
+/// highlighted, its page or line and which of the file's matches it is in
+/// the title.
+fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &crate::grep::Hit) {
+    let theme = app.palette;
+    let (nth, of) = app
+        .grep
+        .as_ref()
+        .and_then(|g| g.shown_hits.get(row))
+        .map_or((1, 1), |(hits, at)| (at + 1, hits.len()));
+    let title = format!(" Preview · {} · match {nth} of {of} ", hit.location());
+    let block = panel(theme, title, false, theme.accent).padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let (width, room) = (inner.width as usize, inner.height as usize);
+    // The match a third of the way down, its lines around it.
+    let first = hit
+        .at
+        .saturating_sub(room / 3)
+        .min(hit.context.len().saturating_sub(room));
+    let lines: Vec<Line> = hit
+        .context
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(room)
+        .map(|(i, line)| {
+            if i == hit.at {
+                let mut spans = vec![styled("› ", theme.accent)];
+                spans.extend(super::results::snippet_spans(
+                    theme,
+                    hit,
+                    width.saturating_sub(2),
+                ));
+                Line::from(spans)
+            } else {
+                Line::from(styled(
+                    truncate(&format!("  {}", safe(line)), width),
+                    theme.muted,
+                ))
+            }
+        })
+        .collect();
     frame.render_widget(Paragraph::new(lines), inner);
 }
 /// A line of a text file in its syntax colors, cut to `width`.

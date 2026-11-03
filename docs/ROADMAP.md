@@ -3,7 +3,7 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
-- Content search with alternating filtering (below).
+- Content search beyond `fff grep` (below).
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
   them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
@@ -41,73 +41,29 @@ The Keys screen (F1) and `keys.toml` came in 0.14.0. What remains:
 - **Keys inside choosers, prompts and sheets** are fixed for now; they could
   become functions with places of their own.
 
-## Content search with alternating filtering
+## Content search, continued
 
-Today the query filters names. Content search would add a second query that
-filters by what files contain, and a key (for example Alt+/) alternates which
-of the two queries you are typing into. Both stay active at once: the name
-query narrows which files are read, the content query keeps those whose
-contents match, so `name: .rs` plus `content: TODO` finds Rust files mentioning
-TODO without leaving the browser.
+`fff grep` searches contents: a contents query beside the names
+query, one row per match, documents read through fff's own text cache and
+searched on its threads, not by running rga, which starts a preprocessor for
+every file on every search (1.85 s and about 25 CPU-seconds a search over
+2,400 cached PDFs, against 0.02 s here). What remains:
 
-- **One results list.** Matching files appear in the usual list, in the usual
-  order, each with its first matching line (number and a trimmed snippet) in
-  the row's right-hand column and the match highlighted. Marks, Tab, Enter,
-  Ctrl+w, gx/gX and E keep working; E opens `$EDITOR` at the matched line when
-  the editor accepts `+N`.
-- **Inside documents, not only text.** Searching PDFs matters as much as
-  plain text. Text files are searched as they are; PDFs, DjVu and EPUB
-  through text extracted once into fff's own cache: `pdftotext` (poppler)
-  given the file's path, `djvutxt`, and EPUB unzipped by fff with its HTML
-  stripped. The formats [rga](https://github.com/phiresky/ripgrep-all) adds
-  (Office documents, archives) can fill the same cache through
-  `rga-preproc`, one run per file. A missing tool skips those files, and the
-  query box says so.
-- **fff's own text cache.** One file per document under
-  `$XDG_CACHE_HOME/fff/text/`, named from its device, inode, size and
-  modification time in nanoseconds: an edited or replaced file is a new
-  entry, so nothing needs invalidating, and old entries are pruned by age and
-  total size. `pdftotext` and `djvutxt` separate pages with a form feed, so a
-  match's page is one more than the form feeds before it.
-- **Searched inside fff, not by running rga.** rga starts a preprocessor for
-  every file on every search, cached or not: over 2,400 PDFs a warm rga
-  search took 1.85 s and about 25 CPU-seconds, against 0.02 s for the same
-  cached text searched in one process. Both extract with `pdftotext`, so the
-  first extraction costs the same (about a minute of every core for 4 GB of
-  PDFs), and rga's pipe through `pdftotext`'s stdin costs a third more CPU
-  than passing the path. ripgrep's engine (its `grep-searcher` and
-  `grep-regex` crates, or `regex-automata` and `memchr`) searches each cached
-  text on fff's threads, in display order, stopping as soon as the query
-  changes.
-- **Extraction in the background.** It starts the first time a content query
-  meets files not yet extracted, never at startup: top rows first, at low CPU
-  and I/O priority on about half the cores, with progress in the query box
-  and matches appearing as files finish.
-- **Streaming and cancellable.** Matches stream in as they are found; typing
-  restarts the search without blocking, and an obsolete search is stopped.
-  Excluded paths and hidden entries (unless shown) are skipped, so it respects
-  the same policy as name filtering.
-- **Literal first, across lines.** The content query is a case-smart literal
-  (the common case, and fast). Whitespace in it matches any whitespace,
-  line breaks included, and a word hyphenated at a line end still matches:
-  extracted text breaks lines where the page does, and a line-by-line search
-  missed 7 of 87 occurrences of a two-word phrase in the PDFs measured. Latin
-  accents are ignored unless the query has some, as in name matching. Adding
-  letters only narrows, so a longer query searches only the files that
-  matched. A `/regex/` form could follow. Fuzzy matching makes little sense
-  for contents. A match reports its page in documents and its line in text
-  files.
-- **No OCR.** A scanned PDF without a text layer cannot match; about a
-  quarter of the PDFs measured had none, scanned books among them. OCR takes
-  seconds a page, too slow for fff; `ocrmypdf` adds the text layer to the
-  file once, for fff and every other program.
-- **Visible mode.** The query box title and a pill in its border say which
-  query is being edited and whether the content filter is active; Escape
-  clears the content query before the name query.
-- **In the preview pane.** For a content match, the [preview
-  pane](CONFIGURATION.md#preview-pane) would show the lines around the match
-  (or the page it is on, from the cached text) instead of the file's first
-  lines, with the match highlighted, and E would open `$EDITOR` there.
+- **In the other programs.** A contents query in `fff roam` and `fff pick`
+  too, toggled on, so that browsing can narrow a folder by what its files
+  hold.
+- **More formats.** Office documents and archives could fill the same cache
+  through `rga-preproc`, one run per file.
+- **A `/regex/` form** of the contents query.
+- **E at the match.** E would open `$EDITOR` at a text match's line when
+  the editor accepts `+N`, and a document at its page where the viewer
+  takes one (`zathura --page`).
+- **Pruning the cache.** Entries are never removed yet; old ones would go by
+  age and total size. The text of every PDF in a home folder takes a few
+  hundred megabytes at most.
+- **OCR stays out.** A scanned document without a text layer cannot match;
+  OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text
+  layer to the file once, for every program.
 
 ## Switching modes
 

@@ -6,6 +6,17 @@ history.
 
 ## Unreleased
 
+### Added
+
+- **`fff grep` chooses files by what they contain.** A contents query beside
+  the names query (Alt+/ switches) lists one row per match, with its page or
+  line and the line it is on; the preview shows the lines around it. PDF,
+  DjVu and EPUB documents are searched through their text, extracted once
+  into `~/.cache/fff/text`; later searches are immediate. The query is a
+  case-smart literal that ignores accents unless typed and matches across
+  line breaks and hyphenation. Enter prints the chosen files, like
+  `fff pick`.
+
 ### Changed
 
 - **Matching scores like fzf.** A name's score is the best alignment of the

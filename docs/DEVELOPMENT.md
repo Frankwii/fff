@@ -14,6 +14,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
+| `src/grep.rs` | `fff grep`: the contents query, extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |

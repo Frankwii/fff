@@ -58,6 +58,8 @@ class Session:
             os.environ["XDG_STATE_HOME"] = str(root) + "-state"
             # So does the trash.
             os.environ["XDG_DATA_HOME"] = str(root) + "-data"
+            # And fff grep's extracted texts.
+            os.environ["XDG_CACHE_HOME"] = str(root) + "-cache"
             # A stray l on a file must not open the tester's editor in a new
             # terminal window; tests that open files name their own programs.
             os.environ["EDITOR"] = "fff-test-no-editor"
@@ -66,7 +68,7 @@ class Session:
                 args=(*args,"--no-config")
             # A command (fff seek, fff explorer) comes before the root; the
             # picker is fff pick, the only command that prints paths.
-            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick") else []
+            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick", "grep") else []
             args = args[len(command):]
             if output_paths and not command:
                 command = ["pick"]
@@ -201,6 +203,7 @@ class TerminalTests(unittest.TestCase):
             self.session.close()
         shutil.rmtree(self.tmp.name + "-state", ignore_errors=True)
         shutil.rmtree(self.tmp.name + "-data", ignore_errors=True)
+        shutil.rmtree(self.tmp.name + "-cache", ignore_errors=True)
         self.tmp.cleanup()
 
     def start(self, *args, **kwargs):
@@ -306,6 +309,33 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("report.txt", rows[0], s.screen.text)
         s.send(b"\x03")
         s.finish()
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_grep_lists_a_row_per_match_previews_it_and_prints_the_file(self):
+        (self.root / "notes.txt").write_text("intro\nfirst canard\nmiddle\nsecond canard here\n")
+        (self.root / "other.txt").write_text("nothing to see\n")
+        s = self.start("grep", implicit_root=True, typing=True)
+        s.wait_ui("Contents · INSERT")
+        self.assertIn("Names", s.screen.text)
+        s.send(b"canard", "❯ canard")
+        s.wait_ui("2 matches in 1 file")
+        rows = [l for l in s.screen.text.splitlines() if "notes.txt" in l and "l. " in l]
+        self.assertEqual(len(rows), 2, s.screen.text)
+        self.assertIn("l. 2", rows[0])
+        self.assertIn("first canard", rows[0])
+        self.assertIn("l. 4", rows[1])
+        # The preview shows the match among its lines.
+        s.wait_ui("Preview · l. 2 · match 1 of 2")
+        self.assertIn("intro", s.screen.text)
+        s.send(b"\x1b[B", "Preview · l. 4 · match 2 of 2")
+        # Alt+/ types into the names query, which chooses the files read.
+        s.send(b"\x1b/", "Names · INSERT")
+        s.send(b"zzz", "No matches")
+        s.send(b"\x7f\x7f\x7f", "Matches · 2")
+        # Enter prints the file.
+        s.send(b"\r")
+        status, out = s.finish()
+        self.assertEqual((status, out), (0, str(self.root / "notes.txt").encode() + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_pick_starts_typing_the_query(self):

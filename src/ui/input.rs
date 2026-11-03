@@ -209,9 +209,13 @@ pub(super) fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
 fn focused_text<'a>(
     focus: &'a mut Focus,
     query: &'a mut String,
+    grep: Option<&'a mut crate::grep::Grep>,
 ) -> Option<(&'a mut String, Field)> {
     Some(match focus {
-        Focus::Results => (query, Field::Query),
+        Focus::Results => match grep {
+            Some(grep) if grep.editing => (&mut grep.text, Field::Contents),
+            _ => (query, Field::Query),
+        },
         Focus::Location(location) => (&mut location.text, Field::Location),
         Focus::Command(prompt) => (&mut prompt.text, Field::Command),
         Focus::Exclusions(text) => (text, Field::Exclusions),
@@ -233,12 +237,21 @@ fn focused_text<'a>(
 }
 /// The focused field and a copy of its text, for activating it in Neovim.
 pub(super) fn text_field(app: &mut App, focus: &mut Focus) -> Option<(Field, String)> {
-    focused_text(focus, &mut app.query).map(|(text, field)| (field, text.clone()))
+    focused_text(focus, &mut app.query, app.grep.as_mut())
+        .map(|(text, field)| (field, text.clone()))
 }
 /// The focused text changed: filtered lists go back to their first row, the
 /// go-to prompt's chosen suggestion is dropped, and the results follow the query.
 fn text_changed(app: &mut App, focus: &mut Focus) {
     match focus {
+        Focus::Results if app.grep.as_ref().is_some_and(|g| g.editing) => {
+            let text = app
+                .grep
+                .as_ref()
+                .map(|g| g.text.clone())
+                .unwrap_or_default();
+            app.set_contents(text);
+        }
         Focus::Results => {
             app.offset = 0;
             app.refresh();
@@ -253,7 +266,7 @@ fn text_changed(app: &mut App, focus: &mut Focus) {
 /// Type `key` into the focused text field (also to replay an unmatched
 /// sequence prefix there).
 pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: KeyEvent) {
-    let Some((text, field)) = focused_text(focus, &mut app.query) else {
+    let Some((text, field)) = focused_text(focus, &mut app.query, app.grep.as_mut()) else {
         return;
     };
     let before = text.clone();
@@ -271,7 +284,7 @@ pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: 
 /// Paste into the focused text field. Single-line fields take line breaks
 /// as spaces.
 pub(super) fn paste_text(app: &mut App, focus: &mut Focus, editor: &mut Nvim, pasted: &str) {
-    let Some((text, field)) = focused_text(focus, &mut app.query) else {
+    let Some((text, field)) = focused_text(focus, &mut app.query, app.grep.as_mut()) else {
         return;
     };
     let pasted = if matches!(field, Field::Exclusions | Field::Filters | Field::Operation) {

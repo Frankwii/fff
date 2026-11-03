@@ -11,9 +11,12 @@ is the only engine.
 The query, exclusions, file filters, bookmark and icon filters, and palette
 filter all initially start in **Normal mode**. New file/directory naming
 buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
-form's name and path, and the query of `fff pick`, `fff seek` and
-`fff explorer --save` start in **Insert mode**, ready for typing; rename and
-extraction buffers start in Normal.
+form's name and path, the query of `fff pick`, `fff seek` and
+`fff explorer --save`, and both queries of `fff grep` (contents and names)
+start in **Insert mode**, ready for typing; rename and extraction buffers
+start in Normal. In `fff grep` Alt+/ (`switch_query`) moves between its two
+queries in either mode; each keeps its own text, cursor, mode and undo
+history.
 Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
 and Select modes. Pending motions/operators and command-line input are cancelled;
@@ -113,7 +116,8 @@ bookmark forms it saves; in palettes it applies the selected palette. Pending Ne
 entry receive Enter instead. In exclusions and filters, Enter retains Neovim's behavior.
 
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
-Escape when already Normal clears the main query, closes subordinate choosers
+Escape when already Normal clears the main query (in `fff grep`, the query
+being typed into, or the other one once it is empty), closes subordinate choosers
 or cancels the bookmark form; exclusion and operation buffers keep Escape inside
 Neovim. With the query already empty, a second Escape in a row clears every
 mark.

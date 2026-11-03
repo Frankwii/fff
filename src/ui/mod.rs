@@ -139,10 +139,9 @@ const RELIST_DELAY: Duration = Duration::from_millis(150);
 /// needs no current rows.
 fn types_query(app: &App, focus: &Focus, event: &Event) -> bool {
     let typing = matches!(focus, Focus::Results)
-        && app
-            .edit_view
-            .as_ref()
-            .is_some_and(|v| v.field == Field::Query && v.mode.starts_with('i'));
+        && app.edit_view.as_ref().is_some_and(|v| {
+            matches!(v.field, Field::Query | Field::Contents) && v.mode.starts_with('i')
+        });
     typing
         && match event {
             Event::Paste(_) | Event::Resize(..) => true,
@@ -354,6 +353,10 @@ impl Session {
         if pick || app.no_dir || app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
             editor.reset_insert(Field::Query);
         }
+        // fff grep starts in its contents query, also ready to type.
+        if app.grep.is_some() {
+            editor.reset_insert(Field::Contents);
+        }
         let editor_directory = app.cwd.clone();
         warn_stranded(app);
         app.preview.set_waker(wake.clone());
@@ -468,6 +471,7 @@ impl Session {
             self.dirty |= self.discovery.drain(app);
         }
         self.dirty |= app.poll_ranking();
+        self.dirty |= app.poll_grep();
         // The progress marker stays a few seconds after work settles.
         let settled = (!app.working()).then(|| app.settled_at.unwrap_or(now));
         if settled != app.settled_at {

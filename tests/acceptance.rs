@@ -1186,3 +1186,81 @@ fn either_sigma_matches_a_word_final_capital_sigma() {
         }
     }
 }
+#[test]
+fn grep_shows_one_row_per_match_in_the_files_names_choose() {
+    let root = std::env::temp_dir().join(format!("fff-grep-rows-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("canard.txt"), "a canard\nno\nanother canard\n").unwrap();
+    std::fs::write(root.join("notes.md"), "one Canard here\n").unwrap();
+    std::fs::write(root.join("other.txt"), "nothing\n").unwrap();
+    let mut app = App::new(vec![root.clone()], 6, Policy::default());
+    app.no_dir = true;
+    app.output_paths = true;
+    let mut grep = fuzzy_file_finder::grep::Grep::new();
+    grep.cache = Some(root.join("cache"));
+    app.grep = Some(grep);
+    for name in ["canard.txt", "notes.md", "other.txt"] {
+        app.insert(
+            0,
+            Candidate {
+                path: root.join(name),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    // Without a contents query, the rows are the files.
+    assert_eq!(app.shown().len(), 3);
+    let settle = |app: &mut App| {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(10) {
+            app.poll_grep();
+            if app.grep.as_ref().unwrap().progress().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the search did not finish");
+    };
+    app.set_contents("canard".into());
+    settle(&mut app);
+    let rows: Vec<_> = (0..app.shown().len())
+        .map(|i| {
+            let name = app.shown()[i].path.file_name().unwrap().to_owned();
+            (name.into_string().unwrap(), app.hit(i).unwrap().line)
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("canard.txt".to_string(), 1),
+            ("canard.txt".to_string(), 3),
+            ("notes.md".to_string(), 1),
+        ]
+    );
+    // The highlight walks through a file's matches one by one.
+    assert_eq!(app.highlighted(), Some(0));
+    app.move_by(1);
+    assert_eq!(app.highlighted(), Some(1));
+    assert_eq!(app.highlighted_hit().unwrap().line, 3);
+    // Marking every row marks each file once.
+    assert_eq!(app.shown_paths().len(), 2);
+    // An uppercase letter makes it case-sensitive; the names query narrows
+    // the files read.
+    app.set_contents("Canard".into());
+    settle(&mut app);
+    assert_eq!(app.shown().len(), 1);
+    app.set_contents("canard".into());
+    app.query = "md".into();
+    app.refresh();
+    settle(&mut app);
+    assert_eq!(app.shown().len(), 1);
+    assert!(app.shown()[0].path.ends_with("notes.md"));
+    // Clearing the contents query lists the files again.
+    app.set_contents(String::new());
+    assert_eq!(app.shown().len(), app.rows.len());
+    std::fs::remove_dir_all(&root).unwrap();
+}

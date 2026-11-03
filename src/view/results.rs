@@ -15,9 +15,14 @@ pub(super) fn results_pane(
         crate::Kinds::Directories => vec![bold("· folders only ", theme.marked)],
         crate::Kinds::All => Vec::new(),
     };
+    let grep = app.grep.as_ref().is_some_and(|g| g.active());
     let block = panel_with(
         app.palette,
-        format!(" Files · {} ", app.rows.len()),
+        if grep {
+            format!(" Matches · {} ", app.shown().len())
+        } else {
+            format!(" Files · {} ", app.shown().len())
+        },
         kinds,
         focused,
         theme.accent,
@@ -38,13 +43,15 @@ pub(super) fn results_pane(
             app.offset = i + 1 - page;
         }
     }
-    app.offset = app.offset.min(app.rows.len().saturating_sub(1));
-    let visible: Vec<_> = app.rows.iter().skip(app.offset).take(page).collect();
-    let last = (app.offset + visible.len()).min(app.rows.len());
+    app.offset = app.offset.min(app.shown().len().saturating_sub(1));
+    let highlighted = app.highlighted();
+    let app = &*app;
+    let visible: Vec<_> = app.shown().iter().skip(app.offset).take(page).collect();
+    let last = (app.offset + visible.len()).min(app.shown().len());
     let range = if visible.is_empty() {
         " 0 results ".into()
     } else {
-        format!(" {}–{} of {} ", app.offset + 1, last, app.rows.len())
+        format!(" {}–{} of {} ", app.offset + 1, last, app.shown().len())
     };
     frame.render_widget(
         block
@@ -59,7 +66,20 @@ pub(super) fn results_pane(
     if visible.is_empty() {
         use crate::keymap::Function;
         let deeper = || does(app.bound(Function::Deeper), "searches deeper");
-        let (title, hint) = if app.scanning {
+        let searching = app.grep.as_ref().and_then(|g| g.progress());
+        let (title, hint) = if grep && searching.is_some() {
+            (
+                "Searching contents…",
+                "Matches appear as files are read; documents are read once, then remembered."
+                    .to_string(),
+            )
+        } else if grep {
+            (
+                "No matches",
+                "No listed file contains the contents query; the names query chooses which are read."
+                    .to_string(),
+            )
+        } else if app.scanning {
             (
                 "Discovering files…",
                 "You can keep typing while the scan runs.".to_string(),
@@ -134,9 +154,19 @@ pub(super) fn results_pane(
     } else {
         let columns = fitting_columns(&app.columns, inner.width as usize);
         let now = std::time::SystemTime::now();
+        // fff grep: names in one column, so that places and lines align;
+        // at most two fifths of the row, leaving the rest to the line.
+        let name_column = (0..visible.len())
+            .filter(|i| app.hit(app.offset + i).is_some())
+            .map(|i| short_label(app, &visible[i].path).width())
+            .max()
+            .unwrap_or(0)
+            .min(inner.width as usize * 2 / 5);
         for (i, c) in visible.iter().enumerate() {
             let row = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
-            let selected = Some(&c.path) == app.highlight.as_ref();
+            // By row: fff grep shows a file once per match.
+            let selected = highlighted == Some(app.offset + i);
+            let hit = app.hit(app.offset + i);
             let bg = if selected && focused {
                 theme.selection
             } else {
@@ -168,19 +198,45 @@ pub(super) fn results_pane(
             let (kind, group) = crate::icons::marker(&c.path, c.directory, app.icons);
             let fixed = (prefix.width() + "● ".width() + kind.width()) as u16;
             let room = inner.width.saturating_sub(fixed) as usize;
-            let meta = row_details(app, c, info.as_ref(), &columns, now);
+            let meta = if hit.is_some() {
+                String::new()
+            } else {
+                row_details(app, c, info.as_ref(), &columns, now)
+            };
             let available = room.saturating_sub(meta.width());
-            let name = elide(&name, available);
+            // A match's name leaves most of the row to where it is and its line.
+            let name = match hit {
+                Some(_) => {
+                    let name = elide(&name, name_column.min(available));
+                    let pad = name_column.min(available).saturating_sub(name.width());
+                    name + &" ".repeat(pad)
+                }
+                None => elide(&name, available),
+            };
             let mut spans = vec![
                 styled(prefix, if selected { theme.accent } else { theme.muted }),
                 styled(if marked { "● " } else { "  " }, theme.marked),
                 styled(kind, icon_color(theme, group)),
             ];
             let color = info_color(theme, info.as_ref(), c.directory);
+            // A file's further matches dim its name: the first one stands out.
+            let color = if hit.is_some() && i > 0 && std::sync::Arc::ptr_eq(visible[i - 1], c) {
+                theme.muted
+            } else {
+                color
+            };
             spans.extend(filename_spans(app.palette, &name, c, &app.query, color));
             let mut used = name.width();
-            // A link's target follows its name while there is room for it.
-            if let Some((target, _)) = info.as_ref().and_then(|i| i.link.as_ref()) {
+            if let Some(hit) = hit {
+                let location = format!("  {:>7}  ", hit.location());
+                let room = available.saturating_sub(used + location.width());
+                used += location.width();
+                spans.push(styled(location, theme.muted));
+                let line = snippet_spans(theme, hit, room);
+                used += line.iter().map(|s| s.width()).sum::<usize>();
+                spans.extend(line);
+            } else if let Some((target, _)) = info.as_ref().and_then(|i| i.link.as_ref()) {
+                // A link's target follows its name while there is room for it.
                 let arrow = " → ";
                 let space = available.saturating_sub(used + arrow.width() + 1);
                 if space >= 3 {
@@ -209,6 +265,62 @@ pub(super) fn results_pane(
         marks: Vec::new(),
         choices: Vec::new(),
     }
+}
+/// A match's line cut to `width` around the match, which is highlighted:
+/// leading space dropped, and an ellipsis where the line is cut.
+pub(super) fn snippet_spans(
+    theme: Palette,
+    hit: &crate::grep::Hit,
+    width: usize,
+) -> Vec<Span<'static>> {
+    let line = &hit.context[hit.at];
+    let trimmed = line.len() - line.trim_start().len();
+    // Offsets come from the engine; one off a character boundary shows the
+    // line unhighlighted rather than failing the frame.
+    let (start, end) = (hit.matched.start.max(trimmed), hit.matched.end.max(trimmed));
+    let matched = if end <= line.len() && line.is_char_boundary(start) && line.is_char_boundary(end)
+    {
+        start..end
+    } else {
+        trimmed..trimmed
+    };
+    let (text, matched) = (
+        &line[trimmed..],
+        matched.start - trimmed..matched.end - trimmed,
+    );
+    if width == 0 {
+        return Vec::new();
+    }
+    let (before, found, after) = (
+        safe(&text[..matched.start]),
+        safe(&text[matched.clone()]),
+        safe(&text[matched.end..]),
+    );
+    // Keep some of what comes before the match, the match, then the rest.
+    let lead = before.width().min(width / 4);
+    let before: String = if lead < before.width() {
+        let kept: String = before
+            .chars()
+            .rev()
+            .scan(1, |used, c| {
+                *used += c.width().unwrap_or(0);
+                (*used <= lead).then_some(c)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!("…{kept}")
+    } else {
+        before
+    };
+    let found = truncate(&found, width.saturating_sub(before.width()));
+    let after = truncate(&after, width.saturating_sub(before.width() + found.width()));
+    vec![
+        styled(before, theme.text),
+        styled(found, theme.marked).add_modifier(Modifier::BOLD),
+        styled(after, theme.text),
+    ]
 }
 /// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.
 pub(super) fn icon_color(theme: Palette, group: crate::icons::Group) -> Color {

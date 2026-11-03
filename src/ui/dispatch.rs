@@ -306,7 +306,7 @@ impl Session {
             Exec::MarkRows(invert) => {
                 let rows: Vec<PathBuf> = match &self.focus {
                     Focus::Marks { rows, .. } => rows.clone(),
-                    _ => app.rows.iter().map(|c| c.path.clone()).collect(),
+                    _ => app.shown_paths(),
                 };
                 app.mark_rows(&rows, invert);
             }
@@ -417,7 +417,7 @@ impl Session {
             && let Some(digit) = numbered_key(key)
         {
             if !app.rendered.is_empty() {
-                app.highlight = Some(app.numbered(digit));
+                app.highlight_numbered(digit);
                 app.highlight_top = false;
                 app.wanted = None;
                 on_row = true;
@@ -582,11 +582,7 @@ impl Session {
                 Scope::Nothing => app.status = "Nothing to open".into(),
             },
             'r' => {
-                let sources = app
-                    .rows
-                    .iter()
-                    .map(|row| row.path.clone())
-                    .collect::<Vec<_>>();
+                let sources = app.shown_paths();
                 if sources.is_empty() {
                     app.status = "No files to rename".into();
                 } else {
@@ -653,7 +649,7 @@ impl Session {
             return;
         }
         let path = app.numbered(digit);
-        let Some(target) = app.rows.iter().find(|c| c.path == path).cloned() else {
+        let Some(target) = app.shown().iter().find(|c| c.path == path).cloned() else {
             return;
         };
         app.highlight = Some(target.path.clone());
@@ -792,6 +788,7 @@ pub(super) fn program_title(program: keymap::Program) -> &'static str {
         Window => "roam --window",
         Pick => "pick",
         Seek => "seek",
+        Grep => "grep",
         ExplorerOpen => "explorer",
         ExplorerMultiple => "explorer --multiple",
         ExplorerFolder => "explorer --directory",

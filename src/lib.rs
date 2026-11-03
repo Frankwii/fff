@@ -9,6 +9,7 @@ pub mod details;
 pub mod discovery;
 pub mod editor;
 pub mod explorer;
+pub mod grep;
 pub mod highlight;
 pub mod icons;
 pub mod keymap;
@@ -196,6 +197,10 @@ pub struct App {
     /// The (lowercased) query the highlight was placed under: rows for
     /// another one, as typing changes it, highlight the best match.
     highlight_query: String,
+    /// `fff grep`: the contents query, its search and the rows it shows.
+    pub grep: Option<grep::Grep>,
+    /// Counts changes to `rows`, for what is built from them.
+    rows_version: u64,
     pub marks: marks::Marks,
     pub rendered: Vec<PathBuf>,
     pub offset: usize,
@@ -347,6 +352,8 @@ impl App {
             highlight: None,
             highlight_top: false,
             highlight_query: String::new(),
+            grep: None,
+            rows_version: 0,
             highlight_hint: Cell::new(0),
             marks: marks::Marks::default(),
             rendered: Vec::new(),
@@ -527,18 +534,71 @@ impl App {
             Some(d) if d.multiple => Program::ExplorerMultiple,
             Some(_) => Program::ExplorerOpen,
             None if self.window => Program::Window,
+            None if self.grep.is_some() => Program::Grep,
             None if self.no_dir => Program::Seek,
             None if self.output_paths => Program::Pick,
             None => Program::Roam,
         }
     }
-    /// `fff pick` and `fff seek` choose files from deep below, so the best
-    /// match comes first whatever its depth.
+    /// `fff pick`, `fff seek` and `fff grep` choose files from deep below,
+    /// so the best match comes first whatever its depth.
     fn by_score(&self) -> bool {
         matches!(
             self.program(),
-            keymap::Program::Pick | keymap::Program::Seek
+            keymap::Program::Pick | keymap::Program::Seek | keymap::Program::Grep
         )
+    }
+    /// The rows on screen: the ranked rows, or in `fff grep` with a contents
+    /// query, one row per match in their files' order.
+    pub fn shown(&self) -> &[Arc<Candidate>] {
+        match &self.grep {
+            Some(grep) if grep.active() => &grep.shown,
+            _ => &self.rows,
+        }
+    }
+    /// The shown rows' paths, each once (`fff grep` shows a file once per
+    /// match).
+    pub fn shown_paths(&self) -> Vec<PathBuf> {
+        let mut seen = HashSet::new();
+        self.shown()
+            .iter()
+            .filter(|c| seen.insert(&c.path))
+            .map(|c| c.path.clone())
+            .collect()
+    }
+    /// The match shown at row `i` (`fff grep` with a contents query).
+    pub fn hit(&self, i: usize) -> Option<&grep::Hit> {
+        self.grep.as_ref().filter(|g| g.active())?.hit(i)
+    }
+    /// The highlighted row's match, in `fff grep`.
+    pub fn highlighted_hit(&self) -> Option<&grep::Hit> {
+        self.hit(self.highlighted()?)
+    }
+    /// `fff grep`: catch up with its search. A new contents query, like a
+    /// new names query, highlights the first match until the user moves.
+    pub fn poll_grep(&mut self) -> bool {
+        let Some(grep) = &mut self.grep else {
+            return false;
+        };
+        let rows = Arc::clone(&self.rows);
+        if !grep.poll(&rows, self.rows_version) {
+            return false;
+        }
+        let first = self.shown().first().map(|c| c.path.clone());
+        if self.highlight_top || self.highlighted().is_none() {
+            self.highlight = first;
+            self.highlight_hint.set(0);
+        }
+        true
+    }
+    /// `fff grep`: the contents query changed to `text`.
+    pub fn set_contents(&mut self, text: String) {
+        if let Some(grep) = &mut self.grep {
+            grep.text = text;
+            self.highlight_top = true;
+            self.offset = 0;
+            self.poll_grep();
+        }
     }
     /// The mode keys are read in: Normal in the query's Normal mode (also
     /// while a sequence begun there waits), else Insert.
@@ -901,6 +961,7 @@ impl App {
                         && *q == folded
                     {
                         self.rows = self.earlier.pop().expect("checked").1;
+                        self.rows_version += 1;
                         self.scores.clear();
                         self.keep_highlight(&folded);
                         self.refreshed = Some((basis, folded));
@@ -988,6 +1049,7 @@ impl App {
     /// Show the rows (and labels) a ranking produced.
     fn install(&mut self, ranked: ranking::Ranked, basis: RefreshBasis, query: String) {
         let old = std::mem::replace(&mut self.rows, Arc::new(ranked.rows));
+        self.rows_version += 1;
         let len = old.len();
         known::discard(old, len);
         self.scores = ranked.scores;
@@ -1064,6 +1126,9 @@ impl App {
     }
     /// Wake `waker` when a ranking on another thread is done.
     pub fn set_waker(&mut self, waker: mpsc::SyncSender<()>) {
+        if let Some(grep) = &mut self.grep {
+            grep.set_waker(waker.clone());
+        }
         self.waker = Some(waker);
     }
     /// Wakes the session loop, e.g. when background work finishes.
@@ -1080,6 +1145,7 @@ impl App {
         // unique until the rows are rid of them.
         let stale: HashSet<_> = self.outdated.iter().map(Arc::as_ptr).collect();
         if !stale.is_empty() {
+            self.rows_version += 1;
             let rows = Arc::make_mut(&mut self.rows);
             if self.scores.len() == rows.len() {
                 let mut kept = rows.iter().map(|c| !stale.contains(&Arc::as_ptr(c)));
@@ -1138,6 +1204,7 @@ impl App {
                 .collect();
             added.sort_unstable_by(|(sa, a), (sb, b)| rank(by_score, a, *sa, b, *sb));
             if !added.is_empty() {
+                self.rows_version += 1;
                 let rows = Arc::make_mut(&mut self.rows);
                 let scores = &mut self.scores;
                 if scores.len() != rows.len() {
@@ -1225,29 +1292,33 @@ impl App {
         let typed = self.highlight_query != query;
         if typed {
             self.highlight_query = query.to_owned();
+            // fff grep's matches stream in after the files: follow the first.
+            self.highlight_top |= self.grep.is_some();
         }
         // Rows share the known candidates: look for the wanted one's address.
         // A row to restore takes the highlight off the first row once listed.
         if let Some(wanted) = self.wanted.as_ref().and_then(|w| self.known.get(w))
-            && self.rows.iter().any(|c| Arc::ptr_eq(c, wanted))
+            && self.shown().iter().any(|c| Arc::ptr_eq(c, wanted))
         {
             self.highlight = self.wanted.take();
             self.highlight_top = false;
             return;
         }
         if typed || self.highlight_top || self.highlighted().is_none() {
-            self.highlight = self.rows.first().map(|c| c.path.clone());
+            self.highlight = self.shown().first().map(|c| c.path.clone());
+            self.highlight_hint.set(0);
         }
     }
     pub fn move_by(&mut self, amount: isize) {
         // Moving, even before rows arrive, means the user chose a position.
         self.wanted = None;
-        if self.rows.is_empty() {
+        let rows = self.shown();
+        if rows.is_empty() {
             return;
         }
         let i = self.highlighted().unwrap_or(0);
-        let i = i.saturating_add_signed(amount).min(self.rows.len() - 1);
-        self.highlight = Some(self.rows[i].path.clone());
+        let i = i.saturating_add_signed(amount).min(rows.len() - 1);
+        self.highlight = Some(rows[i].path.clone());
         self.highlight_hint.set(i);
         self.highlight_top = false;
     }
@@ -1255,24 +1326,34 @@ impl App {
     pub fn highlighted(&self) -> Option<usize> {
         let path = self.highlight.as_ref()?;
         let hint = self.highlight_hint.get();
-        if self.rows.get(hint).is_some_and(|c| &c.path == path) {
+        let rows = self.shown();
+        // fff grep shows a file once per match: the hint tells them apart.
+        if rows.get(hint).is_some_and(|c| &c.path == path) {
             return Some(hint);
         }
         // Comparing addresses avoids reading every row's path.
         let i = match self.known.get(path) {
-            Some(known) => self.rows.iter().position(|c| Arc::ptr_eq(c, known)),
+            Some(known) => rows.iter().position(|c| Arc::ptr_eq(c, known)),
             None => None,
         }
-        .or_else(|| self.rows.iter().position(|c| &c.path == path))?;
+        .or_else(|| rows.iter().position(|c| &c.path == path))?;
         self.highlight_hint.set(i);
         Some(i)
     }
     pub fn highlighted_row(&self) -> Option<&Arc<Candidate>> {
-        self.highlighted().map(|i| &self.rows[i])
+        self.highlighted().map(|i| &self.shown()[i])
+    }
+    /// Highlight row `i` of the shown rows; a file shown once per match
+    /// keeps which one.
+    pub fn highlight_row(&mut self, i: usize) {
+        if let Some(c) = self.shown().get(i) {
+            self.highlight = Some(c.path.clone());
+            self.highlight_hint.set(i);
+        }
     }
     /// One row down or up, wrapping from the last row to the first and back.
     pub fn step(&mut self, forward: bool) {
-        let last = self.rows.len().saturating_sub(1);
+        let last = self.shown().len().saturating_sub(1);
         match self.highlighted() {
             Some(i) if forward && i == last => self.move_by(-(last as isize)),
             Some(0) if !forward => self.move_by(last as isize),
@@ -1300,6 +1381,22 @@ impl App {
         }
         self.marks.extend(added);
     }
+    /// Highlight the row numbered `digit` on screen, by row: fff grep shows
+    /// a file once per match.
+    pub fn highlight_numbered(&mut self, digit: u32) {
+        let i = if digit == 0 {
+            usize::MAX
+        } else {
+            digit as usize - 1
+        };
+        let i = i.min(self.rendered.len().saturating_sub(1));
+        let path = self.numbered(digit);
+        self.highlight_row(self.offset + i);
+        // The drawn path rules, should the rows have moved since.
+        if self.highlight.as_ref() != Some(&path) {
+            self.highlight = Some(path);
+        }
+    }
     pub fn numbered(&self, digit: u32) -> PathBuf {
         let i = if digit == 0 {
             usize::MAX
@@ -1314,7 +1411,8 @@ impl App {
     /// Whether the current directory may change; false in `fff seek`.
     pub fn can_navigate(&mut self) -> bool {
         if self.no_dir {
-            self.status = "Navigation is disabled in fff seek".into();
+            let program = if self.grep.is_some() { "grep" } else { "seek" };
+            self.status = format!("Navigation is disabled in fff {program}");
         }
         !self.no_dir
     }
@@ -1467,7 +1565,7 @@ impl App {
             return self.enter(None);
         }
         let path = self.numbered(digit);
-        if let Some(target) = self.rows.iter().find(|c| c.path == path) {
+        if let Some(target) = self.shown().iter().find(|c| c.path == path) {
             self.enter(Some(Candidate::clone(target)))
         } else {
             // Never substitute another candidate for a previously rendered path.

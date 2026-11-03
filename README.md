@@ -34,6 +34,7 @@ and exit codes.
 | `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. `--resume` continues the last session. |
 | `fff pick [ROOTS]` | Browse and print the chosen paths, for scripts and `$(...)`. |
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
+| `fff grep [ROOTS]` | Choose files by what they contain, PDFs included, and print them ([details](#searching-contents-fff-grep)). |
 | `fff explorer [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
 | `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--desktop`, `--file-chooser`, `--check-config`. |
 
@@ -245,6 +246,38 @@ Discovery still traverses directories within the depth limit, and the query
 starts in Insert mode, ready to type. Result rows show bare file names, with
 only the parents that tell same-named files apart, as in `fff pick`.
 
+### Searching contents: `fff grep`
+
+`fff grep [ROOTS]` chooses files by what they contain. It lists files the way
+`fff seek` does (from every folder down to `--depth`, 6 by default; `--glob`,
+`--exclude` and `--hidden` apply) and prints the chosen ones the way
+`fff pick` does (`--relative`, `-0`):
+
+```sh
+fff grep ~/papers --glob '*.pdf' --glob '*.djvu' --glob '*.epub' -0 | xargs -0 zathura
+```
+
+It has two queries side by side. **Contents**, typed into first, keeps the
+files that contain it, with **one row per match**: the file, the match's page
+(`p. 12`), how far into an EPUB it is (`42%`) or its line (`l. 40`), and
+the line it is on, the match highlighted. The
+preview pane shows the lines around the highlighted match. **Names** filters
+the files by name as in `fff seek`, so it chooses which files are read.
+Alt+/ switches between them; Escape clears the one being typed into (the
+other once it is empty). Enter prints the file (while typing, the marks and
+it); marking a match marks its file.
+
+The contents query is a literal, not a regular expression. It is case-smart
+(an uppercase letter makes it case-sensitive), ignores Latin accents unless
+it has some, as names do, lets whitespace match any whitespace, line breaks
+included, and finds a word hyphenated at a line end. Text files are read as
+they are; binary ones are skipped. PDF, DjVu and EPUB documents are read
+through their text, extracted once with `pdftotext` (poppler) and `djvutxt`
+(DjVuLibre), at low priority, into `~/.cache/fff/text` (`$XDG_CACHE_HOME`):
+the first search through many documents takes a while, the next ones are
+immediate. A scanned document without a text layer has nothing to find
+(`ocrmypdf` adds one); a missing extractor is named in the query box.
+
 ### Preview pane
 
 The preview pane shows the highlighted entry in the bottom half of the
@@ -293,8 +326,9 @@ key says which one.
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Escape twice in Normal | With the query empty: clear every mark |
-| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
-| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`), exit into its folder (`fff seek`) or reveal it in its folder |
+| Alt+/ | `fff grep`: type into the other query, contents or names |
+| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`, `fff grep`) or exit into its folder (`fff seek`) |
+| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`, `fff grep`), exit into its folder (`fff seek`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs), except in `fff seek`; use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |

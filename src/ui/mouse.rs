@@ -62,7 +62,7 @@ pub(super) fn mouse_results(
     match event.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
             let last = app
-                .rows
+                .shown()
                 .len()
                 .saturating_sub(usize::from(area.height).max(1));
             app.offset = if event.kind == MouseEventKind::ScrollDown {
@@ -83,7 +83,8 @@ pub(super) fn mouse_results(
                 .click
                 .take()
                 .is_some_and(|(p, at)| p == path && now.duration_since(at) < DOUBLE_CLICK);
-            app.highlight = Some(path.clone());
+            // By row, as fff grep shows a file once per match.
+            app.highlight_row(app.offset + usize::from(event.row - area.y));
             app.highlight_top = false;
             app.wanted = None;
             if double {
@@ -277,7 +278,8 @@ fn drag(app: &mut App, event: MouseEvent, area: ratatui::layout::Rect, mouse: &m
     let Some(anchor) = mouse.anchor.as_ref() else {
         return false;
     };
-    let Some(last) = app.rows.len().checked_sub(1) else {
+    let shown = app.shown();
+    let Some(last) = shown.len().checked_sub(1) else {
         return false;
     };
     // The anchor is usually still on screen or where it was last found.
@@ -286,15 +288,15 @@ fn drag(app: &mut App, event: MouseEvent, area: ratatui::layout::Rect, mouse: &m
         .iter()
         .position(|p| p == anchor)
         .map(|i| app.offset + i)
-        .filter(|&i| app.rows.get(i).is_some_and(|c| c.path == *anchor))
+        .filter(|&i| shown.get(i).is_some_and(|c| c.path == *anchor))
         .or_else(|| {
             let hint = mouse.anchor_at;
-            app.rows
+            shown
                 .get(hint)
                 .is_some_and(|c| c.path == *anchor)
                 .then_some(hint)
         })
-        .or_else(|| app.rows.iter().position(|c| c.path == *anchor));
+        .or_else(|| shown.iter().position(|c| c.path == *anchor));
     let Some(from) = from else {
         return false;
     };
@@ -311,15 +313,18 @@ fn drag(app: &mut App, event: MouseEvent, area: ratatui::layout::Rect, mouse: &m
     if to == from && app.marks.is_empty() {
         return false;
     }
-    let rows: Vec<PathBuf> = if from <= to {
-        app.rows[from..=to].iter().map(|c| c.path.clone()).collect()
+    let mut rows: Vec<PathBuf> = if from <= to {
+        shown[from..=to].iter().map(|c| c.path.clone()).collect()
     } else {
-        app.rows[to..=from]
+        shown[to..=from]
             .iter()
             .rev()
             .map(|c| c.path.clone())
             .collect()
     };
+    // A file shown once per match is marked once.
+    let mut seen = std::collections::HashSet::new();
+    rows.retain(|p| seen.insert(p.clone()));
     app.highlight = rows.last().cloned();
     app.highlight_top = false;
     app.wanted = None;

@@ -12,6 +12,8 @@ use std::{
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Field {
     Query,
+    /// `fff grep`'s contents query.
+    Contents,
     Operation,
     FileName,
     Extraction,
@@ -29,7 +31,7 @@ impl Field {
     fn single_line(self) -> bool {
         matches!(
             self,
-            Self::Query | Self::FileName | Self::Extraction | Self::Command
+            Self::Query | Self::Contents | Self::FileName | Self::Extraction | Self::Command
         )
     }
 }

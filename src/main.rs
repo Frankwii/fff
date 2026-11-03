@@ -303,6 +303,17 @@ enum Command {
     /// file's folder. q and ! leave without choosing anything. To print files, use fff pick:
     /// with --glob it too lists only matching files.
     Seek(SeekArgs),
+    /// Choose files by what they contain, and print them
+    ///
+    /// Two queries: the contents query (typed first) keeps the files that
+    /// contain it, one row per match with its page or line, and the names
+    /// query filters by name as in fff seek; Alt+/ switches between them.
+    /// Text files are read as they are; PDF, DjVu and EPUB documents through
+    /// their text, extracted once (pdftotext, djvutxt) into ~/.cache/fff/text.
+    /// The contents query is literal and case-smart, ignores accents unless
+    /// it has some, and matches across line breaks. Enter prints the file
+    /// (while typing, the marks and it); q prints nothing.
+    Grep(GrepArgs),
     /// Answer a file dialog: choose files or a folder, or where to save
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
@@ -354,6 +365,14 @@ struct SeekArgs {
     /// Where to look; without any, the current directory
     #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
     roots: Vec<PathBuf>,
+}
+#[derive(clap::Args)]
+struct GrepArgs {
+    /// Where to look; without any, the current directory
+    #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
+    roots: Vec<PathBuf>,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 #[derive(clap::Args)]
 struct ExplorerArgs {
@@ -435,6 +454,7 @@ struct Mode {
     relative: bool,
     null: bool,
     no_dir: bool,
+    grep: bool,
     explorer: Option<ExplorerArgs>,
 }
 /// Exits with a usage error (status 2) for arguments that cannot go together.
@@ -494,6 +514,16 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         Some(Command::Seek(seek)) => Mode {
             roots: seek.roots,
             no_dir: true,
+            ..Mode::default()
+        },
+        // A file choice like fff seek's, printed like fff pick's.
+        Some(Command::Grep(grep)) => Mode {
+            roots: grep.roots,
+            no_dir: true,
+            grep: true,
+            output_paths: true,
+            relative: grep.output.relative,
+            null: grep.output.null,
             ..Mode::default()
         },
         Some(Command::Explorer(explorer)) => Mode {
@@ -589,6 +619,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         }
     }
     app.no_dir = mode.no_dir;
+    app.grep = mode.grep.then(fuzzy_file_finder::grep::Grep::new);
     // Choosing paths shows names; the footer has the highlighted one's path.
     app.short_labels = mode.no_dir || (mode.output_paths && dialog.is_none());
     app.status_timeout = settings.message_timeout;

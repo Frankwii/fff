@@ -659,7 +659,7 @@ impl Session {
                 app.offset = app
                     .offset
                     .saturating_add(page)
-                    .min(app.rows.len().saturating_sub(page));
+                    .min(app.shown().len().saturating_sub(page));
             }
             (K::PageUp, _, _) => {
                 app.move_by(-(page as isize));
@@ -679,7 +679,14 @@ impl Session {
             }
             (K::Char('v'), _, true) => app.preview.shown = !app.preview.shown,
             (K::Char('d' | 'D'), _, true) if app.no_dir => {
-                app.status = "fff seek lists only files".into();
+                let program = if app.grep.is_some() { "grep" } else { "seek" };
+                app.status = format!("fff {program} lists only files");
+            }
+            // fff grep: type into the other query.
+            (K::Char('/'), _, true) if app.grep.is_some() => {
+                if let Some(grep) = &mut app.grep {
+                    grep.editing = !grep.editing;
+                }
             }
             (K::Char(c @ ('d' | 'D')), _, true) => {
                 let only = if c == 'd' {
@@ -707,6 +714,23 @@ impl Session {
                     app.offset = 0;
                     app.refresh();
                 }
+            }
+            // fff grep: Escape clears the query being typed into, else the
+            // other one.
+            (K::Esc, _, _)
+                if app
+                    .grep
+                    .as_ref()
+                    .is_some_and(|g| !g.text.is_empty() && (g.editing || app.query.is_empty())) =>
+            {
+                app.set_contents(String::new());
+            }
+            (K::Esc, _, _)
+                if app.grep.as_ref().is_some_and(|g| g.editing) && !app.query.is_empty() =>
+            {
+                app.query.clear();
+                app.offset = 0;
+                app.refresh();
             }
             // Escape clears the query; pressed again with none, the marks.
             (K::Esc, _, _) if app.query.is_empty() => {

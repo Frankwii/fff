@@ -48,6 +48,7 @@ pub enum Program {
     Window,
     Pick,
     Seek,
+    Grep,
     ExplorerOpen,
     ExplorerMultiple,
     ExplorerFolder,
@@ -87,6 +88,7 @@ impl Dimension for Program {
         Self::Window,
         Self::Pick,
         Self::Seek,
+        Self::Grep,
         Self::ExplorerOpen,
         Self::ExplorerMultiple,
         Self::ExplorerFolder,
@@ -98,6 +100,7 @@ impl Dimension for Program {
             Self::Window => "window",
             Self::Pick => "pick",
             Self::Seek => "seek",
+            Self::Grep => "grep",
             Self::ExplorerOpen => "explorer-open",
             Self::ExplorerMultiple => "explorer-multiple",
             Self::ExplorerFolder => "explorer-folder",
@@ -152,7 +155,7 @@ pub struct Scope {
 }
 impl Scope {
     pub const ALL: Self = Self {
-        programs: 0xff,
+        programs: (1 << <Program as Dimension>::ALL.len()) - 1,
         places: 0b11,
         highlights: 0b111,
     };
@@ -647,6 +650,7 @@ functions! {
     MarkedList "marked_list" Marks "Focus the marked list, or leave it.";
     ReturnMarks "return_marks" Marks "Leave, returning the marked paths.";
     ClearQuery "clear_query" View "Clear the query; with none, pressed twice, clear every mark.";
+    SwitchQuery "switch_query" View "In fff grep: type into the other query, contents or names.";
     Shallower "shallower" View "Search one level shallower; the minimum is 1.";
     Deeper "deeper" View "Search one level deeper.";
     Depth "depth" View "Search down to depth #.";
@@ -730,6 +734,7 @@ impl Function {
             | Copy | Link | Delete | DeletePermanently | Extract | Undo | Restore | Quit
             | EditConfig => only_normal(lists),
             Rename | New | ClearQuery | Depth => only_normal(results),
+            SwitchQuery => both(scope(&[Grep], &[Results], &[])),
             GoParent | GoTo | Bookmarks | Trash | Back | Forward | NextTab | PrevTab => {
                 both(scope(&NAVIGATE, &[Results], &[]))
             }
@@ -751,8 +756,8 @@ impl Function {
                 scope(&EXPLORERS, &[Marks], &[H::Dir]),
             ],
             ChooseFile => both(scope(&EXPLORERS[..3], &[Results], &[H::File])),
-            PickFile => only_normal(scope(&[Pick], &[], &[H::File])),
-            PickWithMarks => only_insert(scope(&[Pick], &[Results], &[H::File])),
+            PickFile => only_normal(scope(&[Pick, Grep], &[], &[H::File])),
+            PickWithMarks => only_insert(scope(&[Pick, Grep], &[Results], &[H::File])),
             QuitIntoFolder => both(scope(&[Seek], &[], &[H::File])),
             OpenAndQuit => only_normal(scope(&[Roam, Window], &[], &[H::File])),
             Reveal => only_insert(scope(&[Roam, Window], &[Results], &[H::File])),
@@ -765,7 +770,7 @@ impl Function {
             Mark | MarkedList | Guide | Session => both(lists_or_results),
             // Elsewhere it says where it works.
             ReturnMarks => both(lists_or_results),
-            QuitCurrent => only_normal(scope(&[Roam, Window, Pick, Seek], &[], &[])),
+            QuitCurrent => only_normal(scope(&[Roam, Window, Pick, Seek, Grep], &[], &[])),
             Cancel => both(lists_or_results),
         }
     }
@@ -810,6 +815,7 @@ impl Function {
             MarkedList => key(K::Char(' '), M::ALT),
             ReturnMarks => key(K::Char('w'), M::CONTROL),
             ClearQuery => key(K::Esc, M::NONE),
+            SwitchQuery => alt('/'),
             Shallower => key(K::Left, M::ALT),
             Deeper => key(K::Right, M::ALT),
             Depth => Exec::Depth,
@@ -888,6 +894,7 @@ impl Function {
             Session => &[("<F2>", all)],
             Palette => &[("<M-p>", all)],
             ReloadPalette => &[("<M-P>", all)],
+            SwitchQuery => &[("<M-/>", all)],
             _ => &[],
         };
         let enter_insert: &[(&str, Scope)] = match self {
@@ -918,13 +925,13 @@ impl Function {
             Up => &[
                 ("k", all),
                 ("<M-k>", all),
-                ("<Up>", scope(&[Seek], &[], &[])),
+                ("<Up>", scope(&[Seek, Grep], &[], &[])),
                 ("<Up>", scope(&[], &[Marks], &[])),
             ],
             Down => &[
                 ("j", all),
                 ("<M-j>", all),
-                ("<Down>", scope(&[Seek], &[], &[])),
+                ("<Down>", scope(&[Seek, Grep], &[], &[])),
                 ("<Down>", scope(&[], &[Marks], &[])),
             ],
             PageUp => &[("<PageUp>", all)],
@@ -979,6 +986,7 @@ impl Function {
             MarkedList => &[("<M-Space>", all), ("<Esc>", scope(&[], &[Marks], &[]))],
             ReturnMarks => &[("<C-w>", all)],
             ClearQuery => &[("<Esc>", all)],
+            SwitchQuery => &[("<M-/>", all)],
             Shallower => &[("-", all), ("<M-Left>", all)],
             Deeper => &[("+", all), ("<M-Right>", all)],
             Depth => &[("<#>", all)],
