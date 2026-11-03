@@ -1411,8 +1411,7 @@ impl App {
     /// Whether the current directory may change; false in `fff seek`.
     pub fn can_navigate(&mut self) -> bool {
         if self.no_dir {
-            let program = if self.grep.is_some() { "grep" } else { "seek" };
-            self.status = format!("Navigation is disabled in fff {program}");
+            self.status = "Navigation is disabled in fff seek".into();
         }
         !self.no_dir
     }

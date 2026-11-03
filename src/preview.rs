@@ -108,6 +108,8 @@ pub struct Pane {
     /// Content lines the last frame had room for, and the most it could
     /// scroll: set while drawing.
     pub(crate) room: std::cell::Cell<(usize, usize)>,
+    /// Long lines wrap onto the next rows (the default) instead of being cut.
+    pub wrap: bool,
     sender: Sender<(Key, Preview)>,
     results: Receiver<(Key, Preview)>,
     wake: Option<SyncSender<()>>,
@@ -128,6 +130,7 @@ impl Default for Pane {
             cache: VecDeque::new(),
             scroll: 0,
             room: Default::default(),
+            wrap: true,
             sender,
             results,
             wake: None,

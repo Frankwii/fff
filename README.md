@@ -248,10 +248,11 @@ only the parents that tell same-named files apart, as in `fff pick`.
 
 ### Searching contents: `fff grep`
 
-`fff grep [ROOTS]` chooses files by what they contain. It lists files the way
-`fff seek` does (from every folder down to `--depth`, 6 by default; `--glob`,
-`--exclude` and `--hidden` apply) and prints the chosen ones the way
-`fff pick` does (`--relative`, `-0`):
+`fff grep [ROOTS]` chooses files by what they contain. It is `fff pick`
+with a contents query: it browses the same way (tabs, back and forward,
+bookmarks, Enter into a folder), looks from every folder down to `--depth`
+(6 by default; `--glob`, `--exclude` and `--hidden` apply), and prints the
+chosen files (`--relative`, `-0`):
 
 ```sh
 fff grep ~/papers --glob '*.pdf' --glob '*.djvu' --glob '*.epub' -0 | xargs -0 zathura
@@ -266,7 +267,10 @@ the files by name as in `fff seek`, so it chooses which files are read.
 Tab switches between them, in either mode (Shift+Space marks there);
 Escape clears the one being typed into (the
 other once it is empty). Enter prints the file (while typing, the marks and
-it); marking a match marks its file.
+it); marking a match marks its file. `l` opens it in the background and
+keeps fff open; an [opener](docs/CONFIGURATION.md#openers) with
+`at_match` opens it at the match, zathura on its page with the query
+highlighted.
 
 The contents query is a literal, not a regular expression. It is case-smart
 (an uppercase letter makes it case-sensitive), ignores Latin accents unless

@@ -86,6 +86,8 @@ fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup
 [[open.rules]]
 command = "zathura"
 extensions = ["pdf", "djvu", "epub"]
+# From a fff grep match: the match's page, the query searched and highlighted.
+at_match = "--page {page} --find {query}"
 
 [[open.rules]]
 command = "nvim"

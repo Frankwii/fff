@@ -317,6 +317,8 @@ class TerminalTests(unittest.TestCase):
         s = self.start("grep", implicit_root=True, typing=True)
         s.wait_ui("Contents · INSERT")
         self.assertIn("Names", s.screen.text)
+        # It browses like fff pick, with tabs.
+        self.assertIn(" 1  2  3 ", s.screen.text)
         s.send(b"canard", "❯ canard")
         s.wait_ui("2 matches in 1 file")
         rows = [l for l in s.screen.text.splitlines() if "notes.txt" in l and "l. " in l]

@@ -67,8 +67,40 @@ pub struct Hit {
     /// The match's bytes within `context[at]`, ending there when the match
     /// goes on to the next line.
     pub matched: Range<usize>,
+    /// The rest of a match that goes on over line breaks: its bytes within
+    /// each following context line.
+    pub continued: Vec<(usize, Range<usize>)>,
 }
 impl Hit {
+    /// The match's line with those it goes on to, joined by a space and
+    /// with leading space dropped, and the match's parts within it.
+    pub fn joined(&self) -> (String, Vec<Range<usize>>) {
+        let own = &self.context[self.at];
+        let lead = own.len() - own.trim_start().len();
+        let mut text = own[lead..].to_owned();
+        let mut parts = Vec::with_capacity(1 + self.continued.len());
+        parts.push(self.matched.start.max(lead) - lead..self.matched.end.max(lead) - lead);
+        for (i, part) in &self.continued {
+            let line = &self.context[*i];
+            let lead = line.len() - line.trim_start().len();
+            text.push(' ');
+            let base = text.len();
+            text.push_str(&line[lead..]);
+            parts.push(base + part.start.max(lead) - lead..base + part.end.max(lead) - lead);
+        }
+        (text, parts)
+    }
+    /// The match's parts on context line `i`.
+    pub fn parts(&self, i: usize) -> Vec<Range<usize>> {
+        if i == self.at {
+            return vec![self.matched.clone()];
+        }
+        self.continued
+            .iter()
+            .filter(|(line, _)| *line == i)
+            .map(|(_, part)| part.clone())
+            .collect()
+    }
     /// Where it is, as rows and the preview show it: `p. 3`, `42%` or `l. 12`.
     pub fn location(&self) -> String {
         match (self.page, self.percent) {
@@ -689,14 +721,23 @@ fn hit(text: &[u8], range: Range<usize>, page: Option<u32>, line: u32) -> Hit {
         at = s;
     }
     before.reverse();
+    let index = before.len();
     let mut after = Vec::new();
+    let mut continued = Vec::new();
     let mut at = end;
     while after.len() < CONTEXT && at < text.len() && text[at] == b'\n' {
-        let e = line_end(text, at + 1);
-        after.push(cut(&shown_line(&text[at + 1..e])));
+        let (s, e) = (at + 1, line_end(text, at + 1));
+        let line = cut(&shown_line(&text[s..e]));
+        // The match goes on here, after a line break.
+        if s < range.end {
+            let length = shown(&text[s..range.end.min(e)]).len().min(line.len());
+            if length > 0 && line.is_char_boundary(length) {
+                continued.push((index + 1 + after.len(), 0..length));
+            }
+        }
+        after.push(line);
         at = e;
     }
-    let index = before.len();
     let mut context = before;
     context.push(own);
     context.extend(after);
@@ -707,6 +748,7 @@ fn hit(text: &[u8], range: Range<usize>, page: Option<u32>, line: u32) -> Hit {
         context,
         at: index,
         matched,
+        continued,
     }
 }
 fn cut(line: &str) -> String {
@@ -1014,8 +1056,16 @@ mod tests {
         assert_eq!(found("canard explosion", "a canard\nexplosion").len(), 1);
         assert_eq!(found("explosion", "the explo-\nsion of").len(), 1);
         assert_eq!(found("non-hyperbolic", "non-hyperbolic").len(), 1);
-        // Only the part on the match's own line is highlighted.
+        // Each line holds its part of the match.
         assert_eq!(found("explosion", "explo-\nsion")[0].2, "explo-");
+        let hit = &Pattern::new("boundary conditions")
+            .unwrap()
+            .hits(b"coupled with boundary\n  conditions, i.e.", Units::Lines)[0];
+        assert_eq!(hit.continued, [(1, 0..12)]);
+        let (line, parts) = hit.joined();
+        assert_eq!(line, "coupled with boundary conditions, i.e.");
+        let shown: Vec<&str> = parts.iter().map(|p| &line[p.clone()]).collect();
+        assert_eq!(shown, ["boundary", "conditions"]);
     }
     #[test]
     fn matches_know_their_page_and_line() {

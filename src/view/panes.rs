@@ -184,30 +184,38 @@ pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
             if !preview.facts.is_empty() && !preview.lines.is_empty() {
                 lines.push(Line::from(styled("─".repeat(width), theme.border)));
             }
+            // Rows, wrapped or cut: scrolling counts these.
+            let rows: Vec<Line> = preview
+                .lines
+                .iter()
+                .enumerate()
+                .flat_map(|(i, (text, tone))| {
+                    let color = match tone {
+                        Tone::Text => theme.text,
+                        Tone::Muted => theme.muted,
+                        Tone::Directory => theme.accent,
+                    };
+                    let spans = match preview.syntax.get(i) {
+                        Some(spans) if app.preview.highlight && !spans.is_empty() => {
+                            colored(text, spans, theme)
+                        }
+                        _ => vec![styled(text.clone(), color)],
+                    };
+                    fit(spans, width, app.preview.wrap)
+                })
+                .collect();
             let room = (inner.height as usize).saturating_sub(lines.len());
-            let most = preview.lines.len().saturating_sub(room);
+            let most = rows.len().saturating_sub(room);
             app.preview.room.set((room, most));
             let skip = app.preview.scrolled().min(most);
-            for (i, (text, tone)) in preview.lines.iter().enumerate().skip(skip).take(room) {
-                let color = match tone {
-                    Tone::Text => theme.text,
-                    Tone::Muted => theme.muted,
-                    Tone::Directory => theme.accent,
-                };
-                lines.push(match preview.syntax.get(i) {
-                    Some(spans) if app.preview.highlight && !spans.is_empty() => {
-                        colored(text, spans, width, theme)
-                    }
-                    _ => Line::from(styled(truncate(text, width), color)),
-                });
-            }
+            lines.extend(rows.into_iter().skip(skip).take(room));
         }
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 /// `fff grep`: the lines around the highlighted row's match, the match
-/// highlighted, its page or line and which of the file's matches it is in
-/// the title.
+/// highlighted on each line it is on, its page or line and which of the
+/// file's matches it is in the title.
 fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &crate::grep::Hit) {
     let theme = app.palette;
     let (nth, of) = app
@@ -220,51 +228,182 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (width, room) = (inner.width as usize, inner.height as usize);
-    // The match a third of the way down, its lines around it.
-    let first = hit
-        .at
-        .saturating_sub(room / 3)
-        .min(hit.context.len().saturating_sub(room));
-    let lines: Vec<Line> = hit
-        .context
-        .iter()
-        .enumerate()
-        .skip(first)
-        .take(room)
-        .map(|(i, line)| {
-            if i == hit.at {
-                let mut spans = vec![styled("› ", theme.accent)];
-                spans.extend(super::results::snippet_spans(
-                    theme,
-                    hit,
-                    width.saturating_sub(2),
-                ));
-                Line::from(spans)
+    let wrap = app.preview.wrap;
+    let mut rows = Vec::new();
+    let mut start = 0;
+    for (i, line) in hit.context.iter().enumerate() {
+        let parts = hit.parts(i);
+        if i == hit.at {
+            start = rows.len();
+        }
+        let room = width.saturating_sub(2);
+        let spans = if parts.is_empty() {
+            vec![styled(safe(line), theme.muted)]
+        } else if wrap {
+            marked(line, &parts, theme.text, theme)
+        } else {
+            // Cut, the line keeps its match in view.
+            let (line, parts) = lead_window(line, &parts, room);
+            marked(&line, &parts, theme.text, theme)
+        };
+        // The match's line is marked; wrapped rows line up under the text.
+        for (n, mut row) in fit(spans, room, wrap).into_iter().enumerate() {
+            let gutter = if i == hit.at && n == 0 {
+                styled("› ", theme.accent)
             } else {
-                Line::from(styled(
-                    truncate(&format!("  {}", safe(line)), width),
-                    theme.muted,
-                ))
-            }
-        })
-        .collect();
+                Span::raw("  ")
+            };
+            row.spans.insert(0, gutter);
+            rows.push(row);
+        }
+    }
+    // The match a third of the way down, its lines around it.
+    let first = start
+        .saturating_sub(room / 3)
+        .min(rows.len().saturating_sub(room));
+    let lines: Vec<Line> = rows.into_iter().skip(first).take(room).collect();
     frame.render_widget(Paragraph::new(lines), inner);
 }
-/// A line of a text file in its syntax colors, cut to `width`.
+/// `text` with `parts` (sorted byte ranges) highlighted, the rest in
+/// `color`; parts off a character boundary are left plain.
+pub(super) fn marked(
+    text: &str,
+    parts: &[std::ops::Range<usize>],
+    color: Color,
+    theme: Palette,
+) -> Vec<Span<'static>> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for part in parts {
+        let (Some(before), Some(found)) = (text.get(at..part.start), text.get(part.clone())) else {
+            continue;
+        };
+        if !before.is_empty() {
+            out.push(styled(safe(before), color));
+        }
+        if !found.is_empty() {
+            out.push(styled(safe(found), theme.marked).add_modifier(Modifier::BOLD));
+        }
+        at = part.end;
+    }
+    if let Some(rest) = text.get(at..)
+        && !rest.is_empty()
+    {
+        out.push(styled(safe(rest), color));
+    }
+    out
+}
+/// `text` cut at the front so that its first part shows within `width`
+/// columns, a quarter of them kept before it: `…` and the rest, with the
+/// parts moved along.
+pub(super) fn lead_window(
+    text: &str,
+    parts: &[std::ops::Range<usize>],
+    width: usize,
+) -> (String, Vec<std::ops::Range<usize>>) {
+    let Some(first) = parts
+        .first()
+        .filter(|p| text.is_char_boundary(p.start.min(text.len())))
+    else {
+        return (text.to_owned(), parts.to_vec());
+    };
+    let before = &text[..first.start.min(text.len())];
+    let lead = width / 4;
+    if before.width() <= lead {
+        return (text.to_owned(), parts.to_vec());
+    }
+    // Keep the last `lead - 1` columns before the match, after an ellipsis.
+    let mut cut = before.len();
+    let mut used = 0;
+    for (i, c) in before.char_indices().rev() {
+        used += c.width().unwrap_or(0);
+        if used + 1 > lead {
+            break;
+        }
+        cut = i;
+    }
+    let shift = cut - '…'.len_utf8();
+    let moved = parts
+        .iter()
+        .map(|p| p.start.saturating_sub(shift)..p.end.saturating_sub(shift))
+        .collect();
+    (format!("…{}", &text[cut..]), moved)
+}
+/// Spans laid out in `width` columns: word-wrapped over as many lines as
+/// they need (breaking within a word only when it fills a line), or with
+/// `wrap` off cut to one line with an ellipsis.
+pub(super) fn fit(spans: Vec<Span<'static>>, width: usize, wrap: bool) -> Vec<Line<'static>> {
+    let total: usize = spans.iter().map(|s| s.width()).sum();
+    if total <= width {
+        return vec![Line::from(spans)];
+    }
+    if width == 0 {
+        return vec![Line::default()];
+    }
+    let cells: Vec<(char, Style)> = spans
+        .iter()
+        .flat_map(|s| s.content.chars().map(move |c| (c, s.style)))
+        .collect();
+    let line = |cells: &[(char, Style)]| {
+        let mut out: Vec<Span<'static>> = Vec::new();
+        for &(c, style) in cells {
+            match out.last_mut() {
+                Some(last) if last.style == style => last.content.to_mut().push(c),
+                _ => out.push(Span::styled(c.to_string(), style)),
+            }
+        }
+        Line::from(out)
+    };
+    if !wrap {
+        let mut used = 0;
+        let mut kept = Vec::new();
+        for &(c, style) in &cells {
+            let w = c.width().unwrap_or(0);
+            if used + w + 1 > width {
+                kept.push(('…', style));
+                break;
+            }
+            used += w;
+            kept.push((c, style));
+        }
+        return vec![line(&kept)];
+    }
+    let mut rows = Vec::new();
+    let mut row: Vec<(char, Style)> = Vec::new();
+    let mut used = 0;
+    for (c, style) in cells {
+        let w = c.width().unwrap_or(0);
+        if used + w > width && !row.is_empty() {
+            // Break after the row's last space, when it has one.
+            let space = row.iter().rposition(|(c, _)| *c == ' ').filter(|&i| i > 0);
+            let rest = match space {
+                Some(i) => {
+                    let rest = row.split_off(i + 1);
+                    row.pop();
+                    rest
+                }
+                None => Vec::new(),
+            };
+            rows.push(line(&row));
+            row = rest;
+            used = row.iter().map(|(c, _)| c.width().unwrap_or(0)).sum();
+            if c == ' ' && row.is_empty() {
+                continue;
+            }
+        }
+        row.push((c, style));
+        used += w;
+    }
+    rows.push(line(&row));
+    rows
+}
+/// A line of a text file in its syntax colors.
 fn colored(
     text: &str,
     spans: &[(usize, usize, crate::highlight::Syntax)],
-    width: usize,
     theme: Palette,
-) -> Line<'static> {
+) -> Vec<Span<'static>> {
     use crate::highlight::Syntax;
-    let shown = truncate(text, width);
-    // What is left of the text before an ellipsis.
-    let kept = if text.starts_with(&shown) {
-        shown.len()
-    } else {
-        shown.len() - '…'.len_utf8()
-    };
     let style = |syntax| match syntax {
         Syntax::Comment => Style::default()
             .fg(theme.muted)
@@ -281,7 +420,7 @@ fn colored(
     let mut out = Vec::new();
     let mut at = 0;
     for &(start, end, syntax) in spans {
-        let (start, end) = (start.min(kept), end.min(kept));
+        let (start, end) = (start.min(text.len()), end.min(text.len()));
         let (Some(before), Some(piece)) = (text.get(at..start), text.get(start..end)) else {
             continue;
         };
@@ -293,9 +432,8 @@ fn colored(
             at = end;
         }
     }
-    out.push(styled(text[at..kept].to_string(), theme.text));
-    if kept < shown.len() {
-        out.push(styled(shown[kept..].to_string(), theme.text));
+    if let Some(rest) = text.get(at..) {
+        out.push(styled(rest.to_string(), theme.text));
     }
-    Line::from(out)
+    out
 }

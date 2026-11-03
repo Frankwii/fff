@@ -310,9 +310,13 @@ fn the_preview_takes_the_bottom_half_below_or_between_the_panes() {
     assert!(title.chars().count() >= 118);
     assert!(row(&screen, "Pages  12").unwrap() > preview);
     assert!(row(&screen, "first line").unwrap() > row(&screen, "Pages").unwrap());
-    // Long lines are cut to the pane.
-    assert!(screen.lines().any(|l| l.contains("xxx…")));
+    // Long lines wrap onto the next rows; with wrapping off, they are cut.
+    assert!(!screen.lines().any(|l| l.contains("xxx…")));
     assert!(page <= 17, "results keep the top half: {page}");
+    app.preview.wrap = false;
+    let (cut, _) = frame(&mut app, 120, 40);
+    assert!(cut.lines().any(|l| l.contains("xxx…")));
+    app.preview.wrap = true;
     // Narrow: results, then the preview, then the marks.
     let (screen, _) = frame(&mut app, 60, 40);
     let (files, preview, marks) = (
@@ -358,6 +362,8 @@ fn text_previews_draw_their_syntax_colors_below_a_rule() {
     };
     app.preview.set(key, preview);
     app.preview.highlight = true;
+    // Cut rather than wrapped, so that each line keeps its row.
+    app.preview.wrap = false;
     let mut terminal = Terminal::new(TestBackend::new(40, 30)).unwrap();
     terminal
         .draw(|frame| {
@@ -1784,4 +1790,36 @@ fn rebound_keys_are_shown_as_bound() {
         .find(|l| l.contains(" go_to_trash ") && l.contains('•'))
         .unwrap_or_else(|| panic!("{screen}"));
     assert!(line.contains("Alt+t") && line.contains(" T "), "{screen}");
+}
+#[test]
+fn preview_lines_wrap_at_spaces_and_inside_words_only_when_they_fill_a_line() {
+    let rows = |text: &str, width, wrap| -> Vec<String> {
+        fit(vec![Span::raw(text.to_owned())], width, wrap)
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect()
+    };
+    assert_eq!(rows("short", 10, true), ["short"]);
+    assert_eq!(
+        rows("the quick brown fox", 10, true),
+        ["the quick", "brown fox"]
+    );
+    assert_eq!(rows("abcdefghijkl", 5, true), ["abcde", "fghij", "kl"]);
+    assert_eq!(rows("the quick brown fox", 10, false), ["the quick…"]);
+    // Styles survive the break.
+    let lines = fit(
+        vec![
+            Span::raw("aa "),
+            Span::styled("bb", Style::default().add_modifier(Modifier::BOLD)),
+        ],
+        3,
+        true,
+    );
+    assert_eq!(lines[1].spans[0].content, "bb");
+    assert!(
+        lines[1].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD)
+    );
 }

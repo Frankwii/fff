@@ -306,7 +306,9 @@ highlighted mark in the marked list; Alt+v (`P` in Normal mode) hides or shows
 it. Ctrl+j and Ctrl+k scroll its content down and up by half its height
 without moving the highlight (facts such as a PDF's pages stay on top); it
 starts at the top again for each entry. Pressed while the pane is hidden, they
-say which key opens it. It is text only: no images or terminal graphics protocols, so it looks the
+say which key opens it. Long lines wrap onto the next rows, at a space
+where there is one; `toggle_preview_wrap`, which has no key by default (bind
+one on the [Keys screen](#keys)), cuts them at the pane's edge instead. It is text only: no images or terminal graphics protocols, so it looks the
 same in st and any other terminal.
 
 ```toml
@@ -700,6 +702,7 @@ fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup (defaul
 [[open.rules]]
 command = "zathura"
 extensions = ["pdf", "djvu", "epub"]
+at_match = "--page {page} --find {query}"   # from a fff grep match: open there
 
 [[open.rules]]
 command = "imv"
@@ -722,6 +725,14 @@ matches `notes.tar.gz` (as `"gz"` does) but not a file named `.tar.gz`;
 (quotes and backslashes work, no shell); the files are added after it. A rule
 needs a command and at least one extension or pattern. Files no rule matches
 open with `$EDITOR`, as a terminal program.
+
+`at_match` is optional: when `l` or Alt+l (or Alt+number) opens a file from a
+`fff grep` match, its words are added before the file, with `{page}` (the
+match's page, or its line where it has none), `{line}` and `{query}` (the
+contents query) filled in. A placeholder inside a word stays in that word, so
+a query with spaces is one argument. For zathura, `--page {page} --find
+{query}` opens the document on the match's page with the query found and
+highlighted; for an editor such as `nvim`, `+{line}`.
 
 `terminal` must start a terminal window running the rest of the line: `st -e`,
 `alacritty -e`, `foot`, `kitty`. `fff_terminal` does the same for fff itself

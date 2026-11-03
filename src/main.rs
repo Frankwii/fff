@@ -516,10 +516,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             no_dir: true,
             ..Mode::default()
         },
-        // A file choice like fff seek's, printed like fff pick's.
+        // fff pick with a contents query: it navigates, with tabs, and prints.
         Some(Command::Grep(grep)) => Mode {
             roots: grep.roots,
-            no_dir: true,
             grep: true,
             output_paths: true,
             relative: grep.output.relative,
@@ -578,7 +577,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         .and_then(|p| fuzzy_file_finder::state::load_session(&p));
     // Browsing shows a folder's own entries; picking looks a little deeper,
     // and seeking deeper still.
-    let depth = args.depth.unwrap_or(if mode.no_dir {
+    let depth = args.depth.unwrap_or(if mode.no_dir || mode.grep {
         6
     } else if mode.output_paths && mode.explorer.is_none() {
         3

@@ -566,6 +566,8 @@ pub enum Exec {
     GoIntoFolder,
     /// The first row, or the last with `true`.
     JumpEnd(bool),
+    /// Wrap the preview's long lines, or cut them.
+    WrapPreview,
     Cancel,
 }
 
@@ -675,6 +677,7 @@ functions! {
     ToggleFilters "toggle_filters" Search "Toggle the file filters: on or off, without a rescan.";
     Rescan "rescan" Search "Rescan, bypassing the cache.";
     TogglePreview "toggle_preview" View "Toggle the preview pane: shown or hidden.";
+    TogglePreviewWrap "toggle_preview_wrap" View "Toggle word wrapping in the preview: long lines wrapped onto the next rows, or cut.";
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, keeping the highlight.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, keeping the highlight.";
     ShowPalettes "show_palettes" View "Show the palettes, previewing the highlighted one.";
@@ -699,7 +702,6 @@ use Highlight as H;
 use Place::{Marks, Results};
 use Program::*;
 const EXPLORERS: [Program; 4] = [ExplorerOpen, ExplorerMultiple, ExplorerFolder, ExplorerSave];
-/// Programs that navigate: all but seek.
 /// Programs where Tab marks while typing: all but fff grep, where it
 /// switches queries.
 const NOT_GREP: [Program; 8] = [
@@ -712,10 +714,12 @@ const NOT_GREP: [Program; 8] = [
     ExplorerFolder,
     ExplorerSave,
 ];
-const NAVIGATE: [Program; 7] = [
+/// Programs that navigate: all but seek.
+const NAVIGATE: [Program; 8] = [
     Roam,
     Window,
     Pick,
+    Grep,
     ExplorerOpen,
     ExplorerMultiple,
     ExplorerFolder,
@@ -754,6 +758,7 @@ impl Function {
             | SearchDeeper
             | ToggleHidden
             | TogglePreview
+            | TogglePreviewWrap
             | ScrollPreviewDown
             | ScrollPreviewUp
             | EditExclusions
@@ -804,12 +809,12 @@ impl Function {
                 scope(&[ExplorerMultiple], &[Results], &file),
             ],
             QuitIntoHighlighted if normal => vec![
-                scope(&[Roam, Pick], &[], &[H::Dir]),
-                scope(&[Roam, Pick], &[Results], &[H::None]),
+                scope(&[Roam, Pick, Grep], &[], &[H::Dir]),
+                scope(&[Roam, Pick, Grep], &[Results], &[H::None]),
                 scope(&[Seek], &[], &file),
             ],
             QuitIntoHighlighted => vec![
-                scope(&[Roam, Pick], &[Results], &[H::None]),
+                scope(&[Roam, Pick, Grep], &[Results], &[H::None]),
                 scope(&[Seek], &[Results], &file),
             ],
             QuitHere => only_normal(scope(&[Roam, Window, Pick, Seek, Grep], &[], &[])),
@@ -868,6 +873,7 @@ impl Function {
             ToggleDirectories => alt('d'),
             ToggleFiles => alt('D'),
             TogglePreview => alt('v'),
+            TogglePreviewWrap => Exec::WrapPreview,
             ScrollPreviewDown => key(K::Char('j'), M::CONTROL),
             ScrollPreviewUp => key(K::Char('k'), M::CONTROL),
             EditExclusions => alt('e'),
@@ -955,6 +961,7 @@ impl Function {
                             Roam,
                             Window,
                             Pick,
+                            Grep,
                             ExplorerOpen,
                             ExplorerMultiple,
                             ExplorerFolder,
@@ -972,13 +979,13 @@ impl Function {
             HighlightPrevious => &[
                 ("k", all),
                 ("<M-k>", all),
-                ("<Up>", scope(&[Seek, Grep], &[], &[])),
+                ("<Up>", scope(&[Seek], &[], &[])),
                 ("<Up>", scope(&[], &[Marks], &[])),
             ],
             HighlightNext => &[
                 ("j", all),
                 ("<M-j>", all),
-                ("<Down>", scope(&[Seek, Grep], &[], &[])),
+                ("<Down>", scope(&[Seek], &[], &[])),
                 ("<Down>", scope(&[], &[Marks], &[])),
             ],
             HighlightPreviousPage => &[("<PageUp>", all)],

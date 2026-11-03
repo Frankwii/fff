@@ -50,6 +50,12 @@ pub struct Rule {
     /// it in a new terminal window instead of in the background.
     #[serde(default)]
     pub terminal: bool,
+    /// Arguments added before the file when it opens from a `fff grep`
+    /// match: `{page}`, `{line}` and `{query}` become the match's page (its
+    /// line where it has none), line and the contents query, e.g.
+    /// `--page {page} --find {query}` for zathura.
+    #[serde(default)]
+    pub at_match: String,
 }
 
 /// How a file is opened: the command line and whether it needs a terminal.
@@ -57,6 +63,31 @@ pub struct Rule {
 pub struct Opener {
     pub line: String,
     pub terminal: bool,
+    /// `at_match`, empty when the rule has none.
+    pub at_match: String,
+}
+/// A `fff grep` match a file opens at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Match {
+    pub page: Option<u32>,
+    pub line: u32,
+    pub query: String,
+}
+impl Match {
+    /// `at_match`'s words with the placeholders filled in, split like a
+    /// typed command first, so that a query with spaces stays one word.
+    fn arguments(&self, at_match: &str, home: Option<&Path>) -> Result<Vec<String>, String> {
+        let words = split(at_match, home).map_err(|e| format!("at_match {at_match:?}: {e}"))?;
+        let page = self.page.unwrap_or(self.line).to_string();
+        Ok(words
+            .into_iter()
+            .map(|w| {
+                w.replace("{page}", &page)
+                    .replace("{line}", &self.line.to_string())
+                    .replace("{query}", &self.query)
+            })
+            .collect())
+    }
 }
 
 impl OpenConfig {
@@ -92,6 +123,9 @@ impl OpenConfig {
             }
             for pattern in &rule.patterns {
                 crate::glob(pattern).map_err(|e| format!("{at}: pattern {pattern:?}: {e}"))?;
+            }
+            if split(&rule.at_match).is_err() {
+                return Err(format!("{at}: at_match must split like a command line"));
             }
         }
         Ok(())
@@ -133,12 +167,14 @@ impl OpenConfig {
             return Ok(Opener {
                 line: rule.command.clone(),
                 terminal: rule.terminal,
+                at_match: rule.at_match.clone(),
             });
         }
         match std::env::var("EDITOR") {
             Ok(editor) if !editor.trim().is_empty() => Ok(Opener {
                 line: editor,
                 terminal: true,
+                at_match: String::new(),
             }),
             _ => Err(format!(
                 "No opener for {name}; add an [[open.rules]] entry or set $EDITOR"
@@ -218,11 +254,15 @@ pub fn launch(plan: &Plan) -> Result<(), String> {
 pub fn background_plan(
     config: &OpenConfig,
     path: &Path,
+    at: Option<&Match>,
     cwd: &Path,
     home: Option<&Path>,
 ) -> Result<Plan, String> {
     let opener = config.opener(path)?;
-    let inner = plan(&opener.line, vec![path.to_owned()], cwd, home)?;
+    let mut inner = plan(&opener.line, vec![path.to_owned()], cwd, home)?;
+    if let Some(at) = at.filter(|_| !opener.at_match.trim().is_empty()) {
+        inner.args.extend(at.arguments(&opener.at_match, home)?);
+    }
     if !opener.terminal {
         return Ok(inner);
     }
@@ -318,11 +358,46 @@ mod tests {
         let c = config(
             "terminal = \"sh -c\"\n[[rules]]\ncommand = \"cat -n\"\nextensions = [\"txt\"]\nterminal = true",
         );
-        let plan = background_plan(&c, Path::new("/tmp/x.txt"), Path::new("/"), None).unwrap();
+        let plan =
+            background_plan(&c, Path::new("/tmp/x.txt"), None, Path::new("/"), None).unwrap();
         assert_eq!(plan.name, "sh");
         assert_eq!(plan.args[0], "-c");
         assert!(plan.args[1].ends_with("/cat"));
         assert_eq!(plan.args[2], "-n");
         assert_eq!(plan.paths, [PathBuf::from("/tmp/x.txt")]);
+    }
+    #[test]
+    fn a_grep_match_opens_where_it_is() {
+        let c = config(
+            r#"
+            [[rules]]
+            command = "cat -n"
+            extensions = ["pdf"]
+            at_match = "--page {page} --find {query}"
+            [[rules]]
+            command = "cat"
+            extensions = ["txt"]
+            at_match = "+{line}"
+            "#,
+        );
+        c.validate().unwrap();
+        let at = Match {
+            page: Some(12),
+            line: 340,
+            query: "canard explosion".into(),
+        };
+        let plan = background_plan(&c, Path::new("/a/b.pdf"), Some(&at), Path::new("/"), None);
+        let plan = plan.unwrap();
+        // Before the file; a query with spaces stays one argument.
+        assert_eq!(
+            plan.args,
+            ["-n", "--page", "12", "--find", "canard explosion"]
+        );
+        assert_eq!(plan.paths, [PathBuf::from("/a/b.pdf")]);
+        let plan = background_plan(&c, Path::new("/a/b.txt"), Some(&at), Path::new("/"), None);
+        assert_eq!(plan.unwrap().args, ["+340"]);
+        // Opened from anywhere but a match, nothing is added.
+        let plan = background_plan(&c, Path::new("/a/b.pdf"), None, Path::new("/"), None);
+        assert_eq!(plan.unwrap().args, ["-n"]);
     }
 }

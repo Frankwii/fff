@@ -61,6 +61,14 @@ every file on every search (1.85 s and about 25 CPU-seconds a search over
 - **Pruning the cache.** Entries are never removed yet; old ones would go by
   age and total size. The text of every PDF in a home folder takes a few
   hundred megabytes at most.
+- **A viewer that follows the highlight.** Extracted text loses
+  formulas: subscripts, fractions and symbols come out as scattered
+  characters. The preview stays text (no images, see [design
+  choices](DEVELOPMENT.md#design-choices)), so the page itself belongs in a
+  PDF viewer. zathura answers on D-Bus (`org.pwmt.zathura`): one window,
+  opened by a key, could follow the highlighted match, going to its page and
+  highlighting it as the highlight moves, the way `at_match` opens a file
+  there once.
 - **OCR stays out.** A scanned document without a text layer cannot match;
   OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text
   layer to the file once, for every program.

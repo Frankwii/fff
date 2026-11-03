@@ -701,8 +701,7 @@ impl Session {
             }
             (K::Char('v'), _, true) => app.preview.shown = !app.preview.shown,
             (K::Char('d' | 'D'), _, true) if app.no_dir => {
-                let program = if app.grep.is_some() { "grep" } else { "seek" };
-                app.status = format!("fff {program} lists only files");
+                app.status = "fff seek lists only files".into();
             }
             // fff grep: type into the other query.
             (K::Char('/'), _, true) if app.grep.is_some() => {

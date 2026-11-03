@@ -1195,7 +1195,6 @@ fn grep_shows_one_row_per_match_in_the_files_names_choose() {
     std::fs::write(root.join("notes.md"), "one Canard here\n").unwrap();
     std::fs::write(root.join("other.txt"), "nothing\n").unwrap();
     let mut app = App::new(vec![root.clone()], 6, Policy::default());
-    app.no_dir = true;
     app.output_paths = true;
     let mut grep = fuzzy_file_finder::grep::Grep::new();
     grep.cache = Some(root.join("cache"));

@@ -301,6 +301,14 @@ impl Session {
                 };
             }
             Exec::EditConfig => self.edit_config(app)?,
+            Exec::WrapPreview => {
+                app.preview.wrap = !app.preview.wrap;
+                app.status = if app.preview.wrap {
+                    "The preview wraps long lines".into()
+                } else {
+                    "The preview cuts long lines".into()
+                };
+            }
             Exec::Depth => {
                 let depth = digit.unwrap_or(1) as usize;
                 if app.depth != depth {

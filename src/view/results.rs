@@ -272,61 +272,20 @@ pub(super) fn results_pane(
         choices: Vec::new(),
     }
 }
-/// A match's line cut to `width` around the match, which is highlighted:
-/// leading space dropped, and an ellipsis where the line is cut.
+/// A match's line, joined with those it goes on to, cut to `width` around
+/// the match, which is highlighted: leading space dropped, and an ellipsis
+/// where the line is cut.
 pub(super) fn snippet_spans(
     theme: Palette,
     hit: &crate::grep::Hit,
     width: usize,
 ) -> Vec<Span<'static>> {
-    let line = &hit.context[hit.at];
-    let trimmed = line.len() - line.trim_start().len();
-    // Offsets come from the engine; one off a character boundary shows the
-    // line unhighlighted rather than failing the frame.
-    let (start, end) = (hit.matched.start.max(trimmed), hit.matched.end.max(trimmed));
-    let matched = if end <= line.len() && line.is_char_boundary(start) && line.is_char_boundary(end)
-    {
-        start..end
-    } else {
-        trimmed..trimmed
-    };
-    let (text, matched) = (
-        &line[trimmed..],
-        matched.start - trimmed..matched.end - trimmed,
-    );
-    if width == 0 {
-        return Vec::new();
-    }
-    let (before, found, after) = (
-        safe(&text[..matched.start]),
-        safe(&text[matched.clone()]),
-        safe(&text[matched.end..]),
-    );
-    // Keep some of what comes before the match, the match, then the rest.
-    let lead = before.width().min(width / 4);
-    let before: String = if lead < before.width() {
-        let kept: String = before
-            .chars()
-            .rev()
-            .scan(1, |used, c| {
-                *used += c.width().unwrap_or(0);
-                (*used <= lead).then_some(c)
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        format!("…{kept}")
-    } else {
-        before
-    };
-    let found = truncate(&found, width.saturating_sub(before.width()));
-    let after = truncate(&after, width.saturating_sub(before.width() + found.width()));
-    vec![
-        styled(before, theme.text),
-        styled(found, theme.marked).add_modifier(Modifier::BOLD),
-        styled(after, theme.text),
-    ]
+    let (text, parts) = hit.joined();
+    let (text, parts) = lead_window(&text, &parts, width);
+    fit(marked(&text, &parts, theme.text, theme), width, false)
+        .pop()
+        .map(|line| line.spans)
+        .unwrap_or_default()
 }
 /// Icons reuse palette roles, so custom palettes and `NO_COLOR` apply unchanged.
 pub(super) fn icon_color(theme: Palette, group: crate::icons::Group) -> Color {

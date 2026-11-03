@@ -35,8 +35,27 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    let result = crate::open::background_plan(&app.openers, path, &app.cwd, app.home.as_deref())
-        .and_then(|plan| crate::open::launch(&plan).map(|()| plan));
+    // From a fff grep match, at the match, as the rule's at_match says.
+    let at = app
+        .highlighted_hit()
+        .filter(|_| app.highlight.as_deref() == Some(path))
+        .map(|hit| crate::open::Match {
+            page: hit.page,
+            line: hit.line,
+            query: app
+                .grep
+                .as_ref()
+                .map(|g| g.text.trim().to_owned())
+                .unwrap_or_default(),
+        });
+    let result = crate::open::background_plan(
+        &app.openers,
+        path,
+        at.as_ref(),
+        &app.cwd,
+        app.home.as_deref(),
+    )
+    .and_then(|plan| crate::open::launch(&plan).map(|()| plan));
     match result {
         Ok(plan) => {
             app.status = format!("Opened {name} with {}", plan.name);
