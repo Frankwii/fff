@@ -4,6 +4,19 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Fixed
+
+- **Large trees list faster.** New paths merge into the results without
+  copying every row each time, so a scan of over a million entries fills the
+  list up to about three times sooner, with shorter pauses between keys.
+- **A stuck network or FUSE mount no longer holds up details elsewhere.**
+  Entries on other mounts keep their sizes, dates and counts, owners show by
+  number until their names arrive, and stuck previews are capped: past 16, the
+  preview pane says it waits for one to end.
+- **Ctrl+c leaves at once** while a large listing is still being sorted.
+
 ## 0.12.0 — 2026-11-03
 
 fff never waits for a slow disk to draw.

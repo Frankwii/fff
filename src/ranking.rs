@@ -36,6 +36,8 @@ pub(crate) struct Job {
 }
 pub(crate) struct Ranked {
     pub rows: Vec<Arc<Candidate>>,
+    /// The rows' scores, in the same order.
+    pub scores: Vec<i64>,
     pub labels: Option<(Names, Labels)>,
 }
 
@@ -48,18 +50,23 @@ impl Job {
             .min(self.base.len() / CHECK_EVERY + 1);
         let piece = self.base.len().div_ceil(threads).max(1);
         let keep_listed = self.labels == Some(true);
-        // Each piece is filtered, scored and sorted on its own thread.
-        let pieces: Vec<_> = std::thread::scope(|scope| {
-            let handles: Vec<_> = self
-                .base
-                .chunks(piece)
-                .map(|chunk| scope.spawn(|| self.rank_piece(chunk, keep_listed, cancel)))
-                .collect();
-            handles
-                .into_iter()
-                .map(|h| h.join().ok().flatten())
-                .collect()
-        });
+        // Each piece is filtered, scored and sorted on its own thread; a
+        // single piece here, as starting a thread costs more than small work.
+        let pieces: Vec<_> = if threads == 1 {
+            vec![self.rank_piece(&self.base, keep_listed, cancel)]
+        } else {
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = self
+                    .base
+                    .chunks(piece)
+                    .map(|chunk| scope.spawn(|| self.rank_piece(chunk, keep_listed, cancel)))
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().ok().flatten())
+                    .collect()
+            })
+        };
         let mut sorted = Vec::with_capacity(pieces.len());
         let mut listed = Vec::new();
         for piece in pieces {
@@ -72,8 +79,10 @@ impl Job {
             Some(shown) => Some(label(if shown { listed } else { Vec::new() }, cancel)?),
             None => None,
         };
+        let (scores, rows) = rows.into_iter().unzip();
         Some(Ranked {
-            rows: rows.into_iter().map(|(_, c)| c).collect(),
+            rows,
+            scores,
             labels,
         })
     }
@@ -127,33 +136,41 @@ fn merge_all(
         while let Some(a) = rest.next() {
             pairs.push((a, rest.next()));
         }
+        let merge = |(a, b): (_, Option<_>)| match b {
+            Some(b) => merge_two(a, b, by_score, cancel),
+            None => Some(a),
+        };
+        // The last pair is merged on this thread, which would only wait.
+        let last = pairs.pop().expect("at least two pieces");
         pieces = std::thread::scope(|scope| {
             let handles: Vec<_> = pairs
                 .into_iter()
-                .map(|(a, b)| {
-                    scope.spawn(move || match b {
-                        Some(b) => merge_two(a, b, by_score),
-                        None => a,
-                    })
-                })
+                .map(|pair| scope.spawn(move || merge(pair)))
                 .collect();
+            let last = merge(last);
             handles
                 .into_iter()
                 .map(|h| h.join().expect("merging sorted rows does not panic"))
-                .collect()
-        });
+                .chain([last])
+                .collect::<Option<_>>()
+        })?;
     }
     Some(pieces.pop().unwrap_or_default())
 }
+/// `None` once `cancel` is set.
 fn merge_two(
     a: Vec<(i64, Arc<Candidate>)>,
     b: Vec<(i64, Arc<Candidate>)>,
     by_score: bool,
-) -> Vec<(i64, Arc<Candidate>)> {
+    cancel: &AtomicBool,
+) -> Option<Vec<(i64, Arc<Candidate>)>> {
     let mut merged = Vec::with_capacity(a.len() + b.len());
     let mut a = a.into_iter().peekable();
     let mut b = b.into_iter().peekable();
     while let (Some((sa, ca)), Some((sb, cb))) = (a.peek(), b.peek()) {
+        if merged.len() % CHECK_EVERY == 0 && cancel.load(Ordering::Relaxed) {
+            return None;
+        }
         if rank(by_score, cb, *sb, ca, *sa).is_lt() {
             merged.extend(b.next());
         } else {
@@ -162,7 +179,7 @@ fn merge_two(
     }
     merged.extend(a);
     merged.extend(b);
-    merged
+    Some(merged)
 }
 /// Group `listed` by basename and label the groups that share one.
 fn label(listed: Vec<Arc<Candidate>>, cancel: &AtomicBool) -> Option<(Names, Labels)> {

@@ -3,7 +3,9 @@
 //! until the next scan. Drawing never touches the filesystem: a slow network
 //! or FUSE mount would stall the frame, so workers read entries and count
 //! directories, and the frame shows what they found once it arrives (until
-//! then, what they found before).
+//! then, what they found before). Each mount has its own workers, so a stuck
+//! one holds up only its own entries. Owner names, which may come from a
+//! network directory service, are looked up by a worker too.
 use serde::Deserialize;
 use std::{
     cell::RefCell,
@@ -86,10 +88,14 @@ const COUNT_LIMIT: usize = 10_000;
 /// Cached counts kept across directories before the cache starts over.
 const COUNT_CACHE: usize = 4096;
 
-struct Worker<T> {
-    requests: Sender<(u64, PathBuf)>,
-    results: Receiver<(u64, PathBuf, T)>,
+struct Worker<K, T> {
+    requests: Sender<(u64, K)>,
+    results: Receiver<(u64, K, T)>,
 }
+/// Workers by the mount point of the entries they read.
+type Workers<T> = RefCell<HashMap<PathBuf, Worker<PathBuf, T>>>;
+/// A user's (`true`) or group's id.
+type Account = (bool, u32);
 
 /// What a worker found for an entry (`None` until it answers once), and
 /// whether that is current; stale values show until replaced.
@@ -100,11 +106,15 @@ pub struct Details {
     /// Entries' details; `Some(None)` for an entry that does not exist.
     infos: RefCell<HashMap<PathBuf, Found<Option<Info>>>>,
     counts: RefCell<HashMap<PathBuf, Found<Count>>>,
-    info_worker: RefCell<Option<Worker<Option<Info>>>>,
-    worker: RefCell<Option<Worker<Count>>>,
-    /// Counts requested before the last `forget` are skipped by the worker.
+    info_workers: Workers<Option<Info>>,
+    count_workers: Workers<Count>,
+    /// Mount points, longest first, read again after each `forget`.
+    mounts: RefCell<Option<Vec<PathBuf>>>,
+    /// Requests made before the last `forget` are skipped by the workers.
     generation: Arc<AtomicU64>,
-    names: RefCell<HashMap<(bool, u32), String>>,
+    /// Account names; `None` while being looked up.
+    names: RefCell<HashMap<Account, Option<String>>>,
+    name_worker: RefCell<Option<Worker<Account, String>>>,
     wake: Option<SyncSender<()>>,
 }
 impl Details {
@@ -128,11 +138,7 @@ impl Details {
             if self.wake.is_none() {
                 entry.0 = Some(Info::read(path));
             } else {
-                let mut worker = self.info_worker.borrow_mut();
-                let worker = worker.get_or_insert_with(|| self.spawn(Info::read));
-                let _ = worker
-                    .requests
-                    .send((self.generation.load(Ordering::Relaxed), path.to_path_buf()));
+                self.request(&self.info_workers, path, |p| Info::read(p));
             }
         }
         entry.0.clone()
@@ -144,21 +150,50 @@ impl Details {
         let entry = counts.entry(path.to_path_buf()).or_insert((None, false));
         if !entry.1 {
             entry.1 = true;
-            self.request(path);
+            self.request(&self.count_workers, path, |p| count_entries(p));
         }
         entry.0
     }
-    fn request(&self, path: &Path) {
-        let mut worker = self.worker.borrow_mut();
-        let worker = worker.get_or_insert_with(|| self.spawn(count_entries));
+    /// Asks the worker for `path`'s mount to `read` it.
+    fn request<T: Send + 'static>(
+        &self,
+        workers: &Workers<T>,
+        path: &Path,
+        read: fn(&PathBuf) -> T,
+    ) {
+        let mount = self.mount_of(path);
+        let mut workers = workers.borrow_mut();
+        let worker = workers
+            .entry(mount)
+            .or_insert_with(|| self.spawn(self.generation.clone(), read));
         let _ = worker
             .requests
             .send((self.generation.load(Ordering::Relaxed), path.to_path_buf()));
     }
-    fn spawn<T: Send + 'static>(&self, read: fn(&Path) -> T) -> Worker<T> {
-        let (requests, incoming) = mpsc::channel::<(u64, PathBuf)>();
+    /// The mount point `path` is under, by its name: reading the mount table
+    /// never waits for a mount.
+    fn mount_of(&self, path: &Path) -> PathBuf {
+        let mut mounts = self.mounts.borrow_mut();
+        let mounts = mounts.get_or_insert_with(|| {
+            let mut mounts = fs::read_to_string("/proc/self/mounts")
+                .map(|table| mount_points(&table))
+                .unwrap_or_default();
+            mounts.sort_by_key(|m| std::cmp::Reverse(m.as_os_str().len()));
+            mounts
+        });
+        mounts
+            .iter()
+            .find(|m| path.starts_with(m))
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("/"))
+    }
+    fn spawn<K: Send + 'static, T: Send + 'static>(
+        &self,
+        generation: Arc<AtomicU64>,
+        read: fn(&K) -> T,
+    ) -> Worker<K, T> {
+        let (requests, incoming) = mpsc::channel::<(u64, K)>();
         let (outgoing, results) = mpsc::channel();
-        let generation = self.generation.clone();
         let wake = self.wake.clone();
         std::thread::spawn(move || {
             for (asked, path) in incoming {
@@ -180,13 +215,27 @@ impl Details {
     /// shown.
     pub fn drain(&self) -> bool {
         let current = self.generation.load(Ordering::Relaxed);
-        drain_into(&self.info_worker, &self.infos, current)
-            | drain_into(&self.worker, &self.counts, current)
+        let mut changed = false;
+        for worker in self.info_workers.borrow().values() {
+            changed |= drain_into(worker, &self.infos, current);
+        }
+        for worker in self.count_workers.borrow().values() {
+            changed |= drain_into(worker, &self.counts, current);
+        }
+        if let Some(worker) = self.name_worker.borrow().as_ref() {
+            let mut names = self.names.borrow_mut();
+            while let Ok((_, account, name)) = worker.results.try_recv() {
+                names.insert(account, Some(name));
+                changed = true;
+            }
+        }
+        changed
     }
     /// Everything may have changed (a new scan): read details again as rows
     /// are drawn, keeping old counts on screen until new ones arrive.
     pub fn forget(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
+        *self.mounts.borrow_mut() = None;
         let mut infos = self.infos.borrow_mut();
         if infos.len() > COUNT_CACHE {
             infos.clear();
@@ -211,32 +260,36 @@ impl Details {
             entry.1 = false;
         }
     }
-    /// `user:group`, by name where the system knows one.
+    /// `user:group`, by name where the system knows one; by number while
+    /// the name is being looked up.
     pub fn owner(&self, info: &Info) -> String {
-        let mut names = self.names.borrow_mut();
-        let user = names
-            .entry((true, info.uid))
-            .or_insert_with(|| account_name(true, info.uid))
-            .clone();
-        let group = names
-            .entry((false, info.gid))
-            .or_insert_with(|| account_name(false, info.gid))
-            .clone();
+        let user = self.name((true, info.uid));
+        let group = self.name((false, info.gid));
         format!("{user}:{group}")
+    }
+    fn name(&self, account: Account) -> String {
+        let mut names = self.names.borrow_mut();
+        let name = names.entry(account).or_insert_with(|| {
+            if self.wake.is_none() {
+                return Some(account_name(&account));
+            }
+            let mut worker = self.name_worker.borrow_mut();
+            // Names do not change with a scan: no generation to skip.
+            let worker = worker.get_or_insert_with(|| self.spawn(Arc::default(), account_name));
+            let _ = worker.requests.send((0, account));
+            None
+        });
+        name.clone().unwrap_or_else(|| account.1.to_string())
     }
 }
 
 /// Takes what `worker` found for the current generation into `found`;
 /// returns whether any of it changed.
 fn drain_into<T: PartialEq>(
-    worker: &RefCell<Option<Worker<T>>>,
+    worker: &Worker<PathBuf, T>,
     found: &RefCell<HashMap<PathBuf, Found<T>>>,
     current: u64,
 ) -> bool {
-    let worker = worker.borrow();
-    let Some(worker) = worker.as_ref() else {
-        return false;
-    };
     let mut found = found.borrow_mut();
     let mut changed = false;
     while let Ok((asked, path, value)) = worker.results.try_recv() {
@@ -250,6 +303,36 @@ fn drain_into<T: PartialEq>(
     changed
 }
 
+/// The mount points in a `/proc/self/mounts` table, whose fields escape
+/// spaces, tabs, newlines and backslashes in octal.
+fn mount_points(table: &str) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    table
+        .lines()
+        .filter_map(|line| line.split(' ').nth(1))
+        .map(|field| {
+            let (mut bytes, mut rest) = (Vec::new(), field.as_bytes());
+            while let Some((&b, tail)) = rest.split_first() {
+                let code = tail
+                    .get(..3)
+                    .and_then(|d| std::str::from_utf8(d).ok())
+                    .and_then(|d| u8::from_str_radix(d, 8).ok());
+                match code {
+                    Some(c) if b == b'\\' => {
+                        bytes.push(c);
+                        rest = &tail[3..];
+                    }
+                    _ => {
+                        bytes.push(b);
+                        rest = tail;
+                    }
+                }
+            }
+            PathBuf::from(std::ffi::OsString::from_vec(bytes))
+        })
+        .collect()
+}
+
 fn count_entries(path: &Path) -> Count {
     match fs::read_dir(path) {
         Ok(entries) => Count::Entries(entries.take(COUNT_LIMIT).count()),
@@ -257,7 +340,7 @@ fn count_entries(path: &Path) -> Count {
     }
 }
 
-fn account_name(user: bool, id: u32) -> String {
+fn account_name(&(user, id): &Account) -> String {
     let mut buffer = vec![0 as libc::c_char; 4096];
     let mut name = None;
     // SAFETY: the reentrant lookups write only into the buffers passed here,
@@ -506,6 +589,42 @@ mod tests {
         assert_eq!(details.info(&dir.join("a")).unwrap().size, 6);
         settle(&details);
         assert_eq!(details.lookup(&dir.join("a")), Some(None));
+        // Owners show by number until their names arrive.
+        let info = Info::read(&dir).unwrap();
+        let ids = format!("{}:{}", info.uid, info.gid);
+        assert_eq!(details.owner(&info), ids);
+        let names = format!(
+            "{}:{}",
+            account_name(&(true, info.uid)),
+            account_name(&(false, info.gid))
+        );
+        // The user's and the group's names may arrive separately.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while details.owner(&info) != names && std::time::Instant::now() < deadline {
+            let _ = woken.recv_timeout(Duration::from_millis(50));
+            details.drain();
+        }
+        assert_eq!(details.owner(&info), names);
         fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn entries_are_read_by_their_mounts_workers() {
+        let table = "proc /proc proc rw 0 0\n/dev/sda1 / ext4 rw 0 0\n\
+                     share /mnt/my\\040disk\\134x nfs rw 0 0\n";
+        assert_eq!(
+            mount_points(table),
+            [PathBuf::from("/proc"), "/".into(), "/mnt/my disk\\x".into()]
+        );
+        let details = Details::default();
+        *details.mounts.borrow_mut() = Some(vec!["/mnt/a b".into(), "/mnt".into(), "/".into()]);
+        assert_eq!(
+            details.mount_of(Path::new("/mnt/a b/c")),
+            Path::new("/mnt/a b")
+        );
+        assert_eq!(details.mount_of(Path::new("/mnt/a bc")), Path::new("/mnt"));
+        assert_eq!(details.mount_of(Path::new("/home")), Path::new("/"));
+        // Without a table, everything is on `/`.
+        *details.mounts.borrow_mut() = Some(Vec::new());
+        assert_eq!(details.mount_of(Path::new("/home")), Path::new("/"));
     }
 }

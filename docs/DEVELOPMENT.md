@@ -62,7 +62,8 @@ listed separately in the [roadmap](ROADMAP.md).
   and `l` (background opener) or `o` show the image itself. Its speed is
   non-negotiable: reads never block a frame or a highlight change, happen on
   their own threads after the highlight rests, and are cancelled when it
-  moves.
+  moves. A read stuck on a slow mount cannot be interrupted, so at most 16
+  run at once; past that, the pane says it waits for one to end.
 
 ## Behavior to preserve
 
@@ -75,10 +76,12 @@ listed separately in the [roadmap](ROADMAP.md).
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
   absolute pathname bytes; `fff seek` puts fuzzy score before depth. Query edits do not restart discovery. Scans merge
-  new paths into the ranked rows within a time budget; the input thread never
+  new paths into the ranked rows within a time budget, in place and with the
+  rows' kept scores: rows ranked before every new path are not touched, so a
+  breadth-first scan's merge costs about what it inserts. The input thread never
   re-sorts every known path, and discovery work yields to keys waiting to be
   read. Large re-rankings run on another thread; every key except typing into
-  the query waits for a pending one, so no action uses stale rows.
+  the query and Ctrl+c waits for a pending one, so no action uses stale rows.
 - Marks are unique, ordered and independent of navigation, policies and filters.
   Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
   the last fully rendered visible labels.
@@ -90,8 +93,10 @@ listed separately in the [roadmap](ROADMAP.md).
   Ctrl+c cancels with no selected-path output.
 - Drawing never touches the filesystem: what a frame shows about an entry
   (details, `[MISSING]`, a folder's slash, a bookmark's availability) comes
-  from `Details`, whose workers read it in the background; until they answer,
-  the frame shows what they found before.
+  from `Details`, whose workers read it in the background, one set per mount
+  so that a stuck mount holds up only its own entries; until they answer,
+  the frame shows what they found before. Owner names, possibly from a
+  network directory, are looked up in the background too.
 - Generation checks and cancellation prevent obsolete work from changing the view.
   Reuse recomputes attribution. Partial or truncated snapshots cannot establish
   completeness, and cached empty directories require verification before Enter.

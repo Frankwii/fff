@@ -71,8 +71,11 @@ struct Pending {
 /// How long the progress marker stays after discovery completes.
 pub const PROGRESS_SHOWN: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// Insertions merged into the rows per budgeted round.
+/// Insertions merged into the rows per budgeted round, at least; rounds grow
+/// with the rows (one insertion per `MERGE_SPREAD` rows), as each moves rows
+/// after the first insertion and searching is cheap beside that.
 const MERGE_ROUND: usize = 512;
+const MERGE_SPREAD: usize = 1024;
 
 /// Result order: depth, directories first, best score, root order, then
 /// pathname bytes, which break every tie. `by_score` (`fff seek`) puts the
@@ -86,7 +89,11 @@ fn rank(
 ) -> std::cmp::Ordering {
     let score = score_b.cmp(&score_a);
     let depth = a.depth.cmp(&b.depth).then(b.directory.cmp(&a.directory));
-    let (first, second) = if by_score { (score, depth) } else { (depth, score) };
+    let (first, second) = if by_score {
+        (score, depth)
+    } else {
+        (depth, score)
+    };
     first
         .then(second)
         .then(a.root.cmp(&b.root))
@@ -174,6 +181,9 @@ pub struct App {
     /// `[performance] cached_queries`: most entries kept in `earlier`.
     pub cached_queries: usize,
     pub rows: ranking::Rows,
+    /// The rows' scores for the query they were ranked by, in the same order,
+    /// so that merging does not score them again; empty until needed.
+    scores: Vec<i64>,
     pub highlight: Option<PathBuf>,
     /// Where `highlight` was last found in `rows`. Anything may change either,
     /// so it is checked before use; moving and drawing then skip the search.
@@ -310,6 +320,7 @@ impl App {
             input: None,
             cached_queries: config::PerformanceConfig::default().cached_queries,
             rows: Arc::default(),
+            scores: Vec::new(),
             highlight: None,
             highlight_top: false,
             highlight_hint: Cell::new(0),
@@ -736,6 +747,7 @@ impl App {
                         && *q == folded
                     {
                         self.rows = self.earlier.pop().expect("checked").1;
+                        self.scores.clear();
                         self.refreshed = Some((basis, folded));
                         self.keep_highlight();
                         return;
@@ -824,6 +836,7 @@ impl App {
         let old = std::mem::replace(&mut self.rows, Arc::new(ranked.rows));
         let len = old.len();
         known::discard(old, len);
+        self.scores = ranked.scores;
         if let Some((names, labels)) = ranked.labels {
             let old = std::mem::replace(&mut self.names, names);
             let len = old.values().map(Vec::len).sum();
@@ -913,7 +926,13 @@ impl App {
         // unique until the rows are rid of them.
         let stale: HashSet<_> = self.outdated.iter().map(Arc::as_ptr).collect();
         if !stale.is_empty() {
-            Arc::make_mut(&mut self.rows).retain(|c| !stale.contains(&Arc::as_ptr(c)));
+            let rows = Arc::make_mut(&mut self.rows);
+            if self.scores.len() == rows.len() {
+                let mut kept = rows.iter().map(|c| !stale.contains(&Arc::as_ptr(c)));
+                self.scores
+                    .retain(|_| kept.next().expect("as many scores as rows"));
+            }
+            rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
             if self.no_dir || self.short_labels {
                 for c in &self.outdated {
                     if let Some(name) = c.path.file_name()
@@ -939,7 +958,8 @@ impl App {
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {
-                self.added.len().min(MERGE_ROUND)
+                let round = MERGE_ROUND.max(self.rows.len() / MERGE_SPREAD);
+                self.added.len().min(round)
             } else {
                 self.added.len()
             };
@@ -963,21 +983,55 @@ impl App {
                 .filter_map(|c| Some((score_of(&c)?, c)))
                 .collect();
             added.sort_unstable_by(|(sa, a), (sb, b)| rank(by_score, a, *sa, b, *sb));
-            let mut rows = Vec::with_capacity(self.rows.len() + added.len());
-            let old = std::mem::take(&mut self.rows);
-            let mut old = Arc::try_unwrap(old)
-                .unwrap_or_else(|shared| Vec::clone(&shared))
-                .into_iter();
-            for (score, c) in added {
-                // Rows all match the query; rank them by their own scores.
-                let before = old.as_slice().partition_point(|r| {
-                    rank(by_score, r, score_of(r).unwrap_or_default(), &c, score).is_lt()
-                });
-                rows.extend(old.by_ref().take(before));
-                rows.push(c);
+            if !added.is_empty() {
+                let rows = Arc::make_mut(&mut self.rows);
+                let scores = &mut self.scores;
+                if scores.len() != rows.len() {
+                    // Rows all match the query; rank them by their own scores.
+                    *scores = rows
+                        .iter()
+                        .map(|r| score_of(r).unwrap_or_default())
+                        .collect();
+                }
+                // Where an insertion goes among `rows`: searched back from
+                // their end in growing steps, as each insertion lands near the
+                // one after it, then halving.
+                let before = |rows: &[Arc<Candidate>], scores: &[i64], c: &Candidate, s: i64| {
+                    let lt = |i: usize| rank(by_score, &rows[i], scores[i], c, s).is_lt();
+                    let (mut lo, mut hi, mut step) = (rows.len(), rows.len(), 1);
+                    while lo > 0 && !lt(lo - 1) {
+                        hi = lo - 1;
+                        lo = lo.saturating_sub(step);
+                        step *= 2;
+                    }
+                    while lo < hi {
+                        let mid = lo + (hi - lo) / 2;
+                        if lt(mid) {
+                            lo = mid + 1;
+                        } else {
+                            hi = mid;
+                        }
+                    }
+                    lo
+                };
+                // From the last insertion back, each opens a gap where it
+                // goes by moving the rows after it up once: rows ranked before
+                // every insertion stay in place, and as scans deliver shallow
+                // paths first, insertions mostly land near the end.
+                let mut end = rows.len();
+                let k = added.len();
+                rows.resize(end + k, Arc::clone(&added[0].1));
+                scores.resize(end + k, 0);
+                for (i, (score, c)) in added.into_iter().enumerate().rev() {
+                    let at = before(&rows[..end], &scores[..end], &c, score);
+                    // Rows at..end move up by the i + 1 insertions left.
+                    rows[at..end + i + 1].rotate_right(i + 1);
+                    scores.copy_within(at..end, at + i + 1);
+                    rows[at + i] = c;
+                    scores[at + i] = score;
+                    end = at;
+                }
             }
-            rows.extend(old);
-            self.rows = Arc::new(rows);
             if self.yield_now(budget, start) {
                 break;
             }

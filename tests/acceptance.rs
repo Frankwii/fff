@@ -1005,6 +1005,44 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
     }
 }
 #[test]
+fn merges_after_returning_to_a_kept_query_match_ranking_everything() {
+    let name = |i: u64| {
+        let n = i.wrapping_mul(2_654_435_761) % 3000;
+        (format!("a{}/n{n:04}", n % 5), 2)
+    };
+    let mut merged = app();
+    merged.cached_queries = 4;
+    merged.query = "n1".into();
+    for i in 0..1500 {
+        let (path, depth) = name(i);
+        merged.insert(0, candidate(&path, false, depth));
+    }
+    merged.refresh();
+    // Narrowing keeps the shorter query's rows; deleting the letter
+    // restores them, ranked for that query.
+    merged.query = "n12".into();
+    merged.refresh();
+    merged.query = "n1".into();
+    merged.refresh();
+    for i in 1500..3000 {
+        let (path, depth) = name(i);
+        merged.insert(0, candidate(&path, false, depth));
+    }
+    while !merged.settled() {
+        merged.refresh_within(Some(Duration::ZERO));
+    }
+    let mut ranked = app();
+    ranked.query = "n1".into();
+    for i in 0..3000 {
+        let (path, depth) = name(i);
+        ranked.insert(0, candidate(&path, false, depth));
+    }
+    ranked.refresh();
+    let paths = |app: &App| app.rows.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+    assert_eq!(paths(&merged), paths(&ranked));
+    assert!(!merged.rows.is_empty());
+}
+#[test]
 fn a_new_location_keeps_the_highlight_on_the_first_row_until_moved() {
     let mut app = app();
     app.navigate(PathBuf::from("/fixture"), false);

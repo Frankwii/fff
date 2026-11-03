@@ -36,8 +36,12 @@ impl Session {
             return Ok(None);
         }
         // Typing a query may run ahead of rows being ranked on another
-        // thread; anything else may act on rows, so it waits for them.
-        if app.ranking_pending() && !types_query(app, &self.focus, &event) {
+        // thread; anything else may act on rows, so it waits for them,
+        // except Ctrl+c, which leaves without them.
+        let cancels = matches!(&event, Event::Key(key) if self.keys.translate(*key).is_some_and(|k| {
+            k.modifiers.contains(M::CONTROL) && k.code == K::Char('c')
+        }));
+        if app.ranking_pending() && !cancels && !types_query(app, &self.focus, &event) {
             app.finish_ranking();
         }
         let (key, on_row) = match event {

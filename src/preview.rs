@@ -4,7 +4,8 @@
 //! Reading never slows the list: it starts on a thread of its own once the
 //! highlight has rested for `DWELL`, is bounded in bytes, lines and time, and
 //! moving on cancels it (killing a helper program). The frame shows whatever
-//! has arrived for the highlighted entry, and nothing else.
+//! has arrived for the highlighted entry, and nothing else. A read stuck on a
+//! slow mount cannot be interrupted, so at most `READERS` run at once.
 use std::{
     collections::VecDeque,
     fs::{self, File},
@@ -14,7 +15,7 @@ use std::{
     process::{Command, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender, SyncSender},
     },
     time::{Duration, Instant, SystemTime},
@@ -34,6 +35,9 @@ const ENTRIES_READ: usize = 5000;
 const TOOL_TIME: Duration = Duration::from_secs(3);
 /// Previews kept for entries visited again.
 const CACHE: usize = 32;
+/// Reads still running when another waits for one to end: moving on cannot
+/// stop a read stuck on a slow mount, only leave it behind.
+const READERS: usize = 16;
 
 /// How a line is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +86,10 @@ pub struct Pane {
     target: Option<Key>,
     since: Option<Instant>,
     requested: bool,
+    /// The followed entry's read waits for one of `READERS` to end.
+    waiting: bool,
+    /// Reads still running, cancelled or not.
+    reading: Arc<AtomicUsize>,
     cancel: Arc<AtomicBool>,
     current: Option<Arc<Preview>>,
     cache: VecDeque<(Key, Arc<Preview>)>,
@@ -97,6 +105,8 @@ impl Default for Pane {
             target: None,
             since: None,
             requested: false,
+            waiting: false,
+            reading: Arc::default(),
             cancel: Arc::new(AtomicBool::new(false)),
             current: None,
             cache: VecDeque::new(),
@@ -138,14 +148,25 @@ impl Pane {
                     .map(|(_, p)| p.clone())
             });
             self.requested = self.current.is_some();
+            self.waiting = false;
             self.target = target;
             self.since = Some(now);
             changed = true;
         }
-        if self.remaining(now).is_some_and(|d| d.is_zero())
-            && let Some(key) = self.target.clone()
-        {
+        let free = self.reading.load(Ordering::Relaxed) < READERS;
+        // A read that waited starts once another ends, which wakes the loop.
+        let due = self.remaining(now).is_some_and(|d| d.is_zero()) || (self.waiting && free);
+        if due && let Some(key) = self.target.clone() {
             self.requested = true;
+            self.waiting = !free;
+            if !free {
+                let mut busy = Preview::default();
+                busy.note("Waiting for earlier previews to finish reading (a slow disk?)");
+                self.current = Some(Arc::new(busy));
+                return true;
+            }
+            self.reading.fetch_add(1, Ordering::Relaxed);
+            let reading = Reading(self.reading.clone(), self.wake.clone());
             let cancel = Arc::new(AtomicBool::new(false));
             self.cancel = cancel.clone();
             let sender = self.sender.clone();
@@ -153,6 +174,7 @@ impl Pane {
             // A thread per entry: a read stuck on a slow mount holds up only
             // its own preview.
             std::thread::spawn(move || {
+                let _reading = reading;
                 let preview = build(&key.path, key.hidden, &cancel);
                 if !cancel.load(Ordering::Relaxed)
                     && sender.send((key, preview)).is_ok()
@@ -187,6 +209,18 @@ impl Pane {
     /// The preview of the entry followed, once it has arrived.
     pub fn current(&self) -> Option<&Preview> {
         self.current.as_deref()
+    }
+}
+
+/// A read running: when it ends, its count drops and the loop wakes, for a
+/// read that waited.
+struct Reading(Arc<AtomicUsize>, Option<SyncSender<()>>);
+impl Drop for Reading {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+        if let Some(wake) = &self.1 {
+            let _ = wake.try_send(());
+        }
     }
 }
 
@@ -1245,6 +1279,39 @@ mod tests {
         pane.shown = false;
         pane.tick(Some(key(&file)), start + DWELL);
         assert!(pane.current().is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reads_stuck_on_a_slow_disk_hold_back_new_ones_until_one_ends() {
+        let dir = scratch("stuck");
+        fs::write(dir.join("a"), "one\n").unwrap();
+        let key = Key {
+            path: dir.join("a"),
+            size: 4,
+            modified: None,
+            hidden: false,
+        };
+        let mut pane = Pane {
+            shown: true,
+            ..Pane::default()
+        };
+        pane.reading.store(READERS, Ordering::Relaxed);
+        let start = Instant::now();
+        pane.tick(Some(key.clone()), start);
+        assert!(pane.tick(Some(key.clone()), start + DWELL));
+        assert!(pane.current().unwrap().lines[0].0.starts_with("Waiting"));
+        // Nothing to do until a read ends: no busy loop.
+        assert_eq!(pane.remaining(start + DWELL), None);
+        assert!(!pane.tick(Some(key.clone()), start + DWELL));
+        pane.reading.fetch_sub(1, Ordering::Relaxed);
+        pane.tick(Some(key.clone()), start + DWELL);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while pane.current().unwrap().lines[0].0 != "one" && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            pane.tick(Some(key.clone()), start + DWELL);
+        }
+        assert_eq!(pane.current().unwrap().lines[0].0, "one");
         fs::remove_dir_all(dir).unwrap();
     }
 }
