@@ -22,7 +22,9 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (`results_key`, `marks_key`, the sheets and choosers). |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | Normal-mode list dispatch; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
-| `src/ui/actions.rs` | Scope choice, file operations as background jobs (checks, progress, undo), running programs and their messages, bookmark/palette saves, the mouse. |
+| `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, bookmark/glob/palette saves, dropped paths. |
+| `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations, progress, results, marks, undo records and their messages. |
+| `src/ui/mouse.rs` | Clicks, the wheel and drags in the results and lists; the opt-in button bar. |
 | `src/view/mod.rs` | Ratatui frame layout: query, location line, results and tab strip, marks, footer, display paths. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |

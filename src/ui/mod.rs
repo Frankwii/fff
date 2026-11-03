@@ -26,15 +26,20 @@ mod actions;
 mod dispatch;
 mod focus;
 mod input;
+mod jobs;
+mod mouse;
 mod screen;
 #[cfg(test)]
 mod tests;
 pub use actions::ScopedAction;
 use actions::*;
-pub(crate) use actions::{Button, Job};
 use focus::Row;
 use input::*;
 pub use input::{StatusTimer, alt_numbered_key, numbered_key, start_editor};
+pub(crate) use jobs::Job;
+use jobs::*;
+pub(crate) use mouse::Button;
+use mouse::*;
 use screen::*;
 
 #[derive(Default)]
