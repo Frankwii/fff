@@ -9,7 +9,6 @@ pub mod details;
 pub mod discovery;
 pub mod editor;
 pub mod explorer;
-pub mod font;
 pub mod grep;
 pub mod highlight;
 pub mod icons;

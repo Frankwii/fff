@@ -415,7 +415,6 @@ key says which one.
 | n in Normal | Choose a new file or directory, then enter its name |
 | F1 / F2 | Keys screen / Session details; the same key closes each |
 | `:` in Normal | Pick a function that works here by name and run it (Enter), or go back (Esc) |
-| Alt+= or Alt++ / Alt+- | Ask the terminal for a larger / smaller font (kitty with remote control allowed, xterm) |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | e in Normal | Open the current or marked paths in `$EDITOR`, then come back |

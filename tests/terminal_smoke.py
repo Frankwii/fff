@@ -925,23 +925,6 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_alt_minus_asks_xterm_for_a_smaller_font_and_says_so_elsewhere(self):
-        (self.root / "file").touch()
-        s = self.start("--no-config", implicit_root=True, output_paths=False,
-                       environment={"XTERM_VERSION": "XTerm(390)"})
-        mark = len(s.ui)
-        s.send(b"\x1b-", "Asked xterm for a smaller font")
-        self.assertIn(b"\x1b]50;#-1\x07", s.ui[mark:])
-        s.send(b"\x03")
-        s.finish()
-        s.close()
-        s = self.session = Session(self.root, "--no-config", implicit_root=True, output_paths=False,
-                                   environment={"TERM": "xterm-256color"})
-        s.send(b"\x1b=", "cannot change its font from fff")
-        s.send(b"\x03")
-        s.finish()
-
-    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_keys_screen_saves_keys_and_refuses_a_lockout(self):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="fff-keys-") as folder:

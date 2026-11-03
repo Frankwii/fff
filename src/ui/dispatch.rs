@@ -367,7 +367,6 @@ impl Session {
             }
             Exec::SwitchProgram => self.focus = Focus::ProgramChoice,
             Exec::Cancel => return Ok(Some(Finish::Cancelled)),
-            Exec::Font(larger) => self.resize_font(app, larger)?,
         }
         Ok(None)
     }
@@ -416,20 +415,6 @@ impl Session {
             _ => deliver(app, &mut self.focus, &mut self.editor, key),
         }
         Ok(None)
-    }
-    /// Asks the terminal for a font a step larger or smaller.
-    fn resize_font(&mut self, app: &mut App, larger: bool) -> io::Result<()> {
-        use std::io::Write;
-        match crate::font::Terminal::detect(|name| std::env::var(name).ok()) {
-            Ok(terminal) => {
-                let out = self.terminal.0.backend_mut();
-                out.write_all(terminal.request(larger).as_bytes())?;
-                out.flush()?;
-                app.status = terminal.sent(larger);
-            }
-            Err(why) => app.status = why,
-        }
-        Ok(())
     }
     /// A key no binding has here. One that some binding has elsewhere says
     /// where it works; Enter, bound somewhere in this mode, says why it did

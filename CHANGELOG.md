@@ -4,6 +4,14 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Removed
+
+- **`enlarge_font` and `shrink_font`**, and their keys (Alt+=, Alt++,
+  Alt+-): resizing the font from fff did not work reliably. It is on the
+  roadmap to investigate again.
+
 ## 0.15.0 — 2026-11-03
 
 `fff grep` searches what files contain, `:` runs a function by name, and fff
