@@ -740,8 +740,15 @@ fn operation_sheets_align_with_the_pane_edges_and_list_keys_in_the_border() {
             " c: Current ─ s: Selection ─ a: All "
         };
         assert!(lines[bottom].contains(hints), "{screen}");
+        // The sentence, however it wraps.
+        let sentence = lines[sheet + 1..bottom]
+            .iter()
+            .map(|l| l.trim().trim_matches('│').trim())
+            .collect::<Vec<_>>()
+            .join(" ");
         assert!(
-            screen.contains("permanently") && screen.contains("delete both (3 entries)"),
+            sentence.contains("Press c to permanently delete only it")
+                && sentence.contains("or a both (3 entries)"),
             "{screen}"
         );
     }
@@ -1567,4 +1574,40 @@ fn status_pills_drop_from_the_end_before_the_label_shortens() {
             "{shown:?}"
         );
     }
+}
+#[test]
+fn text_wraps_between_words_and_the_guide_keeps_descriptions_first_words() {
+    assert_eq!(
+        wrap_text("Could not open a.pdf: zathura exited", 12),
+        ["Could not", "open a.pdf:", "zathura", "exited"]
+    );
+    // A word longer than a row is broken where the row ends.
+    assert_eq!(wrap_text("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+    assert_eq!(wrap_text("", 4), [""]);
+    let mut app = fixture();
+    let narrow = key_guide(&app, 46)
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        narrow.iter().any(|l| l.contains("Normal: open file")),
+        "{narrow:#?}"
+    );
+    // A compact marked list shows marks, not gaps between them.
+    app.marks = vec![app.cwd.join("a"), app.cwd.join("b")].into();
+    let mut terminal = Terminal::new(TestBackend::new(60, 16)).unwrap();
+    let mut focus = Focus::Results;
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(
+        screen.contains(" a [MISSING]") && screen.contains(" b [MISSING]"),
+        "{screen}"
+    );
 }

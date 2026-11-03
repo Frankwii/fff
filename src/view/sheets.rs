@@ -800,7 +800,7 @@ pub(super) fn scope_choice(
         crate::ui::ScopedAction::Delete(_) => ("Delete permanently", "permanently delete"),
         crate::ui::ScopedAction::Run(false) => ("Run", "run a program on"),
         crate::ui::ScopedAction::Run(true) => ("Run and exit", "run a program on"),
-        crate::ui::ScopedAction::Edit => ("Edit", "open in $EDITOR"),
+        crate::ui::ScopedAction::Edit => ("Edit", "edit"),
         crate::ui::ScopedAction::Open => ("Open", "open"),
     };
     choice(
@@ -809,8 +809,8 @@ pub(super) fn scope_choice(
         app,
         title,
         &format!(
-            "The current entry is not selected. Press *c* to {verb} only the current \
-             entry, {}; *s* to {verb} the selection ({}); or *a* to {verb} both ({}).",
+            "The current entry, {}, is not selected. Press *c* to {verb} only it, *s* \
+             the selection ({}), or *a* both ({}).",
             quoted(current, app),
             count(selected),
             count(selected + 1),

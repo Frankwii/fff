@@ -608,7 +608,7 @@ pub(super) fn perform_operation(
         _ => vec![],
     };
     if moves_cwd(app, &destructive) {
-        app.status = "Cannot change the current directory or its ancestors".into();
+        app.status = "Cannot change the current directory or its ancestors; go up first".into();
         return;
     }
     let trashed = request.trashes_all();
@@ -629,7 +629,8 @@ pub(super) fn undo(app: &mut App, discovery: &mut Discovery, focus: &mut Focus) 
         return;
     };
     if moves_cwd(app, record.moving()) {
-        app.status = "Cannot undo: it would move the current directory or its ancestors".into();
+        app.status =
+            "Cannot undo: it would move the current directory or its ancestors; go up first".into();
         return;
     }
     let record = app.undo.pop().expect("checked above");

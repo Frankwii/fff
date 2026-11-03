@@ -1100,8 +1100,8 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) -> Vec<(R
         } else {
             String::new()
         };
-        let title = format!(
-            "{} {} {icon}{}{}",
+        let prefix = format!(
+            "{} {} {icon}",
             if index.and_then(|i| rows.get(i)) == Some(path) {
                 "›"
             } else {
@@ -1111,14 +1111,19 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) -> Vec<(R
                 "●"
             } else {
                 "○"
-            },
-            safe(
+            }
+        );
+        let suffix = if missing { " [MISSING]" } else { "" };
+        // A long name keeps its end (the extension) in view, as rows do.
+        let name = elide(
+            &safe(
                 path.file_name()
                     .unwrap_or(path.as_os_str())
-                    .to_string_lossy()
+                    .to_string_lossy(),
             ),
-            if missing { " [MISSING]" } else { "" }
+            (inner.width as usize).saturating_sub(prefix.width() + suffix.width()),
         );
+        let title = format!("{prefix}{name}{suffix}");
         let mut lines = vec![Line::from(bold(
             title,
             if missing { theme.error } else { theme.marked },
@@ -1133,7 +1138,11 @@ fn marks_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) -> Vec<(R
                     .map(|s| Line::from(styled(format!("  {s}"), theme.muted))),
             );
         }
-        lines.push(Line::from(""));
+        // A blank line between marks, where the pane has room for several:
+        // a compact one shows marks rather than gaps.
+        if inner.height >= 8 {
+            lines.push(Line::from(""));
+        }
         ListItem::new(Text::from(lines))
     };
     // Build only the items on screen, the window List picks with a fresh
@@ -1388,17 +1397,29 @@ fn footer_details(app: &App, path: &Path) -> Vec<Span<'static>> {
         .flat_map(|value| [Span::raw("  "), value])
         .collect()
 }
+/// `text` in rows of at most `width` columns, broken between words where
+/// possible; a word longer than a row is broken where the row ends.
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut rows = vec![String::new()];
     let mut used = 0;
-    for c in text.chars() {
-        let w = c.width().unwrap_or(0);
-        if used + w > width && used > 0 {
+    for word in text.split_inclusive(' ') {
+        if used > 0 && used + word.trim_end_matches(' ').width() > width {
             rows.push(String::new());
             used = 0;
         }
-        rows.last_mut().unwrap().push(c);
-        used += w;
+        for c in word.chars() {
+            let w = c.width().unwrap_or(0);
+            if used + w > width && used > 0 && c != ' ' {
+                rows.push(String::new());
+                used = 0;
+            }
+            rows.last_mut().unwrap().push(c);
+            used += w;
+        }
+    }
+    // The spaces a row ended with were where it broke.
+    for row in &mut rows {
+        row.truncate(row.trim_end_matches(' ').len());
     }
     rows
 }

@@ -286,7 +286,9 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
             lines.push(vec![styled("crossed out: off in fff seek", theme.muted)]);
         }
         for (keys, description, navigation) in &section.1 {
-            let description = elide(description, width.saturating_sub(key_width));
+            // A narrow guide cuts a description short at its end: its first
+            // words say what the key does.
+            let description = truncate(description, width.saturating_sub(key_width));
             if keys.is_empty() {
                 lines.push(vec![styled(
                     format!("{:key_width$}{description}", ""),
@@ -353,7 +355,11 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         (safe(app.cwd.display().to_string()), theme.text),
         (String::new(), theme.text),
         (
-            format!("Depth {} · query “{}”", app.depth, safe(&app.query)),
+            if app.query.is_empty() {
+                format!("Depth {} · no query", app.depth)
+            } else {
+                format!("Depth {} · query “{}”", app.depth, safe(&app.query))
+            },
             theme.muted,
         ),
         (String::new(), theme.text),
@@ -418,9 +424,13 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     sections.push(("POLICIES".into(), theme.accent));
     sections.push((
         format!(
-            "Hidden: {} · exclusions: {}{}",
-            app.policy.hidden,
-            app.policy.ignore,
+            "Hidden entries {} · exclusions {}{}",
+            if app.policy.hidden {
+                "shown"
+            } else {
+                "not shown"
+            },
+            if app.policy.ignore { "enforced" } else { "off" },
             if app.no_dir {
                 " · files only (fff seek)"
             } else {

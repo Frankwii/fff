@@ -52,6 +52,16 @@ history.
   highlight there instead of reporting that navigation is disabled. Since
   it lists only files, `d` and `D` are not bound there either and reach
   Neovim; `P` shows the preview pane as elsewhere.
+- **Small polish across the screen.** The F1 guide shortens a long
+  description at its end, keeping the words that say what the key does, and
+  its session details say "no query" and spell out whether hidden entries
+  are shown and exclusions enforced. Notices and session details wrap
+  between words. A compact marked list shows marks without blank lines
+  between them, and long mark names keep their extension in view. The
+  current / selection / all question names the current entry once, in a
+  shorter sentence. `x` or `X` with nothing to act on says "Nothing to
+  delete", and refusals to change or undo around the current directory say
+  to go up first.
 
 ### Removed
 

@@ -763,7 +763,7 @@ fn session(
                             action: ScopedAction::Delete(letter == 'X'),
                         }
                     }
-                    Scope::Nothing => app.status = "No current file".into(),
+                    Scope::Nothing => app.status = "Nothing to delete".into(),
                 },
                 K::Char('u') => undo(app, &mut discovery, &mut focus),
                 K::Char('n') => focus = Focus::NewChoice,
