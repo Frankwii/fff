@@ -103,6 +103,43 @@ listed separately in the [roadmap](ROADMAP.md).
 - Entries go to the trash by rename only, into the bin on their own mount and
   device; the purge deletes only dated records older than `[trash] days`.
 
+## Common changes
+
+Where a change usually has to touch, so that none is missed:
+
+- **A key in the results** (Alt, Ctrl or a named key): its arm in
+  `results_key` (`src/ui/focus.rs`), the F1 guide (`src/view/guide.rs`), the
+  README key table, and a PTY test.
+- **A Normal-mode action** (plain letters, configurable): a `ListAction`
+  variant with its default sequence and `[keys.normal]` name in
+  `src/normal_keys.rs`; the focuses offering it in `list_actions`
+  (`src/ui/input.rs`); its effect as the Alt key it stands for (`alt_key`),
+  as a file operation's letter (`operation_key`, carried out by
+  `Session::operation` in `src/ui/dispatch.rs`), or in `normal_list_key`;
+  then the guide, [EDITING.md](EDITING.md),
+  [Normal-mode keys](CONFIGURATION.md#normal-mode-keys) and the example
+  configuration.
+- **A sheet, prompt or chooser:** a `Focus` variant (`src/ui/mod.rs`), its
+  drawing in `render` (`src/view/mod.rs`, with `src/view/sheets.rs` or
+  `choosers.rs`), its keys in a handler called from `focus_key`
+  (`src/ui/focus.rs`) and, for a text field, a `Field` (`src/editor.rs`)
+  mapped in `focused_text` (`src/ui/input.rs`). A `view` frame test pins its
+  layout.
+- **A file operation:** a `Request` variant and its method after `prepare`
+  (`src/operations.rs`), undo steps (`src/undo.rs`), a plan or confirmation
+  started as a job from `src/ui/actions.rs`, and the
+  [OPERATIONS.md](OPERATIONS.md) guarantees it keeps.
+- **A setting:** the struct, default and validation in `src/config.rs`,
+  [CONFIGURATION.md](CONFIGURATION.md), `docs/config.example.toml`, and a
+  test in `tests/configuration.rs`.
+- **A command-line argument:** `Args` in `src/main.rs` and its completion
+  (see [AGENTS.md](../AGENTS.md)).
+
+Run one test while iterating: `cargo test --offline --lib NAME` or
+`python3 tests/terminal_smoke.py TerminalTests.test_NAME` (after `cargo
+build`). `src/view/tests.rs` draws frames at a given size (`draw(&mut app,
+120, 26)`), which is much faster than a PTY test for layout.
+
 ## Verification
 
 For behavior changes:
