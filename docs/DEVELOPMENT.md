@@ -35,7 +35,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
-| `src/details.rs` | Visible rows' details (lstat, link targets, owners), background entry counts and their formats. |
+| `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
@@ -88,6 +88,10 @@ listed separately in the [roadmap](ROADMAP.md).
 - Escape preserves the session (twice with an empty query clears the marks,
   nothing more). In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
+- Drawing never touches the filesystem: what a frame shows about an entry
+  (details, `[MISSING]`, a folder's slash, a bookmark's availability) comes
+  from `Details`, whose workers read it in the background; until they answer,
+  the frame shows what they found before.
 - Generation checks and cancellation prevent obsolete work from changing the view.
   Reuse recomputes attribution. Partial or truncated snapshots cannot establish
   completeness, and cached empty directories require verification before Enter.

@@ -44,10 +44,12 @@ pub(super) fn marks_pane(
         return Vec::new();
     }
     let item = |path: &PathBuf| {
-        let metadata = path.metadata().ok();
-        let missing = metadata.is_none();
+        // From the details cache: drawing never waits for the filesystem.
+        let found = app.details.lookup(path);
+        let missing = matches!(&found, Some(None)) || found.iter().flatten().any(|i| i.broken());
         let icon = if app.icons {
-            crate::icons::icon(path, metadata.is_some_and(|m| m.is_dir())).cell()
+            let directory = found.flatten().is_some_and(|i| i.directory);
+            crate::icons::icon(path, directory).cell()
         } else {
             String::new()
         };

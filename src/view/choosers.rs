@@ -88,7 +88,7 @@ pub(super) fn bookmarks(
             .enumerate()
             .map(|(position, &i)| {
                 let b = &app.bookmarks[i];
-                let available = b.path.is_dir();
+                let available = available(app, &b.path);
                 let color = if available { theme.marked } else { theme.error };
                 let label = if position + 1 == visible.len() {
                     if position < 9 {
@@ -317,7 +317,7 @@ pub(super) fn bookmark_form(
         frame.render_widget(Paragraph::new(styled(safe(&app.status), theme.error)), last);
     } else if draft
         .bookmark(&app.cwd, app.home.as_deref())
-        .is_ok_and(|b| !b.path.is_dir())
+        .is_ok_and(|b| !available(app, &b.path))
     {
         frame.render_widget(
             Paragraph::new(styled(
@@ -443,7 +443,7 @@ pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: u
             summary: Some(summary),
         },
     );
-    let available = bookmark.path.is_dir();
+    let available = available(app, &bookmark.path);
     let icon = match &bookmark.icon {
         Some(icon) => safe(icon),
         None if app.icons => crate::icons::icon(&bookmark.path, true).glyph.to_string(),
@@ -600,4 +600,12 @@ pub(super) fn palettes(
         );
     }
     choices
+}
+/// A bookmark's folder exists, from the details cache: drawing never waits
+/// for the filesystem, and one not read yet counts as available.
+fn available(app: &App, path: &Path) -> bool {
+    match app.details.lookup(path) {
+        Some(found) => found.is_some_and(|i| i.directory),
+        None => true,
+    }
 }

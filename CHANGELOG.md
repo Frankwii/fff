@@ -4,6 +4,18 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## 0.12.0 — 2026-11-03
+
+fff never waits for a slow disk to draw.
+
+### Fixed
+
+- **A slow network or FUSE mount no longer freezes the screen.** Drawing used
+  to check entries on disk: result rows the first time they showed, every
+  visible mark on every frame (and every mark twice in F1), the rows of
+  confirmations and bookmarks' folders. These details are now read in the
+  background, and a frame shows the last ones known until fresh ones arrive.
+
 ## 0.11.1 — 2026-11-03
 
 Choosing files starts typing, `fff seek` looks deeper and ranks by score,

@@ -1,7 +1,9 @@
-//! Row details for the metadata column, the footer and link markers. Only rows
-//! on screen are inspected: one lstat each, cached until the next scan. Counting
-//! a directory's entries can be slow (huge or remote directories), so a worker
-//! does it and the frame shows the count once it arrives.
+//! Row details for the metadata column, the footer, link markers and the
+//! marked list. Only entries on screen are inspected: one lstat each, cached
+//! until the next scan. Drawing never touches the filesystem: a slow network
+//! or FUSE mount would stall the frame, so workers read entries and count
+//! directories, and the frame shows what they found once it arrives (until
+//! then, what they found before).
 use serde::Deserialize;
 use std::{
     cell::RefCell,
@@ -65,6 +67,10 @@ impl Info {
             link,
         })
     }
+    /// The entry itself is a directory (a link to one is not).
+    pub fn is_dir(&self) -> bool {
+        self.mode & libc::S_IFMT == libc::S_IFDIR
+    }
     pub fn broken(&self) -> bool {
         self.link.as_ref().is_some_and(|(_, resolves)| !resolves)
     }
@@ -80,17 +86,22 @@ const COUNT_LIMIT: usize = 10_000;
 /// Cached counts kept across directories before the cache starts over.
 const COUNT_CACHE: usize = 4096;
 
-struct Worker {
+struct Worker<T> {
     requests: Sender<(u64, PathBuf)>,
-    results: Receiver<(u64, PathBuf, Count)>,
+    results: Receiver<(u64, PathBuf, T)>,
 }
+
+/// What a worker found for an entry (`None` until it answers once), and
+/// whether that is current; stale values show until replaced.
+type Found<T> = (Option<T>, bool);
 
 #[derive(Default)]
 pub struct Details {
-    infos: RefCell<HashMap<PathBuf, Option<Info>>>,
-    /// Counts, and whether each is current; stale ones show until replaced.
-    counts: RefCell<HashMap<PathBuf, (Option<Count>, bool)>>,
-    worker: RefCell<Option<Worker>>,
+    /// Entries' details; `Some(None)` for an entry that does not exist.
+    infos: RefCell<HashMap<PathBuf, Found<Option<Info>>>>,
+    counts: RefCell<HashMap<PathBuf, Found<Count>>>,
+    info_worker: RefCell<Option<Worker<Option<Info>>>>,
+    worker: RefCell<Option<Worker<Count>>>,
     /// Counts requested before the last `forget` are skipped by the worker.
     generation: Arc<AtomicU64>,
     names: RefCell<HashMap<(bool, u32), String>>,
@@ -101,13 +112,30 @@ impl Details {
     pub fn set_waker(&mut self, wake: SyncSender<()>) {
         self.wake = Some(wake);
     }
-    /// The entry's details, read once until forgotten.
+    /// The entry's details, or `None` while unknown or missing.
     pub fn info(&self, path: &Path) -> Option<Info> {
-        self.infos
-            .borrow_mut()
-            .entry(path.to_path_buf())
-            .or_insert_with(|| Info::read(path))
-            .clone()
+        self.lookup(path).flatten()
+    }
+    /// The entry's details as last read: `Some(None)` when it does not
+    /// exist, `None` until a worker has read it once. Unknown or stale entries
+    /// are read again in the background; without a waker (no session to
+    /// redraw), they are read here.
+    pub fn lookup(&self, path: &Path) -> Option<Option<Info>> {
+        let mut infos = self.infos.borrow_mut();
+        let entry = infos.entry(path.to_path_buf()).or_insert((None, false));
+        if !entry.1 {
+            entry.1 = true;
+            if self.wake.is_none() {
+                entry.0 = Some(Info::read(path));
+            } else {
+                let mut worker = self.info_worker.borrow_mut();
+                let worker = worker.get_or_insert_with(|| self.spawn(Info::read));
+                let _ = worker
+                    .requests
+                    .send((self.generation.load(Ordering::Relaxed), path.to_path_buf()));
+            }
+        }
+        entry.0.clone()
     }
     /// A directory's entry count, requested from the worker when unknown or
     /// stale; a stale count is shown until the new one arrives.
@@ -122,12 +150,12 @@ impl Details {
     }
     fn request(&self, path: &Path) {
         let mut worker = self.worker.borrow_mut();
-        let worker = worker.get_or_insert_with(|| self.spawn());
+        let worker = worker.get_or_insert_with(|| self.spawn(count_entries));
         let _ = worker
             .requests
             .send((self.generation.load(Ordering::Relaxed), path.to_path_buf()));
     }
-    fn spawn(&self) -> Worker {
+    fn spawn<T: Send + 'static>(&self, read: fn(&Path) -> T) -> Worker<T> {
         let (requests, incoming) = mpsc::channel::<(u64, PathBuf)>();
         let (outgoing, results) = mpsc::channel();
         let generation = self.generation.clone();
@@ -137,8 +165,8 @@ impl Details {
                 if asked != generation.load(Ordering::Relaxed) {
                     continue;
                 }
-                let count = count_entries(&path);
-                if outgoing.send((asked, path, count)).is_err() {
+                let found = read(&path);
+                if outgoing.send((asked, path, found)).is_err() {
                     return;
                 }
                 if let Some(wake) = &wake {
@@ -148,30 +176,24 @@ impl Details {
         });
         Worker { requests, results }
     }
-    /// Takes arrived counts; returns whether any changed what is shown.
+    /// Takes arrived details and counts; returns whether any changed what is
+    /// shown.
     pub fn drain(&self) -> bool {
-        let worker = self.worker.borrow();
-        let Some(worker) = worker.as_ref() else {
-            return false;
-        };
         let current = self.generation.load(Ordering::Relaxed);
-        let mut counts = self.counts.borrow_mut();
-        let mut changed = false;
-        while let Ok((asked, path, count)) = worker.results.try_recv() {
-            if asked == current
-                && let Some(entry) = counts.get_mut(&path)
-            {
-                changed |= entry.0 != Some(count);
-                *entry = (Some(count), true);
-            }
-        }
-        changed
+        drain_into(&self.info_worker, &self.infos, current)
+            | drain_into(&self.worker, &self.counts, current)
     }
     /// Everything may have changed (a new scan): read details again as rows
     /// are drawn, keeping old counts on screen until new ones arrive.
     pub fn forget(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
-        self.infos.borrow_mut().clear();
+        let mut infos = self.infos.borrow_mut();
+        if infos.len() > COUNT_CACHE {
+            infos.clear();
+        }
+        for entry in infos.values_mut() {
+            entry.1 = false;
+        }
         let mut counts = self.counts.borrow_mut();
         if counts.len() > COUNT_CACHE {
             counts.clear();
@@ -182,7 +204,9 @@ impl Details {
     }
     /// One entry changed on disk (written to, or its attributes).
     pub fn touched(&self, path: &Path) {
-        self.infos.borrow_mut().remove(path);
+        if let Some(entry) = self.infos.borrow_mut().get_mut(path) {
+            entry.1 = false;
+        }
         if let Some(entry) = self.counts.borrow_mut().get_mut(path) {
             entry.1 = false;
         }
@@ -200,6 +224,30 @@ impl Details {
             .clone();
         format!("{user}:{group}")
     }
+}
+
+/// Takes what `worker` found for the current generation into `found`;
+/// returns whether any of it changed.
+fn drain_into<T: PartialEq>(
+    worker: &RefCell<Option<Worker<T>>>,
+    found: &RefCell<HashMap<PathBuf, Found<T>>>,
+    current: u64,
+) -> bool {
+    let worker = worker.borrow();
+    let Some(worker) = worker.as_ref() else {
+        return false;
+    };
+    let mut found = found.borrow_mut();
+    let mut changed = false;
+    while let Ok((asked, path, value)) = worker.results.try_recv() {
+        if asked == current
+            && let Some(entry) = found.get_mut(&path)
+        {
+            changed |= entry.0.as_ref() != Some(&value);
+            *entry = (Some(value), true);
+        }
+    }
+    changed
 }
 
 fn count_entries(path: &Path) -> Count {
@@ -424,6 +472,40 @@ mod tests {
         // Forgotten counts stay visible until the new count arrives.
         details.forget();
         assert_eq!(details.count(&dir.join("sub")), Some(Count::Entries(2)));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn a_session_reads_entries_in_the_background_showing_stale_ones_meanwhile() {
+        let dir = std::env::temp_dir().join(format!("fff-details-bg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a"), "abc").unwrap();
+        let mut details = Details::default();
+        let (wake, woken) = mpsc::sync_channel(1);
+        details.set_waker(wake);
+        let settle = |details: &Details| {
+            woken.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(details.drain());
+        };
+        // Unknown until the worker answers; then known, missing or not.
+        assert_eq!(details.lookup(&dir.join("a")), None);
+        settle(&details);
+        assert_eq!(details.info(&dir.join("a")).unwrap().size, 3);
+        assert_eq!(details.lookup(&dir.join("gone")), None);
+        settle(&details);
+        assert_eq!(details.lookup(&dir.join("gone")), Some(None));
+        // After a change, the old details show until the new ones arrive.
+        fs::write(dir.join("a"), "abcdef").unwrap();
+        details.touched(&dir.join("a"));
+        assert_eq!(details.info(&dir.join("a")).unwrap().size, 3);
+        settle(&details);
+        assert_eq!(details.info(&dir.join("a")).unwrap().size, 6);
+        // Answers asked for before a forget are dropped, then asked again.
+        fs::remove_file(dir.join("a")).unwrap();
+        details.forget();
+        assert_eq!(details.info(&dir.join("a")).unwrap().size, 6);
+        settle(&details);
+        assert_eq!(details.lookup(&dir.join("a")), Some(None));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

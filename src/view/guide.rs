@@ -465,13 +465,15 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     sections.push((String::new(), theme.text));
     sections.push(("MARKED PATHS".into(), theme.marked));
     sections.extend(app.marks.iter().map(|p| {
+        let found = app.details.lookup(p);
+        let missing = matches!(&found, Some(None)) || found.iter().flatten().any(|i| i.broken());
         (
             format!(
                 "{}{}",
                 safe(p.display().to_string()),
-                if p.exists() { "" } else { " [MISSING]" }
+                if missing { " [MISSING]" } else { "" }
             ),
-            if p.exists() { theme.text } else { theme.error },
+            if missing { theme.error } else { theme.text },
         )
     }));
     sections

@@ -1132,8 +1132,8 @@ class TerminalTests(unittest.TestCase):
         new.touch()
         s.send(b"\x1bl", ("cwd", directory))
         self.assertIn("old", s.screen.text)  # recent snapshot intentionally stays usable
-        s.send(b"\x1b[15~", "✓ complete")  # F5 forces freshness
-        self.assertIn("new", s.screen.text)
+        s.send(b"\x1b[15~", " new ")  # F5 forces freshness
+        self.assertIn("✓ complete", s.screen.text)
         s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(new) + b"\n"))
@@ -1335,7 +1335,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"l", ("cwd", self.root / "here"))
             s.send(SHIFT_SPACE, "Marks (1)")
             s.send(b"\x1b[200~'" + os.fsencode(dropped) + b"'\x1b[201~", "Copy here")
-            s.send(b"\r", "dropped file")
+            s.send(b"\r", "Copied")
             self.assertEqual((self.root / "here" / "dropped file").read_text(), "content")
             self.assertTrue(dropped.exists())
             self.assertIn("Marks (1)", s.screen.text)
@@ -1357,7 +1357,7 @@ class TerminalTests(unittest.TestCase):
             lines = s.screen.text.splitlines()
             row = next(i for i, l in enumerate(lines) if "Confirm" in l)
             column = lines[row].index("Confirm") + 1
-            s.send(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode(), "picture.png")
+            s.send(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode(), "Copied")
             self.assertEqual((self.root / "picture.png").read_text(), "pixels")
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))

@@ -102,9 +102,14 @@ pub(super) fn count(n: usize) -> String {
         format!("{n} entries")
     }
 }
+/// The entry itself is a directory, from the details cache: drawing never
+/// waits for the filesystem, and an entry not read yet counts as a file.
+fn directory(app: &App, path: &Path) -> bool {
+    app.details.info(path).is_some_and(|i| i.is_dir())
+}
 pub(super) fn quoted(path: &Path, app: &App) -> String {
     let mut name = display_path(path, &app.cwd);
-    if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()) && !name.ends_with('/') {
+    if directory(app, path) && !name.ends_with('/') {
         name.push('/');
     }
     name
@@ -127,7 +132,7 @@ pub(super) fn size_lines(
             let room = width.saturating_sub(12);
             match listed {
                 crate::operations::Listed::Path(path) => {
-                    let directory = std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir());
+                    let directory = directory(app, &path);
                     let (glyph, group) = crate::icons::marker(&path, directory, app.icons);
                     let name = elide(&quoted(&path, app), room.saturating_sub(glyph.width()));
                     let split = name.trim_end_matches('/').rfind('/').map_or(0, |i| i + 1);
@@ -680,7 +685,7 @@ pub(super) fn path_lines(
     let mut lines = paths[..take]
         .iter()
         .map(|path| {
-            let directory = std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
+            let directory = directory(app, path);
             let (glyph, group) = crate::icons::marker(path, directory, app.icons);
             let name = elide(&quoted(path, app), width.saturating_sub(glyph.width()));
             let split = name.trim_end_matches('/').rfind('/').map_or(0, |i| i + 1);
