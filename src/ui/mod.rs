@@ -40,7 +40,7 @@ use input::*;
 pub use input::{StatusTimer, alt_numbered_key, numbered_key, start_editor};
 pub(crate) use jobs::Job;
 use jobs::*;
-pub(crate) use keys::{EditStep, Editor, KeysScreen, Listed, Search};
+pub(crate) use keys::{EditStep, Editor, KeysScreen, Listed};
 pub(crate) use mouse::Button;
 use mouse::*;
 use screen::*;

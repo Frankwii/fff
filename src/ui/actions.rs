@@ -202,7 +202,7 @@ pub(super) fn save_as(app: &mut App, focus: &mut Focus, target: PathBuf) -> Opti
             app.status = format!(
                 "{} is a folder; {} goes into it",
                 target.file_name().unwrap_or_default().to_string_lossy(),
-                app.bound_or_none(Function::GoToDirectory)
+                app.bound_or_none(Function::GoToHighlighted)
             );
             None
         }
@@ -231,7 +231,7 @@ pub(super) fn open_here(
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
         app.status = match (
             app.bound(Function::OpenInTerminal),
-            app.bound(Function::GoToDirectory),
+            app.bound(Function::GoToHighlighted),
         ) {
             (Some(open), Some(enter)) => {
                 format!("{open} opens files, not directories like {name}; {enter} enters it")

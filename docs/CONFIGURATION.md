@@ -854,30 +854,42 @@ narrowed. Two keys may be the same only where their places, within where
 their functions work, do not meet, so a key does exactly one thing wherever
 it is pressed. That is how Enter does different things in different places:
 in Normal mode it is `quit_into_highlighted` on a directory in `fff roam`,
-`go_to_directory` on one in a window of its own, `open_and_quit` on a file
+`go_to_highlighted` on one in a window of its own, `open_and_quit` on a file
 in `fff roam`, `print_highlighted` on a file in `fff pick`, and so on.
 
 ### The Keys screen
 
 F1 replaces the results with a picker over the functions, laid out like
 them: the query box on top, the functions with their keys in Insert and
-Normal mode, the highlighted one's details beside them (what it does, where
-it works, each key and where it applies), and a line saying what the
-screen's own keys do. It lists the functions that work in the program and
-list you opened it from (`showing what works in fff roam · results`);
-Ctrl+a shows every function, and the fixed keys too.
+Normal mode, the highlighted one's details beside them (what it does, each
+key and where it applies, and where the function works), and a line saying
+what the screen's own keys do. It lists the functions that work in the
+program and list you opened it from (`showing what works in fff roam ·
+results`); Ctrl+a shows every function, and the fixed keys too.
 
 The query is a Neovim field like the results' own, ready to type: it
-searches names, descriptions and key names. Your own keys work here as they
-do in the results: `highlight_previous` and `highlight_next` (Alt+k/Alt+j in
-Insert mode, `k`/`j` in Normal mode), the other `highlight_` functions,
-`clear_query` (Escape in Normal mode), `show_session`, `cancel` and `quit`.
-Escape never closes the screen; F1 (`show_keys`) does, from anywhere in it.
-Tab searches by pressing keys instead: the keys are recorded (Backspace
-takes one back), Tab again stops recording so the list moves, and Escape
-returns to typing. A key search lists every key starting with those
-pressed, those that apply where you opened the screen first and the others
-in grey.
+searches names, descriptions and key names. A query that is exactly a key's
+name (`Enter`, `Alt+Space`, `gg`, or in Vim's notation `<CR>`) lists what
+that key does instead, one row per place, those that apply where you opened
+the screen first and the others in grey. In Normal mode, `r` and then a key
+writes that key's name into the query, for keys you cannot type there.
+
+Your own keys work here as they do in the results: `highlight_previous` and
+`highlight_next` (Alt+k/Alt+j in Insert mode, `k`/`j` in Normal mode), the
+other `highlight_` functions, `scroll_preview_down` and `scroll_preview_up`
+(Ctrl+j/Ctrl+k) for the details, `clear_query` (Escape in Normal mode),
+`show_session`, `cancel` and `quit`. Escape never closes the screen; F1
+(`show_keys`) does, from anywhere in it.
+
+Where a key applies is shown the same way everywhere: as **checklists**, a
+column each for the mode, the program, the list and what is highlighted,
+with a value ticked `●` or not `○`. The key applies wherever a tick of each
+column meets. A value crossed out `✗` cannot apply with the other columns'
+ticks: the function does not work there, or the key cannot be bound in that
+mode (a key typed as text in Insert mode, `i` or `a` in Normal mode). Ticking
+a program can cross out a highlight, and so on. Where columns are shown in
+a few words, they say `all`, a list, or `all but` a list, whichever is
+shorter.
 
 The same three keys work at every level: **Space goes a level deeper**
 (Enter does too in the picker, where Space is typed in Insert mode),
@@ -887,25 +899,23 @@ The same three keys work at every level: **Space goes a level deeper**
   like the bookmark form. Changes there are staged: Enter saves them (to the
   session and `keys.toml`), Escape drops them, and F1 closes the screen
   dropping them too.
-- **A function's keys:** each key with its mode and where it applies. Space
-  opens where the highlighted key applies. `a` adds a key: choose Insert or
-  Normal mode when the function works in both, then press the keys (the
-  first may be any key; then Enter adds them, Backspace takes one back,
-  Escape gives up). A digit for `search_to_depth`, `open_row` or
-  `confirm_row` stands for every digit. `d` deletes the highlighted key, `R`
-  puts the function's default keys back.
-- **Where a key applies:** three checklists side by side, the programs, the
-  lists and what is highlighted, `●` ticked and `○` not. The key applies
-  wherever a ticked value of each column meets. Arrows (or `h`/`j`/`k`/`l`)
-  move, Space ticks, Enter is done, Escape goes back unchanged. Values in grey
-  are where the function does not work. When the key clashes with another
-  function's, the sheet says where: untick until nothing clashes, or `u`
-  keeps it only where nothing else has it, or `t` takes it from the others
-  there (they keep it elsewhere).
+- **A function's keys:** one row per place: its key, mode, programs, lists
+  and highlights, with the highlighted row's checklists below. Space edits
+  where the highlighted key applies. `n` adds a key: press it (the first key
+  may be any key, more may follow for a sequence; Backspace takes one back),
+  then Enter goes on to where it applies. A digit for `search_to_depth`,
+  `open_row` or `confirm_row` stands for every digit. `d` deletes the
+  highlighted row, `R` puts the function's default keys back.
+- **Where a key applies:** the checklists, to change. Arrows (or
+  `h`/`j`/`k`/`l`) move, Space ticks, Enter is done, Escape goes back
+  unchanged. When the key clashes with another function's, the sheet says
+  where: untick until nothing clashes, or `u` keeps it only where nothing
+  else has it, or `t` takes it from the others there (they keep it
+  elsewhere).
 
-A key applies in one such place; to make it apply in two separate places
-(in `fff seek` and `fff pick`, or in `fff roam` on a directory), add it
-again with each place: its rows read **or**.
+One row is one set of ticks. For places one set cannot say, such as in
+`fff pick` anywhere, or in `fff roam` on a directory, give the function the
+same key again with `n`: its rows read **or**.
 
 Saving keys that would lock you in is refused, with the reason, and the
 sheet stays open: something must open the Keys screen (`show_keys`) and
@@ -913,8 +923,8 @@ something must leave fff (`cancel`, or `quit` in Normal mode) everywhere in
 the results, something must leave the marked list (`toggle_marked_list`),
 Insert-mode keys cannot start with a key typed as text, nor be Escape, and
 Normal-mode keys cannot start with `i`, `a`, `I`, `A` or `:`, which reach
-Insert mode and Neovim's command line. Space, Enter, Escape, Tab and Ctrl+a
-on the screen, and the sheets' own keys, are fixed.
+Insert mode and Neovim's command line. Space, Enter, `r` and Ctrl+a on the
+screen, and the sheets' own keys, are fixed.
 
 ### `keys.toml`
 
@@ -925,10 +935,10 @@ highlight_previous = ["<C-p>", "<Up>"]
 
 [normal]
 quit = "Q"
-go_to_directory = [
-  "l",
-  "<M-l>",
+go_to_highlighted = [
+  { keys = "l", highlight = ["dir"] },
   { keys = "<CR>", program = ["roam", "window"], highlight = ["dir"] },
+  { keys = "<CR>", program = ["pick"], place = ["results"], highlight = ["dir"] },
 ]
 ```
 

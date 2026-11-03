@@ -326,11 +326,13 @@ or change anywhere in the results, the results follow without F5. See
 ## Keys
 
 F1 opens the **Keys screen**, a picker laid out like the results: every
-function fff has, with its keys while typing and in Normal mode and where
-each applies. Type to search names and descriptions, or press Tab and then
-keys to see what they do; your own keys move through the list. Enter on a
-function opens its keys: add, delete or reset them and set where each one
-applies, then Enter saves them to `keys.toml` (Escape drops the changes).
+function fff has, with its keys in Insert and Normal mode and where each
+applies. Type to search names and descriptions, or a key's name to see what
+it does (in Normal mode, `r` then a key writes its name); your own keys move
+through the list. Space goes a level deeper, Enter is done and Escape goes
+back: Space on a function opens its keys, to add (`n`), delete or reset
+them, and Space on a key opens where it applies, as checklists of modes,
+programs, lists and highlights; Enter then saves them to `keys.toml`.
 Keys that would leave you no way to open the screen or to leave fff are
 refused. F1 closes the screen. See [keys](docs/CONFIGURATION.md#keys). F2
 opens the Session tab: exact paths, scopes, depth, policies, palette, marks

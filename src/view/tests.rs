@@ -1384,7 +1384,10 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
     assert!(row("highlight_next").contains("j  Space j"), "{screen}");
     assert!(row("highlight_previous").contains("Alt+k"), "{screen}");
     // The first row is described below the list.
-    assert!(screen.contains("Highlight the previous row."), "{screen}");
+    assert!(
+        screen.contains("Highlight the previous row of the list in focus"),
+        "{screen}"
+    );
     // Only what works here: no dialog answers in fff roam.
     assert!(!screen.contains("save_here"), "{screen}");
     let Focus::Keys(keys) = &mut focus else {
@@ -1397,23 +1400,43 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("save_here"), "{screen}");
-    // A key search lists bindings, dimmed where they do not apply.
+    // A query naming a key lists what it does, place by place.
     let Focus::Keys(keys) = &mut focus else {
         unreachable!()
     };
-    keys.query.clear();
-    keys.search = crate::ui::Search::Captured(vec![crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Enter,
-        crossterm::event::KeyModifiers::NONE,
-    )]);
+    keys.query = "Enter".into();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(
-        screen.contains("quit_into_highlighted") && screen.contains("open_and_quit"),
+        screen.contains("What Enter does")
+            && screen.contains("quit_into_highlighted")
+            && screen.contains("open_and_quit"),
         "{screen}"
     );
+}
+#[test]
+fn compact_columns_say_the_shorter_of_a_list_and_all_but() {
+    use crate::keymap::{Dimension, Program};
+    let bits = |programs: &[Program]| programs.iter().fold(0, |b, p| b | p.bit());
+    assert_eq!(keys::compact(1, Program::every()), "all");
+    assert_eq!(
+        keys::compact(1, bits(&[Program::Roam, Program::Pick])),
+        "roam, pick"
+    );
+    assert_eq!(
+        keys::compact(1, Program::every() & !Program::Seek.bit()),
+        "all but seek"
+    );
+    let explorers = bits(&[
+        Program::ExplorerOpen,
+        Program::ExplorerMultiple,
+        Program::ExplorerFolder,
+        Program::ExplorerSave,
+    ]);
+    assert_eq!(keys::compact(1, explorers), "explorer");
+    assert_eq!(keys::compact(0, 0b11), "both");
 }
 fn export_preview(buffer: &Buffer) {
     let Ok(path) = std::env::var("PICKER_PREVIEW") else {

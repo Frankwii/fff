@@ -1,76 +1,152 @@
 //! The Keys screen, drawn like the results: the query box, a line of keys,
-//! the list of functions (or of keys, in a key search) beside the
-//! highlighted function's details, and the footer. A function's editor is a
-//! sheet like the bookmark form.
+//! the list of functions (or of a key's places) beside the highlighted
+//! function's details, and the footer. A function's keys are a sheet like
+//! the bookmark form, and where a key applies another; all three show
+//! places with the same checklists: a column each for the mode, the
+//! program, the list and the highlight.
 use super::*;
-use crate::keymap::{Binding, Dimension, FIXED, Function, Mode, Scope};
-use crate::ui::{EditStep, Editor, KeysScreen, Listed, Search};
+use crate::keymap::{FIXED, Function, Key, Mode, Scope};
+use crate::ui::keys::{Place, dimensions, ticks, workable};
+use crate::ui::{EditStep, Editor, KeysScreen, Listed};
 
-/// Where a box applies, in words: `roam, pick · the results · on a
-/// directory`; `everywhere` for the whole product.
-fn places(scope: Scope) -> String {
-    fn part<D: Dimension>(bits: u16, name: impl Fn(D) -> &'static str) -> Option<String> {
-        (bits != D::every()).then(|| {
-            Scope::values::<D>(bits)
-                .map(name)
-                .collect::<Vec<_>>()
-                .join(", ")
-        })
+/// The values of `column` set in `bits`, in as few words as fit: `all`,
+/// a list, or `all but` a list, whichever is shorter; the four explorer
+/// programs are named once when all are there.
+pub(super) fn compact(column: usize, bits: u16) -> String {
+    let (_, values) = &dimensions()[column];
+    let every = values.iter().fold(0, |all, (_, bit)| all | bit);
+    if bits & every == every {
+        return if values.len() == 2 { "both" } else { "all" }.into();
     }
-    let parts: Vec<String> = [
-        part::<crate::keymap::Program>(scope.programs, |p| p.name()),
-        part::<crate::keymap::Place>(scope.places, |p| match p {
-            crate::keymap::Place::Results => "the results",
-            crate::keymap::Place::Marks => "the marked list",
-        }),
-        part::<crate::keymap::Highlight>(scope.highlights, |h| match h {
-            crate::keymap::Highlight::Dir => "on a directory",
-            crate::keymap::Highlight::File => "on a file",
-            crate::keymap::Highlight::None => "with nothing highlighted",
-        }),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    if parts.is_empty() {
-        "everywhere".into()
+    if bits & every == 0 {
+        return "none".into();
+    }
+    let names = |on: bool| {
+        let mut names: Vec<&str> = values
+            .iter()
+            .filter(|(_, bit)| (bits & bit != 0) == on)
+            .map(|(name, _)| *name)
+            .collect();
+        if names.iter().filter(|n| n.starts_with("explorer-")).count() == 4 {
+            names.retain(|n| !n.starts_with("explorer-"));
+            names.push("explorer");
+        }
+        names.join(", ")
+    };
+    let listed = names(true);
+    let but = format!("all but {}", names(false));
+    if but.len() < listed.len() {
+        but
     } else {
-        parts.join(" · ")
+        listed
     }
 }
-/// Where a binding applies, in words.
-fn applies(binding: &Binding) -> String {
-    binding
-        .reach()
-        .into_iter()
-        .map(places)
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-/// Where a function works in `mode`, in words.
-fn works(function: Function, mode: Mode) -> Option<String> {
-    let boxes = function.available(mode);
-    (!boxes.is_empty()).then(|| boxes.into_iter().map(places).collect::<Vec<_>>().join("; "))
-}
-fn mode_name(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Insert => "Insert mode",
-        Mode::Normal => "Normal mode",
+/// Where a place applies in `column`, as its function allows: its modes,
+/// or the values its keys reach.
+fn reached(place: &Place, column: usize) -> u16 {
+    if column == 0 {
+        return place.bindings.iter().fold(0, |bits, b| bits | b.mode.bit());
     }
+    place
+        .bindings
+        .iter()
+        .flat_map(|b| b.reach())
+        .fold(0, |bits, s| bits | ticks(0, s, column))
 }
+use crate::keymap::Dimension;
 /// `text` cut to `w` columns, then padded to them.
 fn cell(text: &str, w: usize) -> String {
     let text = truncate(text, w.saturating_sub(1));
     let pad = w.saturating_sub(text.width());
     format!("{text}{}", " ".repeat(pad))
 }
-fn heading(theme: Palette, text: String) -> Span<'static> {
+fn heading(theme: Palette, text: impl Into<String>) -> Span<'static> {
     Span::styled(
-        text,
+        text.into(),
         Style::default()
             .fg(theme.muted)
             .add_modifier(Modifier::BOLD),
     )
+}
+
+/// The checklists of a place: a column per dimension with each value
+/// ticked (`●`) or not (`○`), or crossed out (`✗`) where it cannot apply
+/// with the other columns' ticks: the function does not work there, or its
+/// keys cannot be bound in that mode. `cursor` is (column, row). Narrow,
+/// the programs take one side and the other three the other.
+#[allow(clippy::too_many_arguments)]
+fn checklists(
+    app: &App,
+    function: Function,
+    keys: Option<&[Key]>,
+    modes: u16,
+    scope: Scope,
+    cursor: Option<(usize, usize)>,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let theme = app.palette;
+    let dims = dimensions();
+    let groups: Vec<Vec<usize>> = if width >= 4 * 21 {
+        vec![vec![0], vec![1], vec![2], vec![3]]
+    } else {
+        vec![vec![1], vec![0, 2, 3]]
+    };
+    let column_width = width / groups.len();
+    // Each group is a column of lines, each line its spans.
+    let columns: Vec<Vec<Vec<Span<'static>>>> = groups
+        .iter()
+        .map(|group| {
+            let mut lines = Vec::new();
+            for (i, &c) in group.iter().enumerate() {
+                if i > 0 {
+                    lines.push(vec![]);
+                }
+                let (label, values) = &dims[c];
+                lines.push(vec![heading(
+                    theme,
+                    cell(&format!("  {}", label.to_uppercase()), column_width),
+                )]);
+                let set = ticks(modes, scope, c);
+                for (r, (name, bit)) in values.iter().enumerate() {
+                    let here = cursor == Some((c, r));
+                    let can = workable(function, keys, modes, scope, c, *bit);
+                    let (marker, color) = if !can {
+                        ("✗", theme.error)
+                    } else if set & bit != 0 {
+                        ("●", theme.accent)
+                    } else {
+                        ("○", theme.muted)
+                    };
+                    let mut style = Style::default().fg(if can { theme.text } else { theme.muted });
+                    if here {
+                        style = style.bg(theme.selection).add_modifier(Modifier::BOLD);
+                    }
+                    lines.push(vec![
+                        Span::styled(if here { "›" } else { " " }, style.fg(theme.marked)),
+                        Span::styled(marker, style.fg(color)),
+                        Span::styled(
+                            cell(&format!(" {name}"), column_width.saturating_sub(2)),
+                            style,
+                        ),
+                    ]);
+                }
+            }
+            lines
+        })
+        .collect();
+    let tallest = columns.iter().map(Vec::len).max().unwrap_or(0);
+    (0..tallest)
+        .map(|r| {
+            let mut spans = Vec::new();
+            for column in &columns {
+                match column.get(r) {
+                    Some(line) if !line.is_empty() => spans.extend(line.iter().cloned()),
+                    _ => spans.push(Span::raw(" ".repeat(column_width))),
+                }
+            }
+            Line::from(spans)
+        })
+        .collect()
 }
 
 /// The whole screen; returns the rows a page moves.
@@ -92,12 +168,8 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
         hints.push(bold(key, theme.accent));
         hints.push(styled(format!(" {what}    "), theme.muted));
     };
-    hint("Space".into(), "(Normal mode) or Enter: edit its keys");
-    match screen.search {
-        Search::Text => hint("Tab".into(), "search by pressing keys"),
-        Search::Capturing(_) => hint("Tab".into(), "stop recording"),
-        Search::Captured(_) => hint("Tab".into(), "search by text"),
-    }
+    hint("Space".into(), "or Enter: edit");
+    hint("r".into(), "then a key: search it (Normal mode)");
     hint(
         "Ctrl+a".into(),
         if screen.everywhere {
@@ -106,6 +178,12 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
             "every function"
         },
     );
+    if let (Some(down), Some(up)) = (
+        app.bound_in(Function::ScrollPreviewDown, app.mode()),
+        app.bound_in(Function::ScrollPreviewUp, app.mode()),
+    ) {
+        hint(format!("{down}/{up}"), "scroll the details");
+    }
     if let Some(close) = app.bound(Function::ShowKeys) {
         hint(close, "close");
     }
@@ -114,7 +192,7 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
     let (list, details) = if main.width >= 100 {
         let columns = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
             .spacing(1)
             .split(main);
         (columns[0], columns[1])
@@ -123,7 +201,7 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(3),
-                Constraint::Length(12.min(main.height / 2)),
+                Constraint::Length(14.min(main.height / 2)),
             ])
             .split(main);
         (rows[0], rows[1])
@@ -149,56 +227,79 @@ fn query_box(frame: &mut Frame, area: Rect, app: &App, screen: &KeysScreen) {
             screen.here.place.name()
         )
     };
-    let title = match screen.search {
-        Search::Text => mode_title(app, Field::Keys, "Keys"),
-        Search::Capturing(_) => " Keys · RECORDING ".into(),
-        Search::Captured(_) => " Keys · keys pressed ".into(),
+    let title = if screen.recording {
+        " Keys · press the key to search ".to_string()
+    } else {
+        mode_title(app, Field::Keys, "Keys")
     };
     let block = panel(theme, title, focused, theme.accent)
         .padding(Padding::horizontal(1))
         .title_bottom(Line::from(styled(format!(" {shown} "), theme.muted)).right_aligned());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    match &screen.search {
-        Search::Text => {
-            let available = inner.width.saturating_sub(2) as usize;
-            let (mut line, cursor) = editable_line(app, Field::Keys, &screen.query, 0, available);
-            if screen.query.is_empty() {
-                line = Line::from(styled(
-                    "type to find a function by name, description or key…",
-                    theme.muted,
-                ));
-            }
-            line.spans.insert(0, bold("❯ ", theme.accent));
-            frame.render_widget(Paragraph::new(line), inner);
-            if focused && inner.width > 0 {
-                frame.set_cursor_position((inner.x + 2 + cursor, inner.y));
-            }
-            if focused && inner.height > 1 {
-                command_line(
-                    frame,
-                    app,
-                    Field::Keys,
-                    Rect::new(inner.x, inner.y + 1, inner.width, 1),
-                );
-            }
-        }
-        Search::Capturing(keys) | Search::Captured(keys) => {
-            let pressed: Vec<_> = keys.iter().map(|k| crate::keymap::Key::press(*k)).collect();
-            let shown = if pressed.is_empty() {
-                styled(
-                    "press keys to see what they do · Backspace takes one back · Esc returns to typing",
-                    theme.muted,
-                )
-            } else {
-                bold(crate::keymap::display(&pressed), theme.text)
-            };
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![bold("⌨ ", theme.accent), shown])),
-                inner,
-            );
-        }
+    let available = inner.width.saturating_sub(2) as usize;
+    let (mut line, cursor) = editable_line(app, Field::Keys, &screen.query, 0, available);
+    if screen.query.is_empty() {
+        line = Line::from(styled(
+            "type a function's name, words of its description, or a key's name…",
+            theme.muted,
+        ));
     }
+    line.spans.insert(0, bold("❯ ", theme.accent));
+    frame.render_widget(Paragraph::new(line), inner);
+    if focused && inner.width > 0 {
+        frame.set_cursor_position((inner.x + 2 + cursor, inner.y));
+    }
+    if focused && inner.height > 1 {
+        command_line(
+            frame,
+            app,
+            Field::Keys,
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
+    }
+}
+/// Column headings, each padded to its width; 0 takes the rest.
+fn header(theme: Palette, columns: &[(&str, usize)], width: usize) -> Line<'static> {
+    let mut used = 0;
+    let mut spans = vec![Span::raw("  ")];
+    for (name, w) in columns {
+        let w = if *w == 0 {
+            width.saturating_sub(used)
+        } else {
+            *w
+        };
+        used += w;
+        spans.push(heading(theme, cell(name, w)));
+    }
+    Line::from(spans)
+}
+const PLACE_COLUMNS: [(&str, usize); 5] = [
+    ("KEY", 13),
+    ("MODE", 8),
+    ("PROGRAM", 21),
+    ("LIST", 12),
+    ("HIGHLIGHT", 0),
+];
+/// A place's columns after its key: mode, program, list and highlight in
+/// few words.
+fn place_spans(theme: Palette, place: &Place, width: usize, dim: bool) -> Vec<Span<'static>> {
+    let color = |c: Color| if dim { theme.muted } else { c };
+    let mut used = 0;
+    let mut spans = Vec::new();
+    for (column, (_, w)) in PLACE_COLUMNS[1..].iter().enumerate() {
+        let w = if *w == 0 {
+            width.saturating_sub(used)
+        } else {
+            *w
+        };
+        used += w;
+        spans.push(styled(
+            cell(&compact(column, reached(place, column)), w),
+            color(if column == 0 { theme.text } else { theme.muted }),
+        ));
+    }
+    spans
 }
 fn list_pane(
     frame: &mut Frame,
@@ -208,14 +309,13 @@ fn list_pane(
     rows: &[Listed],
 ) -> usize {
     let theme = app.palette;
-    let keys = !matches!(screen.search, Search::Text);
+    let keys = matches!(rows.first(), Some(Listed::Key(_)));
     let title = if keys {
-        format!(" Keys · {} ", rows.len())
+        format!(" What {} does · {} ", screen.query.trim(), rows.len())
     } else {
         format!(" Functions · {} ", rows.len())
     };
-    let mut block = panel(theme, title, screen.editor.is_none(), theme.accent);
-    block = block.title_bottom(
+    let block = panel(theme, title, screen.editor.is_none(), theme.accent).title_bottom(
         Line::from(if keys {
             vec![styled(
                 " grey: does not apply where you opened this screen ",
@@ -233,34 +333,24 @@ fn list_pane(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let width = inner.width.saturating_sub(2) as usize;
-    let columns: &[(&str, usize)] = if keys {
-        &[
-            ("KEY", 14),
-            ("MODE", 14),
-            ("FUNCTION", 30),
-            ("APPLIES IN", 0),
+    let columns: Vec<(&str, usize)> = if keys {
+        vec![
+            ("FUNCTION", 28),
+            ("MODE", 8),
+            ("PROGRAM", 21),
+            ("LIST", 12),
+            ("HIGHLIGHT", 0),
         ]
     } else {
-        &[
+        vec![
             ("FUNCTION", 30),
             ("INSERT MODE", 17),
             ("NORMAL MODE", 17),
             ("DESCRIPTION", 0),
         ]
     };
-    let mut used = 0;
-    let mut header = vec![Span::raw("  ")];
-    for (name, w) in columns {
-        let w = if *w == 0 {
-            width.saturating_sub(used)
-        } else {
-            *w
-        };
-        used += w;
-        header.push(heading(theme, cell(name, w)));
-    }
     frame.render_widget(
-        Paragraph::new(Line::from(header)),
+        Paragraph::new(header(theme, &columns, width)),
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
     let list = Rect::new(
@@ -272,11 +362,7 @@ fn list_pane(
     if rows.is_empty() {
         frame.render_widget(
             Paragraph::new(styled(
-                if keys {
-                    "  Nothing has these keys."
-                } else {
-                    "  Nothing matches. Ctrl+a searches every function."
-                },
+                "  Nothing matches. Ctrl+a searches every function.",
                 theme.muted,
             )),
             list,
@@ -301,9 +387,12 @@ fn list_pane(
 /// everything shown), set apart by two spaces; `—` for none.
 fn keys_of(app: &App, screen: &KeysScreen, function: Function, mode: Mode) -> String {
     let mut names: Vec<String> = Vec::new();
-    for b in app.keymap.of(function, mode) {
-        if (screen.everywhere || screen.applies_here(b)) && !names.contains(&b.display()) {
-            names.push(b.display());
+    for place in crate::ui::keys::places(&app.keymap, function) {
+        if place.modes & mode.bit() != 0
+            && (screen.everywhere || screen.applies_here(&place))
+            && !names.contains(&place.display())
+        {
+            names.push(place.display());
         }
     }
     if names.is_empty() && !function.available(mode).is_empty() {
@@ -344,21 +433,16 @@ fn row_line(app: &App, screen: &KeysScreen, row: &Listed, width: usize) -> Line<
                 ),
             ])
         }
-        Listed::Binding(b) => {
-            let here = screen.applies_here(b);
-            let dim = |c: Color| if here { c } else { theme.muted };
-            Line::from(vec![
-                bold(cell(&b.display(), 14), dim(theme.accent)),
-                styled(cell(mode_name(b.mode), 14), dim(theme.text)),
-                bold(cell(b.function.name(), 30), dim(theme.text)),
-                styled(truncate(&applies(b), width.saturating_sub(58)), theme.muted),
-            ])
+        Listed::Key(place) => {
+            let dim = !screen.applies_here(place);
+            let mut spans = vec![bold(
+                cell(place.function.name(), 28),
+                if dim { theme.muted } else { theme.text },
+            )];
+            spans.extend(place_spans(theme, place, width.saturating_sub(28), dim));
+            Line::from(spans)
         }
     }
-}
-/// A label in a column of its own, then its value.
-fn labelled(theme: Palette, label: &str, value: Span<'static>) -> Line<'static> {
-    Line::from(vec![styled(format!("{label:<16}"), theme.muted), value])
 }
 fn details_pane(
     frame: &mut Frame,
@@ -371,7 +455,7 @@ fn details_pane(
     let width = area.width.saturating_sub(4) as usize;
     let function = match row {
         Some(Listed::Function(f)) => Some(*f),
-        Some(Listed::Binding(b)) => Some(b.function),
+        Some(Listed::Key(place)) => Some(place.function),
         _ => None,
     };
     let title = match (function, row) {
@@ -386,27 +470,6 @@ fn details_pane(
     match (function, row) {
         (Some(f), _) => {
             lines.extend(prose(theme, theme.accent, f.description(), width));
-            lines.push(Line::default());
-            lines.push(labelled(
-                theme,
-                "Group",
-                styled(f.group().title(), theme.text),
-            ));
-            lines.push(Line::default());
-            lines.push(Line::from(heading(theme, "WORKS".into())));
-            for mode in Mode::ALL {
-                lines.push(labelled(
-                    theme,
-                    mode_name(mode),
-                    styled(
-                        truncate(
-                            &works(f, mode).unwrap_or_else(|| "nowhere".into()),
-                            width.saturating_sub(16),
-                        ),
-                        theme.text,
-                    ),
-                ));
-            }
             if !screen.works_here(f) {
                 lines.push(Line::from(styled(
                     "It does not work where you opened this screen.",
@@ -414,36 +477,52 @@ fn details_pane(
                 )));
             }
             lines.push(Line::default());
-            lines.push(Line::from(heading(
-                theme,
-                format!("{:<14}{:<14}{}", "KEY", "MODE", "APPLIES IN"),
-            )));
-            let bindings = crate::ui::keys::binding_rows(&app.keymap, f);
-            if bindings.is_empty() {
-                lines.push(Line::from(styled("No keys. Enter adds one.", theme.muted)));
+            lines.push(Line::from(heading(theme, "KEYS")));
+            let places = crate::ui::keys::places(&app.keymap, f);
+            if places.is_empty() {
+                lines.push(Line::from(styled("No keys. Space adds one.", theme.muted)));
             }
-            for b in bindings {
-                let here = screen.applies_here(&b);
+            for (i, place) in places.iter().enumerate() {
+                let again = i > 0 && places[i - 1].keys == place.keys;
+                let dim = !screen.applies_here(place);
                 lines.push(Line::from(vec![
-                    bold(
-                        cell(&b.display(), 14),
-                        if here { theme.accent } else { theme.muted },
-                    ),
+                    if again {
+                        styled("  or ", theme.muted)
+                    } else {
+                        bold(
+                            place.display(),
+                            if dim { theme.muted } else { theme.accent },
+                        )
+                    },
                     styled(
-                        cell(mode_name(b.mode), 14),
-                        if here { theme.text } else { theme.muted },
-                    ),
-                    styled(
-                        truncate(&applies(&b), width.saturating_sub(28)),
-                        theme.muted,
+                        format!(
+                            "  in {} mode",
+                            compact(0, reached(place, 0)).replace("both", "either")
+                        ),
+                        theme.text,
                     ),
                 ]));
+                for (column, label) in [(1, "program"), (2, "list"), (3, "highlight")] {
+                    lines.push(Line::from(vec![
+                        styled(format!("    {label:<11}"), theme.muted),
+                        styled(compact(column, reached(place, column)), theme.text),
+                    ]));
+                }
             }
+            lines.push(Line::default());
+            lines.push(Line::from(heading(theme, "WORKS")));
+            lines.extend(checklists(app, f, None, 0b11, Scope::ALL, None, width));
         }
         (None, Some(Listed::Fixed(i))) => {
             let (keys, place, what) = FIXED[*i];
-            lines.push(labelled(theme, "Keys", bold(keys, theme.accent)));
-            lines.push(labelled(theme, "Where", styled(place, theme.text)));
+            lines.push(Line::from(vec![
+                styled(format!("{:<8}", "Keys"), theme.muted),
+                bold(keys, theme.accent),
+            ]));
+            lines.push(Line::from(vec![
+                styled(format!("{:<8}", "Where"), theme.muted),
+                styled(place, theme.text),
+            ]));
             lines.push(Line::default());
             lines.extend(prose(theme, theme.accent, what, width));
             lines.push(Line::default());
@@ -454,7 +533,13 @@ fn details_pane(
         }
         _ => {}
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+    let scroll = screen
+        .details
+        .min(lines.len().saturating_sub(inner.height as usize));
+    frame.render_widget(
+        Paragraph::new(lines).scroll((scroll.min(u16::MAX as usize) as u16, 0)),
+        inner,
+    );
 }
 fn keys_footer(frame: &mut Frame, area: Rect, app: &App, rows: usize) {
     let theme = app.palette;
@@ -478,13 +563,21 @@ fn keys_footer(frame: &mut Frame, area: Rect, app: &App, rows: usize) {
     spans.extend(help);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
+fn saves_to(app: &App) -> String {
+    match &app.keys_path {
+        Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
+        None => "this session only".into(),
+    }
+}
 
 fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, editor: &Editor) {
-    if let EditStep::Scope {
-        draft,
+    if let EditStep::Where {
+        keys,
+        modes,
+        scope,
         replaces,
-        row,
         column,
+        row,
     } = &editor.step
     {
         where_sheet(
@@ -492,7 +585,8 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             main,
             app,
             editor,
-            draft,
+            keys,
+            (*modes, *scope),
             replaces.as_ref(),
             (*column, *row),
         );
@@ -504,11 +598,14 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
     let rows = editor.rows();
     let changed = editor.changed(&app.keymap);
     let keys: &[(&str, &str)] = match editor.step {
-        EditStep::ChooseMode { .. } => &[("space", "Choose"), ("esc", "Back")],
-        EditStep::Capture { .. } => &[("enter", "Add"), ("backspace", "Undo key"), ("esc", "Back")],
+        EditStep::Capture { .. } => &[
+            ("enter", "Next"),
+            ("backspace", "Undo key"),
+            ("esc", "Back"),
+        ],
         _ => &[
-            ("space", "Where it applies"),
-            ("a", "Add"),
+            ("space", "Edit"),
+            ("n", "New"),
             ("d", "Delete"),
             ("R", "Defaults"),
             ("enter", "Save"),
@@ -517,35 +614,29 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
     };
     let mut body: Vec<Line<'static>> = prose(theme, theme.accent, function.description(), width);
     body.push(Line::default());
-    body.push(Line::from(heading(
-        theme,
-        format!("  {:<16}{:<16}{}", "KEY", "MODE", "APPLIES IN"),
-    )));
+    body.push(header(theme, &PLACE_COLUMNS, width.saturating_sub(2)));
     if rows.is_empty() {
-        body.push(Line::from(styled("  No keys: a adds one.", theme.muted)));
+        body.push(Line::from(styled("  No keys: n adds one.", theme.muted)));
     }
     let browsing = matches!(editor.step, EditStep::Browse);
-    for (i, b) in rows.iter().enumerate() {
+    for (i, place) in rows.iter().enumerate() {
         let selected = browsing && i == editor.index;
-        let here = screen.applies_here(b);
+        let dim = !screen.applies_here(place);
         // A key's further places read as alternatives: "or".
-        let again = i > 0 && rows[i - 1].keys == b.keys && rows[i - 1].mode == b.mode;
-        let mut line = Line::from(vec![
+        let again = i > 0 && rows[i - 1].keys == place.keys;
+        let mut spans = vec![
             bold(if selected { "› " } else { "  " }, theme.marked),
             if again {
-                styled(cell("  or", 16), theme.muted)
+                styled(cell("  or", 13), theme.muted)
             } else {
                 bold(
-                    cell(&b.display(), 16),
-                    if here { theme.accent } else { theme.muted },
+                    cell(&place.display(), 13),
+                    if dim { theme.muted } else { theme.accent },
                 )
             },
-            styled(
-                cell(if again { "" } else { mode_name(b.mode) }, 16),
-                theme.text,
-            ),
-            styled(truncate(&applies(b), width.saturating_sub(34)), theme.muted),
-        ]);
+        ];
+        spans.extend(place_spans(theme, place, width.saturating_sub(15), false));
+        let mut line = Line::from(spans);
         if selected {
             line = line.style(Style::default().bg(theme.selection));
         }
@@ -553,22 +644,9 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
     }
     body.push(Line::default());
     match &editor.step {
-        EditStep::ChooseMode { index } => {
-            body.push(Line::from(styled("A new key, for:", theme.text)));
-            for (i, mode) in Mode::ALL.into_iter().enumerate() {
-                let mut line = Line::from(vec![
-                    bold(if i == *index { "› " } else { "  " }, theme.marked),
-                    styled(mode_name(mode), theme.text),
-                ]);
-                if i == *index {
-                    line = line.style(Style::default().bg(theme.selection));
-                }
-                body.push(line);
-            }
-        }
-        EditStep::Capture { mode, keys } => {
+        EditStep::Capture { keys } => {
             body.push(Line::from(vec![
-                styled(format!("New key, {}:  ", mode_name(*mode)), theme.text),
+                styled("New key:  ", theme.text),
                 bold(
                     if keys.is_empty() {
                         "press it…".to_string()
@@ -581,11 +659,35 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             body.extend(prose(
                 theme,
                 theme.accent,
-                "The first key can be any key. Then *Enter* adds them, *Backspace* takes one back and *Esc* gives up. To make a key apply in two separate places, add it again: its rows read *or*.",
+                "The first key can be any key, and more may follow for a sequence. *Enter* goes on to where it applies, *Backspace* takes one back and *Esc* gives up.",
                 width,
             ));
         }
-        _ => {}
+        _ => {
+            if let Some(place) = rows.get(editor.index) {
+                body.push(Line::from(vec![
+                    heading(theme, "WHERE "),
+                    bold(place.display(), theme.accent),
+                    heading(theme, " APPLIES IN THIS ROW"),
+                ]));
+                body.extend(checklists(
+                    app,
+                    function,
+                    Some(&place.keys),
+                    place.modes,
+                    place.scope,
+                    None,
+                    width,
+                ));
+                body.push(Line::default());
+            }
+            body.extend(prose(
+                theme,
+                theme.muted,
+                "A key applies wherever a tick of each column meets. For places one set of ticks cannot say, such as in fff pick, or in fff roam on a directory, press *n* and give the same key again: its rows read *or*.",
+                width,
+            ));
+        }
     }
     if let Some((text, error)) = &editor.message {
         body.push(Line::from(styled(
@@ -613,106 +715,71 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
     let scroll = (body.len() as u16).saturating_sub(inner.height);
     frame.render_widget(Paragraph::new(body).scroll((scroll, 0)), inner);
 }
-fn saves_to(app: &App) -> String {
-    match &app.keys_path {
-        Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
-        None => "this session only".into(),
-    }
-}
-/// Where one key applies: a checklist per dimension, side by side, and the
+/// Where one key applies, to change: its checklists with a cursor, and the
 /// clashes left to settle. Its size does not change as you move.
+#[allow(clippy::too_many_arguments)]
 fn where_sheet(
     frame: &mut Frame,
     main: Rect,
     app: &App,
     editor: &Editor,
-    draft: &Binding,
-    replaces: Option<&Binding>,
-    (column, row): (usize, usize),
+    keys: &[Key],
+    (modes, scope): (u16, Scope),
+    replaces: Option<&Place>,
+    cursor: (usize, usize),
 ) {
     let theme = app.palette;
     let function = editor.function;
     let width = main.width.saturating_sub(4) as usize;
-    let dims = crate::ui::keys::dimensions();
-    let tallest = dims.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
-    let reach = function.available(draft.mode);
+    let shown = crate::keymap::display(keys);
     let mut body: Vec<Line<'static>> = vec![
         Line::from(vec![
-            styled("The key ", theme.text),
-            bold(draft.display(), theme.accent),
+            bold(shown.clone(), theme.accent),
             styled(
                 format!(
-                    " does {} in {} wherever all three columns tick:",
-                    function.name(),
-                    mode_name(draft.mode)
+                    " does {} wherever a tick of each column meets.",
+                    function.name()
                 ),
                 theme.text,
             ),
         ]),
-        Line::from(styled(
-            format!("Applies in: {}", places(draft.scope)),
-            theme.muted,
-        )),
         Line::default(),
     ];
-    let column_width = (width / 3).max(18);
-    let mut header = Vec::new();
-    for (label, _) in &dims {
-        header.push(heading(
-            theme,
-            cell(&format!("  {}", label.to_uppercase()), column_width),
-        ));
-    }
-    body.push(Line::from(header));
-    for r in 0..tallest {
-        let mut spans = Vec::new();
-        for (c, (_, values)) in dims.iter().enumerate() {
-            let Some((name, bit)) = values.get(r) else {
-                spans.push(Span::raw(" ".repeat(column_width)));
-                continue;
-            };
-            let mut scope = draft.scope;
-            let on = *crate::ui::keys::bits(&mut scope, c) & bit != 0;
-            let works = reach.iter().any(|s| {
-                let mut s = *s;
-                *crate::ui::keys::bits(&mut s, c) & bit != 0
-            });
-            let cursor = c == column && r == row;
-            let color = if works { theme.text } else { theme.muted };
-            let mut style = Style::default().fg(color);
-            if cursor {
-                style = style.bg(theme.selection).add_modifier(Modifier::BOLD);
-            }
-            let text = format!(
-                "{}{} {}",
-                if cursor { "›" } else { " " },
-                if on { "●" } else { "○" },
-                name
-            );
-            spans.push(Span::styled(cell(&text, column_width), style));
-        }
-        body.push(Line::from(spans));
-    }
+    body.extend(checklists(
+        app,
+        function,
+        Some(keys),
+        modes,
+        scope,
+        Some(cursor),
+        width,
+    ));
     body.push(Line::default());
     body.push(Line::from(vec![
-        styled("● ticked   ○ not ticked   ", theme.muted),
+        styled("● applies   ○ does not   ", theme.muted),
+        styled("✗", theme.error),
         styled(
-            format!("grey: {} does not work there", function.name()),
+            format!(
+                " cannot, with the other columns' ticks: {} does not work there, or {shown} cannot be bound in that mode",
+                function.name()
+            ),
             theme.muted,
         ),
     ]));
-    let clashes = editor.clashes(draft, replaces);
+    let drafts = crate::ui::keys::bindings_of(function, keys, modes, scope);
+    let replaced = replaces.map(|p| p.bindings.clone()).unwrap_or_default();
+    let clashes = editor.clashes(&drafts, &replaced);
     for (other, at) in clashes.iter().take(3) {
         body.push(Line::from(styled(
             truncate(
                 &format!(
-                    "{} is already {}'s key {}",
+                    "{} is already {}'s key in {} mode, in {} · {} · {}",
                     other.display(),
                     other.function.name(),
-                    match places(*at).as_str() {
-                        "everywhere" => "everywhere".to_string(),
-                        place => format!("in {place}"),
-                    }
+                    other.mode.title(),
+                    compact(1, at.programs),
+                    compact(2, at.places),
+                    compact(3, at.highlights)
                 ),
                 width,
             ),
@@ -733,13 +800,8 @@ fn where_sheet(
             if *error { theme.error } else { theme.success },
         )));
     }
-    let keys: &[(&str, &str)] = if clashes.is_empty() {
-        &[
-            ("space", "Tick"),
-            ("up down", "Move"),
-            ("enter", "Done"),
-            ("esc", "Back"),
-        ]
+    let keys_hints: &[(&str, &str)] = if clashes.is_empty() {
+        &[("space", "Tick"), ("enter", "Done"), ("esc", "Back")]
     } else {
         &[
             ("space", "Tick"),
@@ -750,16 +812,16 @@ fn where_sheet(
         ]
     };
     // As tall as with three clashes, so the sheet stays put.
-    let height = (tallest + 13) as u16;
+    let height = (dimensions()[1].1.len() + 15) as u16;
     let inner = sheet(
         frame,
         main,
         app,
         height,
         Sheet {
-            title: format!(" Where {} applies ", draft.display()),
+            title: format!(" Where {shown} applies "),
             accent: theme.marked,
-            keys,
+            keys: keys_hints,
             summary: Some(saves_to(app)),
         },
     );

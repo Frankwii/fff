@@ -243,7 +243,7 @@ impl Session {
                     if function != Function::ClearQuery {
                         self.escape_armed = false;
                     }
-                    return self.run_function(app, function, digit, cell.place);
+                    return self.run_function(app, function, digit);
                 }
                 Step::Pass => {
                     self.escape_armed = false;
@@ -277,10 +277,9 @@ impl Session {
         app: &mut App,
         function: Function,
         digit: Option<u8>,
-        place: keymap::Place,
     ) -> io::Result<Option<Finish>> {
         use keymap::Exec;
-        match function.exec(place) {
+        match function.exec() {
             Exec::Key(key) => return self.act(app, key, false),
             Exec::Digit(modifiers) => {
                 let digit = (b'0' + digit.unwrap_or(0)) as char;
@@ -334,8 +333,8 @@ impl Session {
                     self.discovery.checkpoint(app);
                     if path.is_dir() {
                         if app.ready_path(&path) && app.can_navigate() {
+                            // Arriving, the cursor left there comes back.
                             app.navigate(path, false);
-                            app.wanted = None;
                             self.discovery.start(app, true);
                         }
                     } else if app.reveal(path) {
