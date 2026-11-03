@@ -38,6 +38,10 @@ and exit codes.
 | `fff explorer [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
 | `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--desktop`, `--file-chooser`, `--check-config`. |
 
+The command only chooses how a session starts: `gm` turns a running session
+into `roam`, `pick`, `seek` or `grep` without losing your place (see
+[switching programs](#switching-programs)).
+
 `fff` without a command is `fff roam`. The search, interface and
 configuration options (`--depth`, `--glob`, `--palette`, `--config`, ...) work
 with every command, before or after its name.
@@ -285,19 +289,32 @@ immediate. A scanned document without a text layer has nothing to find
 
 ### Switching programs
 
-`gm` in Normal mode (`switch_program`) goes on as another of `fff roam`,
-`fff pick`, `fff seek` and `fff grep`, chosen by its letter (r, p, s, g).
-The session stays: folders, tabs and their history, the query, the
-highlight (one `fff seek` cannot list, a folder, comes back once it is
-listed again, unless you move), marks, exclusions, file filters and their
-toggles, hidden entries and the preview. The depth follows the new
-program's default (1, 3, 6 and 6) unless you set another, which stays.
-Leaving `fff grep` keeps its contents query for when you come back to it.
-The session then leaves as the program it ended in: `fff pick` and
+`fff roam`, `fff pick`, `fff seek` and `fff grep` are one program, and you
+can turn a running session into any of them: `gm` in Normal mode
+(`switch_program`), then the program's letter, `r`, `p`, `s` or `g`. From
+then on fff behaves exactly as if it had been started as that program.
+Start with `fff`, browse to `~/papers`, press `gm` then `s`, and you are in
+`fff seek` there: only files, best match first, six levels deep. Press `gm`
+then `g` to search what they contain, and `gm` then `r` to go back to
+browsing.
+
+What carries over:
+
+- Everything you were looking at: the folders, tabs and their history, the
+  query, the highlight, marks, exclusions, file filters and their toggles,
+  hidden entries and the preview. A highlighted folder that `fff seek`
+  cannot list comes back once it is listed again, unless you move.
+- The depth, if you set one. Otherwise it becomes the new program's default:
+  1 for `roam`, 3 for `pick`, 6 for `seek` and `grep`.
+- `fff grep`'s contents query, which waits for you to come back to `grep`.
+
+How the session ends follows the program it ends in: `fff pick` and
 `fff grep` print the chosen files, `fff roam` and `fff seek` change
-directory. Dialogs (`fff explorer`) and `--window` sessions do not switch:
-a dialog answers the application that opened it, and a window has no shell
-to change directory or print to.
+directory.
+
+Dialogs (`fff explorer`) and `--window` sessions do not switch: a dialog
+answers the application that opened it, and a window has no shell to change
+directory or print to.
 
 ### Preview pane
 
