@@ -56,27 +56,58 @@ TODO without leaving the browser.
   Ctrl+w, gx/gX and E keep working; E opens `$EDITOR` at the matched line when
   the editor accepts `+N`.
 - **Inside documents, not only text.** Searching PDFs matters as much as
-  plain text, so the likely backend is [rga](https://github.com/phiresky/ripgrep-all)
-  (ripgrep-all), which also reads EPUB, Office documents, archives and more,
-  with its own extraction cache. It would run without a shell, on the files
-  the name query and the scope allow, with its output parsed into rows; when
-  rga is missing, plain-text search (ripgrep, or a built-in reader) still
-  works and the query box says which backend is active.
+  plain text. Text files are searched as they are; PDFs, DjVu and EPUB
+  through text extracted once into fff's own cache: `pdftotext` (poppler)
+  given the file's path, `djvutxt`, and EPUB unzipped by fff with its HTML
+  stripped. The formats [rga](https://github.com/phiresky/ripgrep-all) adds
+  (Office documents, archives) can fill the same cache through
+  `rga-preproc`, one run per file. A missing tool skips those files, and the
+  query box says so.
+- **fff's own text cache.** One file per document under
+  `$XDG_CACHE_HOME/fff/text/`, named from its device, inode, size and
+  modification time in nanoseconds: an edited or replaced file is a new
+  entry, so nothing needs invalidating, and old entries are pruned by age and
+  total size. `pdftotext` and `djvutxt` separate pages with a form feed, so a
+  match's page is one more than the form feeds before it.
+- **Searched inside fff, not by running rga.** rga starts a preprocessor for
+  every file on every search, cached or not: over 2,400 PDFs a warm rga
+  search took 1.85 s and about 25 CPU-seconds, against 0.02 s for the same
+  cached text searched in one process. Both extract with `pdftotext`, so the
+  first extraction costs the same (about a minute of every core for 4 GB of
+  PDFs), and rga's pipe through `pdftotext`'s stdin costs a third more CPU
+  than passing the path. ripgrep's engine (its `grep-searcher` and
+  `grep-regex` crates, or `regex-automata` and `memchr`) searches each cached
+  text on fff's threads, in display order, stopping as soon as the query
+  changes.
+- **Extraction in the background.** It starts the first time a content query
+  meets files not yet extracted, never at startup: top rows first, at low CPU
+  and I/O priority on about half the cores, with progress in the query box
+  and matches appearing as files finish.
 - **Streaming and cancellable.** Matches stream in as they are found; typing
   restarts the search without blocking, and an obsolete search is stopped.
   Excluded paths and hidden entries (unless shown) are skipped, so it respects
   the same policy as name filtering.
-- **Literal first.** The content query is a case-smart literal substring (the
-  common case, and fast); a `/regex/` form could follow, since rga and ripgrep
-  accept regular expressions. Fuzzy matching makes little sense for contents.
-  For PDFs a match reports its page where the backend provides one.
+- **Literal first, across lines.** The content query is a case-smart literal
+  (the common case, and fast). Whitespace in it matches any whitespace,
+  line breaks included, and a word hyphenated at a line end still matches:
+  extracted text breaks lines where the page does, and a line-by-line search
+  missed 7 of 87 occurrences of a two-word phrase in the PDFs measured. Latin
+  accents are ignored unless the query has some, as in name matching. Adding
+  letters only narrows, so a longer query searches only the files that
+  matched. A `/regex/` form could follow. Fuzzy matching makes little sense
+  for contents. A match reports its page in documents and its line in text
+  files.
+- **No OCR.** A scanned PDF without a text layer cannot match; about a
+  quarter of the PDFs measured had none, scanned books among them. OCR takes
+  seconds a page, too slow for fff; `ocrmypdf` adds the text layer to the
+  file once, for fff and every other program.
 - **Visible mode.** The query box title and a pill in its border say which
   query is being edited and whether the content filter is active; Escape
   clears the content query before the name query.
 - **In the preview pane.** For a content match, the [preview
   pane](CONFIGURATION.md#preview-pane) would show the lines around the match
-  (or the PDF page it is on) instead of the file's first lines, with the
-  match highlighted, and E would open `$EDITOR` there.
+  (or the page it is on, from the cached text) instead of the file's first
+  lines, with the match highlighted, and E would open `$EDITOR` there.
 
 ## Switching modes
 
@@ -120,7 +151,8 @@ entries with the folders leading to them.
 
 ### Sorting
 
-Results are ranked by depth and match quality today. A key would open a
+Results are ranked by depth and match quality today (match quality first in
+`fff pick` and `fff seek`). A key would open a
 sorting picker, a chooser like the others: type or move to choose the
 criterion, Tab switches between ascending and descending. Criteria:
 
