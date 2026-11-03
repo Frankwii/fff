@@ -272,14 +272,14 @@ unavailable or a directory cannot be watched, fff works as with
 
 ## Preview pane
 
-Alt+v (`P` in Normal mode) shows or hides a pane with
-the highlighted entry, or the highlighted mark in the marked list. It is text
-only: no images or terminal graphics protocols, so it looks the same in st
-and any other terminal.
+The preview pane, shown when fff starts, holds the highlighted entry, or the
+highlighted mark in the marked list; Alt+v (`P` in Normal mode) hides or shows
+it. It is text only: no images or terminal graphics protocols, so it looks the
+same in st and any other terminal.
 
 ```toml
 [ui]
-preview = false   # true: start with the preview pane shown
+preview = true   # false: start with the preview pane hidden
 ```
 
 It takes the bottom half of the panes. In wide terminals it spans the full

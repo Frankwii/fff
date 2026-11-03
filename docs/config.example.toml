@@ -23,7 +23,7 @@ buttons = "off"
 # Follow files created, removed or changed in the listed folders.
 watch = true
 # Start with the preview pane shown (Alt+v or P toggles it).
-preview = false
+preview = true
 
 [palettes.ember]
 # Custom palettes inherit a built-in; unspecified roles keep its values.

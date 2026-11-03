@@ -314,16 +314,18 @@ class TerminalTests(unittest.TestCase):
         (self.root / "b" / "inside.md").touch()
         (self.root / "c.bin").write_bytes(b"\x00\x01\x02")
         s = self.start("--depth", "1", implicit_root=True, size=(40, 120))
-        s.wait_ui("Files · 3")
-        s.send(b"P", "Preview")
-        # Folders come first: b's entries show once the highlight rests.
+        # Shown from the start. Folders come first: b's entries show once the
+        # highlight rests.
         s.wait_ui("Preview · directory · 1 entry")
         self.assertIn("inside.md", s.screen.text)
         s.send(b"j", "Preview · text · 2 lines")
         self.assertIn("first   line", s.screen.text)
         s.send(b"j", "Preview · binary data")
-        # Alt+v hides it again, also while typing.
+        s.send(b"P")
+        s.wait_absent("Preview")
+        # Alt+v toggles it too, also while typing.
         s.send(b"i", "INSERT")
+        s.send(b"\x1bv", "Preview · binary data")
         s.send(b"\x1bv")
         s.wait_absent("Preview")
         s.send(b"\x03")
@@ -939,7 +941,7 @@ class TerminalTests(unittest.TestCase):
     def test_alt_arrows_reorder_bookmarks_among_visible_rows(self):
         config = self.root / "config.toml"
         config.write_text(
-            "# mine\n[[bookmarks]]\nname='red1'\npath='.'\n\n"
+            "# mine\n[ui]\npreview=false\n\n[[bookmarks]]\nname='red1'\npath='.'\n\n"
             "[[bookmarks]]\nname='blue'\npath='.'\n\n"
             "[[bookmarks]]\nname='red2'\npath='.'\n"
         )

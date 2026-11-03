@@ -231,13 +231,14 @@ only the parents that tell same-named files apart, as in `fff pick`.
 
 ### Preview pane
 
-Alt+v (`P` in Normal mode) shows the highlighted entry in the bottom half of
-the screen: a text file's first lines, a folder's entries, an archive's
+The preview pane shows the highlighted entry in the bottom half of the
+screen: a text file's first lines, a folder's entries, an archive's
 contents, a PDF's facts and first pages' text, an image's size, a song's or a
 video's duration, streams and tags. It is text only, reads in the background
 once the highlight rests, and never holds up the list. PDFs use poppler's
 `pdfinfo` and `pdftotext`, audio and video FFmpeg's `ffprobe`, when installed.
-`[ui] preview = true` starts with it shown; see [preview
+Alt+v (`P` in Normal mode) hides or shows it, and `[ui] preview = false`
+starts with it hidden; see [preview
 pane](docs/CONFIGURATION.md#preview-pane).
 
 ### Details and live updates

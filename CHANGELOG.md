@@ -4,6 +4,13 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **The preview pane is shown when fff starts.** `[ui] preview = false`
+  starts with it hidden, as before.
+
 ## 0.10.0 — 2026-11-03
 
 A trash with undo, progress and Ctrl+c for long operations, a folders-only

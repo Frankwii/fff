@@ -304,7 +304,7 @@ impl Default for UiConfig {
             mouse: true,
             buttons: Buttons::Off,
             watch: true,
-            preview: false,
+            preview: true,
         }
     }
 }
