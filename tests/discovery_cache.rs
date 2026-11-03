@@ -233,12 +233,10 @@ fn disabled_cache_and_empty_directory_confirmation_are_safe() {
     complete(&mut d, &mut app);
     d.start(&mut app, true);
     assert!(app.cache_pending);
-    assert_eq!(app.enter_numbered(1), fuzzy_file_finder::EnterOutcome::Stay);
+    // A replayed empty folder is no answer until a scan verifies it.
+    assert_eq!(app.empty_folder(), None);
     complete(&mut d, &mut app);
-    assert_eq!(
-        app.enter_numbered(1),
-        fuzzy_file_finder::EnterOutcome::Selected(vec![f.0.clone()])
-    );
+    assert_eq!(app.empty_folder(), Some(vec![f.0.clone()]));
 }
 #[test]
 fn overlapping_roots_keep_effective_depth_and_scope_attribution_on_hits() {
@@ -324,7 +322,7 @@ fn bookmarks_filter_and_navigate_without_mutating_roots_depth_or_marks() {
 }
 
 #[test]
-fn cached_file_changed_to_directory_navigates_instead_of_confirming() {
+fn cached_file_changed_to_directory_waits_for_the_refresh_instead_of_confirming() {
     let f = Fixture::new();
     let path = f.file("target");
     let mut app = f.app();
@@ -336,12 +334,10 @@ fn cached_file_changed_to_directory_navigates_instead_of_confirming() {
     d.start(&mut app, true);
     assert!(app.cache_pending);
     assert!(!app.rows[0].directory);
-    app.rendered = vec![path.clone()];
-    assert_eq!(
-        app.enter_numbered(1),
-        fuzzy_file_finder::EnterOutcome::Navigated
-    );
-    assert_eq!(app.cwd, path);
+    let row = fuzzy_file_finder::Candidate::clone(&app.rows[0]);
+    assert!(!app.ready_entry(&row));
+    assert!(app.status.contains("waiting for refresh"), "{}", app.status);
+    app.navigate(path.clone(), false);
     d.start(&mut app, true);
     complete(&mut d, &mut app);
     assert!(app.physical_empty);
@@ -484,7 +480,7 @@ fn truncated_or_empty_snapshots_never_skip_verification() {
     complete(&mut d, &mut app);
     d.start(&mut app, true);
     assert!(app.scanning && !app.physical_empty);
-    assert_eq!(app.enter(None), fuzzy_file_finder::EnterOutcome::Stay);
+    assert_eq!(app.empty_folder(), None);
 }
 
 #[test]

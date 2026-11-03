@@ -141,12 +141,6 @@ impl RefreshBasis {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum EnterOutcome {
-    Stay,
-    Navigated,
-    Selected(Vec<PathBuf>),
-}
 
 /// How many tabs a session has. Each starts in the session's first directory.
 pub const TABS: usize = 3;
@@ -1526,6 +1520,19 @@ impl App {
         }
         moved
     }
+    /// Whether Enter may act on `entry`: it is not a cached row that is
+    /// gone, or that turned from a file into a folder or back, which the
+    /// function chosen for its kind would mistake.
+    pub fn ready_entry(&mut self, entry: &Candidate) -> bool {
+        if !self.ready_path(&entry.path) {
+            return false;
+        }
+        if self.cache_pending && entry.path.is_dir() != entry.directory {
+            self.status = "Cached entry changed; waiting for refresh".into();
+            return false;
+        }
+        true
+    }
     pub fn ready_path(&mut self, path: &Path) -> bool {
         if self.cache_pending && !path.exists() {
             self.status = "Cached path no longer exists; waiting for refresh".into();
@@ -1579,38 +1586,15 @@ impl App {
             }
         }
     }
-    /// Activate a displayed target with exactly the same rules as Enter.
-    pub fn enter(&mut self, target: Option<Candidate>) -> EnterOutcome {
-        if let Some(mut candidate) = target {
-            if !self.ready_path(&candidate.path) {
-                return EnterOutcome::Stay;
-            }
-            if self.cache_pending {
-                candidate.directory = candidate.path.is_dir();
-            }
-            self.highlight = Some(candidate.path.clone());
-            self.highlight_top = false;
-            self.wanted = None;
-            if candidate.directory {
-                // A cached file that became a directory is not entered either.
-                if !self.can_navigate() {
-                    return EnterOutcome::Stay;
-                }
-                self.navigate(candidate.path, false);
-                EnterOutcome::Navigated
-            } else {
-                self.confirm(Some(candidate.path))
-                    .map(EnterOutcome::Selected)
-                    .unwrap_or(EnterOutcome::Stay)
-            }
-        } else if !self.scanning && self.physical_empty && self.returns_folder() {
-            self.confirm(Some(self.cwd.clone()))
-                .map(EnterOutcome::Selected)
-                .unwrap_or(EnterOutcome::Stay)
-        } else {
+    /// Enter with nothing listed while typing: in a folder verified empty,
+    /// where a folder is an answer, the marks and the folder. Otherwise
+    /// `None`, the status saying why.
+    pub fn empty_folder(&mut self) -> Option<Vec<PathBuf>> {
+        if self.scanning || !self.physical_empty || !self.returns_folder() {
             self.nothing_to_enter();
-            EnterOutcome::Stay
+            return None;
         }
+        self.confirm(Some(self.cwd.clone()))
     }
     /// Whether Enter in a verified empty folder may answer with the folder:
     /// not in `fff seek`, with no shell to leave into (`--window`), or in a
@@ -1631,18 +1615,6 @@ impl App {
         } else {
             "Nothing listed here".into()
         };
-    }
-    pub fn enter_numbered(&mut self, digit: u32) -> EnterOutcome {
-        if self.rendered.is_empty() {
-            return self.enter(None);
-        }
-        let path = self.numbered(digit);
-        if let Some(target) = self.shown().iter().find(|c| c.path == path) {
-            self.enter(Some(Candidate::clone(target)))
-        } else {
-            // Never substitute another candidate for a previously rendered path.
-            EnterOutcome::Stay
-        }
     }
     /// Whether Ctrl+w may finish with the marks: only where the answer can be
     /// several paths, `fff pick` and `fff explorer --multiple` (not saving).

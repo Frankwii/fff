@@ -31,6 +31,8 @@ history.
   first, and before the first to the last.
 - **The Keys screen's `r` hint shows in Normal mode only**, where `r` works,
   and its hints take a second line rather than being cut.
+- **Enter on a cached row that turned from a file into a folder** (or back)
+  waits for the rescan instead of acting on what it was.
 - **A sheet too tall for the terminal asks for a larger one** instead of
   being cut, as fff does below 36 × 12; a function's keys first leave out
   the checklists that repeat the highlighted row.

@@ -376,16 +376,11 @@ impl Button {
             _ => None,
         }
     }
-    /// The key a button stands for, which the session handles as that key;
-    /// Select in a file dialog is Enter on the highlighted row (unless it
-    /// returns marks), so saving over a file asks and folders are entered.
-    pub(crate) fn key(self, app: &App) -> Option<KeyEvent> {
+    /// The key a button stands for, which the session handles as that key.
+    pub(crate) fn key(self) -> Option<KeyEvent> {
         match self {
             Self::Dismiss => Some(KeyEvent::new(K::Esc, M::NONE)),
             Self::Confirm => Some(KeyEvent::new(K::Enter, M::NONE)),
-            Self::Select if app.program.dialog() && !select_returns_marks(app) => {
-                Some(KeyEvent::new(K::Enter, M::NONE))
-            }
             _ => None,
         }
     }
@@ -451,16 +446,8 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
         Button::Cancel => return Some(Finish::Cancelled),
         // Delivered as their keys by the session.
         Button::Dismiss | Button::Confirm => {}
-        Button::Select => {
-            if select_returns_marks(app) {
-                return leave_with_marks(app);
-            }
-            // Otherwise like Normal-mode Enter (in a dialog, `key` made it
-            // Enter on the row), which leaves unless fff has a window of its
-            // own.
-            let target = app.highlighted_row().map(|c| crate::Candidate::clone(c));
-            return finish_with(app, discovery, target.as_ref());
-        }
+        // The session runs it (`select`).
+        Button::Select => {}
     }
     None
 }

@@ -120,48 +120,6 @@ pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, Str
         None => Finish::Folder(folder),
     })
 }
-/// Normal-mode Enter on `target` (or on nothing): a directory is left into;
-/// a file opens and fff leaves (default mode), is printed (`fff pick`)
-/// or is left into its folder (`fff seek`); nothing leaves into the browsing
-/// directory, except in `fff seek`. Marks are ignored. `None` (with the
-/// reason in the status line) when the entry is a cached one that is gone or
-/// the file cannot open. With `--window` there is no shell to leave into: a
-/// directory is entered instead, and nothing stays.
-pub(super) fn finish_with(
-    app: &mut App,
-    discovery: &mut Discovery,
-    target: Option<&crate::Candidate>,
-) -> Option<Finish> {
-    use Program::*;
-    match (target, app.program) {
-        (Some(entry), _) if !app.ready_path(&entry.path) => None,
-        (Some(dir), Window) if dir.directory => {
-            if app.enter(Some(crate::Candidate::clone(dir))) == EnterOutcome::Navigated {
-                discovery.start(app, true);
-            }
-            None
-        }
-        (None, Window | Seek) => {
-            app.nothing_to_enter();
-            None
-        }
-        (Some(file), program) if !file.directory => match program {
-            Roam | Window => match open_and_leave(app, std::slice::from_ref(&file.path)) {
-                Ok(finish) => Some(finish),
-                Err(error) => {
-                    app.status = error;
-                    None
-                }
-            },
-            Seek => Some(Finish::Folder(
-                file.path.parent().unwrap_or(&app.cwd).to_owned(),
-            )),
-            _ => Some(Finish::Paths(vec![file.path.clone()])),
-        },
-        (Some(dir), _) => Some(Finish::Folder(dir.path.clone())),
-        (None, _) => Some(Finish::Folder(app.cwd.clone())),
-    }
-}
 /// Select returns the marks, like Ctrl+w, when there are some to return.
 pub(super) fn select_returns_marks(app: &App) -> bool {
     !app.marks.is_empty() && app.returns_marks()

@@ -22,7 +22,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. |
 | `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`), what each function does (`run_function`), and other focuses' fixed keys (`act`). |
-| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (the sheets and choosers); Enter in the lists (`confirm`, `results_enter`, `enter_mark`) and the larger functions' code. |
+| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (the sheets and choosers); Enter in the lists (`enter`: the function Enter has there by default, for the mouse and `confirm_row`), the entry Enter's functions act on (`chosen`) and what each does with it (`finish_with_entry`), and the larger functions' code. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | The choosers' fixed Normal-mode keys; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |

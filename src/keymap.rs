@@ -704,7 +704,7 @@ functions! {
     OpenInTerminal "open_in_terminal" Open "Open the current or marked files with their openers inside this terminal, one opener after another, then come back to fff.";
     OpenAndQuit "open_and_quit" Open "Open the highlighted file with its opener and quit fff. A terminal opener takes fff's place in this terminal.";
     OpenRow "open_row" Open "Do on visible row # what l does on the highlighted one: go into a directory, or open a file in the background. 0 is the last visible row.";
-    ConfirmRow "confirm_row" Open "Do on visible row # what Enter does on the highlighted one. 0 is the last visible row.";
+    ConfirmRow "confirm_row" Open "Do on visible row # what Enter does there by default. 0 is the last visible row.";
     EditFiles "edit_files" Open "Edit the current or marked files in $EDITOR, in this terminal, then come back to fff.";
     Run "run" Open "Run a program on the current or marked paths: type its command line, review it, and come back to fff when it ends.";
     RunAndQuit "run_and_quit" Open "Run a program on the current or marked paths in place of fff, which quits; the program's exit status becomes fff's.";
@@ -857,7 +857,7 @@ impl Function {
                 scope(&[Seek], &[], &file),
             ],
             QuitIntoHighlighted => vec![
-                scope(&[Roam, Pick, Grep], &[Results], &[H::None]),
+                scope(&[Roam, Pick, Grep, ExplorerFolder], &[Results], &[H::None]),
                 scope(&[Seek], &[Results], &file),
             ],
             QuitHere if normal => vec![
@@ -886,6 +886,15 @@ impl Function {
     }
     pub fn named(name: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|f| f.name() == name)
+    }
+    /// The function `key` alone has by default in `mode` at `cell`: what
+    /// the mouse's fixed keys and `confirm_row` do.
+    pub fn default_of(key: Key, mode: Mode, cell: Cell) -> Option<Self> {
+        Self::ALL.iter().copied().find(|f| {
+            f.defaults(mode)
+                .iter()
+                .any(|b| b.keys == [key] && b.applies(cell))
+        })
     }
     /// The bindings it has without `keys.toml`.
     pub fn defaults(self, mode: Mode) -> Vec<Binding> {
@@ -1003,7 +1012,11 @@ impl Function {
             GoForward => &[("<C-i>", all)],
             GoToNextTab => &[("<Up>", all), ("<M-Up>", all)],
             GoToPreviousTab => &[("<Down>", all), ("<M-Down>", all)],
-            SaveHere => &[("!", all), ("<C-s>", all)],
+            SaveHere => &[
+                ("!", all),
+                ("<C-s>", all),
+                ("<CR>", scope(&[], &[Results], &[H::None])),
+            ],
             SaveOver
             | PrintHighlighted
             | PrintHighlightedAndMarks

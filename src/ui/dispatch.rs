@@ -15,6 +15,9 @@ enum Click {
     },
     Handled,
     Finish(Finish),
+    /// The Select button: the marks where they are the answer, else
+    /// Normal-mode Enter on the highlighted row.
+    Select,
 }
 
 impl Session {
@@ -56,6 +59,12 @@ impl Session {
                 }
                 Click::Handled => Ok(None),
                 Click::Finish(finish) => Ok(Some(finish)),
+                Click::Select if !Button::Select.available(app) => Ok(None),
+                Click::Select if select_returns_marks(app) => Ok(leave_with_marks(app)),
+                Click::Select => {
+                    self.status.before_key(app);
+                    self.enter(app, keymap::Mode::Normal, Row::default())
+                }
             },
             Event::Key(key) => self.key(app, key),
             _ => Ok(None),
@@ -111,11 +120,11 @@ impl Session {
                 .iter()
                 .find(|(area, _)| area.contains(position))
         {
-            return match button.key(app) {
-                Some(key) => Click::Key {
-                    key,
-                    on_row: button == Button::Select,
-                },
+            if button == Button::Select {
+                return Click::Select;
+            }
+            return match button.key() {
+                Some(key) => Click::Key { key, on_row: false },
                 None => match press(app, &mut self.discovery, button) {
                     Some(finish) => Click::Finish(finish),
                     None => Click::Handled,
@@ -261,7 +270,7 @@ impl Session {
                     if function != Function::ClearQuery {
                         self.escape_armed = false;
                     }
-                    return self.run_function(app, function, digit);
+                    return self.run_function(app, function, digit, Row::default());
                 }
                 Step::Pass => {
                     self.escape_armed = false;
@@ -293,11 +302,13 @@ impl Session {
     /// What `function` does, from a key, `:` or the Keys screen: the
     /// results' and the marked list's functions each run their own code
     /// here, where the scopes in `keymap` let them.
-    fn run_function(
+    /// `row` is how Enter reached the list (`enter`), for Enter's functions.
+    pub(super) fn run_function(
         &mut self,
         app: &mut App,
         function: Function,
         digit: Option<u8>,
+        row: Row,
     ) -> io::Result<Option<Finish>> {
         use Function::*;
         let page = self.drawn.page;
@@ -367,14 +378,9 @@ impl Session {
                 activate_highlighted(app, &mut self.discovery);
             }
             OpenRow => self.open_numbered(app, u32::from(digit.unwrap_or(0))),
-            ConfirmRow => return Ok(self.confirm_row(app, u32::from(digit.unwrap_or(0)))),
-            // Enter's meanings: where each applies, the program, the place
-            // and the highlighted entry say which one it is.
-            SaveOver
-            | PrintHighlighted
-            | PrintHighlightedAndMarks
-            | QuitIntoHighlighted
-            | OpenAndQuit => return Ok(self.confirm(app, Row::default())),
+            ConfirmRow => return self.confirm_row(app, u32::from(digit.unwrap_or(0))),
+            SaveOver | PrintHighlighted | PrintHighlightedAndMarks | QuitIntoHighlighted
+            | OpenAndQuit => return Ok(self.finish_with(app, function, row)),
             SaveHere => return Ok(save_here(app, &mut self.focus)),
             OpenInTerminal | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
             | Rename | Extract | Create | Undo | Restore => self.operation(app, function)?,
@@ -543,7 +549,7 @@ impl Session {
                 // Back in Normal mode where `:` was pressed, as its key would
                 // have run it.
                 self.sync_editor(app)?;
-                return self.run_function(app, function, None);
+                return self.run_function(app, function, None, Row::default());
             }
             K::Down => *index = (*index + 1).min(last),
             K::Up => *index = index.saturating_sub(1),

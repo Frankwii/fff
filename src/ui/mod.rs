@@ -1,5 +1,5 @@
 use crate::{
-    App, EnterOutcome,
+    App,
     bookmarks::{Change as BookmarkChange, Draft as BookmarkDraft, EditField as BookmarkField},
     discovery::Discovery,
     editor::{Field, Nvim},

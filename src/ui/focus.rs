@@ -24,7 +24,8 @@ impl Session {
             // The mouse's Enter (a double click, the button bar); the lists'
             // other keys are functions (`run_function`).
             Focus::Results | Focus::Marks { .. } if key.code == K::Enter => {
-                return Ok(self.confirm(app, row));
+                let (mode, _) = self.here(app);
+                return self.enter(app, mode, row);
             }
             Focus::Results => deliver(app, &mut self.focus, &mut self.editor, key),
             Focus::Marks { .. } => {}
@@ -548,23 +549,38 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
         }
     }
-    /// Enter on the highlighted row of the list in focus, by its key or
-    /// pointed at (`row`).
-    pub(super) fn confirm(&mut self, app: &mut App, row: Row) -> Option<Finish> {
-        match &self.focus {
-            Focus::Marks { rows, index } => {
-                let mark = rows.get(*index).cloned()?;
-                self.enter_mark(app, mark)
+    /// Enter pressed by the mouse, or on a row pointed at (`row`): what
+    /// Enter does there by default, in `mode`. Saving under the typed name
+    /// ignores the rows, so a row pointed at while typing one takes the row's
+    /// Normal-mode Enter instead.
+    pub(super) fn enter(
+        &mut self,
+        app: &mut App,
+        mode: keymap::Mode,
+        row: Row,
+    ) -> io::Result<Option<Finish>> {
+        let (_, mut cell) = self.here(app);
+        if row.unnumbered {
+            cell.highlight = keymap::Highlight::None;
+        }
+        let enter = keymap::Key::press(KeyEvent::new(K::Enter, M::NONE));
+        let function = match Function::default_of(enter, mode, cell) {
+            Some(Function::SaveHere) if row.on_row => {
+                Function::default_of(enter, keymap::Mode::Normal, cell)
             }
-            _ => {
-                self.discovery.checkpoint(app);
-                self.results_enter(app, row)
+            function => function,
+        };
+        match function {
+            Some(function) => self.run_function(app, function, None, row),
+            None => {
+                app.nothing_to_enter();
+                Ok(None)
             }
         }
     }
     /// Ctrl+number: Enter on that row, as if it were highlighted first (with
     /// no visible rows, Enter with nothing highlighted).
-    pub(super) fn confirm_row(&mut self, app: &mut App, digit: u32) -> Option<Finish> {
+    pub(super) fn confirm_row(&mut self, app: &mut App, digit: u32) -> io::Result<Option<Finish>> {
         let mut row = Row::default();
         if !app.rendered.is_empty() {
             app.highlight_numbered(digit);
@@ -575,52 +591,23 @@ impl Session {
             // Static (fff seek) sessions never fall back to the current
             // directory.
             app.nothing_to_enter();
-            return None;
+            return Ok(None);
         } else {
             row.unnumbered = true;
         }
-        self.confirm(app, row)
+        self.enter(app, app.mode(), row)
     }
-    /// Enter on a mark: like Normal-mode Enter in the results.
-    fn enter_mark(&mut self, app: &mut App, mark: PathBuf) -> Option<Finish> {
-        if std::fs::symlink_metadata(&mark).is_err() {
-            app.status = "This mark no longer exists; Space unmarks it".into();
-            return None;
-        }
-        use Program::*;
-        let file = !mark.is_dir();
-        match app.program {
-            ExplorerSave if file => return save_as(app, &mut self.focus, mark),
-            program if program.dialog() => return Some(Finish::Paths(vec![mark])),
-            // A file is printed, or opens as fff leaves; a directory is left
-            // into, or with a window of its own entered.
-            Pick | Grep if file => return Some(Finish::Paths(vec![mark])),
-            Roam | Window if file => {
-                return match open_and_leave(app, std::slice::from_ref(&mark)) {
-                    Ok(finish) => Some(finish),
-                    Err(error) => {
-                        app.status = error;
-                        None
-                    }
-                };
-            }
-            Window => {
-                if app.can_navigate() {
-                    app.navigate(mark, false);
-                    app.wanted = None;
-                    self.discovery.start(app, true);
-                    self.focus = Focus::Results;
-                }
-                return None;
-            }
-            _ => {}
-        }
-        let folder = if mark.is_dir() {
-            mark
-        } else {
-            mark.parent().unwrap_or(&app.cwd).to_owned()
-        };
-        Some(Finish::Folder(folder))
+    /// Enter's functions that finish with the highlighted entry
+    /// (`finish_with_entry`).
+    pub(super) fn finish_with(
+        &mut self,
+        app: &mut App,
+        function: Function,
+        row: Row,
+    ) -> Option<Finish> {
+        let (mode, _) = self.here(app);
+        let chosen = chosen(app, &self.focus, &mut self.discovery, row).ok()?;
+        finish_with_entry(app, &mut self.focus, function, chosen, mode)
     }
     /// `go_to_highlighted`: into the highlighted directory, or to the
     /// highlighted file's folder with the file highlighted.
@@ -719,75 +706,6 @@ impl Session {
         app.navigate(next, false);
         self.discovery.start(app, true);
     }
-    /// Enter in the results: what it does depends on the mode (typing or
-    /// Normal), the session kind and the highlighted entry.
-    pub(super) fn results_enter(&mut self, app: &mut App, row: Row) -> Option<Finish> {
-        let target = app
-            .highlighted_row()
-            .filter(|_| !row.unnumbered)
-            .map(|c| crate::Candidate::clone(c));
-        // The row pointed at is gone (a ranking that was pending landed):
-        // never substitute the browsing directory.
-        if row.on_row && target.is_none() {
-            app.status = "That row is no longer listed".into();
-            return None;
-        }
-        let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
-        let saving = app.program == Program::ExplorerSave;
-        // Typing a name to save under: Enter saves it, as in any name field.
-        // Ctrl+number and a double click still act on their row.
-        if !normal && !row.on_row && saving {
-            return save_here(app, &mut self.focus);
-        }
-        // Normal mode: finish with the entry. In the default mode a file
-        // opens and fff leaves; otherwise fff exits into the entry's folder
-        // (a directory itself), also for deep results. A dialog chooses files
-        // and enters folders instead.
-        if !app.program.dialog() && normal {
-            return finish_with(app, &mut self.discovery, target.as_ref());
-        }
-        match target {
-            // fff seek never navigates, so there is nothing to reveal:
-            // typing, Enter chooses the file too.
-            Some(file) if !file.directory && !app.program.navigates() && !app.program.dialog() => {
-                finish_with(app, &mut self.discovery, Some(&file))
-            }
-            // Typing: a file is revealed in its folder, unless fff is picking
-            // paths for a script.
-            Some(file) if !file.directory && !app.program.prints_paths() => {
-                if app.reveal(file.path) {
-                    self.discovery.start(app, true);
-                } else {
-                    // The query was cleared here, not by moving: keep
-                    // typing, as after a move.
-                    self.editor.reset_preserving_mode(Field::Query);
-                }
-                None
-            }
-            // Saving over a file asks first; with nothing listed (an empty
-            // folder) Enter saves.
-            Some(file) if !file.directory && saving && app.ready_path(&file.path) => {
-                save_as(app, &mut self.focus, file.path)
-            }
-            None if saving => save_here(app, &mut self.focus),
-            // A dialog with one answer takes this file, whatever is marked.
-            Some(file)
-                if !file.directory
-                    && app.dialog.as_ref().is_some_and(|d| !d.multiple)
-                    && app.ready_path(&file.path) =>
-            {
-                Some(Finish::Paths(vec![file.path]))
-            }
-            target => match app.enter(target) {
-                EnterOutcome::Selected(paths) => Some(Finish::Paths(paths)),
-                EnterOutcome::Navigated => {
-                    self.discovery.start(app, true);
-                    None
-                }
-                EnterOutcome::Stay => None,
-            },
-        }
-    }
 }
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
 pub(super) fn scroll_preview(app: &mut App, down: bool) {
@@ -798,5 +716,87 @@ pub(super) fn scroll_preview(app: &mut App, down: bool) {
         };
     } else if app.preview.current().is_some() || app.highlighted_hit().is_some() {
         app.preview.scroll(down);
+    }
+}
+/// The entry Enter's functions act on: the highlighted row of the list in
+/// focus (the one pointed at, `row`) as a path and whether it is a
+/// directory, or `None` with nothing highlighted. `Err` stops, the status
+/// saying why: a mark or a cached row that is gone, or a row pointed at that
+/// is no longer listed.
+pub(super) fn chosen(
+    app: &mut App,
+    focus: &Focus,
+    discovery: &mut Discovery,
+    row: Row,
+) -> Result<Option<(PathBuf, bool)>, ()> {
+    if let Focus::Marks { rows, index } = focus {
+        let Some(mark) = rows.get(*index).cloned() else {
+            return Ok(None);
+        };
+        if std::fs::symlink_metadata(&mark).is_err() {
+            app.status = "This mark no longer exists; Space unmarks it".into();
+            return Err(());
+        }
+        let directory = mark.is_dir();
+        return Ok(Some((mark, directory)));
+    }
+    if row.unnumbered {
+        return Ok(None);
+    }
+    let Some(target) = app.highlighted_row().map(|c| crate::Candidate::clone(c)) else {
+        if row.on_row {
+            // A ranking that was pending landed: never substitute anything
+            // for the row pointed at.
+            app.status = "That row is no longer listed".into();
+            return Err(());
+        }
+        return Ok(None);
+    };
+    if !app.ready_entry(&target) {
+        return Err(());
+    }
+    discovery.checkpoint(app);
+    app.highlight_top = false;
+    app.wanted = None;
+    Ok(Some((target.path, target.directory)))
+}
+/// What Enter's functions that finish do with the `chosen` entry, each its
+/// one thing where its scopes let it run; `mode` is the one keys are read
+/// in. `None` stays, the status saying why.
+pub(super) fn finish_with_entry(
+    app: &mut App,
+    focus: &mut Focus,
+    function: Function,
+    chosen: Option<(PathBuf, bool)>,
+    mode: keymap::Mode,
+) -> Option<Finish> {
+    use Function::*;
+    match (function, chosen) {
+        (PrintHighlighted, Some((path, _))) => Some(Finish::Paths(vec![path])),
+        (PrintHighlightedAndMarks, Some((path, _))) => app.confirm(Some(path)).map(Finish::Paths),
+        (OpenAndQuit, Some((path, _))) => match open_and_leave(app, std::slice::from_ref(&path)) {
+            Ok(finish) => Some(finish),
+            Err(error) => {
+                app.status = error;
+                None
+            }
+        },
+        (SaveOver, Some((path, _))) => save_as(app, focus, path),
+        // A directory itself, or a file's folder (fff seek).
+        (QuitIntoHighlighted, Some((path, true))) => Some(Finish::Folder(path)),
+        (QuitIntoHighlighted, Some((path, false))) => Some(Finish::Folder(
+            path.parent().unwrap_or(&app.cwd).to_owned(),
+        )),
+        // Nothing highlighted: the current directory. While typing, only a
+        // folder verified empty, so that a query matching nothing does not
+        // leave.
+        (QuitIntoHighlighted, None) if mode == keymap::Mode::Normal => {
+            Some(Finish::Folder(app.cwd.clone()))
+        }
+        (QuitIntoHighlighted, None) => app.empty_folder().map(Finish::Paths),
+        _ => {
+            app.nothing_to_enter();
+            None
+        }
     }
 }

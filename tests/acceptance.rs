@@ -529,7 +529,6 @@ fn navigation_combines_one_current_directory_and_fixed_roots() {
 
 #[test]
 fn alt_numbered_directories_navigate_and_keep_session_state() {
-    use fuzzy_file_finder::EnterOutcome;
     let mut app = app();
     app.insert(0, candidate("alpha", true, 1));
     app.insert(0, candidate("beta", true, 1));
@@ -542,7 +541,9 @@ fn alt_numbered_directories_navigate_and_keep_session_state() {
     // Last rendered row is beta even if a new shallow result arrives.
     app.insert(0, candidate("aardvark", true, 1));
     app.refresh();
-    assert_eq!(app.enter_numbered(9), EnterOutcome::Navigated);
+    let beta = app.numbered(9);
+    assert_eq!(beta, Path::new("/fixture/beta"));
+    app.navigate(beta, false);
     assert_eq!(app.cwd, Path::new("/fixture/beta"));
     assert!(app.query.is_empty());
     assert_eq!(app.marks, vec![PathBuf::from("/marked")]);
@@ -550,8 +551,7 @@ fn alt_numbered_directories_navigate_and_keep_session_state() {
     assert_eq!(app.depth, depth);
 }
 #[test]
-fn alt_numbered_file_matches_enter_including_marks_missing_and_zero() {
-    use fuzzy_file_finder::EnterOutcome;
+fn numbered_files_confirm_with_the_marks_and_an_empty_folder_needs_verifying() {
     let f = Fixture::new();
     let a = f.file("a");
     let b = f.file("b");
@@ -560,31 +560,22 @@ fn alt_numbered_file_matches_enter_including_marks_missing_and_zero() {
     complete(&mut scan, &mut app);
     app.rendered = app.rows.iter().map(|c| c.path.clone()).collect();
     app.toggle(a.clone());
-    assert_eq!(
-        app.enter_numbered(0),
-        EnterOutcome::Selected(vec![a.clone(), b.clone()])
-    );
-    assert_eq!(
-        app.enter_numbered(1),
-        EnterOutcome::Selected(vec![a.clone()])
-    );
+    // 0 is the last row; the marks come first, each once.
+    assert_eq!(app.numbered(0), b);
+    assert_eq!(app.confirm(Some(b.clone())), Some(vec![a.clone(), b.clone()]));
+    assert_eq!(app.confirm(Some(a.clone())), Some(vec![a.clone()]));
     fs::remove_file(&a).unwrap();
-    assert_eq!(app.enter_numbered(2), EnterOutcome::Stay);
+    assert_eq!(app.confirm(Some(b.clone())), None);
     assert!(app.status.contains("Missing"));
-    // Ctrl+number bypasses marks and remains independent of Enter.
-    assert_eq!(app.numbered(2), b);
-    app.rendered.clear();
+    // With nothing listed, only a folder verified empty is an answer.
+    app.marks.clear();
     app.physical_empty = false;
-    assert_eq!(app.enter_numbered(3), EnterOutcome::Stay);
-    app.toggle(a);
+    assert_eq!(app.empty_folder(), None);
     app.physical_empty = true;
     app.scanning = true;
-    assert_eq!(app.enter_numbered(3), EnterOutcome::Stay);
+    assert_eq!(app.empty_folder(), None);
     app.scanning = false;
-    assert_eq!(
-        app.enter_numbered(3),
-        EnterOutcome::Selected(vec![f.0.clone()])
-    );
+    assert_eq!(app.empty_folder(), Some(vec![f.0.clone()]));
 }
 #[test]
 fn alt_numbers_are_distinct_from_plain_and_control_digits() {
@@ -624,11 +615,8 @@ fn seek_hides_directories_and_never_navigates_or_returns_them() {
             PathBuf::from("/fixture/alpha/aa.txt")
         ]
     );
-    // A directory candidate (e.g. a cached kind change) is not entered.
-    assert_eq!(
-        app.enter(Some(candidate("alpha", true, 1))),
-        fuzzy_file_finder::EnterOutcome::Stay
-    );
+    // A directory is never entered.
+    assert!(!app.can_navigate());
     assert!(app.status.contains("fff seek"));
     assert!(!app.navigate_highlighted());
     assert_eq!(app.cwd, Path::new("/fixture"));
@@ -636,20 +624,20 @@ fn seek_hides_directories_and_never_navigates_or_returns_them() {
     app.rows = Default::default();
     app.scanning = false;
     app.physical_empty = true;
-    assert_eq!(app.enter(None), fuzzy_file_finder::EnterOutcome::Stay);
+    assert_eq!(app.empty_folder(), None);
 }
 #[test]
 fn an_empty_folder_answers_enter_only_where_a_folder_is_an_answer() {
-    use fuzzy_file_finder::{EnterOutcome, explorer::Dialog};
+    use fuzzy_file_finder::explorer::Dialog;
     let f = Fixture::new();
     let empty = |set: &dyn Fn(&mut App)| {
         let mut app = App::browse(f.0.clone(), 1, Policy::default());
         app.scanning = false;
         app.physical_empty = true;
         set(&mut app);
-        app.enter(None)
+        app.empty_folder()
     };
-    let folder = EnterOutcome::Selected(vec![f.0.clone()]);
+    let folder = Some(vec![f.0.clone()]);
     assert_eq!(empty(&|_| {}), folder);
     let dialog = |directory| Dialog {
         multiple: false,
@@ -661,11 +649,11 @@ fn an_empty_folder_answers_enter_only_where_a_folder_is_an_answer() {
     // leave into: a stray Enter must not end either.
     assert_eq!(
         empty(&|app| app.open_dialog(dialog(false))),
-        EnterOutcome::Stay
+        None
     );
     assert_eq!(
         empty(&|app| app.set_program(fuzzy_file_finder::keymap::Program::Window)),
-        EnterOutcome::Stay
+        None
     );
 }
 #[test]
