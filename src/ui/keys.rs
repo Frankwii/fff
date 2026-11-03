@@ -111,7 +111,7 @@ pub(crate) fn dimensions() -> [(&'static str, Vec<(&'static str, u16)>); 4] {
                 Mode::Normal => "Normal",
             }),
         ),
-        ("Program", values::<crate::keymap::Program>(|p| p.name())),
+        ("Program", values::<crate::program::Program>(|p| p.name())),
         (
             "List",
             values::<Place>(|p| match p {

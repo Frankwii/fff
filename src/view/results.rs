@@ -15,7 +15,7 @@ pub(super) fn results_pane(
         crate::Kinds::Directories => vec![bold("· folders only ", theme.marked)],
         crate::Kinds::All => Vec::new(),
     };
-    let grep = app.grep.as_ref().is_some_and(|g| g.active());
+    let grep = app.running.grep().is_some_and(|g| g.active());
     let block = panel_with(
         app.palette,
         if grep {
@@ -66,7 +66,7 @@ pub(super) fn results_pane(
     if visible.is_empty() {
         use crate::keymap::Function;
         let deeper = || does(app.bound(Function::SearchDeeper), "searches deeper");
-        let searching = app.grep.as_ref().and_then(|g| g.progress());
+        let searching = app.running.grep().and_then(|g| g.progress());
         let (title, hint) = if grep && searching.is_some() {
             (
                 "Searching contents…",
@@ -84,7 +84,7 @@ pub(super) fn results_pane(
                 "Discovering files…",
                 "You can keep typing while the scan runs.".to_string(),
             )
-        } else if !app.program.navigates() && app.query.is_empty() {
+        } else if !app.program().navigates() && app.query.is_empty() {
             (
                 "No files here",
                 [

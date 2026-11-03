@@ -89,7 +89,7 @@ pub(super) fn mouse_results(
             app.wanted = None;
             if double {
                 mouse.anchor = None;
-                if app.program.dialog() {
+                if app.program().dialog() {
                     return true;
                 }
                 discovery.checkpoint(app);
@@ -403,8 +403,8 @@ impl Button {
     /// Unavailable buttons are drawn dimmed and ignore clicks.
     pub(crate) fn available(self, app: &App) -> bool {
         match self {
-            Self::Back => app.program.navigates() && !app.back.is_empty(),
-            Self::Up => app.program.navigates() && app.cwd.parent().is_some(),
+            Self::Back => app.program().navigates() && !app.back.is_empty(),
+            Self::Up => app.program().navigates() && app.cwd.parent().is_some(),
             Self::Open | Self::Mark => app.highlight.is_some(),
             Self::Select => !app.marks.is_empty() || app.highlight.is_some(),
             Self::Hidden | Self::Cancel | Self::Dismiss | Self::Confirm => true,

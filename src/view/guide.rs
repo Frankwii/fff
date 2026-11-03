@@ -106,7 +106,7 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
             ));
         }
     }
-    if app.program.navigates() {
+    if app.program().navigates() {
         sections.push((String::new(), theme.text));
         sections.push(("TABS".into(), theme.accent));
         for (i, dir) in app.tab_dirs().into_iter().enumerate() {
@@ -136,7 +136,7 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                 "not shown"
             },
             if app.policy.ignore { "enforced" } else { "off" },
-            if !app.program.navigates() {
+            if !app.program().navigates() {
                 " · files only (fff seek)"
             } else {
                 match app.kinds {

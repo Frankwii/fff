@@ -20,8 +20,8 @@ const UNTITLED: &str = "untitled";
 
 impl Dialog {
     /// The program answering it, for where keys apply.
-    pub fn program(&self) -> crate::keymap::Program {
-        use crate::keymap::Program;
+    pub fn program(&self) -> crate::program::Program {
+        use crate::program::Program;
         if self.save.is_some() {
             Program::ExplorerSave
         } else if self.directory {
@@ -70,7 +70,7 @@ impl Dialog {
         use crate::keymap::{Function, Mode};
         // Up to two keys `function` has in `mode` for this dialog, else any.
         let keys = |function: Function, mode: Mode| {
-            let program = app.program;
+            let program = app.program();
             let bindings = app.keymap.of(function, mode);
             let mut names: Vec<String> = Vec::new();
             let here = bindings.iter().filter(|b| {

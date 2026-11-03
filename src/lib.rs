@@ -24,6 +24,7 @@ mod palettes;
 mod policy;
 mod prefetch;
 pub mod preview;
+pub mod program;
 mod ranking;
 pub mod reload;
 pub mod run;
@@ -133,14 +134,13 @@ impl RefreshBasis {
             rules: app.policy.rules.clone(),
             filters: app.policy.filters.clone(),
             filters_off: app.policy.filters_off,
-            navigates: app.program.navigates(),
+            navigates: app.program().navigates(),
             kinds: app.kinds,
             short_labels: app.short_labels,
             by_score: app.by_score(),
         }
     }
 }
-
 
 /// How many tabs a session has. Each starts in the session's first directory.
 pub const TABS: usize = 3;
@@ -197,8 +197,12 @@ pub struct App {
     /// The (lowercased) query the highlight was placed under: rows for
     /// another one, as typing changes it, highlight the best match.
     highlight_query: String,
-    /// `fff grep`: the contents query, its search and the rows it shows.
-    pub grep: Option<grep::Grep>,
+    /// The program the session runs as, with what only it keeps: `fff
+    /// grep`'s contents query and search, a file dialog's question. It
+    /// decides what is listed, what Enter finishes with and what is
+    /// printed (`program::Program`); `set_program` and `open_dialog` change
+    /// it.
+    pub running: program::Running,
     /// The contents query `switch_program` took away from `fff grep`, given
     /// back on returning to it.
     kept_contents: String,
@@ -246,10 +250,6 @@ pub struct App {
     pub keys_path: Option<PathBuf>,
     /// Why `keys.toml` was not read, while the defaults stand in for it.
     pub keys_broken: Option<String>,
-    /// The program fff runs as: what it lists, what Enter finishes with and
-    /// what it prints (see `keymap::Program`). `switch_program` changes it;
-    /// a file dialog's is its `dialog`'s.
-    pub program: keymap::Program,
     /// Alt+d / `d` hide directories and Alt+D / `D` files for now; unlike
     /// `fff seek`, navigation still works. See `listed_kinds` for seek.
     pub kinds: Kinds,
@@ -278,8 +278,6 @@ pub struct App {
     /// A highlight to restore as soon as its row is listed (scans stream in),
     /// unless the user moves first.
     pub wanted: Option<PathBuf>,
-    /// `fff roam`: the session is saved when it ends, for `--resume`.
-    pub records_session: bool,
     /// `[open]`: which program opens a file.
     pub openers: open::OpenConfig,
     /// Pop-up notifications and when each arrived.
@@ -306,9 +304,6 @@ pub struct App {
     pub preview: preview::Pane,
     /// `[ui] watch`: follow changes to the current directory as they happen.
     pub watch: bool,
-    /// `fff explorer`: the file dialog being answered (`open_dialog`).
-    /// Enter chooses files in either mode and q cancels.
-    pub dialog: Option<explorer::Dialog>,
     /// `[trash]`: where `x` sends entries; `None` deletes them permanently.
     pub trash: Option<trash::Trash>,
     /// The trash's `files/` folders, home bin first, as last read
@@ -356,7 +351,7 @@ impl App {
             highlight: None,
             highlight_top: false,
             highlight_query: String::new(),
-            grep: None,
+            running: program::Running::Roam,
             kept_contents: String::new(),
             rows_version: 0,
             highlight_hint: Cell::new(0),
@@ -388,7 +383,6 @@ impl App {
             pending: Vec::new(),
             keys_path: None,
             keys_broken: None,
-            program: keymap::Program::Roam,
             kinds: Kinds::All,
             short_labels: false,
             labels_chosen: false,
@@ -400,7 +394,6 @@ impl App {
             status_timeout: Some(std::time::Duration::from_secs(4)),
             positions: Vec::new(),
             wanted: None,
-            records_session: false,
             openers: open::OpenConfig::default(),
             notices: Vec::new(),
             back: Vec::new(),
@@ -427,7 +420,6 @@ impl App {
             config_path: None,
             config_broken: None,
             no_icons: false,
-            dialog: None,
         }
     }
     /// The button bar is shown: always, or while the mouse is in use.
@@ -532,23 +524,35 @@ impl App {
     }
     /// Run as `program`, with its labels and, for `fff grep`, its contents
     /// query (a file dialog is `open_dialog`).
-    pub fn set_program(&mut self, program: keymap::Program) {
-        self.program = program;
-        if !self.labels_chosen {
-            self.short_labels = program.short_labels();
+    pub fn set_program(&mut self, program: crate::program::Program) {
+        if program == self.program() {
+            return;
         }
-        if program != keymap::Program::Grep {
-            if let Some(grep) = self.grep.take() {
-                self.kept_contents = grep.text;
-            }
-        } else if self.grep.is_none() {
+        let (kept, waker) = (&mut self.kept_contents, &self.waker);
+        let running = program::Running::new(program, || {
             let mut grep = grep::Grep::new();
-            grep.text = std::mem::take(&mut self.kept_contents);
-            if let Some(waker) = &self.waker {
+            grep.text = std::mem::take(kept);
+            if let Some(waker) = waker {
                 grep.set_waker(waker.clone());
             }
-            self.grep = Some(grep);
+            grep
+        });
+        self.run(running);
+    }
+    /// Run as `running`. What the program before kept goes with it, but
+    /// for `fff grep`'s contents query, kept for coming back to it.
+    fn run(&mut self, running: program::Running) {
+        if !self.labels_chosen {
+            self.short_labels = running.program().short_labels();
         }
+        let before = std::mem::replace(&mut self.running, running);
+        if let program::Running::Grep(grep) = before {
+            self.kept_contents = grep.text;
+        }
+    }
+    /// The program the session runs as.
+    pub fn program(&self) -> crate::program::Program {
+        self.running.program()
     }
     /// `toggle_labels`: rows labelled by name (with the parents that tell
     /// same-named entries apart) or by their path below the folder searched.
@@ -566,17 +570,16 @@ impl App {
     }
     /// Answer `dialog`, as `fff explorer` does.
     pub fn open_dialog(&mut self, dialog: explorer::Dialog) {
-        self.set_program(dialog.program());
-        self.dialog = Some(dialog);
+        self.run(program::Running::Dialog(dialog));
     }
     /// `switch_program`: go on as `to` (one of `Program::SWITCHABLE`). The
     /// folders, query, highlight, marks and policies stay; the depth
     /// follows the new program's default unless it was set to another, and
     /// `fff grep`'s contents query is kept for coming back to it. True when
     /// the depth changed, which needs a scan; else the rows are re-ranked.
-    pub fn switch_program(&mut self, to: keymap::Program) -> bool {
+    pub fn switch_program(&mut self, to: crate::program::Program) -> bool {
         use keymap::Dimension;
-        let from = self.program;
+        let from = self.program();
         if from == to {
             return false;
         }
@@ -597,12 +600,12 @@ impl App {
         false
     }
     fn by_score(&self) -> bool {
-        self.program.by_score()
+        self.program().by_score()
     }
     /// The rows on screen: the ranked rows, or in `fff grep` with a contents
     /// query, one row per match in their files' order.
     pub fn shown(&self) -> &[Arc<Candidate>] {
-        match &self.grep {
+        match self.running.grep() {
             Some(grep) if grep.active() => &grep.shown,
             _ => &self.rows,
         }
@@ -619,7 +622,7 @@ impl App {
     }
     /// The match shown at row `i` (`fff grep` with a contents query).
     pub fn hit(&self, i: usize) -> Option<&grep::Hit> {
-        self.grep.as_ref().filter(|g| g.active())?.hit(i)
+        self.running.grep().filter(|g| g.active())?.hit(i)
     }
     /// The highlighted row's match, in `fff grep`.
     pub fn highlighted_hit(&self) -> Option<&grep::Hit> {
@@ -628,7 +631,7 @@ impl App {
     /// `fff grep`: catch up with its search. A new contents query, like a
     /// new names query, highlights the first match until the user moves.
     pub fn poll_grep(&mut self) -> bool {
-        let Some(grep) = &mut self.grep else {
+        let Some(grep) = self.running.grep_mut() else {
             return false;
         };
         let rows = Arc::clone(&self.rows);
@@ -644,7 +647,7 @@ impl App {
     }
     /// `fff grep`: the contents query changed to `text`.
     pub fn set_contents(&mut self, text: String) {
-        if let Some(grep) = &mut self.grep {
+        if let Some(grep) = self.running.grep_mut() {
             grep.text = text;
             self.highlight_top = true;
             self.offset = 0;
@@ -664,7 +667,7 @@ impl App {
     pub fn cell(&self) -> keymap::Cell {
         use keymap::Highlight;
         keymap::Cell {
-            program: self.program,
+            program: self.program(),
             place: keymap::Place::Results,
             highlight: match self.highlighted_row() {
                 Some(row) if row.directory => Highlight::Dir,
@@ -912,7 +915,7 @@ impl App {
     }
     /// The kinds listed: `fff seek` lists only files whatever `kinds` says.
     pub fn listed_kinds(&self) -> Kinds {
-        if !self.program.navigates() {
+        if !self.program().navigates() {
             Kinds::Files
         } else {
             self.kinds
@@ -931,7 +934,7 @@ impl App {
     /// The query rows are filtered by. A save dialog's query is the file
     /// name being typed: matches are only highlighted, nothing is hidden.
     pub fn filter(&self) -> &str {
-        match &self.dialog {
+        match self.running.dialog() {
             Some(dialog) if dialog.save.is_some() => "",
             _ => &self.query,
         }
@@ -1191,7 +1194,7 @@ impl App {
     }
     /// Wake `waker` when a ranking on another thread is done.
     pub fn set_waker(&mut self, waker: mpsc::SyncSender<()>) {
-        if let Some(grep) = &mut self.grep {
+        if let Some(grep) = self.running.grep_mut() {
             grep.set_waker(waker.clone());
         }
         self.waker = Some(waker);
@@ -1358,7 +1361,7 @@ impl App {
         if typed {
             self.highlight_query = query.to_owned();
             // fff grep's matches stream in after the files: follow the first.
-            self.highlight_top |= self.grep.is_some();
+            self.highlight_top |= self.running.grep().is_some();
         }
         // Rows share the known candidates: look for the wanted one's address.
         // A row to restore takes the highlight off the first row once listed.
@@ -1475,7 +1478,7 @@ impl App {
     }
     /// Whether the current directory may change; false in `fff seek`.
     pub fn can_navigate(&mut self) -> bool {
-        let navigates = self.program.navigates();
+        let navigates = self.program().navigates();
         if !navigates {
             self.status = "Navigation is disabled in fff seek".into();
         }
@@ -1600,8 +1603,8 @@ impl App {
     /// not in `fff seek`, with no shell to leave into (`--window`), or in a
     /// dialog choosing files, whose answer has no room for a folder.
     fn returns_folder(&self) -> bool {
-        use keymap::Program::*;
-        matches!(self.program, Roam | Pick | Grep | ExplorerFolder)
+        use crate::program::Program::*;
+        matches!(self.program(), Roam | Pick | Grep | ExplorerFolder)
     }
     /// Says why Enter (or Ctrl+number) with no row did nothing.
     pub fn nothing_to_enter(&mut self) {
@@ -1619,10 +1622,7 @@ impl App {
     /// Whether Ctrl+w may finish with the marks: only where the answer can be
     /// several paths, `fff pick` and `fff explorer --multiple` (not saving).
     pub fn returns_marks(&self) -> bool {
-        match &self.dialog {
-            Some(dialog) => dialog.multiple && dialog.save.is_none(),
-            None => self.program.prints_paths(),
-        }
+        self.running.returns_marks()
     }
     pub fn confirm(&mut self, target: Option<PathBuf>) -> Option<Vec<PathBuf>> {
         if self.marks.iter().any(|p| !p.exists()) {

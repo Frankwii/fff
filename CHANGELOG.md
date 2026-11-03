@@ -31,6 +31,8 @@ history.
   first, and before the first to the last.
 - **The Keys screen's `r` hint shows in Normal mode only**, where `r` works,
   and its hints take a second line rather than being cut.
+- **`--resume` follows the program a session ends in**: one switched to
+  `fff roam` with `gm` is saved for it, and one switched away is not.
 - **Enter on a cached row that turned from a file into a folder** (or back)
   waits for the rescan instead of acting on what it was.
 - **A sheet too tall for the terminal asks for a larger one** instead of

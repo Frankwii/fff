@@ -71,7 +71,7 @@ impl Prefetch {
         Some(snapshot)
     }
     pub fn tick(&mut self, app: &App, allow: bool, now: Instant, wake: Option<SyncSender<()>>) {
-        let target = if allow && app.depth == 1 && app.program.navigates() && !app.scanning {
+        let target = if allow && app.depth == 1 && app.program().navigates() && !app.scanning {
             app.highlight
                 .as_ref()
                 .filter(|p| p.parent() == Some(app.cwd.as_path()))

@@ -190,7 +190,7 @@ fn subsequence_and_depth_before_score_except_when_picking() {
     assert_eq!(app.rows[0].depth, 1);
     // `fff pick`, like `fff seek`, puts the best match first.
     let mut pick = App::new(vec![PathBuf::from("/fixture")], 3, Policy::default());
-    pick.set_program(fuzzy_file_finder::keymap::Program::Pick);
+    pick.set_program(fuzzy_file_finder::program::Program::Pick);
     pick.query = "ab".into();
     pick.insert(0, candidate("a_x_b", false, 1));
     pick.insert(0, candidate("dir/ab", true, 2));
@@ -470,8 +470,9 @@ fn policy_toggles_prune_and_preserve_marks() {
 }
 #[test]
 fn keys_bind_by_function_and_typing_stays_text() {
-    use fuzzy_file_finder::keymap::{
-        Cell, Function, Highlight, Keymap, Mode, Place, Program, Step,
+    use fuzzy_file_finder::{
+        keymap::{Cell, Function, Highlight, Keymap, Mode, Place, Step},
+        program::Program,
     };
     let keymap = Keymap::parse("[insert]\nhighlight_next = '<C-n>'\n").unwrap();
     let here = Cell {
@@ -562,7 +563,10 @@ fn numbered_files_confirm_with_the_marks_and_an_empty_folder_needs_verifying() {
     app.toggle(a.clone());
     // 0 is the last row; the marks come first, each once.
     assert_eq!(app.numbered(0), b);
-    assert_eq!(app.confirm(Some(b.clone())), Some(vec![a.clone(), b.clone()]));
+    assert_eq!(
+        app.confirm(Some(b.clone())),
+        Some(vec![a.clone(), b.clone()])
+    );
     assert_eq!(app.confirm(Some(a.clone())), Some(vec![a.clone()]));
     fs::remove_file(&a).unwrap();
     assert_eq!(app.confirm(Some(b.clone())), None);
@@ -598,7 +602,7 @@ fn alt_numbers_are_distinct_from_plain_and_control_digits() {
 #[test]
 fn seek_hides_directories_and_never_navigates_or_returns_them() {
     let mut app = app();
-    app.set_program(fuzzy_file_finder::keymap::Program::Seek);
+    app.set_program(fuzzy_file_finder::program::Program::Seek);
     for (name, dir, depth) in [
         ("alpha", true, 1),
         ("zebra.txt", false, 1),
@@ -647,12 +651,9 @@ fn an_empty_folder_answers_enter_only_where_a_folder_is_an_answer() {
     assert_eq!(empty(&|app| app.open_dialog(dialog(true))), folder);
     // A file dialog cannot take a folder, and a window has no shell to
     // leave into: a stray Enter must not end either.
+    assert_eq!(empty(&|app| app.open_dialog(dialog(false))), None);
     assert_eq!(
-        empty(&|app| app.open_dialog(dialog(false))),
-        None
-    );
-    assert_eq!(
-        empty(&|app| app.set_program(fuzzy_file_finder::keymap::Program::Window)),
+        empty(&|app| app.set_program(fuzzy_file_finder::program::Program::Window)),
         None
     );
 }
@@ -968,7 +969,7 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
     ] {
         let mut merged = app();
         if seek {
-            merged.set_program(fuzzy_file_finder::keymap::Program::Seek);
+            merged.set_program(fuzzy_file_finder::program::Program::Seek);
         }
         merged.short_labels = short_labels;
         merged.query = query.into();
@@ -990,7 +991,7 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
         }
         let mut ranked = app();
         if seek {
-            ranked.set_program(fuzzy_file_finder::keymap::Program::Seek);
+            ranked.set_program(fuzzy_file_finder::program::Program::Seek);
         }
         ranked.short_labels = short_labels;
         ranked.query = query.into();
@@ -1177,10 +1178,9 @@ fn grep_shows_one_row_per_match_in_the_files_names_choose() {
     std::fs::write(root.join("notes.md"), "one Canard here\n").unwrap();
     std::fs::write(root.join("other.txt"), "nothing\n").unwrap();
     let mut app = App::new(vec![root.clone()], 6, Policy::default());
-    app.program = fuzzy_file_finder::keymap::Program::Grep;
     let mut grep = fuzzy_file_finder::grep::Grep::new();
     grep.cache = Some(root.join("cache"));
-    app.grep = Some(grep);
+    app.running = fuzzy_file_finder::program::Running::Grep(Box::new(grep));
     for name in ["canard.txt", "notes.md", "other.txt"] {
         app.insert(
             0,
@@ -1199,7 +1199,7 @@ fn grep_shows_one_row_per_match_in_the_files_names_choose() {
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(10) {
             app.poll_grep();
-            if app.grep.as_ref().unwrap().progress().is_none() {
+            if app.running.grep().unwrap().progress().is_none() {
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -1247,7 +1247,10 @@ fn grep_shows_one_row_per_match_in_the_files_names_choose() {
 }
 #[test]
 fn switching_program_keeps_the_session_and_follows_default_depths() {
-    use fuzzy_file_finder::keymap::{Cell, Function, Highlight, Mode, Place, Program};
+    use fuzzy_file_finder::{
+        keymap::{Cell, Function, Highlight, Mode, Place},
+        program::Program,
+    };
     let mut app = App::browse(PathBuf::from("/fixture"), 1, Policy::default());
     for (name, dir, depth) in [("alpha", true, 1), ("b.txt", false, 1), ("c.txt", false, 1)] {
         app.insert(0, candidate(name, dir, depth));
@@ -1258,24 +1261,26 @@ fn switching_program_keeps_the_session_and_follows_default_depths() {
     app.marks.push(PathBuf::from("/fixture/c.txt"));
     app.highlight = Some(PathBuf::from("/fixture/c.txt"));
     // At roam's default depth, pick's applies.
-    assert_eq!(app.program, Program::Roam);
+    assert_eq!(app.program(), Program::Roam);
     assert!(app.switch_program(Program::Pick));
-    assert_eq!((app.program, app.depth), (Program::Pick, 3));
-    assert!(app.program.prints_paths() && app.short_labels && app.program.navigates());
+    assert_eq!((app.program(), app.depth), (Program::Pick, 3));
+    assert!(app.program().prints_paths() && app.short_labels && app.program().navigates());
     // A depth set by hand stays.
     app.depth = 4;
     assert!(!app.switch_program(Program::Seek));
-    assert_eq!((app.program, app.depth), (Program::Seek, 4));
+    assert_eq!((app.program(), app.depth), (Program::Seek, 4));
     assert_eq!(app.highlight, Some(PathBuf::from("/fixture/c.txt")));
     // fff grep's contents query waits for coming back to it.
     app.switch_program(Program::Grep);
-    app.grep.as_mut().unwrap().text = "canard".into();
+    app.running.grep_mut().unwrap().text = "canard".into();
     app.switch_program(Program::Roam);
-    assert!(app.grep.is_none() && app.program.navigates() && !app.program.prints_paths());
+    assert!(
+        app.running.grep().is_none() && app.program().navigates() && !app.program().prints_paths()
+    );
     app.switch_program(Program::Grep);
-    assert_eq!(app.grep.as_ref().unwrap().text, "canard");
+    assert_eq!(app.running.grep().unwrap().text, "canard");
     // fff grep browses, like fff pick.
-    assert!(app.program.navigates() && app.program.prints_paths());
+    assert!(app.program().navigates() && app.program().prints_paths());
     // The query, marks and policies were never touched.
     assert_eq!(app.query, "t");
     assert!(app.policy.filters_off);

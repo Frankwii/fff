@@ -79,7 +79,7 @@ impl Session {
         // browsing (Normal mode), existing paths are copied here after
         // confirmation; while typing, a paste is only text.
         if matches!(self.focus, Focus::Results)
-            && app.program.navigates()
+            && app.program().navigates()
             && app.edit_view.as_ref().is_some_and(|v| v.normal())
             && let Some(paths) = dropped_paths(text, app.home.as_deref())
         {
@@ -142,7 +142,7 @@ impl Session {
                 key: enter,
                 on_row: false,
             },
-            ListMouse::Open(_) if app.program.dialog() => Click::Key {
+            ListMouse::Open(_) if app.program().dialog() => Click::Key {
                 key: enter,
                 on_row: false,
             },
@@ -290,7 +290,7 @@ impl Session {
                     None => keymap::Highlight::None,
                 };
                 let cell = keymap::Cell {
-                    program: app.program,
+                    program: app.program(),
                     place: keymap::Place::Marks,
                     highlight,
                 };
@@ -379,7 +379,10 @@ impl Session {
             }
             OpenRow => self.open_numbered(app, u32::from(digit.unwrap_or(0))),
             ConfirmRow => return self.confirm_row(app, u32::from(digit.unwrap_or(0))),
-            SaveOver | PrintHighlighted | PrintHighlightedAndMarks | QuitIntoHighlighted
+            SaveOver
+            | PrintHighlighted
+            | PrintHighlightedAndMarks
+            | QuitIntoHighlighted
             | OpenAndQuit => return Ok(self.finish_with(app, function, row)),
             SaveHere => return Ok(save_here(app, &mut self.focus)),
             OpenInTerminal | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
@@ -429,7 +432,7 @@ impl Session {
             PrintMarks => return Ok(leave_with_marks(app)),
             ClearQuery => self.clear_query(app),
             SwitchQuery => {
-                if let Some(grep) = &mut app.grep {
+                if let Some(grep) = app.running.grep_mut() {
                     grep.editing = !grep.editing;
                 }
             }
@@ -670,18 +673,18 @@ impl Session {
     }
     /// q, Q and ! in Normal mode; `current` leaves in the browsing directory.
     pub(super) fn quit(&mut self, app: &mut App, current: bool) -> Option<Finish> {
-        if app.program.dialog() && !current {
+        if app.program().dialog() && !current {
             return Some(Finish::Cancelled);
         }
-        if app.program == Program::ExplorerSave {
+        if app.program() == Program::ExplorerSave {
             return save_here(app, &mut self.focus);
         }
         // fff seek, and q in fff pick, leave without choosing anything.
-        if !app.program.navigates() || (app.program.prints_paths() && !current) {
+        if !app.program().navigates() || (app.program().prints_paths() && !current) {
             return Some(Finish::Paths(Vec::new()));
         }
         // With a window of its own, ! leaves into a shell there.
-        if app.program == Program::Window && current {
+        if app.program() == Program::Window && current {
             return match crate::run::shell_plan(&app.cwd) {
                 Ok(plan) => Some(Finish::Exec(plan)),
                 Err(error) => {

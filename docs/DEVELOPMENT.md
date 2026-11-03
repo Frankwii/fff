@@ -51,7 +51,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
-| `src/keymap.rs` | Programs and how they differ (`Program`: what each lists, prints and starts in), functions, where they work, their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
+| `src/program.rs` | The program a session runs as: how programs differ (`Program`: what each lists, prints and starts in, its depth and labels) and what only one keeps (`Running`: `fff grep`'s search, a file dialog), swapped by `App::set_program`. |
+| `src/keymap.rs` | Functions, where they work (programs are one of its dimensions), their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
 | `src/ui/keys.rs` | The Keys screen's state and keys: the picker (your own list keys through the keymap), key searches, and the editor's staged changes, scopes and saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
@@ -157,10 +158,12 @@ Where a change usually has to touch, so that none is missed:
   started as a job from `src/ui/actions.rs`, and the
   [OPERATIONS.md](OPERATIONS.md) guarantees it keeps.
 - **Something that differs between programs** (roam, pick, seek, grep, a
-  window, the file dialogs): a method on `Program` in `src/keymap.rs`
+  window, the file dialogs): a method on `Program` in `src/program.rs`
   (`navigates`, `prints_paths`, `dialog`, `short_labels`, ...) read as
-  `app.program`, rather than a flag of its own; where keys apply is the
-  scopes' business (`available`, `defaults`).
+  `app.program()`, rather than a flag of its own; state only one program
+  keeps goes in its `Running` variant. Where keys apply is the scopes'
+  business (`available`, `defaults`), and what Enter does is the function
+  Enter is bound to there.
 - **A setting:** the struct, default and validation in `src/config.rs`, how
   `gc` applies it to a running session (`apply_settings` in
   `src/ui/configure.rs`),

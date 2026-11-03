@@ -26,7 +26,7 @@ pub enum ScopedAction {
 /// terminal opener in a new terminal window), while fff keeps the keyboard.
 pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
     // Open and save dialogs choose files rather than opening them.
-    if let Some(hint) = app.dialog.as_ref().and_then(|d| d.file_hint(app)) {
+    if let Some(hint) = app.running.dialog().and_then(|d| d.file_hint(app)) {
         app.status = hint;
         return;
     }
@@ -40,7 +40,7 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         .highlighted()
         .filter(|_| app.highlight.as_deref() == Some(path))
         .and_then(|row| {
-            let grep = app.grep.as_ref().filter(|g| g.active())?;
+            let grep = app.running.grep().filter(|g| g.active())?;
             let (hits, i) = grep.shown_hits.get(row)?;
             let hit = &hits[*i];
             Some(crate::open::GrepMatch {
@@ -140,7 +140,7 @@ pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
 /// fff explorer --save, Ctrl+s or !: saves under the typed name (else the
 /// suggested one) in the folder being browsed.
 pub(super) fn save_here(app: &mut App, focus: &mut Focus) -> Option<Finish> {
-    let name = app.dialog.as_ref()?.save_name(&app.query)?.to_owned();
+    let name = app.running.dialog()?.save_name(&app.query)?.to_owned();
     if let Err(error) = crate::explorer::check_name(&name) {
         app.status = error;
         return None;

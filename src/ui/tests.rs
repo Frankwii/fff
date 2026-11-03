@@ -1,6 +1,6 @@
 use super::*;
-use crate::ui::focus::{chosen, finish_with_entry};
 use crate::config::Palette;
+use crate::ui::focus::{chosen, finish_with_entry};
 use std::time::Instant;
 
 #[test]
@@ -117,7 +117,7 @@ fn m_marks_every_listed_row_and_shift_m_inverts_them() {
         index: 0,
     };
     let cell = crate::keymap::Cell {
-        program: crate::keymap::Program::Roam,
+        program: crate::program::Program::Roam,
         place: crate::keymap::Place::Marks,
         highlight: crate::keymap::Highlight::File,
     };
@@ -476,7 +476,6 @@ fn buttons_do_what_their_keys_do() {
         save: None,
     });
     assert!(!select_returns_marks(&app));
-    app.dialog = None;
     app.set_program(Program::Roam);
     app.marks.clear();
     app.highlight = Some(root.join("dir"));

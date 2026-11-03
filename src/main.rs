@@ -447,7 +447,7 @@ fn main() -> ExitCode {
 struct Mode {
     /// The program it starts as; a file dialog's is set once its dialog is
     /// known, and the session may end as another (`switch_program`).
-    program: keymap::Program,
+    program: fuzzy_file_finder::program::Program,
     roots: Vec<PathBuf>,
     browse: bool,
     resume: bool,
@@ -458,7 +458,7 @@ struct Mode {
 impl Default for Mode {
     fn default() -> Self {
         Self {
-            program: keymap::Program::Roam,
+            program: fuzzy_file_finder::program::Program::Roam,
             roots: Vec::new(),
             browse: false,
             resume: false,
@@ -469,11 +469,11 @@ impl Default for Mode {
     }
 }
 /// The program `fff roam` runs as: with `--window`, a window of its own.
-fn roaming(window: bool) -> keymap::Program {
+fn roaming(window: bool) -> fuzzy_file_finder::program::Program {
     if window {
-        keymap::Program::Window
+        fuzzy_file_finder::program::Program::Window
     } else {
-        keymap::Program::Roam
+        fuzzy_file_finder::program::Program::Roam
     }
 }
 /// Exits with a usage error (status 2) for arguments that cannot go together.
@@ -525,26 +525,26 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         Some(Command::Pick(pick)) => Mode {
             roots: pick.roots,
             browse: pick.browse,
-            program: keymap::Program::Pick,
+            program: fuzzy_file_finder::program::Program::Pick,
             relative: pick.output.relative,
             null: pick.output.null,
             ..Mode::default()
         },
         Some(Command::Seek(seek)) => Mode {
             roots: seek.roots,
-            program: keymap::Program::Seek,
+            program: fuzzy_file_finder::program::Program::Seek,
             ..Mode::default()
         },
         // fff pick with a contents query: it navigates, with tabs, and prints.
         Some(Command::Grep(grep)) => Mode {
             roots: grep.roots,
-            program: keymap::Program::Grep,
+            program: fuzzy_file_finder::program::Program::Grep,
             relative: grep.output.relative,
             null: grep.output.null,
             ..Mode::default()
         },
         Some(Command::Explorer(explorer)) => Mode {
-            program: keymap::Program::ExplorerOpen,
+            program: fuzzy_file_finder::program::Program::ExplorerOpen,
             explorer: Some(explorer),
             ..Mode::default()
         },
@@ -604,8 +604,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     } else {
         App::new(roots, depth, policy)
     };
-    // fff roam sessions are saved for --resume; the other commands never are.
-    app.records_session = mode.program.records_session();
     app.openers = settings.open.clone();
     match &dialog {
         Some(dialog) => app.open_dialog(dialog.clone()),
@@ -754,7 +752,9 @@ fn report(
     // confirmed entry (a directory itself for directories).
     let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
         // A window of its own has no shell to change.
-        let Some(target) = target.filter(|_| mode.program != keymap::Program::Window) else {
+        let Some(target) =
+            target.filter(|_| mode.program != fuzzy_file_finder::program::Program::Window)
+        else {
             return Ok(());
         };
         let dir = if target.is_dir() {

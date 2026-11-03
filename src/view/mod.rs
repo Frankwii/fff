@@ -452,7 +452,7 @@ fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
 /// top border of `area`: a space, three-column numbers, a space, the corner.
 fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
     let width = 3 * crate::TABS as u16 + 2;
-    if !app.program.navigates() || area.width < width + 2 {
+    if !app.program().navigates() || area.width < width + 2 {
         return Vec::new();
     }
     let start = area.x + area.width - 1 - width + 1;
@@ -465,7 +465,7 @@ fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
 /// in `fff seek`, which cannot change directory.
 fn tab_strip(app: &App) -> Line<'static> {
     let theme = app.palette;
-    if !app.program.navigates() {
+    if !app.program().navigates() {
         return Line::default();
     }
     let active = Style::default()
@@ -682,7 +682,7 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let status = status_line(app, area.width.saturating_sub(4) as usize).right_aligned();
     // fff grep: the contents query, wider, beside the names query; the one
     // typed into has the accent border and the cursor.
-    if let Some(grep) = &app.grep {
+    if let Some(grep) = app.running.grep() {
         let halves = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
@@ -728,10 +728,10 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         return;
     }
     let title = app
-        .dialog
-        .as_ref()
+        .running
+        .dialog()
         .map_or_else(|| "Query".into(), |d| d.title(&app.query));
-    let hint = match &app.dialog {
+    let hint = match app.running.dialog() {
         Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal()), app),
         None => "type to filter names…".into(),
     };

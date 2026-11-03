@@ -109,16 +109,16 @@ impl Session {
             }
             return;
         };
-        let Some(&(program, _)) = keymap::Program::SWITCHABLE
+        let Some(&(program, _)) = crate::program::Program::SWITCHABLE
             .iter()
-            .find(|&&(p, l)| l == letter && p != app.program)
+            .find(|&&(p, l)| l == letter && p != app.program())
         else {
             return;
         };
         self.focus = Focus::Results;
         let scan = app.switch_program(program);
         // The query typed into next keeps the mode gm was pressed in.
-        let field = match &app.grep {
+        let field = match app.running.grep() {
             Some(grep) if grep.editing => Field::Contents,
             _ => Field::Query,
         };
@@ -587,7 +587,7 @@ impl Session {
             app.highlight_top = false;
             app.wanted = None;
             row.on_row = true;
-        } else if !app.program.navigates() {
+        } else if !app.program().navigates() {
             // Static (fff seek) sessions never fall back to the current
             // directory.
             app.nothing_to_enter();
@@ -662,7 +662,7 @@ impl Session {
     /// `clear_query`: the query; pressed again with none, the marks. In fff
     /// grep, the query being typed into, else the other one.
     pub(super) fn clear_query(&mut self, app: &mut App) {
-        if let Some(grep) = &app.grep
+        if let Some(grep) = app.running.grep()
             && !grep.text.is_empty()
             && (grep.editing || app.query.is_empty())
         {
@@ -784,9 +784,9 @@ pub(super) fn finish_with_entry(
         (SaveOver, Some((path, _))) => save_as(app, focus, path),
         // A directory itself, or a file's folder (fff seek).
         (QuitIntoHighlighted, Some((path, true))) => Some(Finish::Folder(path)),
-        (QuitIntoHighlighted, Some((path, false))) => Some(Finish::Folder(
-            path.parent().unwrap_or(&app.cwd).to_owned(),
-        )),
+        (QuitIntoHighlighted, Some((path, false))) => {
+            Some(Finish::Folder(path.parent().unwrap_or(&app.cwd).to_owned()))
+        }
         // Nothing highlighted: the current directory. While typing, only a
         // folder verified empty, so that a query matching nothing does not
         // leave.
