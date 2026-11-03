@@ -157,7 +157,7 @@ editing behavior. Alt bindings remain available in every mode.
 
 Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
 unmatched continuation sends both keys to Neovim, preserving commands such as
-`gU`, `ge` and `g~` (not `gu`: the `u` after the `g` undoes a file operation) (`gc`, Neovim's comment operator, edits the
+`gU`, `g~` and `g?` (not `gu`: the `u` after the `g` undoes a file operation) (`gc`, Neovim's comment operator, edits the
 configuration instead). Escape after a lone `g` cancels it without
 clearing the query. The default `d`, `D` and `P` replace Neovim's delete and
 put commands in the results, which have little use in a one-line query, and

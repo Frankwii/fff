@@ -4,6 +4,20 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **`gd` switches how rows are labelled** (`toggle_labels`): by name, with
+  only the parent folders that tell same-named entries apart
+  (`folder1/main.pdf`), or by their path below the folder searched. The
+  choice stays when `gm` changes program.
+
+### Changed
+
+- **`fff seek` labels rows by their path** below the folder searched, as
+  `fff roam` does; `fff pick` and `fff grep` keep names. `gd` switches.
+
 ## 0.15.0 — 2026-11-03
 
 `fff grep` searches what files contain, `:` runs a function by name, and

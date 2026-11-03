@@ -206,12 +206,14 @@ the current directory; in `fff seek`, nothing) and Alt+number does nothing.
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
 
-Rows in `fff pick` (and `fff seek`) show bare names: when listed entries share
+Rows in `fff pick` and `fff grep` show bare names: when listed entries share
 a name, each gains the fewest trailing parent directories that tell it apart
 (`folder1/main.pdf`, `folder2/main.pdf`), independently of the query, and the
 labels follow the listing as you navigate. The footer shows the highlighted
-entry's path. In `fff roam` and `fff explorer`, labels are relative to the
-browsing directory, with repeated leading parent steps shortened to `.../`.
+entry's path. In `fff roam`, `fff seek` and `fff explorer`, labels are paths
+relative to the browsing directory, with repeated leading parent steps
+shortened to `.../`. `gd` in Normal mode (`toggle_labels`) switches between
+the two for the session, and the choice stays when `gm` changes program.
 Labels are presentation only: output paths are never shortened.
 
 `--glob` is a file filter: only files whose basename matches it are listed, and
@@ -303,7 +305,7 @@ What carries over:
 
 - Everything you were looking at: the folders, tabs and their history, the
   query, the highlight, marks, exclusions, file filters and their toggles,
-  hidden entries and the preview. A highlighted folder that `fff seek`
+  hidden entries, the preview and labels chosen with `gd`. A highlighted folder that `fff seek`
   cannot list comes back once it is listed again, unless you move.
 - The depth, if you set one. Otherwise it becomes the new program's default:
   1 for `roam`, 3 for `pick`, 6 for `seek` and `grep`.
@@ -399,6 +401,7 @@ key says which one.
 | Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d and D reach Neovim there) |
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
+| gd in Normal | Label rows by name (with the parents that tell same-named entries apart) or by path below the folder searched |
 | Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
 | Alt+H / ge in Normal | Toggle exclusion enforcement |
 | Alt+e / gE in Normal | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |

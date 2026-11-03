@@ -19,13 +19,6 @@ not implemented features or commitments:
   Telegram (opening a download's folder), but Telegram does not open fff yet.
   What remains is to find how it asks (`xdg-open`, the D-Bus FileManager1
   service or the portal's OpenURI) and make that path reach fff.
-- A function that toggles how flat lists label their rows: only the parent
-  folders that tell same-named entries apart (`folder1/main.pdf`), as
-  `fff pick` and `fff seek` both do today, or full paths. `fff pick` would
-  start with the short labels and `fff seek` with full paths. To decide:
-  whether full means the path below the folder searched or the absolute
-  path, its default key, and whether a choice made with the toggle survives
-  `gm`.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see

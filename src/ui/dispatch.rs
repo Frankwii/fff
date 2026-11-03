@@ -477,6 +477,7 @@ impl Session {
             }
             Rescan => self.discovery.force_refresh(app),
             TogglePreview => app.preview.shown = !app.preview.shown,
+            ToggleLabels => app.toggle_labels(),
             TogglePreviewWrap => {
                 app.preview.wrap = !app.preview.wrap;
                 app.status = if app.preview.wrap {

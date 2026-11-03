@@ -738,6 +738,7 @@ functions! {
     TogglePreviewWrap "toggle_preview_wrap" View "Toggle word wrapping in the preview: long lines wrapped onto the next rows, or cut at its edge.";
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, leaving the highlight where it is.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, leaving the highlight where it is.";
+    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with only the parent folders that tell same-named entries apart (folder1/main.pdf), or by their path below the folder searched. fff pick and fff grep start with names, the others with paths; the choice stays when switch_program changes program.";
     ShowPalettes "show_palettes" View "Show the palettes: the highlighted one is previewed after a moment, and Enter keeps it for the session.";
     ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen for the session.";
     MoveMarked "move_marked" Files "Move the marked paths into the current directory. Asks first when that would overwrite anything.";
@@ -810,6 +811,7 @@ impl Function {
             | ToggleHidden
             | TogglePreview
             | TogglePreviewWrap
+            | ToggleLabels
             | ScrollPreviewDown
             | ScrollPreviewUp
             | EditExclusions
@@ -1028,6 +1030,7 @@ impl Function {
             ToggleDirectories => &[("d", all)],
             ToggleFiles => &[("D", all)],
             TogglePreview => &[("P", all)],
+            ToggleLabels => &[("gd", all)],
             ScrollPreviewDown => &[("<C-j>", all)],
             ScrollPreviewUp => &[("<C-k>", all)],
             EditExclusions => &[("gE", all)],

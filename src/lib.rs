@@ -556,6 +556,20 @@ impl App {
             self.grep = Some(grep);
         }
     }
+    /// `toggle_labels`: rows labelled by name (with the parents that tell
+    /// same-named entries apart) or by their path below the folder searched.
+    /// The choice outlasts `switch_program`.
+    pub fn toggle_labels(&mut self) {
+        self.short_labels = !self.short_labels;
+        self.labels_chosen = true;
+        self.refresh();
+        self.status = if self.short_labels {
+            "Rows show their names".into()
+        } else {
+            "Rows show their paths".into()
+        };
+        self.status_success = self.status.clone();
+    }
     /// Answer `dialog`, as `fff explorer` does.
     pub fn open_dialog(&mut self, dialog: explorer::Dialog) {
         self.set_program(dialog.program());

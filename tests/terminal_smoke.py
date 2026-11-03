@@ -378,6 +378,27 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, str(self.root / "sub" / "deep.txt").encode() + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_gd_labels_rows_by_name_or_path_and_keeps_the_choice_across_gm(self):
+        (self.root / "a" / "b").mkdir(parents=True)
+        (self.root / "a" / "b" / "note.txt").touch()
+        s = self.start("--depth", "3", implicit_root=True)
+        s.wait_ui("note.txt")
+        # fff pick names rows; the highlighted folder fills the footer.
+        self.assertNotIn("a/b/note.txt", s.screen.text)
+        s.send(b"gd", "Rows show their paths")
+        s.wait_ui("a/b/note.txt")
+        # fff seek starts with paths, but gm keeps what gd chose.
+        s.send(b"gd", "Rows show their names")
+        s.send(b"gm", "Switch program")
+        s.send(b"s", "Now fff seek")
+        s.wait_ui("Files · 1")
+        row = next(line for line in s.screen.text.splitlines() if "› 1/0" in line)
+        self.assertIn(" note.txt", row)
+        self.assertNotIn("a/b/", row)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_switch_program_keeps_grep_contents_for_coming_back(self):
         (self.root / "notes.txt").write_text("a canard here\n")
         (self.root / "other.txt").write_text("nothing\n")
