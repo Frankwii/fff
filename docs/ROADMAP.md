@@ -17,6 +17,11 @@ not implemented features or commitments:
 - Switching modes without restarting (below): from `fff roam` to `fff seek`,
   for example.
 - Resizing the font from fff (below).
+- Opening folders from other applications. `--window` exists so that fff,
+  set up as the desktop's file manager, can be opened from programs such as
+  Telegram (opening a download's folder), but Telegram does not open fff yet.
+  What remains is to find how it asks (`xdg-open`, the D-Bus FileManager1
+  service or the portal's OpenURI) and make that path reach fff.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
