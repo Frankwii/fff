@@ -332,6 +332,10 @@ impl Session {
                         }
                     } else if app.reveal(path) {
                         self.discovery.start(app, true);
+                    } else {
+                        // The query was cleared here, not by moving: keep
+                        // its mode, as after a move.
+                        self.editor.reset_preserving_mode(Field::Query);
                     }
                     self.focus = Focus::Results;
                 }
@@ -363,11 +367,11 @@ impl Session {
                     .map(|b| b.display());
                 app.status = match (mode, instead) {
                     (keymap::Mode::Normal, Some(instead)) => {
-                        format!("{name} works while typing; in Normal mode, {instead}")
+                        format!("{name} works in Insert mode; in Normal mode, {instead}")
                     }
-                    (keymap::Mode::Normal, None) => format!("{name} works while typing"),
+                    (keymap::Mode::Normal, None) => format!("{name} works in Insert mode"),
                     (keymap::Mode::Insert, Some(instead)) => {
-                        format!("{name} works in Normal mode; while typing, {instead}")
+                        format!("{name} works in Normal mode; in Insert mode, {instead}")
                     }
                     (keymap::Mode::Insert, None) => format!("{name} works in Normal mode"),
                 };
@@ -555,7 +559,7 @@ impl Session {
             // Only in the trash: elsewhere, nothing has a place to go back to.
             'R' if !app.in_trash() => {
                 let restore = app.bound_or_none(Function::Restore);
-                app.status = match app.bound(Function::Trash) {
+                app.status = match app.bound(Function::GoToTrash) {
                     Some(trash) => {
                         format!("{restore} restores entries in the trash; {trash} opens it")
                     }

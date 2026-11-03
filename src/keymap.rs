@@ -569,9 +569,12 @@ pub enum Exec {
 /// Groups for the Keys screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
-    Navigate,
+    Highlight,
+    GoTo,
     Open,
+    Finish,
     Marks,
+    Search,
     View,
     Files,
     Session,
@@ -579,9 +582,12 @@ pub enum Group {
 impl Group {
     pub fn title(self) -> &'static str {
         match self {
-            Self::Navigate => "Navigate",
-            Self::Open => "Open and finish",
+            Self::Highlight => "Highlight",
+            Self::GoTo => "Go to",
+            Self::Open => "Open and run",
+            Self::Finish => "Finish",
             Self::Marks => "Marks",
+            Self::Search => "Search",
             Self::View => "View",
             Self::Files => "Files",
             Self::Session => "Session",
@@ -610,77 +616,78 @@ macro_rules! functions {
         }
     };
 }
+// Names are a verb and what it acts on, and each description starts with
+// that verb: `highlight_` moves the highlight, `go_to_` changes the current
+// directory, `toggle_` turns something on or off, `show_` opens a screen or
+// chooser, `print_` answers with paths and leaves, `quit_` leaves.
 functions! {
-    Up "up" Navigate "Highlight the previous row.";
-    Down "down" Navigate "Highlight the next row.";
-    PageUp "page_up" Navigate "Move the highlight one page up.";
-    PageDown "page_down" Navigate "Move the highlight one page down.";
-    First "first" Navigate "Highlight the first row.";
-    Last "last" Navigate "Highlight the last row.";
-    GoParent "go_parent" Navigate "Go to the parent directory, keeping the query; the highlight and scroll start over.";
-    GoInto "go_into" Navigate "Enter the highlighted directory.";
-    GoTo "go_to" Navigate "Go to a typed path, or to words matching a bookmark or one of zoxide's frequent folders.";
-    Bookmarks "bookmarks" Navigate "Open the bookmark chooser.";
-    Trash "trash" Navigate "Open the trash like a folder; again, the next filesystem's trash.";
-    Back "back" Navigate "Step back through the folders this tab visited.";
-    Forward "forward" Navigate "Step forward through the folders this tab visited. Ctrl+i needs a terminal that tells it from Tab.";
-    NextTab "next_tab" Navigate "Switch to the next of three tabs; each keeps its folder and history, marks are shared.";
-    PrevTab "prev_tab" Navigate "Switch to the previous of three tabs.";
-    SaveHere "save_here" Open "Save in the current folder under the typed name (the query), or the suggested one.";
-    SaveAs "save_as" Open "Save over the highlighted file, after asking.";
-    ChooseFolder "choose_folder" Open "Answer the dialog with the current folder.";
-    ChooseFile "choose_file" Open "Answer the dialog with the highlighted file (in the marked list, the mark); when choosing several, the marked ones too.";
-    PickFile "pick_file" Open "Print the highlighted file and leave, ignoring the marks.";
-    PickWithMarks "pick_with_marks" Open "Print the marked paths and the highlighted file, then leave.";
-    QuitIntoFolder "quit_into_folder" Open "Leave into the highlighted file's folder.";
+    HighlightPrevious "highlight_previous" Highlight "Highlight the previous row.";
+    HighlightNext "highlight_next" Highlight "Highlight the next row.";
+    HighlightPreviousPage "highlight_previous_page" Highlight "Highlight the row one page up.";
+    HighlightNextPage "highlight_next_page" Highlight "Highlight the row one page down.";
+    HighlightFirst "highlight_first" Highlight "Highlight the first row.";
+    HighlightLast "highlight_last" Highlight "Highlight the last row.";
+    GoToParent "go_to_parent" GoTo "Go to the parent directory, keeping the query.";
+    GoToDirectory "go_to_directory" GoTo "Go to the highlighted directory.";
+    GoToHighlighted "go_to_highlighted" GoTo "Go to the highlighted directory, or to the highlighted file's directory with the file highlighted (clearing the query).";
+    GoToPath "go_to_path" GoTo "Go to a path typed in a prompt, or to a bookmark or one of zoxide's directories matching the words typed.";
+    GoToTrash "go_to_trash" GoTo "Go to the trash; again, to the next filesystem's trash.";
+    GoBack "go_back" GoTo "Go back to the directory this tab visited before.";
+    GoForward "go_forward" GoTo "Go forward again to the directory this tab left. Ctrl+i needs a terminal that tells it from Tab.";
+    GoToNextTab "go_to_next_tab" GoTo "Go to the next of three tabs; each keeps its directory and history, and the marks are shared.";
+    GoToPreviousTab "go_to_previous_tab" GoTo "Go to the previous of three tabs.";
+    OpenInBackground "open_in_background" Open "Open the highlighted file with its opener in the background; fff stays.";
+    OpenInTerminal "open_in_terminal" Open "Open the current or marked files with their openers in this terminal, then come back.";
     OpenAndQuit "open_and_quit" Open "Open the highlighted file with its opener and leave fff.";
-    Reveal "reveal" Open "Show the highlighted file in its own folder, clearing the query.";
-    QuitIntoDir "quit_into_dir" Open "Leave into the highlighted directory, or the current one when nothing is listed.";
-    GoIntoFolder "go_into_folder" Navigate "Make the highlighted directory the current folder, or the highlighted file's own folder, with the file highlighted.";
-    OpenBackground "open_background" Open "Open the highlighted file with its opener in the background; fff stays.";
-    OpenHere "open_here" Open "Open the current or marked files with their openers in this terminal, then come back.";
-    OpenRow "open_row" Open "Like go_into or open_background on visible row #; 0 is the last row.";
-    EnterRow "enter_row" Open "Like Enter on visible row #; 0 is the last row.";
+    OpenRow "open_row" Open "Open visible row #, as open_in_background or go_to_directory would; 0 is the last row.";
+    ConfirmRow "confirm_row" Open "Confirm visible row #, as Enter would on it; 0 is the last row.";
+    EditFiles "edit_files" Open "Edit the current or marked files in $EDITOR, then come back.";
     Run "run" Open "Run a program on the current or marked paths, then come back.";
     RunAndQuit "run_and_quit" Open "Run a program on the current or marked paths in place of fff.";
-    Edit "edit" Open "Open the current or marked paths in $EDITOR, then come back.";
-    Mark "mark" Marks "Toggle the highlighted row's mark; in the results, also move down.";
+    PrintHighlighted "print_highlighted" Finish "Print the highlighted path and leave, ignoring the marks: fff pick's choice, or a file dialog's answer.";
+    PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted file, then leave.";
+    PrintMarks "print_marks" Finish "Print the marked paths and leave (fff pick, and dialogs choosing several files).";
+    PrintCurrent "print_current" Finish "Print the current directory and leave: a file dialog's answer.";
+    SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or the suggested one.";
+    SaveOver "save_over" Finish "Save over the highlighted file, after asking.";
+    QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the highlighted file's directory; with nothing highlighted, the current directory.";
+    QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks; in a window of its own, start a shell there.";
+    Quit "quit" Finish "Quit without choosing: back where you started (roam), printing nothing (pick, seek), or cancelling the dialog (explorer).";
+    Cancel "cancel" Finish "Cancel: quit printing nothing; while an operation runs, stop it instead.";
+    ToggleMark "toggle_mark" Marks "Toggle the highlighted row's mark; in the results, also highlight the next row.";
     MarkAll "mark_all" Marks "Mark every listed row.";
     InvertMarks "invert_marks" Marks "Invert the marks of the listed rows.";
-    MarkedList "marked_list" Marks "Focus the marked list, or leave it.";
-    ReturnMarks "return_marks" Marks "Leave, returning the marked paths.";
-    ClearQuery "clear_query" View "Clear the query; with none, pressed twice, clear every mark.";
-    Shallower "shallower" View "Search one level shallower; the minimum is 1.";
-    Deeper "deeper" View "Search one level deeper.";
-    Depth "depth" View "Search down to depth #.";
-    Hidden "hidden" View "Show or hide hidden entries.";
-    Directories "directories" View "Hide directories, listing only files; again to show them.";
-    Files "files" View "Hide files, listing only directories; again to show them.";
-    Preview "preview" View "Show or hide the preview pane.";
+    ToggleMarkedList "toggle_marked_list" Marks "Toggle between the results and the marked list.";
+    ClearQuery "clear_query" Search "Clear the query; with it already clear, pressed twice, clear every mark.";
+    SearchShallower "search_shallower" Search "Search one level shallower; the minimum is 1.";
+    SearchDeeper "search_deeper" Search "Search one level deeper.";
+    SearchToDepth "search_to_depth" Search "Search down to depth #.";
+    ToggleHidden "toggle_hidden" Search "Toggle hidden entries: shown or not.";
+    ToggleDirectories "toggle_directories" Search "Toggle directories: listed or hidden, leaving only files.";
+    ToggleFiles "toggle_files" Search "Toggle files: listed or hidden, leaving only directories.";
+    EditExclusions "edit_exclusions" Search "Edit this session's exclusions, one glob per line; matching entries and their subtrees are hidden.";
+    ToggleExclusions "toggle_exclusions" Search "Toggle the exclusions: enforced or not.";
+    EditFilters "edit_filters" Search "Edit this session's file filters, one glob per line; only files matching one are listed.";
+    ToggleFilters "toggle_filters" Search "Toggle the file filters: on or off, without a rescan.";
+    Rescan "rescan" Search "Rescan, bypassing the cache.";
+    TogglePreview "toggle_preview" View "Toggle the preview pane: shown or hidden.";
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, keeping the highlight.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, keeping the highlight.";
-    EditExclusions "edit_exclusions" View "Edit this session's exclusions, one glob per line; matching entries and their subtrees are hidden.";
-    EnforceExclusions "enforce_exclusions" View "Turn the exclusions on or off.";
-    EditFilters "edit_filters" View "Edit this session's file filters, one glob per line; only files matching one are listed.";
-    ToggleFilters "toggle_filters" View "Turn the file filters off or back on, without a rescan.";
-    Rescan "rescan" View "Discover again, bypassing the cache.";
-    Move "move" Files "Move the marked paths into the current folder; asks before overwriting.";
-    Copy "copy" Files "Copy the marked paths into the current folder; asks before overwriting.";
-    Link "link" Files "Symlink the marked paths into the current folder.";
-    Delete "delete" Files "Move the current or marked entries to the trash; asks only about very large ones.";
-    DeletePermanently "delete_permanently" Files "Review sizes, then delete the current or marked entries for good.";
-    Rename "rename" Files "Rename the listed results in a buffer.";
+    ShowPalettes "show_palettes" View "Show the palettes, previewing the highlighted one.";
+    ReloadPalette "reload_palette" View "Reload the configured palette, dropping a session choice.";
+    MoveMarked "move_marked" Files "Move the marked paths into the current directory; asks before overwriting.";
+    CopyMarked "copy_marked" Files "Copy the marked paths into the current directory; asks before overwriting.";
+    LinkMarked "link_marked" Files "Link the marked paths into the current directory, as symbolic links.";
+    Trash "trash" Files "Trash the current or marked entries; asks only about very large ones.";
+    Delete "delete" Files "Delete the current or marked entries for good, after reviewing their sizes.";
+    Rename "rename" Files "Rename the listed results, in a buffer.";
     Extract "extract" Files "Extract the current or marked archives; asks when the layout is ambiguous.";
-    New "new" Files "Create a new file or directory here.";
-    Undo "undo" Files "Undo the last file operation; again for the one before.";
-    Restore "restore" Files "In the trash: restore the current or marked entries where they were deleted from.";
-    Quit "quit" Session "Leave without choosing: where you started (roam), printing nothing (pick, seek), or cancelling the dialog (explorer).";
-    QuitCurrent "quit_current" Session "Leave into the current folder, ignoring marks; in a window of its own, start a shell there.";
-    Cancel "cancel" Session "Leave with no output; while an operation runs, stop it instead.";
-    Guide "guide" Session "Open the Keys screen; the same key closes it.";
-    Session "session" Session "Open the Session tab: paths, scopes, policies and configuration errors.";
-    Palette "palette" Session "Choose a palette, previewing the highlighted one.";
-    ReloadPalette "reload_palette" Session "Reload the configured palette, dropping a session choice.";
+    Create "create" Files "Create a new file or directory in the current directory.";
+    Undo "undo" Files "Undo the last file operation; again, the one before.";
+    Restore "restore" Files "Restore the current or marked entries of the trash where they were deleted from.";
+    ShowKeys "show_keys" Session "Show the Keys screen; the same key closes it.";
+    ShowSession "show_session" Session "Show the Session tab: paths, scopes, policies and configuration errors.";
+    ShowBookmarks "show_bookmarks" Session "Show the bookmarks, to go to one or to add, edit, delete and reorder them.";
     EditConfig "edit_config" Session "Edit the configuration in $EDITOR, then apply it.";
 }
 
@@ -717,61 +724,78 @@ impl Function {
         let normal = mode == Mode::Normal;
         let both = |s: Scope| vec![s];
         let only_normal = |s: Scope| if normal { vec![s] } else { vec![] };
-        let only_insert = |s: Scope| if normal { vec![] } else { vec![s] };
         let results = scope(&[], &[Results], &[]);
         let lists = Scope::ALL;
         // Insert mode exists in the results only.
         let lists_or_results = if normal { lists } else { results };
+        let file = [H::File];
         match self {
-            Up | Down => both(lists_or_results),
-            PageUp | PageDown | Shallower | Deeper | Hidden | Preview | ScrollPreviewDown
-            | ScrollPreviewUp | EditExclusions | EnforceExclusions | EditFilters
-            | ToggleFilters | Rescan | Palette | ReloadPalette | OpenRow | EnterRow => {
-                both(results)
-            }
-            First | Last | MarkAll | InvertMarks | OpenHere | Run | RunAndQuit | Edit | Move
-            | Copy | Link | Delete | DeletePermanently | Extract | Undo | Restore | Quit
-            | EditConfig => only_normal(lists),
-            Rename | New | ClearQuery | Depth => only_normal(results),
-            GoParent | GoTo | Bookmarks | Trash | Back | Forward | NextTab | PrevTab => {
+            HighlightPrevious | HighlightNext | ToggleMark | ToggleMarkedList | ShowKeys
+            | ShowSession | Cancel | PrintMarks => both(lists_or_results),
+            HighlightPreviousPage
+            | HighlightNextPage
+            | SearchShallower
+            | SearchDeeper
+            | ToggleHidden
+            | TogglePreview
+            | ScrollPreviewDown
+            | ScrollPreviewUp
+            | EditExclusions
+            | ToggleExclusions
+            | EditFilters
+            | ToggleFilters
+            | Rescan
+            | ShowPalettes
+            | ReloadPalette
+            | OpenRow
+            | ConfirmRow => both(results),
+            HighlightFirst | HighlightLast | MarkAll | InvertMarks | OpenInTerminal | Run
+            | RunAndQuit | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
+            | Extract | Undo | Restore | Quit | EditConfig => only_normal(lists),
+            Rename | Create | ClearQuery | SearchToDepth => only_normal(results),
+            GoToParent | GoToPath | ShowBookmarks | GoToTrash | GoBack | GoForward
+            | GoToNextTab | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
                 both(scope(&NAVIGATE, &[Results], &[]))
             }
-            Directories | Files => both(scope(&NAVIGATE, &[Results], &[])),
-            GoInto if normal => vec![
+            GoToDirectory if normal => vec![
                 scope(&NAVIGATE, &[Results], &[H::Dir]),
                 scope(&[Window], &[Marks], &[H::Dir]),
             ],
-            GoInto => both(scope(&NAVIGATE, &[Results], &[H::Dir])),
+            GoToDirectory => both(scope(&NAVIGATE, &[Results], &[H::Dir])),
+            GoToHighlighted if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
+            GoToHighlighted => both(scope(&NAVIGATE, &[Results], &[H::Dir, H::File])),
+            OpenInBackground => both(scope(&[], &[Results], &file)),
+            OpenAndQuit => only_normal(scope(&[Roam, Window], &[], &file)),
             SaveHere => both(scope(&[ExplorerSave], &[Results], &[])),
-            SaveAs => only_normal(scope(&[ExplorerSave], &[], &[H::File])),
-            ChooseFolder => both(scope(
+            SaveOver => only_normal(scope(&[ExplorerSave], &[], &file)),
+            PrintCurrent => both(scope(
                 &[ExplorerOpen, ExplorerMultiple, ExplorerFolder],
                 &[Results],
                 &[],
             )),
-            ChooseFile if normal => vec![
-                scope(&EXPLORERS[..3], &[], &[H::File]),
+            PrintHighlighted if normal => vec![
+                scope(&[Pick, ExplorerOpen, ExplorerFolder], &[], &file),
+                scope(&[ExplorerMultiple], &[Marks], &file),
                 scope(&EXPLORERS, &[Marks], &[H::Dir]),
             ],
-            ChooseFile => both(scope(&EXPLORERS[..3], &[Results], &[H::File])),
-            PickFile => only_normal(scope(&[Pick], &[], &[H::File])),
-            PickWithMarks => only_insert(scope(&[Pick], &[Results], &[H::File])),
-            QuitIntoFolder => both(scope(&[Seek], &[], &[H::File])),
-            OpenAndQuit => only_normal(scope(&[Roam, Window], &[], &[H::File])),
-            Reveal => only_insert(scope(&[Roam, Window], &[Results], &[H::File])),
-            QuitIntoDir if normal => vec![
+            PrintHighlighted => both(scope(&[ExplorerOpen, ExplorerFolder], &[Results], &file)),
+            PrintHighlightedAndMarks if normal => {
+                vec![scope(&[ExplorerMultiple], &[Results], &file)]
+            }
+            PrintHighlightedAndMarks => vec![
+                scope(&[Pick], &[Results], &file),
+                scope(&[ExplorerMultiple], &[Results], &file),
+            ],
+            QuitIntoHighlighted if normal => vec![
                 scope(&[Roam, Pick], &[], &[H::Dir]),
                 scope(&[Roam, Pick], &[Results], &[H::None]),
+                scope(&[Seek], &[], &file),
             ],
-            QuitIntoDir => both(scope(&[Roam, Pick], &[Results], &[H::None])),
-            OpenBackground => both(scope(&[], &[Results], &[H::File])),
-            GoIntoFolder if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
-            GoIntoFolder => both(scope(&NAVIGATE, &[Results], &[H::Dir, H::File])),
-            Mark | MarkedList | Guide | Session => both(lists_or_results),
-            // Elsewhere it says where it works.
-            ReturnMarks => both(lists_or_results),
-            QuitCurrent => only_normal(scope(&[Roam, Window, Pick, Seek], &[], &[])),
-            Cancel => both(lists_or_results),
+            QuitIntoHighlighted => vec![
+                scope(&[Roam, Pick], &[Results], &[H::None]),
+                scope(&[Seek], &[Results], &file),
+            ],
+            QuitHere => only_normal(scope(&[Roam, Window, Pick, Seek], &[], &[])),
         }
     }
     /// Whether it works in `cell` in `mode`.
@@ -783,69 +807,72 @@ impl Function {
         use Function::*;
         use KeyCode as K;
         match self {
-            Up => key(K::Up, M::NONE),
-            Down => key(K::Down, M::NONE),
-            PageUp => key(K::PageUp, M::NONE),
-            PageDown => key(K::PageDown, M::NONE),
-            First => Exec::JumpEnd(false),
-            Last => Exec::JumpEnd(true),
-            GoParent => alt('h'),
-            GoInto if place == Marks => key(K::Enter, M::NONE),
-            GoInto | OpenBackground => alt('l'),
-            GoTo => alt('g'),
-            Bookmarks => alt('b'),
-            Trash => alt('t'),
-            Back => key(K::Char('o'), M::CONTROL),
-            Forward => key(K::Char('i'), M::CONTROL),
-            NextTab => key(K::Up, M::ALT),
-            PrevTab => key(K::Down, M::ALT),
+            HighlightPrevious => key(K::Up, M::NONE),
+            HighlightNext => key(K::Down, M::NONE),
+            HighlightPreviousPage => key(K::PageUp, M::NONE),
+            HighlightNextPage => key(K::PageDown, M::NONE),
+            HighlightFirst => Exec::JumpEnd(false),
+            HighlightLast => Exec::JumpEnd(true),
+            GoToParent => alt('h'),
+            GoToDirectory if place == Marks => key(K::Enter, M::NONE),
+            GoToDirectory | OpenInBackground => alt('l'),
+            GoToHighlighted => Exec::GoIntoFolder,
+            GoToPath => alt('g'),
+            ShowBookmarks => alt('b'),
+            GoToTrash => alt('t'),
+            GoBack => key(K::Char('o'), M::CONTROL),
+            GoForward => key(K::Char('i'), M::CONTROL),
+            GoToNextTab => key(K::Up, M::ALT),
+            GoToPreviousTab => key(K::Down, M::ALT),
             SaveHere => key(K::Char('s'), M::CONTROL),
-            SaveAs | ChooseFile | PickFile | PickWithMarks | QuitIntoFolder | OpenAndQuit
-            | Reveal | QuitIntoDir => key(K::Enter, M::NONE),
-            ChooseFolder => Exec::Quit(true),
-            GoIntoFolder => Exec::GoIntoFolder,
-            OpenHere => Exec::Operation('o'),
+            SaveOver
+            | PrintHighlighted
+            | PrintHighlightedAndMarks
+            | QuitIntoHighlighted
+            | OpenAndQuit => key(K::Enter, M::NONE),
+            PrintCurrent => Exec::Quit(true),
+            OpenInTerminal => Exec::Operation('o'),
             OpenRow => Exec::Digit(M::ALT),
-            EnterRow => Exec::Digit(M::CONTROL),
+            ConfirmRow => Exec::Digit(M::CONTROL),
             Run => Exec::Run(false),
             RunAndQuit => Exec::Run(true),
-            Edit => Exec::Operation('E'),
-            Mark => key(K::Char(' '), M::SHIFT),
+            EditFiles => Exec::Operation('E'),
+            ToggleMark => key(K::Char(' '), M::SHIFT),
             MarkAll => Exec::MarkRows(false),
             InvertMarks => Exec::MarkRows(true),
-            MarkedList => key(K::Char(' '), M::ALT),
-            ReturnMarks => key(K::Char('w'), M::CONTROL),
+            ToggleMarkedList => key(K::Char(' '), M::ALT),
+            PrintMarks => key(K::Char('w'), M::CONTROL),
             ClearQuery => key(K::Esc, M::NONE),
-            Shallower => key(K::Left, M::ALT),
-            Deeper => key(K::Right, M::ALT),
-            Depth => Exec::Depth,
-            Hidden => alt('.'),
-            Directories => alt('d'),
-            Files => alt('D'),
-            Preview => alt('v'),
+            SearchShallower => key(K::Left, M::ALT),
+            SearchDeeper => key(K::Right, M::ALT),
+            SearchToDepth => Exec::Depth,
+            ToggleHidden => alt('.'),
+            ToggleDirectories => alt('d'),
+            ToggleFiles => alt('D'),
+            TogglePreview => alt('v'),
             ScrollPreviewDown => key(K::Char('j'), M::CONTROL),
             ScrollPreviewUp => key(K::Char('k'), M::CONTROL),
             EditExclusions => alt('e'),
-            EnforceExclusions => alt('H'),
+            ToggleExclusions => alt('H'),
             EditFilters => alt('f'),
             ToggleFilters => alt('F'),
             Rescan => key(K::F(5), M::NONE),
-            Move => Exec::Operation('v'),
-            Copy => Exec::Operation('p'),
-            Link => Exec::Operation('s'),
-            Delete => Exec::Operation('x'),
-            DeletePermanently => Exec::Operation('X'),
+            MoveMarked => Exec::Operation('v'),
+            CopyMarked => Exec::Operation('p'),
+            LinkMarked => Exec::Operation('s'),
+            Trash => Exec::Operation('x'),
+            Delete => Exec::Operation('X'),
             Rename => Exec::Operation('r'),
             Extract => Exec::Operation('e'),
-            New => Exec::Operation('n'),
+            Create => Exec::Operation('n'),
             Undo => Exec::Operation('u'),
             Restore => Exec::Operation('R'),
             Quit => Exec::Quit(false),
-            QuitCurrent => Exec::Quit(true),
+            QuitHere => Exec::Quit(true),
             Cancel => Exec::Cancel,
-            Guide => Exec::Overlay(true),
-            Session => Exec::Overlay(false),
-            Palette => alt('p'),
+            ShowKeys => Exec::Overlay(true),
+            ShowSession => Exec::Overlay(false),
+            ShowPalettes => alt('p'),
             ReloadPalette => alt('P'),
             EditConfig => Exec::EditConfig,
         }
@@ -857,49 +884,50 @@ impl Function {
     pub fn defaults(self, mode: Mode) -> Vec<Binding> {
         use Function::*;
         let all = Scope::ALL;
+        let file = [H::File];
         let insert: &[(&str, Scope)] = match self {
-            Up => &[("<M-k>", all), ("<Up>", all)],
-            Down => &[("<M-j>", all), ("<Down>", all)],
-            PageUp => &[("<PageUp>", all)],
-            PageDown => &[("<PageDown>", all)],
-            GoParent => &[("<M-h>", all)],
-            GoTo => &[("<M-g>", all)],
-            Bookmarks => &[("<M-b>", all)],
-            Trash => &[("<M-t>", all)],
-            Back => &[("<C-o>", all)],
-            Forward => &[("<C-i>", all)],
-            NextTab => &[("<M-Up>", all)],
-            PrevTab => &[("<M-Down>", all)],
-            OpenBackground => &[("<M-l>", all)],
+            HighlightPrevious => &[("<M-k>", all), ("<Up>", all)],
+            HighlightNext => &[("<M-j>", all), ("<Down>", all)],
+            HighlightPreviousPage => &[("<PageUp>", all)],
+            HighlightNextPage => &[("<PageDown>", all)],
+            GoToParent => &[("<M-h>", all)],
+            GoToPath => &[("<M-g>", all)],
+            ShowBookmarks => &[("<M-b>", all)],
+            GoToTrash => &[("<M-t>", all)],
+            GoBack => &[("<C-o>", all)],
+            GoForward => &[("<C-i>", all)],
+            GoToNextTab => &[("<M-Up>", all)],
+            GoToPreviousTab => &[("<M-Down>", all)],
+            OpenInBackground => &[("<M-l>", all)],
             OpenRow => &[("<M-#>", all)],
-            EnterRow => &[("<C-#>", all)],
-            Mark => &[("<S-Space>", all), ("<Tab>", all)],
-            MarkedList => &[("<M-Space>", all)],
-            ReturnMarks => &[("<C-w>", all)],
-            Shallower => &[("<M-Left>", all)],
-            Deeper => &[("<M-Right>", all)],
-            Hidden => &[("<M-.>", all)],
-            Directories => &[("<M-d>", all)],
-            Files => &[("<M-D>", all)],
-            Preview => &[("<M-v>", all)],
+            ConfirmRow => &[("<C-#>", all)],
+            ToggleMark => &[("<S-Space>", all), ("<Tab>", all)],
+            ToggleMarkedList => &[("<M-Space>", all)],
+            PrintMarks => &[("<C-w>", all)],
+            SearchShallower => &[("<M-Left>", all)],
+            SearchDeeper => &[("<M-Right>", all)],
+            ToggleHidden => &[("<M-.>", all)],
+            ToggleDirectories => &[("<M-d>", all)],
+            ToggleFiles => &[("<M-D>", all)],
+            TogglePreview => &[("<M-v>", all)],
             ScrollPreviewDown => &[("<C-j>", all)],
             ScrollPreviewUp => &[("<C-k>", all)],
             EditExclusions => &[("<M-e>", all)],
-            EnforceExclusions => &[("<M-H>", all)],
+            ToggleExclusions => &[("<M-H>", all)],
             EditFilters => &[("<M-f>", all)],
             ToggleFilters => &[("<M-F>", all)],
             Rescan => &[("<F5>", all)],
             Cancel => &[("<C-c>", all)],
-            Guide => &[("<F1>", all)],
-            Session => &[("<F2>", all)],
-            Palette => &[("<M-p>", all)],
+            ShowKeys => &[("<F1>", all)],
+            ShowSession => &[("<F2>", all)],
+            ShowPalettes => &[("<M-p>", all)],
             ReloadPalette => &[("<M-P>", all)],
             _ => &[],
         };
         let enter_insert: &[(&str, Scope)] = match self {
             SaveHere => &[("<CR>", all), ("<C-s>", all)],
-            ChooseFolder => &[("<C-s>", scope(&[ExplorerFolder], &[], &[]))],
-            GoInto => &[
+            PrintCurrent => &[("<C-s>", scope(&[ExplorerFolder], &[], &[]))],
+            GoToDirectory => &[
                 ("<M-l>", all),
                 (
                     "<CR>",
@@ -917,28 +945,29 @@ impl Function {
                     ),
                 ),
             ],
-            ChooseFile | PickWithMarks | QuitIntoFolder | Reveal | QuitIntoDir => &[("<CR>", all)],
+            GoToHighlighted => &[("<CR>", scope(&[Roam, Window], &[], &file))],
+            PrintHighlighted | PrintHighlightedAndMarks | QuitIntoHighlighted => &[("<CR>", all)],
             _ => &[],
         };
         let normal: &[(&str, Scope)] = match self {
-            Up => &[
+            HighlightPrevious => &[
                 ("k", all),
                 ("<M-k>", all),
                 ("<Up>", scope(&[Seek], &[], &[])),
                 ("<Up>", scope(&[], &[Marks], &[])),
             ],
-            Down => &[
+            HighlightNext => &[
                 ("j", all),
                 ("<M-j>", all),
                 ("<Down>", scope(&[Seek], &[], &[])),
                 ("<Down>", scope(&[], &[Marks], &[])),
             ],
-            PageUp => &[("<PageUp>", all)],
-            PageDown => &[("<PageDown>", all)],
-            First => &[("gg", all)],
-            Last => &[("G", all)],
-            GoParent => &[("h", all), ("<M-h>", all)],
-            GoInto => &[
+            HighlightPreviousPage => &[("<PageUp>", all)],
+            HighlightNextPage => &[("<PageDown>", all)],
+            HighlightFirst => &[("gg", all)],
+            HighlightLast => &[("G", all)],
+            GoToParent => &[("h", all), ("<M-h>", all)],
+            GoToDirectory => &[
                 ("l", all),
                 ("<M-l>", all),
                 (
@@ -956,65 +985,67 @@ impl Function {
                     ),
                 ),
             ],
-            GoTo => &[("g/", all)],
-            Bookmarks => &[("b", all)],
-            Trash => &[("gt", all)],
-            Back => &[("<C-o>", all)],
-            Forward => &[("<C-i>", all)],
-            NextTab => &[("<Up>", all), ("<M-Up>", all)],
-            PrevTab => &[("<Down>", all), ("<M-Down>", all)],
+            GoToPath => &[("g/", all)],
+            ShowBookmarks => &[("b", all)],
+            GoToTrash => &[("gt", all)],
+            GoBack => &[("<C-o>", all)],
+            GoForward => &[("<C-i>", all)],
+            GoToNextTab => &[("<Up>", all), ("<M-Up>", all)],
+            GoToPreviousTab => &[("<Down>", all), ("<M-Down>", all)],
             SaveHere => &[("!", all), ("<C-s>", all)],
-            SaveAs | ChooseFile | PickFile | QuitIntoFolder | OpenAndQuit | QuitIntoDir => {
-                &[("<CR>", all)]
-            }
-            ChooseFolder => &[
+            SaveOver
+            | PrintHighlighted
+            | PrintHighlightedAndMarks
+            | QuitIntoHighlighted
+            | OpenAndQuit => &[("<CR>", all)],
+            PrintCurrent => &[
                 ("!", all),
                 ("<C-s>", scope(&[ExplorerFolder], &[], &[])),
                 ("<CR>", scope(&[ExplorerFolder], &[], &[H::None])),
             ],
-            OpenBackground => &[("l", all), ("<M-l>", all)],
-            OpenHere => &[("o", all)],
+            OpenInBackground => &[("l", all), ("<M-l>", all)],
+            OpenInTerminal => &[("o", all)],
             OpenRow => &[("<M-#>", all)],
-            EnterRow => &[("<C-#>", all)],
+            ConfirmRow => &[("<C-#>", all)],
             Run => &[("gx", all)],
             RunAndQuit => &[("gX", all)],
-            Edit => &[("e", all)],
-            Mark => &[("<Space>", all), ("<S-Space>", all)],
+            EditFiles => &[("e", all)],
+            ToggleMark => &[("<Space>", all), ("<S-Space>", all)],
             MarkAll => &[("m", all)],
             InvertMarks => &[("M", all)],
-            MarkedList => &[("<M-Space>", all), ("<Esc>", scope(&[], &[Marks], &[]))],
-            ReturnMarks => &[("<C-w>", all)],
+            ToggleMarkedList => &[("<M-Space>", all), ("<Esc>", scope(&[], &[Marks], &[]))],
+            PrintMarks => &[("<C-w>", all)],
             ClearQuery => &[("<Esc>", all)],
-            Shallower => &[("-", all), ("<M-Left>", all)],
-            Deeper => &[("+", all), ("<M-Right>", all)],
-            Depth => &[("<#>", all)],
-            Hidden => &[(".", all)],
-            Directories => &[("d", all)],
-            Files => &[("D", all)],
-            Preview => &[("P", all)],
+            SearchShallower => &[("-", all), ("<M-Left>", all)],
+            SearchDeeper => &[("+", all), ("<M-Right>", all)],
+            SearchToDepth => &[("<#>", all)],
+            ToggleHidden => &[(".", all)],
+            ToggleDirectories => &[("d", all)],
+            ToggleFiles => &[("D", all)],
+            TogglePreview => &[("P", all)],
             ScrollPreviewDown => &[("<C-j>", all)],
             ScrollPreviewUp => &[("<C-k>", all)],
             EditExclusions => &[("gE", all)],
-            EnforceExclusions => &[("ge", all)],
+            ToggleExclusions => &[("ge", all)],
             EditFilters => &[("gF", all)],
             ToggleFilters => &[("gf", all)],
             Rescan => &[("<F5>", all)],
-            Move => &[("v", all)],
-            Copy => &[("p", all)],
-            Link => &[("s", all)],
-            Delete => &[("x", all)],
-            DeletePermanently => &[("X", all)],
+            MoveMarked => &[("v", all)],
+            CopyMarked => &[("p", all)],
+            LinkMarked => &[("s", all)],
+            Trash => &[("x", all)],
+            Delete => &[("X", all)],
             Rename => &[("r", all)],
             Extract => &[("E", all)],
-            New => &[("n", all)],
+            Create => &[("n", all)],
             Undo => &[("u", all)],
             Restore => &[("R", all)],
             Quit => &[("q", all)],
-            QuitCurrent => &[("!", all)],
+            QuitHere => &[("!", all)],
             Cancel => &[("<C-c>", all)],
-            Guide => &[("<F1>", all)],
-            Session => &[("<F2>", all)],
-            Palette => &[("gp", all)],
+            ShowKeys => &[("<F1>", all)],
+            ShowSession => &[("<F2>", all)],
+            ShowPalettes => &[("gp", all)],
             ReloadPalette => &[("gP", all)],
             EditConfig => &[("gc", all)],
             _ => &[],
@@ -1072,7 +1103,7 @@ pub const FIXED: &[(&str, &str, &str)] = &[
     (
         "n e d r",
         "bookmarks",
-        "New, edit, delete or reload bookmarks (Normal mode; with Alt while typing).",
+        "New, edit, delete or reload bookmarks (Normal mode; with Alt in Insert mode).",
     ),
     (
         "Alt+0–9",
@@ -1088,7 +1119,7 @@ pub const FIXED: &[(&str, &str, &str)] = &[
     (
         "double click",
         "mouse",
-        "Act like go_into / open_background on the row (in explorer, like Enter).",
+        "Open the row, as open_row would (in explorer, confirm it, as Enter would).",
     ),
     ("drag", "mouse", "Mark the rows it spans."),
     ("wheel", "mouse", "Scroll the results."),
@@ -1368,10 +1399,10 @@ impl Keymap {
                 if !self
                     .bindings
                     .iter()
-                    .any(|b| b.function == Function::MarkedList && b.applies(cell))
+                    .any(|b| b.function == Function::ToggleMarkedList && b.applies(cell))
                 {
                     return Err(format!(
-                        "nothing would leave the marked list in {}; marked_list needs a key there",
+                        "nothing would leave the marked list in {}; toggle_marked_list needs a key there",
                         cell.describe()
                     ));
                 }
@@ -1387,9 +1418,9 @@ impl Keymap {
                         .iter()
                         .any(|b| b.function == f && modes.contains(&b.mode) && b.applies(cell))
                 };
-                if !bound(Function::Guide, &Mode::ALL) {
+                if !bound(Function::ShowKeys, &Mode::ALL) {
                     return Err(format!(
-                        "nothing would open the Keys screen in {}; guide needs a key there",
+                        "nothing would open the Keys screen in {}; show_keys needs a key there",
                         cell.describe()
                     ));
                 }
@@ -1701,34 +1732,49 @@ mod tests {
         let enter = KeyEvent::new(KeyCode::Enter, M::NONE);
         let normal =
             |program, highlight| run(&keymap, Mode::Normal, cell(program, highlight), &[enter]);
-        assert_eq!(normal(Roam, H::Dir), Step::Run(Function::QuitIntoDir, None));
-        assert_eq!(normal(Window, H::Dir), Step::Run(Function::GoInto, None));
+        assert_eq!(
+            normal(Roam, H::Dir),
+            Step::Run(Function::QuitIntoHighlighted, None)
+        );
+        assert_eq!(
+            normal(Window, H::Dir),
+            Step::Run(Function::GoToDirectory, None)
+        );
         assert_eq!(
             normal(Roam, H::File),
             Step::Run(Function::OpenAndQuit, None)
         );
-        assert_eq!(normal(Pick, H::File), Step::Run(Function::PickFile, None));
+        assert_eq!(
+            normal(Pick, H::File),
+            Step::Run(Function::PrintHighlighted, None)
+        );
         assert_eq!(
             normal(Seek, H::File),
-            Step::Run(Function::QuitIntoFolder, None)
+            Step::Run(Function::QuitIntoHighlighted, None)
         );
         assert_eq!(
             normal(ExplorerSave, H::File),
-            Step::Run(Function::SaveAs, None)
+            Step::Run(Function::SaveOver, None)
         );
         assert_eq!(normal(Window, H::None), Step::Pass);
         let insert =
             |program, highlight| run(&keymap, Mode::Insert, cell(program, highlight), &[enter]);
-        assert_eq!(insert(Roam, H::File), Step::Run(Function::Reveal, None));
+        assert_eq!(
+            insert(Roam, H::File),
+            Step::Run(Function::GoToHighlighted, None)
+        );
         assert_eq!(
             insert(Pick, H::File),
-            Step::Run(Function::PickWithMarks, None)
+            Step::Run(Function::PrintHighlightedAndMarks, None)
         );
         assert_eq!(
             insert(ExplorerSave, H::Dir),
             Step::Run(Function::SaveHere, None)
         );
-        assert_eq!(insert(Roam, H::Dir), Step::Run(Function::GoInto, None));
+        assert_eq!(
+            insert(Roam, H::Dir),
+            Step::Run(Function::GoToDirectory, None)
+        );
     }
     #[test]
     fn sequences_wait_and_flush_and_digits_carry() {
@@ -1741,7 +1787,7 @@ mod tests {
         );
         assert_eq!(
             keymap.feed(&mut pending, Mode::Normal, here, press('g')),
-            Step::Run(Function::First, None)
+            Step::Run(Function::HighlightFirst, None)
         );
         assert_eq!(
             keymap.feed(&mut pending, Mode::Normal, here, press('g')),
@@ -1753,13 +1799,13 @@ mod tests {
         );
         assert_eq!(
             run(&keymap, Mode::Normal, here, &[press('3')]),
-            Step::Run(Function::Depth, Some(3))
+            Step::Run(Function::SearchToDepth, Some(3))
         );
         assert_eq!(run(&keymap, Mode::Normal, here, &[press('0')]), Step::Pass);
         let ctrl = KeyEvent::new(KeyCode::Char('0'), M::CONTROL);
         assert_eq!(
             run(&keymap, Mode::Insert, here, &[ctrl]),
-            Step::Run(Function::EnterRow, Some(0))
+            Step::Run(Function::ConfirmRow, Some(0))
         );
         // Navigation is off in seek: d reaches Neovim there.
         assert_eq!(
@@ -1768,7 +1814,7 @@ mod tests {
         );
         assert_eq!(
             run(&keymap, Mode::Normal, here, &[press('d')]),
-            Step::Run(Function::Directories, None)
+            Step::Run(Function::ToggleDirectories, None)
         );
         // Typing is text.
         assert_eq!(run(&keymap, Mode::Insert, here, &[press('q')]), Step::Pass);
@@ -1776,35 +1822,40 @@ mod tests {
     #[test]
     fn keys_toml_replaces_scopes_and_refuses_clashes_and_lockouts() {
         let keymap = Keymap::parse(
-            "[normal]\ngo_into = ['l', { keys = '<CR>', program = ['roam'], highlight = ['dir'] }]\nquit = 'Q'\n",
+            "[normal]\ngo_to_directory = ['l', { keys = '<CR>', program = ['roam'], highlight = ['dir'] }]\nquit = 'Q'\n",
         )
         .unwrap();
         let enter = KeyEvent::new(KeyCode::Enter, M::NONE);
         // The custom <CR> takes roam's directories from quit_into_dir.
         assert_eq!(
             run(&keymap, Mode::Normal, cell(Roam, H::Dir), &[enter]),
-            Step::Run(Function::GoInto, None)
+            Step::Run(Function::GoToDirectory, None)
         );
         assert_eq!(
             run(&keymap, Mode::Normal, cell(Roam, H::File), &[press('q')]),
             Step::Pass
         );
         // Two custom bindings may not share a key where both apply.
-        assert!(Keymap::parse("[normal]\nquit = 'Q'\nhidden = 'Q'\n").is_err());
+        assert!(Keymap::parse("[normal]\nquit = 'Q'\ntoggle_hidden = 'Q'\n").is_err());
         // Nor can the Keys screen or every way out go.
-        assert!(Keymap::parse("[insert]\nguide = 'none'\n[normal]\nguide = 'none'\n").is_err());
+        assert!(
+            Keymap::parse("[insert]\nshow_keys = 'none'\n[normal]\nshow_keys = 'none'\n").is_err()
+        );
         assert!(
             Keymap::parse("[insert]\ncancel = 'none'\n[normal]\ncancel = 'none'\nquit = 'none'\n")
                 .is_err()
         );
         assert!(Keymap::parse("[insert]\ncancel = 'none'\n[normal]\ncancel = 'none'\n").is_ok());
-        assert!(Keymap::parse("[normal]\nmarked_list = 'none'\n").is_err());
+        assert!(Keymap::parse("[normal]\ntoggle_marked_list = 'none'\n").is_err());
         // Typing and the way into Insert mode stay.
         assert!(Keymap::parse("[insert]\nquit = 'q'\n").is_err());
-        assert!(Keymap::parse("[normal]\nhidden = 'i'\n").is_err());
-        assert!(Keymap::parse("[insert]\nhidden = '<Esc>'\n").is_err());
+        assert!(Keymap::parse("[normal]\ntoggle_hidden = 'i'\n").is_err());
+        assert!(Keymap::parse("[insert]\ntoggle_hidden = '<Esc>'\n").is_err());
         assert!(Keymap::parse("[normal]\nnope = 'x'\n").is_err());
-        assert!(Keymap::parse("[normal]\ngo_into = { keys = 'L', program = ['seek'] }\n").is_err());
+        assert!(
+            Keymap::parse("[normal]\ngo_to_directory = { keys = 'L', program = ['seek'] }\n")
+                .is_err()
+        );
     }
     #[test]
     fn saving_writes_only_what_differs() {
@@ -1815,10 +1866,10 @@ mod tests {
         let ours = parse("<M-x>").unwrap();
         let next = keymap
             .with(
-                Function::Hidden,
+                Function::ToggleHidden,
                 Mode::Insert,
                 vec![Binding {
-                    function: Function::Hidden,
+                    function: Function::ToggleHidden,
                     mode: Mode::Insert,
                     keys: ours,
                     scope: Scope::of(&[Roam], &[], &[]),
@@ -1830,9 +1881,13 @@ mod tests {
         assert!(text.contains("hidden"), "{text}");
         assert!(text.contains("roam"), "{text}");
         let again = Keymap::load(&path).unwrap();
-        assert_eq!(again.of(Function::Hidden, Mode::Insert).len(), 1);
+        assert_eq!(again.of(Function::ToggleHidden, Mode::Insert).len(), 1);
         // Back to the defaults, the entry goes.
-        again.reset(Function::Hidden).unwrap().save(&path).unwrap();
+        again
+            .reset(Function::ToggleHidden)
+            .unwrap()
+            .save(&path)
+            .unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("hidden"));
         let _ = std::fs::remove_dir_all(&dir);
     }

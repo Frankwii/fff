@@ -152,7 +152,7 @@ pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
     if !app.returns_marks() {
         app.status = format!(
             "{} returns the marks only where several paths can be chosen, as in fff pick",
-            app.bound_or_none(Function::ReturnMarks)
+            app.bound_or_none(Function::PrintMarks)
         );
         return None;
     }
@@ -178,7 +178,7 @@ pub(super) fn save_as(app: &mut App, focus: &mut Focus, target: PathBuf) -> Opti
             app.status = format!(
                 "{} is a folder; {} goes into it",
                 target.file_name().unwrap_or_default().to_string_lossy(),
-                app.bound_or_none(Function::GoInto)
+                app.bound_or_none(Function::GoToDirectory)
             );
             None
         }
@@ -205,7 +205,10 @@ pub(super) fn open_here(
 ) -> io::Result<()> {
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
-        app.status = match (app.bound(Function::OpenHere), app.bound(Function::GoInto)) {
+        app.status = match (
+            app.bound(Function::OpenInTerminal),
+            app.bound(Function::GoToDirectory),
+        ) {
             (Some(open), Some(enter)) => {
                 format!("{open} opens files, not directories like {name}; {enter} enters it")
             }
@@ -403,7 +406,7 @@ pub(super) fn bookmark_error(app: &App, error: String) -> String {
         return error;
     }
     match app.key("alt+r") {
-        Some(alt) => format!("{error} (r, or {alt} while typing)"),
+        Some(alt) => format!("{error} (r, or {alt} in Insert mode)"),
         None => format!("{error} (r in Normal mode)"),
     }
 }

@@ -362,7 +362,7 @@ text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#runn
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
 Insert mode; in Normal-mode results 1–9 set the search depth
-(binding `depth` to nothing makes them Vim counts again). Keys are case-sensitive.
+(binding `search_to_depth` to nothing makes them Vim counts again). Keys are case-sensitive.
 Ctrl+digits require distinct terminal reporting; fff requests the Kitty
 keyboard protocol and never guesses ambiguous input. Alt+digits also support
 ESC+digit reporting. Every key is rebound on the [Keys screen](docs/CONFIGURATION.md#keys)

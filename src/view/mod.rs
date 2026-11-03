@@ -511,7 +511,7 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     second.extend(fit_spans(
         pinned,
         width.saturating_sub(4),
-        app.bound(crate::keymap::Function::Session).as_deref(),
+        app.bound(crate::keymap::Function::ShowSession).as_deref(),
     ));
     vec![Line::from(first), Line::from(second)]
 }

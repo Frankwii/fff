@@ -50,14 +50,17 @@ pub(crate) struct Editor {
 }
 pub(crate) enum EditStep {
     Browse,
-    /// `a`: which mode the new key is for.
-    ChooseMode,
+    /// `a`: which mode the new key is for, Insert (0) or Normal (1).
+    ChooseMode {
+        index: usize,
+    },
     /// The keys of a new binding, as pressed.
     Capture {
         mode: Mode,
         keys: Vec<Key>,
     },
-    /// Where a key applies: a row per dimension, a column per value.
+    /// Where a key applies: a column per dimension, a row per value; the
+    /// cursor is on value `row` of dimension `column`.
     Scope {
         draft: Binding,
         /// The binding it replaces.
@@ -265,11 +268,22 @@ impl Editor {
             .collect()
     }
 }
-/// A function's keys, Insert mode first.
+/// A function's keys, Insert mode first, each key's places together.
 pub(crate) fn binding_rows(keymap: &Keymap, function: Function) -> Vec<Binding> {
     Mode::ALL
         .into_iter()
-        .flat_map(|m| keymap.of(function, m).into_iter().cloned())
+        .flat_map(|m| {
+            let mut rows: Vec<Binding> = keymap.of(function, m).into_iter().cloned().collect();
+            // Stable: a key keeps its first place's position.
+            let order: Vec<Vec<Key>> = rows.iter().fold(Vec::new(), |mut order, b| {
+                if !order.contains(&b.keys) {
+                    order.push(b.keys.clone());
+                }
+                order
+            });
+            rows.sort_by_key(|b| order.iter().position(|k| *k == b.keys));
+            rows
+        })
         .collect()
 }
 /// Functions whose key is a digit family: a digit pressed for them stands
@@ -277,7 +291,7 @@ pub(crate) fn binding_rows(keymap: &Keymap, function: Function) -> Vec<Binding> 
 fn takes_digits(function: Function) -> bool {
     matches!(
         function,
-        Function::Depth | Function::OpenRow | Function::EnterRow
+        Function::SearchToDepth | Function::OpenRow | Function::ConfirmRow
     )
 }
 
@@ -295,7 +309,7 @@ impl Session {
         let press = Key::press(key);
         let guide = Mode::ALL.into_iter().any(|m| {
             app.keymap
-                .of(Function::Guide, m)
+                .of(Function::ShowKeys, m)
                 .iter()
                 .any(|b| b.keys.len() == 1 && b.keys[0] == press)
         });
@@ -353,7 +367,11 @@ impl Session {
             screen.index = 0;
             return Ok(None);
         }
-        if key.code == K::Enter {
+        // Enter, or Space where it is not typed, goes a level deeper.
+        let space = key.code == K::Char(' ')
+            && key.modifiers.is_empty()
+            && (app.mode() == Mode::Normal || !matches!(screen.search, Search::Text));
+        if key.code == K::Enter || space {
             let rows = screen.listed(&app.keymap);
             let (function, row) = match rows.get(screen.index) {
                 Some(Listed::Function(f)) => (*f, 0),
@@ -422,21 +440,21 @@ impl Session {
         let last = screen.listed(&app.keymap).len().saturating_sub(1);
         let index = &mut screen.index;
         match function {
-            Function::Up => *index = index.saturating_sub(1),
-            Function::Down => *index = (*index + 1).min(last),
-            Function::PageUp => *index = index.saturating_sub(page),
-            Function::PageDown => *index = (*index + page).min(last),
-            Function::First => *index = 0,
-            Function::Last => *index = last,
+            Function::HighlightPrevious => *index = index.saturating_sub(1),
+            Function::HighlightNext => *index = (*index + 1).min(last),
+            Function::HighlightPreviousPage => *index = index.saturating_sub(page),
+            Function::HighlightNextPage => *index = (*index + page).min(last),
+            Function::HighlightFirst => *index = 0,
+            Function::HighlightLast => *index = last,
             Function::ClearQuery => {
                 screen.query.clear();
                 screen.search = Search::Text;
                 *index = 0;
             }
-            Function::Session => self.focus = Focus::Info { offset: 0 },
+            Function::ShowSession => self.focus = Focus::Info { offset: 0 },
             Function::Cancel => return Some(Finish::Cancelled),
             Function::Quit => return self.quit(app, false),
-            Function::QuitCurrent => return self.quit(app, true),
+            Function::QuitHere => return self.quit(app, true),
             other => {
                 app.status = format!(
                     "{} ({}) does nothing on the Keys screen",
@@ -477,10 +495,11 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                         mode,
                         keys: Vec::new(),
                     },
-                    _ => EditStep::ChooseMode,
+                    _ => EditStep::ChooseMode { index: 0 },
                 };
             }
-            K::Char('s') => {
+            // Space goes a level deeper: where the key applies.
+            K::Char(' ') => {
                 if let Some(binding) = rows.get(editor.index) {
                     editor.message = None;
                     editor.step = EditStep::Scope {
@@ -506,20 +525,16 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
             }
             _ => {}
         },
-        EditStep::ChooseMode => match key.code {
-            K::Char('i') => {
-                editor.step = EditStep::Capture {
-                    mode: Mode::Insert,
-                    keys: Vec::new(),
-                }
-            }
-            K::Char('n') => {
-                editor.step = EditStep::Capture {
-                    mode: Mode::Normal,
-                    keys: Vec::new(),
-                }
-            }
+        EditStep::ChooseMode { index } => match key.code {
             K::Esc => editor.step = EditStep::Browse,
+            _ if up => *index = 0,
+            _ if down => *index = 1,
+            K::Char(' ') | K::Enter => {
+                editor.step = EditStep::Capture {
+                    mode: Mode::ALL[*index],
+                    keys: Vec::new(),
+                }
+            }
             _ => {}
         },
         // The first key may be any key; after it, Enter finishes,
@@ -568,19 +583,19 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
             let right = key.code == K::Right || (plain && key.code == K::Char('l'));
             match key.code {
                 K::Esc => editor.step = EditStep::Browse,
-                _ if up => {
-                    *row = row.saturating_sub(1);
-                    *column = (*column).min(dims[*row].1.len() - 1);
+                _ if up => *row = row.saturating_sub(1),
+                _ if down => *row = (*row + 1).min(dims[*column].1.len() - 1),
+                _ if left => {
+                    *column = column.saturating_sub(1);
+                    *row = (*row).min(dims[*column].1.len() - 1);
                 }
-                _ if down => {
-                    *row = (*row + 1).min(dims.len() - 1);
-                    *column = (*column).min(dims[*row].1.len() - 1);
+                _ if right => {
+                    *column = (*column + 1).min(dims.len() - 1);
+                    *row = (*row).min(dims[*column].1.len() - 1);
                 }
-                _ if left => *column = column.saturating_sub(1),
-                _ if right => *column = (*column + 1).min(dims[*row].1.len() - 1),
                 K::Char(' ') => {
-                    let bit = dims[*row].1[*column].1;
-                    let set = bits(&mut draft.scope, *row);
+                    let bit = dims[*column].1[*row].1;
+                    let set = bits(&mut draft.scope, *column);
                     // A dimension keeps at least one value.
                     if *set & !bit != 0 || *set & bit == 0 {
                         *set ^= bit;

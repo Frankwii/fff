@@ -27,14 +27,14 @@ pub(super) fn marks_pane(
                 Line::from(""),
                 Line::from(styled("Collect paths as you browse.", theme.muted)),
                 Line::from(styled(
-                    app.bound(crate::keymap::Function::Mark)
+                    app.bound(crate::keymap::Function::ToggleMark)
                         .map(|key| format!("{key} marks the highlighted entry."))
                         .unwrap_or_default(),
                     theme.muted,
                 )),
                 Line::from(""),
                 Line::from(styled(
-                    match app.bound(crate::keymap::Function::ReturnMarks) {
+                    match app.bound(crate::keymap::Function::PrintMarks) {
                         Some(key) if app.returns_marks() => format!("{key} returns your marks."),
                         _ => "File operations act on them.".into(),
                     },

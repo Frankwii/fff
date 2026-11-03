@@ -1351,9 +1351,10 @@ fn keys_screen(app: &App) -> Box<crate::ui::KeysScreen> {
 #[test]
 fn the_keys_screen_lists_what_works_here_with_its_keys() {
     let mut app = fixture();
-    app.keymap =
-        crate::keymap::Keymap::parse("[normal]\ndown = ['j', '<Space>j']\nmark = 'none'\n")
-            .unwrap();
+    app.keymap = crate::keymap::Keymap::parse(
+        "[normal]\nhighlight_next = ['j', '<Space>j']\ntoggle_mark = 'none'\n",
+    )
+    .unwrap();
     let mut focus = Focus::Keys(keys_screen(&app));
     let mut terminal = Terminal::new(TestBackend::new(140, 46)).unwrap();
     terminal
@@ -1374,8 +1375,8 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
             .unwrap_or_else(|| panic!("{name}: {screen}"))
             .to_string()
     };
-    assert!(row("down").contains("j  Space j"), "{screen}");
-    assert!(row("up").contains("Alt+k"), "{screen}");
+    assert!(row("highlight_next").contains("j  Space j"), "{screen}");
+    assert!(row("highlight_previous").contains("Alt+k"), "{screen}");
     // The first row is described below the list.
     assert!(screen.contains("Highlight the previous row."), "{screen}");
     // Only what works here: no dialog answers in fff roam.
@@ -1404,7 +1405,7 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(
-        screen.contains("quit_into_dir") && screen.contains("open_and_quit"),
+        screen.contains("quit_into_highlighted") && screen.contains("open_and_quit"),
         "{screen}"
     );
 }
@@ -1764,7 +1765,7 @@ fn a_taken_place_offers_to_overwrite_keep_both_or_cancel() {
 fn rebound_keys_are_shown_as_bound() {
     let mut app = fixture();
     app.keymap = crate::keymap::Keymap::parse(
-        "[insert]\nguide = '<C-g>'\n[normal]\nguide = '<C-g>'\nquit = 'Q'\ntrash = 'T'\n",
+        "[insert]\nshow_keys = '<C-g>'\n[normal]\nshow_keys = '<C-g>'\nquit = 'Q'\ngo_to_trash = 'T'\n",
     )
     .unwrap();
     // The footer points to the Keys screen and says how to leave, as bound.
@@ -1780,7 +1781,7 @@ fn rebound_keys_are_shown_as_bound() {
     assert!(screen.contains("Ctrl+g close"), "{screen}");
     let line = screen
         .lines()
-        .find(|l| l.contains(" trash ") && l.contains('•'))
+        .find(|l| l.contains(" go_to_trash ") && l.contains('•'))
         .unwrap_or_else(|| panic!("{screen}"));
     assert!(line.contains("Alt+t") && line.contains(" T "), "{screen}");
 }

@@ -54,7 +54,7 @@ fn works(function: Function, mode: Mode) -> Option<String> {
 }
 fn mode_name(mode: Mode) -> &'static str {
     match mode {
-        Mode::Insert => "while typing",
+        Mode::Insert => "Insert mode",
         Mode::Normal => "Normal mode",
     }
 }
@@ -92,7 +92,7 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
         hints.push(bold(key, theme.accent));
         hints.push(styled(format!(" {what}    "), theme.muted));
     };
-    hint("Enter".into(), "edit its keys");
+    hint("Space".into(), "(Normal mode) or Enter: edit its keys");
     match screen.search {
         Search::Text => hint("Tab".into(), "search by pressing keys"),
         Search::Capturing(_) => hint("Tab".into(), "stop recording"),
@@ -106,7 +106,7 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
             "every function"
         },
     );
-    if let Some(close) = app.bound(Function::Guide) {
+    if let Some(close) = app.bound(Function::ShowKeys) {
         hint(close, "close");
     }
     frame.render_widget(Paragraph::new(Line::from(hints)), layout[1]);
@@ -114,7 +114,7 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
     let (list, details) = if main.width >= 100 {
         let columns = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
             .spacing(1)
             .split(main);
         (columns[0], columns[1])
@@ -237,15 +237,15 @@ fn list_pane(
         &[
             ("KEY", 14),
             ("MODE", 14),
-            ("FUNCTION", 22),
+            ("FUNCTION", 30),
             ("APPLIES IN", 0),
         ]
     } else {
         &[
-            ("FUNCTION", 22),
-            ("WHILE TYPING", 17),
+            ("FUNCTION", 30),
+            ("INSERT MODE", 17),
             ("NORMAL MODE", 17),
-            ("WHAT IT DOES", 0),
+            ("DESCRIPTION", 0),
         ]
     };
     let mut used = 0;
@@ -317,7 +317,7 @@ fn row_line(app: &App, screen: &KeysScreen, row: &Listed, width: usize) -> Line<
         Listed::Function(f) => {
             let changed = Mode::ALL.into_iter().any(|m| app.keymap.is_custom(*f, m));
             Line::from(vec![
-                bold(cell(f.name(), 20), theme.text),
+                bold(cell(f.name(), 28), theme.text),
                 bold(if changed { "• " } else { "  " }, theme.marked),
                 bold(
                     cell(&keys_of(app, screen, *f, Mode::Insert), 17),
@@ -328,7 +328,7 @@ fn row_line(app: &App, screen: &KeysScreen, row: &Listed, width: usize) -> Line<
                     theme.accent,
                 ),
                 styled(
-                    truncate(f.description(), width.saturating_sub(56)),
+                    truncate(f.description(), width.saturating_sub(64)),
                     theme.muted,
                 ),
             ])
@@ -336,10 +336,10 @@ fn row_line(app: &App, screen: &KeysScreen, row: &Listed, width: usize) -> Line<
         Listed::Fixed(i) => {
             let (keys, place, what) = FIXED[*i];
             Line::from(vec![
-                styled(cell("fixed key", 22), theme.muted),
+                styled(cell("fixed key", 30), theme.muted),
                 bold(cell(keys, 34), theme.accent),
                 styled(
-                    truncate(&format!("{place}: {what}"), width.saturating_sub(56)),
+                    truncate(&format!("{place}: {what}"), width.saturating_sub(64)),
                     theme.muted,
                 ),
             ])
@@ -350,8 +350,8 @@ fn row_line(app: &App, screen: &KeysScreen, row: &Listed, width: usize) -> Line<
             Line::from(vec![
                 bold(cell(&b.display(), 14), dim(theme.accent)),
                 styled(cell(mode_name(b.mode), 14), dim(theme.text)),
-                bold(cell(b.function.name(), 22), dim(theme.text)),
-                styled(truncate(&applies(b), width.saturating_sub(50)), theme.muted),
+                bold(cell(b.function.name(), 30), dim(theme.text)),
+                styled(truncate(&applies(b), width.saturating_sub(58)), theme.muted),
             ])
         }
     }
@@ -466,7 +466,7 @@ fn keys_footer(frame: &mut Frame, area: Rect, app: &App, rows: usize) {
         styled(format!(" {}", safe(&app.status)), theme.error)
     };
     let mut help = Vec::new();
-    if let Some(key) = app.bound(Function::Guide) {
+    if let Some(key) = app.bound(Function::ShowKeys) {
         help.push(bold(key, theme.accent));
         help.push(styled(" close ", theme.muted));
     }
@@ -480,28 +480,39 @@ fn keys_footer(frame: &mut Frame, area: Rect, app: &App, rows: usize) {
 }
 
 fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, editor: &Editor) {
+    if let EditStep::Scope {
+        draft,
+        replaces,
+        row,
+        column,
+    } = &editor.step
+    {
+        where_sheet(
+            frame,
+            main,
+            app,
+            editor,
+            draft,
+            replaces.as_ref(),
+            (*column, *row),
+        );
+        return;
+    }
     let theme = app.palette;
     let function = editor.function;
     let width = main.width.saturating_sub(4) as usize;
     let rows = editor.rows();
     let changed = editor.changed(&app.keymap);
     let keys: &[(&str, &str)] = match editor.step {
-        EditStep::Browse => &[
-            ("enter", "Save"),
-            ("esc", "Discard"),
+        EditStep::ChooseMode { .. } => &[("space", "Choose"), ("esc", "Back")],
+        EditStep::Capture { .. } => &[("enter", "Add"), ("backspace", "Undo key"), ("esc", "Back")],
+        _ => &[
+            ("space", "Where it applies"),
             ("a", "Add"),
-            ("s", "Where"),
             ("d", "Delete"),
             ("R", "Defaults"),
-        ],
-        EditStep::ChooseMode => &[("i", "Typing"), ("n", "Normal mode"), ("esc", "Back")],
-        EditStep::Capture { .. } => &[("enter", "Add"), ("backspace", "Undo key"), ("esc", "Back")],
-        EditStep::Scope { .. } => &[
-            ("space", "Toggle"),
-            ("enter", "Done"),
-            ("u", "Only where free"),
-            ("t", "Take"),
-            ("esc", "Back"),
+            ("enter", "Save"),
+            ("esc", "Discard"),
         ],
     };
     let mut body: Vec<Line<'static>> = prose(theme, theme.accent, function.description(), width);
@@ -517,13 +528,22 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
     for (i, b) in rows.iter().enumerate() {
         let selected = browsing && i == editor.index;
         let here = screen.applies_here(b);
+        // A key's further places read as alternatives: "or".
+        let again = i > 0 && rows[i - 1].keys == b.keys && rows[i - 1].mode == b.mode;
         let mut line = Line::from(vec![
             bold(if selected { "› " } else { "  " }, theme.marked),
-            bold(
-                cell(&b.display(), 16),
-                if here { theme.accent } else { theme.muted },
+            if again {
+                styled(cell("  or", 16), theme.muted)
+            } else {
+                bold(
+                    cell(&b.display(), 16),
+                    if here { theme.accent } else { theme.muted },
+                )
+            },
+            styled(
+                cell(if again { "" } else { mode_name(b.mode) }, 16),
+                theme.text,
             ),
-            styled(cell(mode_name(b.mode), 16), theme.text),
             styled(truncate(&applies(b), width.saturating_sub(34)), theme.muted),
         ]);
         if selected {
@@ -533,14 +553,19 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
     }
     body.push(Line::default());
     match &editor.step {
-        EditStep::Browse => {}
-        EditStep::ChooseMode => body.push(Line::from(vec![
-            styled("A new key ", theme.text),
-            bold("i", theme.accent),
-            styled(" while typing (Insert mode), or ", theme.text),
-            bold("n", theme.accent),
-            styled(" in Normal mode?", theme.text),
-        ])),
+        EditStep::ChooseMode { index } => {
+            body.push(Line::from(styled("A new key, for:", theme.text)));
+            for (i, mode) in Mode::ALL.into_iter().enumerate() {
+                let mut line = Line::from(vec![
+                    bold(if i == *index { "› " } else { "  " }, theme.marked),
+                    styled(mode_name(mode), theme.text),
+                ]);
+                if i == *index {
+                    line = line.style(Style::default().bg(theme.selection));
+                }
+                body.push(line);
+            }
+        }
         EditStep::Capture { mode, keys } => {
             body.push(Line::from(vec![
                 styled(format!("New key, {}:  ", mode_name(*mode)), theme.text),
@@ -556,86 +581,11 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             body.extend(prose(
                 theme,
                 theme.accent,
-                "The first key can be any key. Then *Enter* adds them, *Backspace* takes one back and *Esc* gives up.",
+                "The first key can be any key. Then *Enter* adds them, *Backspace* takes one back and *Esc* gives up. To make a key apply in two separate places, add it again: its rows read *or*.",
                 width,
             ));
         }
-        EditStep::Scope {
-            draft,
-            replaces,
-            row,
-            column,
-        } => {
-            body.push(Line::from(vec![
-                styled("Where ", theme.text),
-                bold(draft.display(), theme.accent),
-                styled(
-                    format!(" ({}) does {}:", mode_name(draft.mode), function.name()),
-                    theme.text,
-                ),
-            ]));
-            let reach = function.available(draft.mode);
-            for (r, (label, values)) in crate::ui::keys::dimensions().into_iter().enumerate() {
-                let mut scope = draft.scope;
-                let set = *crate::ui::keys::bits(&mut scope, r);
-                let mut spans = vec![
-                    bold(if r == *row { "› " } else { "  " }, theme.marked),
-                    styled(format!("{label:<11}"), theme.muted),
-                ];
-                for (c, (name, bit)) in values.into_iter().enumerate() {
-                    let on = set & bit != 0;
-                    let works = reach.iter().any(|s| {
-                        let mut s = *s;
-                        *crate::ui::keys::bits(&mut s, r) & bit != 0
-                    });
-                    let mut span = match (on, works) {
-                        (true, true) => pill(name, theme.background, theme.accent),
-                        (true, false) => pill(name, theme.background, theme.muted),
-                        (false, true) => styled(format!(" {name} "), theme.text),
-                        (false, false) => styled(format!(" {name} "), theme.muted),
-                    };
-                    if r == *row && c == *column {
-                        span = span.add_modifier(Modifier::UNDERLINED | Modifier::BOLD);
-                    }
-                    spans.push(span);
-                    spans.push(Span::raw(" "));
-                }
-                body.push(Line::from(spans));
-            }
-            body.push(Line::from(vec![
-                styled("  ", theme.muted),
-                pill("highlighted", theme.background, theme.accent),
-                styled(" applies there · ", theme.muted),
-                styled("grey: ", theme.muted),
-                styled(
-                    format!("{} does not work there", function.name()),
-                    theme.muted,
-                ),
-            ]));
-            let clashes = editor.clashes(draft, replaces.as_ref());
-            for (other, at) in clashes.iter().take(3) {
-                body.push(Line::from(styled(
-                    truncate(
-                        &format!(
-                            "{} is {}'s key in {}",
-                            other.display(),
-                            other.function.name(),
-                            places(*at)
-                        ),
-                        width,
-                    ),
-                    theme.error,
-                )));
-            }
-            if !clashes.is_empty() {
-                body.extend(prose(
-                    theme,
-                    theme.accent,
-                    "Narrow where this key applies, or press *u* to keep it only where nothing else has it, or *t* to take it from the others there.",
-                    width,
-                ));
-            }
-        }
+        _ => {}
     }
     if let Some((text, error)) = &editor.message {
         body.push(Line::from(styled(
@@ -643,10 +593,6 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             if *error { theme.error } else { theme.success },
         )));
     }
-    let summary = match &app.keys_path {
-        Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
-        None => "this session only".into(),
-    };
     let inner = sheet(
         frame,
         main,
@@ -660,10 +606,162 @@ fn editor_sheet(frame: &mut Frame, main: Rect, app: &App, screen: &KeysScreen, e
             ),
             accent: theme.marked,
             keys,
-            summary: Some(summary),
+            summary: Some(saves_to(app)),
         },
     );
     // A tall body keeps its end, where the step's prompt is, in view.
     let scroll = (body.len() as u16).saturating_sub(inner.height);
     frame.render_widget(Paragraph::new(body).scroll((scroll, 0)), inner);
+}
+fn saves_to(app: &App) -> String {
+    match &app.keys_path {
+        Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
+        None => "this session only".into(),
+    }
+}
+/// Where one key applies: a checklist per dimension, side by side, and the
+/// clashes left to settle. Its size does not change as you move.
+fn where_sheet(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    editor: &Editor,
+    draft: &Binding,
+    replaces: Option<&Binding>,
+    (column, row): (usize, usize),
+) {
+    let theme = app.palette;
+    let function = editor.function;
+    let width = main.width.saturating_sub(4) as usize;
+    let dims = crate::ui::keys::dimensions();
+    let tallest = dims.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
+    let reach = function.available(draft.mode);
+    let mut body: Vec<Line<'static>> = vec![
+        Line::from(vec![
+            styled("The key ", theme.text),
+            bold(draft.display(), theme.accent),
+            styled(
+                format!(
+                    " does {} in {} wherever all three columns tick:",
+                    function.name(),
+                    mode_name(draft.mode)
+                ),
+                theme.text,
+            ),
+        ]),
+        Line::from(styled(
+            format!("Applies in: {}", places(draft.scope)),
+            theme.muted,
+        )),
+        Line::default(),
+    ];
+    let column_width = (width / 3).max(18);
+    let mut header = Vec::new();
+    for (label, _) in &dims {
+        header.push(heading(
+            theme,
+            cell(&format!("  {}", label.to_uppercase()), column_width),
+        ));
+    }
+    body.push(Line::from(header));
+    for r in 0..tallest {
+        let mut spans = Vec::new();
+        for (c, (_, values)) in dims.iter().enumerate() {
+            let Some((name, bit)) = values.get(r) else {
+                spans.push(Span::raw(" ".repeat(column_width)));
+                continue;
+            };
+            let mut scope = draft.scope;
+            let on = *crate::ui::keys::bits(&mut scope, c) & bit != 0;
+            let works = reach.iter().any(|s| {
+                let mut s = *s;
+                *crate::ui::keys::bits(&mut s, c) & bit != 0
+            });
+            let cursor = c == column && r == row;
+            let color = if works { theme.text } else { theme.muted };
+            let mut style = Style::default().fg(color);
+            if cursor {
+                style = style.bg(theme.selection).add_modifier(Modifier::BOLD);
+            }
+            let text = format!(
+                "{}{} {}",
+                if cursor { "›" } else { " " },
+                if on { "●" } else { "○" },
+                name
+            );
+            spans.push(Span::styled(cell(&text, column_width), style));
+        }
+        body.push(Line::from(spans));
+    }
+    body.push(Line::default());
+    body.push(Line::from(vec![
+        styled("● ticked   ○ not ticked   ", theme.muted),
+        styled(
+            format!("grey: {} does not work there", function.name()),
+            theme.muted,
+        ),
+    ]));
+    let clashes = editor.clashes(draft, replaces);
+    for (other, at) in clashes.iter().take(3) {
+        body.push(Line::from(styled(
+            truncate(
+                &format!(
+                    "{} is already {}'s key {}",
+                    other.display(),
+                    other.function.name(),
+                    match places(*at).as_str() {
+                        "everywhere" => "everywhere".to_string(),
+                        place => format!("in {place}"),
+                    }
+                ),
+                width,
+            ),
+            theme.error,
+        )));
+    }
+    if !clashes.is_empty() {
+        body.extend(prose(
+            theme,
+            theme.accent,
+            "Untick until nothing clashes, or press *u* to keep this key only where nothing else has it, or *t* to take it from the others there.",
+            width,
+        ));
+    }
+    if let Some((text, error)) = &editor.message {
+        body.push(Line::from(styled(
+            truncate(&safe(text), width),
+            if *error { theme.error } else { theme.success },
+        )));
+    }
+    let keys: &[(&str, &str)] = if clashes.is_empty() {
+        &[
+            ("space", "Tick"),
+            ("up down", "Move"),
+            ("enter", "Done"),
+            ("esc", "Back"),
+        ]
+    } else {
+        &[
+            ("space", "Tick"),
+            ("u", "Only where free"),
+            ("t", "Take"),
+            ("enter", "Done"),
+            ("esc", "Back"),
+        ]
+    };
+    // As tall as with three clashes, so the sheet stays put.
+    let height = (tallest + 13) as u16;
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        height,
+        Sheet {
+            title: format!(" Where {} applies ", draft.display()),
+            accent: theme.marked,
+            keys,
+            summary: Some(saves_to(app)),
+        },
+    );
+    frame.render_widget(Paragraph::new(body), inner);
 }

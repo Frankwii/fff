@@ -32,9 +32,9 @@ pub(super) fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize)
         .title(Line::from(
             [
                 vec![Span::raw(" ")],
-                tab(crate::keymap::Function::Guide, "Keys", false),
+                tab(crate::keymap::Function::ShowKeys, "Keys", false),
                 vec![Span::raw(" ")],
-                tab(crate::keymap::Function::Session, "Session", true),
+                tab(crate::keymap::Function::ShowSession, "Session", true),
                 vec![Span::raw(" ")],
             ]
             .concat(),

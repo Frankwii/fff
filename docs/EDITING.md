@@ -73,7 +73,7 @@ In Normal mode, `q` exits choosing nothing (no output, no directory change);
 `!` exits and returns the current browsing directory in the normal path
 output format (`--relative` and `--null` apply). Both ignore marks. In
 `fff seek`, both exit successfully without output. They also work in the marked list. Insert-mode
-fields treat them as text. They are `quit` and `quit_current` on the [Keys screen](CONFIGURATION.md#keys).
+fields treat them as text. They are `quit` and `quit_here` on the [Keys screen](CONFIGURATION.md#keys).
 
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
 Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
@@ -120,7 +120,7 @@ mark.
 It never exits the session.
 
 Digits are query text in Insert mode. In Normal-mode results 1–9 set the
-search depth (`depth` on the Keys screen; `"none"` gives them back); elsewhere in Normal mode they
+search depth (`search_to_depth` on the Keys screen; `"none"` gives them back); elsewhere in Normal mode they
 are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results,
 except in `fff seek`, which has no tabs, where they move the highlight too;

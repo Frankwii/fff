@@ -26,17 +26,24 @@ choose where each key applies.
 ### Added
 
 - **The Keys screen (F1).** A picker laid out like the results: every
-  function fff has, by name, with its keys while typing and in Normal mode,
-  and the highlighted one's details beside. The query searches names,
-  descriptions and keys, and your own keys move through it (Alt+j/Alt+k,
-  `j`/`k`, Escape clears the query); Tab searches by pressing keys instead.
-  It shows what works where you opened it; Ctrl+a shows everything. Enter
-  opens a function's keys in a sheet like the bookmark form: add (`a`),
-  delete (`d`), reset (`R`) and set where each applies (`s`), then Enter
-  saves to `keys.toml` and Escape drops the changes. F1 closes the screen.
-- **`go_into_folder`**: makes the highlighted directory the current folder,
-  or the highlighted file's folder with the file highlighted. It has no key
-  by default; give it one on the Keys screen.
+  function fff has, by name, with its keys in Insert and Normal mode, and the
+  highlighted one's details beside. The query searches names, descriptions
+  and keys, and your own keys move through it (Alt+j/Alt+k, `j`/`k`, Escape
+  clears the query); Tab searches by pressing keys instead. It shows what
+  works where you opened it; Ctrl+a shows everything. Space goes a level
+  deeper at every level, Enter is done and Escape goes back: Space opens a
+  function's keys in a sheet like the bookmark form (add with `a`, delete
+  with `d`, reset with `R`), Space on a key opens where it applies (three
+  checklists: programs, lists, what is highlighted), and Enter saves to
+  `keys.toml` while Escape drops the changes. F1 closes the screen.
+- **Functions are named a verb and what it acts on** (`highlight_next`,
+  `go_to_parent`, `go_to_directory`, `toggle_hidden`, `show_bookmarks`,
+  `print_highlighted`, `quit_into_highlighted`...), and each description
+  starts with that verb.
+- **`go_to_highlighted`**: goes to the highlighted directory, or to the
+  highlighted file's directory with the file highlighted. Enter while typing
+  in `fff roam` does it on a file; give it a key of its own on the Keys
+  screen.
 - **Keys apply where you choose.** A key can be limited to programs (roam,
   window, pick, seek, each kind of explorer dialog), to the results or the
   marked list, and to a highlighted directory, file or nothing. One key does
@@ -73,8 +80,8 @@ choose where each key applies.
 - **Keys live in `keys.toml`** beside the configuration, written in Vim's
   notation (`<M-h>`, `<CR>`, `gg`) by function, in an `[insert]` and a
   `[normal]` table. Each Enter, `l` and `o` case is a function of its own
-  (`quit_into_dir`, `open_and_quit`, `pick_file`, `reveal`,
-  `open_background`, `open_here`...), so each can be bound apart. A
+  (`quit_into_highlighted`, `open_and_quit`, `print_highlighted`, `go_to_highlighted`,
+  `open_in_background`, `open_in_terminal`...), so each can be bound apart. A
   configuration with `[keys]` says where they went.
 - **Keys inside choosers, prompts and sheets are fixed**: Enter, Escape, Tab,
   and `j`, `k`, `gg`, `G`, `q` and `!` in Normal mode.

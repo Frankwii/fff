@@ -424,8 +424,8 @@ impl Session {
         };
         match key.code {
             K::Esc | K::Char('q') => self.focus = Focus::Results,
-            _ if is(Function::Session) => self.focus = Focus::Results,
-            _ if is(Function::Guide) => self.open_keys(app.cell()),
+            _ if is(Function::ShowSession) => self.focus = Focus::Results,
+            _ if is(Function::ShowKeys) => self.open_keys(app.cell()),
             K::Down | K::Char('j') => *offset = offset.saturating_add(1),
             K::Up | K::Char('k') => *offset = offset.saturating_sub(1),
             K::PageDown => *offset = offset.saturating_add(page),
@@ -863,7 +863,7 @@ impl Session {
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
 fn scroll_preview(app: &mut App, down: bool) {
     if !app.preview.shown {
-        app.status = match app.bound(Function::Preview) {
+        app.status = match app.bound(Function::TogglePreview) {
             Some(key) => format!("No preview pane to scroll; {key} opens it"),
             None => "No preview pane to scroll".into(),
         };
