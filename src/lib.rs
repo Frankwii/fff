@@ -193,6 +193,9 @@ pub struct App {
     /// the scan streams in and the query changes, until the user moves it or
     /// a row to restore (`wanted`) is listed.
     pub highlight_top: bool,
+    /// The (lowercased) query the highlight was placed under: rows for
+    /// another one, as typing changes it, highlight the best match.
+    highlight_query: String,
     pub marks: marks::Marks,
     pub rendered: Vec<PathBuf>,
     pub offset: usize,
@@ -343,6 +346,7 @@ impl App {
             scores: Vec::new(),
             highlight: None,
             highlight_top: false,
+            highlight_query: String::new(),
             highlight_hint: Cell::new(0),
             marks: marks::Marks::default(),
             rendered: Vec::new(),
@@ -874,7 +878,7 @@ impl App {
                 }
                 if query == folded {
                     self.refreshed = Some((previous, query));
-                    self.keep_highlight();
+                    self.keep_highlight(&folded);
                     return;
                 }
                 if narrows(&query, &folded) {
@@ -898,8 +902,8 @@ impl App {
                     {
                         self.rows = self.earlier.pop().expect("checked").1;
                         self.scores.clear();
+                        self.keep_highlight(&folded);
                         self.refreshed = Some((basis, folded));
-                        self.keep_highlight();
                         return;
                     }
                     self.earlier.last().map(|(_, rows)| Arc::clone(rows))
@@ -995,8 +999,8 @@ impl App {
             let len = old.len();
             known::discard(old, len);
         }
+        self.keep_highlight(&query);
         self.refreshed = Some((basis, query));
-        self.keep_highlight();
     }
     fn cancel_ranking(&mut self) {
         if let Some(pending) = self.ranking.take() {
@@ -1214,7 +1218,14 @@ impl App {
     pub fn settled(&self) -> bool {
         self.added.is_empty() && self.relabel.is_empty() && self.ranking.is_none()
     }
-    fn keep_highlight(&mut self) {
+    /// After the rows change, for `query`: a row to restore once listed,
+    /// else the best match when the query changed (typing), else the same
+    /// entry (a scan, a new depth), or the first row when it is gone.
+    fn keep_highlight(&mut self, query: &str) {
+        let typed = self.highlight_query != query;
+        if typed {
+            self.highlight_query = query.to_owned();
+        }
         // Rows share the known candidates: look for the wanted one's address.
         // A row to restore takes the highlight off the first row once listed.
         if let Some(wanted) = self.wanted.as_ref().and_then(|w| self.known.get(w))
@@ -1224,7 +1235,7 @@ impl App {
             self.highlight_top = false;
             return;
         }
-        if self.highlight_top || self.highlighted().is_none() {
+        if typed || self.highlight_top || self.highlighted().is_none() {
             self.highlight = self.rows.first().map(|c| c.path.clone());
         }
     }

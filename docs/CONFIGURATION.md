@@ -424,6 +424,8 @@ puts the cursor back where it was, as soon as that row is listed (moving first
 cancels this). Every session starts in the current directory (or ROOTS), on
 the row last highlighted there. Otherwise a newly opened location keeps the
 highlight on the first row while its scan streams in, until you move it.
+Typing or deleting a letter of the query always highlights the best match;
+rows a scan adds under the same query keep the highlighted entry.
 
 `fff --resume` continues the last `fff roam` session instead: its folder,
 highlighted row, tabs with their back/forward history, marks, query, depth,
@@ -492,8 +494,8 @@ an error. Bookmarks never select a file or finish the program.
 
 Opening a bookmark preserves marks, discovery depth, policies, and explicitly
 supplied fixed roots. It changes the single current directory and clears the
-filename query. The highlight then stays on the first row as the scan streams in
-and as you type a search there, until you move it yourself. Bookmarks are navigation destinations, not additional roots or
+filename query. The highlight then stays on the first row as the scan streams in,
+until you move it yourself; typing a search there highlights the best match. Bookmarks are navigation destinations, not additional roots or
 preselected output paths.
 
 ### Editing bookmarks

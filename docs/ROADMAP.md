@@ -149,6 +149,17 @@ the shape of a folder is visible at a glance. Rows would keep working as
 rows (marks, operations, the preview), and the query would show the matching
 entries with the folders leading to them.
 
+### Folders as matches
+
+A query names a file today, and `/` in it matches folders on the way
+(`pde/stab`). In flat lists from deep trees (`fff pick`, `fff seek`,
+`fff grep`) a folder's name could match instead: `canard` would list the
+files inside a folder called `canard`, ranked by how well the folder
+matched, without typing the slash, and the `/` form would go. Elsewhere,
+where results are a folder's own entries, the current behavior stays. To try
+out: which contexts it suits, how a folder match ranks against a file match,
+and how the row shows which part matched.
+
 ### Sorting
 
 Results are ranked by depth and match quality today (match quality first in

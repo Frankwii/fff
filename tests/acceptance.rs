@@ -105,6 +105,40 @@ fn bookmark_jump_keeps_the_highlight_on_the_first_row_until_moved() {
     assert_eq!(app.highlight, moved);
 }
 #[test]
+fn typing_highlights_the_best_match_and_scans_keep_the_highlight() {
+    let mut app = app();
+    for name in [
+        "minicozzi_colding.djvu",
+        "canard_explosion.pdf",
+        "notes.txt",
+    ] {
+        app.insert(0, candidate(name, false, 1));
+    }
+    app.refresh();
+    app.highlight = Some(Path::new("/fixture/minicozzi_colding.djvu").into());
+    app.highlight_top = false;
+    // Each letter re-ranks: the highlight follows the best match, not the
+    // entry that was highlighted before.
+    for query in ["c", "ca", "can", "canard"] {
+        app.query = query.into();
+        app.refresh();
+        assert_eq!(app.highlight.as_ref(), Some(&app.rows[0].path), "{query}");
+    }
+    assert!(
+        app.highlight
+            .as_ref()
+            .unwrap()
+            .ends_with("canard_explosion.pdf")
+    );
+    // Under the same query, a scan's better match keeps the chosen entry.
+    app.move_by(1);
+    let chosen = app.highlight.clone();
+    app.insert(0, candidate("canard", false, 1));
+    app.refresh();
+    assert_eq!(app.rows[0].path, Path::new("/fixture/canard"));
+    assert_eq!(app.highlight, chosen);
+}
+#[test]
 fn overlap_and_root_order() {
     let mut app = App::new(
         vec![

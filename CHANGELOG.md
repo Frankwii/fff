@@ -17,6 +17,10 @@ history.
   query has some: `evaluacion` finds `Evaluación`.
 - **`fff pick` ranks the best match first**, as `fff seek` does, whatever its
   depth; depth only breaks ties.
+- **Typing highlights the best match.** Each letter typed or deleted moves
+  the highlight to the first row, instead of following the entry that was
+  highlighted before however far it fell. Rows a scan adds under the same
+  query still keep the highlighted entry.
 
 ## 0.14.0 — 2026-11-03
 
