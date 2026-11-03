@@ -839,7 +839,7 @@ A place is a combination of three things, fixed by design:
 
 | Dimension | Values |
 | --- | --- |
-| program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
+| program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `grep`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
 | list (`place` in `keys.toml`) | `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 

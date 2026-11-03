@@ -18,7 +18,7 @@ highlight_previous = ["<C-p>", "<Up>"]
 # Q leaves instead of q.
 quit = "Q"
 # A key can apply only somewhere: a table names where, by program
-# (roam, window, pick, seek, explorer-open, explorer-multiple,
+# (roam, window, pick, seek, grep, explorer-open, explorer-multiple,
 # explorer-folder, explorer-save), place (results, marks) and highlight
 # (dir, file, none). Here Enter goes into directories in fff roam too,
 # instead of quitting into them; elsewhere it keeps doing what it did. Each
