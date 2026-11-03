@@ -4,33 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
-
-### Changed
-
-- **The Keys screen's tables fit their contents**: columns are as wide as
-  what they hold, so long program lists are no longer cut while other
-  columns sit empty; the details pane lists a function's keys one row each,
-  and a key's further places read `or Enter` instead of a bare `or`. Hints,
-  prose and checklists line up with the rows they explain.
-
-### Fixed
-
-- **Typing in a large listing no longer waits for every keystroke's
-  ranking.** A letter typed before the previous one was ranked used to rank
-  and relabel every known path again: over 600,000 paths, the match took 1.5
-  seconds to show, and now 0.15.
-
-### Removed
-
-- **`enlarge_font` and `shrink_font`**, and their keys (Alt+=, Alt++,
-  Alt+-): resizing the font from fff did not work reliably. It is on the
-  roadmap to investigate again.
-
 ## 0.15.0 — 2026-11-03
 
-`fff grep` searches what files contain, `:` runs a function by name, and fff
-can ask the terminal for a larger or smaller font.
+`fff grep` searches what files contain, `:` runs a function by name, and
+the Keys screen's tables fit what they hold.
 
 ### Added
 
@@ -38,11 +15,6 @@ can ask the terminal for a larger or smaller font.
   of the functions that work where you are, each with its key there; Enter
   runs the highlighted one as its key would, Escape goes back. In the
   results' query it replaces Neovim's command line.
-- **`enlarge_font` and `shrink_font`** (Alt+= or Alt++, and Alt+-) ask the
-  terminal for a font a step larger or smaller: kitty does when remote
-  control is allowed, xterm does through its font menu; elsewhere, and in
-  tmux or screen, the status line says it cannot.
-
 - **`fff grep` chooses files by what they contain.** A contents query beside
   the names query (Tab switches) lists one row per match, with its page or
   line and the line it is on; the preview shows the lines around it. PDF,
@@ -68,6 +40,12 @@ can ask the terminal for a larger or smaller font.
 
 ### Changed
 
+- **The Keys screen's tables fit their contents**: columns are as wide as
+  what they hold, so long program lists are no longer cut while other
+  columns sit empty; the details pane lists a function's keys one row each,
+  and a key's further places read `or Enter` instead of a bare `or`. Hints,
+  prose and checklists line up with the rows they explain.
+
 - **The preview wraps long lines** onto the next rows instead of cutting
   them at the pane's edge.
 
@@ -86,6 +64,11 @@ can ask the terminal for a larger or smaller font.
   query still keep the highlighted entry.
 
 ### Fixed
+
+- **Typing in a large listing no longer waits for every keystroke's
+  ranking.** A letter typed before the previous one was ranked used to rank
+  and relabel every known path again: over 600,000 paths, the match took 1.5
+  seconds to show, and now 0.15.
 
 - **`fff grep`'s match preview scrolls**: Ctrl+j and Ctrl+k
   (`scroll_preview_down`, `scroll_preview_up`) move it from the match, past

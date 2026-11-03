@@ -149,8 +149,8 @@ on the results' border and could be the default in the configuration.
 ### Resizing the font
 
 Keys that make the terminal's font larger or smaller, for reading from a
-distance or on a large screen. A first version (0.15.0) asked kitty and
-xterm through escape sequences and was removed as unreliable. The terminal
+distance or on a large screen. A first version asked kitty and xterm
+through escape sequences and was removed, unreliable, before release. The terminal
 to aim at is st, which has no escape sequence for its font: its zoom is
 bound in its `config.h` (Ctrl+Shift+PageUp, Ctrl+Shift+PageDown,
 Ctrl+Shift+Home). To investigate: whether fff can trigger st's zoom (st sets
