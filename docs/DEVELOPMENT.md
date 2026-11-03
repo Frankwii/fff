@@ -27,7 +27,10 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, bookmark/glob/palette saves, dropped paths. |
 | `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations, progress, results, marks, undo records and their messages. |
 | `src/ui/mouse.rs` | Clicks, the wheel and drags in the results and lists; the opt-in button bar. |
-| `src/view/mod.rs` | Ratatui frame layout: query, location line, results and tab strip, marks, footer, display paths. |
+| `src/view/mod.rs` | Ratatui frame layout (`render`): the query box and its status, the location line, tab strip, notices, display paths. |
+| `src/view/results.rs` | The results pane: rows, icons, detail columns, labels and matched letters. |
+| `src/view/panes.rs`, `src/view/footer.rs` | The marked list and preview panes; the footer and the button bar. |
+| `src/view/text.rs` | Edited text with Neovim's cursor and selection, prompts, wrapped messages. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |
