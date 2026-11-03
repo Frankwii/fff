@@ -3,6 +3,9 @@
 use super::*;
 
 /// One line: the selected path (or a status message) and the F1 pointer.
+/// Its details are colored by kind as `eza -l` colors them, in the
+/// palette's roles: sizes and counts `success`, the date `accent`, the
+/// owner `marked`, and the permissions letter by letter.
 pub(super) fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     let theme = app.palette;
     let selected = if let Focus::Marks { rows, index } = focus {
@@ -41,20 +44,33 @@ pub(super) fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         // the rest, the least important dropped first.
         let mut details = selected.map(|p| footer_details(app, p)).unwrap_or_default();
         let wanted = path.width().min(NAME_ROOM);
-        let width = |d: &[Span]| d.iter().map(Span::width).sum::<usize>();
+        let width = |d: &[Vec<Span>]| {
+            d.iter()
+                .map(|value| 2 + value.iter().map(Span::width).sum::<usize>())
+                .sum::<usize>()
+        };
         while !details.is_empty() && available.saturating_sub(width(&details)) < wanted {
-            details.pop();
             details.pop();
         }
         let room = available.saturating_sub(width(&details));
         let path = elide(&path, room);
         let split = path.rfind('/').map(|i| i + 1).unwrap_or(0);
+        // The name in its row's color: a folder, link, executable or empty
+        // file.
+        let name = selected.map_or(theme.text, |p| {
+            let info = app.details.info(p);
+            let directory = info.as_ref().is_some_and(|i| i.directory);
+            info_color(theme, info.as_ref(), directory)
+        });
         let mut spans = vec![
             Span::raw(" "),
             styled(path[..split].to_string(), theme.muted),
-            styled(path[split..].to_string(), theme.text),
+            styled(path[split..].to_string(), name),
         ];
-        spans.extend(details);
+        for value in details {
+            spans.push(Span::raw("  "));
+            spans.extend(value);
+        }
         spans
     } else if app.status == app.status_success {
         vec![
@@ -128,23 +144,23 @@ pub(super) fn button_bar(
     }
     placed
 }
-/// The footer's details of `path`, as (gap, value) span pairs in order of
-/// importance: a link's target, size or entry count, modification time,
-/// permissions and owner.
-pub(super) fn footer_details(app: &App, path: &Path) -> Vec<Span<'static>> {
+/// The footer's details of `path` in order of importance, each value as
+/// its spans: a link's target, size or entry count, modification time,
+/// permissions and owner. The footer leaves out the last that do not fit.
+pub(super) fn footer_details(app: &App, path: &Path) -> Vec<Vec<Span<'static>>> {
     use crate::details;
     let theme = app.palette;
     let Some(info) = app.details.info(path) else {
         return Vec::new();
     };
-    let mut values = Vec::new();
+    let mut values: Vec<Vec<Span<'static>>> = Vec::new();
     if let Some((target, resolves)) = &info.link {
         let target = format!("→ {}", safe(target.to_string_lossy()));
-        values.push(if *resolves {
+        values.push(vec![if *resolves {
             styled(target, theme.link)
         } else {
             styled(target + " (broken)", theme.error)
-        });
+        }]);
     }
     if info.directory {
         if let Some(count) = app.details.count(path) {
@@ -153,26 +169,41 @@ pub(super) fn footer_details(app: &App, path: &Path) -> Vec<Span<'static>> {
                 details::Count::Entries(_) => format!("{} entries", details::entries(count)),
                 details::Count::Unreadable => "unreadable".into(),
             };
-            values.push(styled(text, theme.muted));
+            values.push(vec![styled(text, theme.success)]);
         }
     } else if info.link.is_none() {
         let exact = details::exact(info.size);
-        values.push(styled(
-            if info.size < 1000 {
-                format!("{exact} B")
-            } else {
-                format!("{} ({exact} B)", details::size(info.size))
-            },
-            theme.muted,
-        ));
+        values.push(if info.size < 1000 {
+            vec![bold(exact, theme.success), styled(" B", theme.success)]
+        } else {
+            vec![
+                bold(details::size(info.size), theme.success),
+                styled(format!(" ({exact} B)"), theme.muted),
+            ]
+        });
     }
     if let Some(modified) = info.modified {
-        values.push(styled(details::timestamp(modified), theme.muted));
+        values.push(vec![styled(details::timestamp(modified), theme.accent)]);
     }
-    values.push(styled(details::permissions(info.mode), theme.muted));
-    values.push(styled(app.details.owner(&info), theme.muted));
+    values.push(permission_spans(theme, &details::permissions(info.mode)));
+    values.push(vec![styled(app.details.owner(&info), theme.marked)]);
     values
-        .into_iter()
-        .flat_map(|value| [Span::raw("  "), value])
+}
+/// `drwxr-xr-x` letter by letter, as `eza -l` colors it: the kind as a
+/// folder, read, write and run in the palette's yellow, red and green
+/// (`marked`, `error`, `success`), and what is not set dimmed.
+fn permission_spans(theme: Palette, text: &str) -> Vec<Span<'static>> {
+    text.chars()
+        .enumerate()
+        .map(|(i, c)| {
+            let color = match c {
+                '-' => theme.muted,
+                _ if i == 0 => theme.accent,
+                'r' => theme.marked,
+                'w' => theme.error,
+                _ => theme.success,
+            };
+            styled(c.to_string(), color)
+        })
         .collect()
 }

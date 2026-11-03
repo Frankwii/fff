@@ -20,6 +20,9 @@ history.
 
 ### Changed
 
+- **The footer is colored like `eza -l`**: the highlighted entry's name in
+  its row's color, its size, date, owner and each permission letter in the
+  palette's green, blue, yellow and red, so it follows the colorscheme.
 - **`fff seek` labels rows by their path** below the folder searched, as
   `fff roam` does; `fff pick` and `fff grep` keep names. `gd` switches.
 - **Putting a function's default keys back is `D`** (was `R`), and asks

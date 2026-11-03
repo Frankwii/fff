@@ -159,6 +159,23 @@ fn rows_and_footer_show_details_that_fit() {
     let footer = wide.lines().last().unwrap();
     assert!(footer.contains("data.bin  4.2K (4,300 B)  "), "{footer}");
     assert!(footer.contains("-rw"), "{footer}");
+    // Colored by kind as eza -l colors them, in the palette's roles.
+    let mut terminal = Terminal::new(TestBackend::new(100, 1)).unwrap();
+    terminal
+        .draw(|frame| super::footer(frame, Rect::new(0, 0, 100, 1), &app, &Focus::Results))
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let at = |needle: &str| {
+        let x = footer
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {footer}"));
+        buffer[(footer[..x].chars().count() as u16, 0)].fg
+    };
+    let theme = app.palette;
+    assert_eq!(at("4.2K"), theme.success);
+    assert_eq!(at("-rw"), theme.muted);
+    assert_eq!(at("rw-"), theme.marked);
+    assert_eq!(at("w-"), theme.error);
     // Narrow panes drop permissions first; the name keeps its room.
     let narrow = draw(&mut app, 46);
     let data = row(&narrow, "data.bin");

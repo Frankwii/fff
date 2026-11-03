@@ -189,6 +189,10 @@ Names come first: in a narrow pane, columns are dropped from the left until a
 name has room. The footer shows the highlighted entry's path followed by a
 link's target, its size (exact bytes) or entry count, modification date,
 permissions and `user:group`, dropping the last ones first when space runs out.
+It colors them by kind as `eza -l` does, in the palette's roles: the name as
+its row, the size or count in `success`, the date in `accent`, the owner in
+`marked`, and the permissions letter by letter (the kind in `accent`, `r` in
+`marked`, `w` in `error`, `x` in `success`, unset bits in `muted`).
 Symbolic links show `→ target` after their name, in the `link` color; broken
 links use the `error` color.
 
