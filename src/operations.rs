@@ -559,12 +559,29 @@ impl Engine {
         // Closing the terminal or a termination signal waits until this
         // operation has finished or rolled back.
         let _deferred = interrupt::Deferred::new();
+        let Some(prepared) = self.prepare(&request)? else {
+            return Ok(Outcome::new(false));
+        };
+        self.act()?;
+        match request {
+            Request::Move { .. } => self.move_entries(prepared, false),
+            Request::Rename { .. } => self.move_entries(prepared, true),
+            Request::Copy { .. } => self.copy_entries(prepared, false),
+            Request::Symlink { .. } => self.copy_entries(prepared, true),
+            Request::Delete { trash, .. } => self.delete_entries(prepared, &trash),
+            Request::Create { directory, .. } => self.create_entry(prepared, directory),
+            Request::Extract { .. } => self.extract(prepared),
+        }
+    }
+    /// Opens and checks every entry the request names; nothing changes yet.
+    /// `None` for a rename that changes no name.
+    fn prepare(&self, request: &Request) -> Result<Option<Prepared>> {
         // Until every tree is checked, nothing changes, so Ctrl+c may stop.
         if let Some(p) = &self.progress {
             p.checking.store(true, Ordering::Relaxed);
             p.stoppable.store(true, Ordering::Relaxed);
         }
-        let (mut sources, mut targets) = match &request {
+        let (mut sources, mut targets) = match request {
             Request::Copy {
                 sources, directory, ..
             }
@@ -633,7 +650,7 @@ impl Engine {
             pairs.sort_by_key(|(s, _)| s.components().count());
             (sources, targets) = pairs.into_iter().unzip();
             if sources.is_empty() {
-                return Ok(Outcome::new(false));
+                return Ok(None);
             }
         }
         let src = sources
@@ -760,447 +777,486 @@ impl Engine {
                 return Err("Source changed; operation cancelled".into());
             }
         }
-        self.act()?;
+        Ok(Some(Prepared {
+            sources,
+            targets,
+            src,
+            dst,
+            old,
+            before,
+            replaced,
+        }))
+    }
+    /// Moves or renames every source to its target, all or none.
+    fn move_entries(&self, prepared: Prepared, renaming: bool) -> Result<Outcome> {
+        let Prepared {
+            sources,
+            targets,
+            src,
+            dst,
+            old,
+            before,
+            replaced,
+        } = prepared;
         let mut outcome = Outcome::new(true);
-        let result = (|| -> Result<()> {
-            match request {
-                Request::Move { .. } | Request::Rename { .. } => {
-                    let mut over = Overwrite::detach(&old, &replaced, &dst)?;
-                    let mut done: Vec<usize> = vec![];
-                    for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
-                        if s.path == d.path {
-                            continue;
-                        }
-                        self.checkpoint(i);
-                        let result = tree(s).and_then(|now| {
-                            if now == before[i] {
-                                rename(&s.parent, &s.name, &d.parent, &d.name)
-                            } else {
-                                Err("Source changed before move".into())
-                            }
-                        });
-                        if let Err(e) = result {
-                            let mut rollback = true;
-                            for &j in done.iter().rev() {
-                                let a: &Entry = &src[j];
-                                let b: &Entry = &dst[j];
-                                // Only move back the entry this operation published.
-                                let root = &before[j][Path::new("")];
-                                rollback &= identity(&b.parent, &b.name) == Some((root.0, root.1))
-                                    && rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
-                            }
-                            rollback &= over.restore();
-                            return Err(format!(
-                                "{e}; {}",
-                                if rollback {
-                                    "earlier moves rolled back".to_string()
-                                } else {
-                                    format!("rollback incomplete; {}", over.whereabouts())
-                                }
-                            ));
-                        }
-                        done.push(i);
-                    }
-                    over.finish(self, &mut outcome);
-                    let names = rename_map(&sources, &targets);
-                    for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
-                        if s.path == d.path {
-                            continue;
-                        }
-                        let to = if renaming {
-                            renamed(&sources[i], &names)
-                        } else {
-                            d.path.clone()
-                        };
-                        // Undone deepest first, a renamed entry goes back to
-                        // its old name in its (still renamed) parent.
-                        let back = if renaming {
-                            to.with_file_name(&s.name)
-                        } else {
-                            s.path.clone()
-                        };
-                        let root = &before[i][Path::new("")];
-                        outcome.undo.push(undo::Step::Return {
-                            now: to.clone(),
-                            back,
-                            id: (root.0, root.1),
-                        });
-                        outcome.moved.push((sources[i].clone(), to));
-                    }
-                }
-                Request::Copy { .. } | Request::Symlink { .. } => {
-                    // Stage all entries before publishing any. Never follow an
-                    // existing destination or replace one created concurrently.
-                    let stage = Stage::new(&dst[0].parent, &dst[0].path)?;
-                    let linking = matches!(request, Request::Symlink { .. });
-                    let bytes = before
-                        .iter()
-                        .flat_map(|t| t.values())
-                        .filter(|s| s.7 & 0o170000 == 0o100000)
-                        .fold(0u64, |n, s| n.saturating_add(s.2));
-                    // Until everything is staged, stopping changes nothing.
-                    self.phase(bytes, true);
-                    let mut staged = vec![];
-                    for (i, s) in src.iter().enumerate() {
-                        let name = format!("{i}");
-                        if linking {
-                            sys::symlinkat(&s.path, &stage.dir, &name).map_err(err)?;
-                        } else {
-                            copy_tree(&s.parent, &s.name, &stage.dir, OsStr::new(&name), &|n| {
-                                self.tick(n)
-                            })?;
-                        }
-                        staged.push(identity(&stage.dir, OsStr::new(&name)));
-                    }
-                    self.settle();
-                    for (source, was) in src.iter().zip(&before) {
-                        if tree(source)? != *was {
-                            return Err("Source changed while staging; nothing copied".into());
-                        }
-                    }
-                    // Staging is complete, so overwritten entries are absent only
-                    // while the copies are published.
-                    let mut over = Overwrite::detach(&old, &replaced, &dst)?;
-                    let mut done: Vec<usize> = vec![];
-                    for (i, d) in dst.iter().enumerate() {
-                        self.checkpoint(i);
-                        if let Err(e) =
-                            reparent(&stage.dir, OsStr::new(&i.to_string()), &d.parent, &d.name)
-                        {
-                            let mut rollback = true;
-                            for &j in done.iter().rev() {
-                                let d: &Entry = &dst[j];
-                                // Never pull back (and then delete) an entry that
-                                // replaced the published copy concurrently.
-                                rollback &= identity(&d.parent, &d.name) == staged[j]
-                                    && reparent(
-                                        &d.parent,
-                                        &d.name,
-                                        &stage.dir,
-                                        OsStr::new(&j.to_string()),
-                                    )
-                                    .is_ok();
-                            }
-                            rollback &= over.restore();
-                            return Err(format!(
-                                "{e}; {}",
-                                if rollback {
-                                    "copies rolled back".to_string()
-                                } else {
-                                    format!("rollback incomplete; {}", over.whereabouts())
-                                }
-                            ));
-                        }
-                        done.push(i);
-                    }
-                    over.finish(self, &mut outcome);
-                    for (d, id) in dst.iter().zip(&staged) {
-                        if let Some(id) = *id {
-                            outcome.undo.push(undo::Step::Discard {
-                                path: d.path.clone(),
-                                id,
-                            });
-                        }
-                    }
-                }
-                Request::Delete { trash, .. } => {
-                    let trashing = |i: usize| trash.get(i).copied().unwrap_or(false);
-                    // Counted from the start: what deleting will remove.
-                    let entries = (0..src.len())
-                        .filter(|&i| !trashing(i))
-                        .map(|i| before[i].len() as u64)
-                        .sum();
-                    self.phase(entries, false);
-                    // Every bin is found before anything moves.
-                    let mut bins = vec![];
-                    for (i, s) in src.iter().enumerate() {
-                        bins.push(if trashing(i) {
-                            Some(
-                                self.bin(s).map_err(|e| {
-                                    format!("{:?} cannot go to the trash: {e}", s.name)
-                                })?,
-                            )
-                        } else {
-                            None
-                        });
-                    }
-                    // Detach all selected roots before deleting any contents;
-                    // a failure to detach rolls earlier roots back intact.
-                    let mut held: Vec<Hold> = vec![];
-                    for (i, s) in src.iter().enumerate() {
-                        self.checkpoint(i);
-                        let bin = bins[i].take();
-                        let result = tree(s).and_then(|now| {
-                            if now != before[i] {
-                                return Err("Source changed before deletion".into());
-                            }
-                            Ok(match bin {
-                                Some(bin) => {
-                                    let slot = bin.put(&s.parent, &s.name, &s.path)?;
-                                    Hold::Trash {
-                                        bin,
-                                        slot,
-                                        stranded: false,
-                                    }
-                                }
-                                None => {
-                                    let mut stage = Stage::new(&s.parent, &s.path)?;
-                                    reparent(&s.parent, &s.name, &stage.dir, OsStr::new("entry"))?;
-                                    stage.keep = true;
-                                    Hold::Stage(stage)
-                                }
-                            })
-                        });
-                        match result {
-                            Ok(hold) => held.push(hold),
-                            Err(e) => {
-                                for (j, hold) in held.iter_mut().enumerate().rev() {
-                                    hold.restore(&src[j]);
-                                }
-                                return Err(format!("{e}; {}", unrestored(&held)));
-                            }
-                        }
-                    }
-                    self.checkpoint(usize::MAX - 1);
-                    let validation: Result<()> = held.iter().enumerate().try_for_each(|(i, h)| {
-                        let (dir, name) = h.at();
-                        if detached_matches(dir, name, &before[i])? {
-                            Ok(())
-                        } else {
-                            Err("Source changed while preparing deletion".into())
-                        }
-                    });
-                    if let Err(error) = validation {
-                        for (i, hold) in held.iter_mut().enumerate().rev() {
-                            hold.restore(&src[i]);
-                        }
-                        return Err(format!("{error}; {}", unrestored(&held)));
-                    }
-                    // Trashed entries are done; undoing takes them back out.
-                    for (i, hold) in held.iter().enumerate() {
-                        if let Hold::Trash { bin, slot, .. } = hold {
-                            let root = &before[i][Path::new("")];
-                            outcome.undo.push(undo::Step::Restore {
-                                bin: bin.path.clone(),
-                                slot: slot.clone(),
-                                back: src[i].path.clone(),
-                                id: (root.0, root.1),
-                            });
-                            outcome.removed.push(sources[i].clone());
-                            outcome.trashed += 1;
-                        }
-                    }
-                    self.checkpoint(usize::MAX - 2);
-                    let permanent = (0..held.len())
-                        .filter(|&i| matches!(held[i], Hold::Stage(_)))
-                        .collect::<Vec<_>>();
-                    self.phase(entries, true);
-                    for (k, &i) in permanent.iter().enumerate() {
-                        let (dir, name) = held[i].at();
-                        let deleted = std::cell::Cell::new(0);
-                        let tick = |n| {
-                            deleted.set(deleted.get() + n);
-                            self.tick(n)
-                        };
-                        if let Err(e) = remove_counting(dir, name, &tick) {
-                            // Put back what remains of this root and every root not
-                            // yet deleted, so nothing is left hidden in staging.
-                            for &j in &permanent[k..] {
-                                held[j].restore(&src[j]);
-                            }
-                            let rest = match permanent.len() - k - 1 {
-                                0 => String::new(),
-                                1 => ", and the entry after it,".into(),
-                                n => format!(", and the {n} entries after it,"),
-                            };
-                            let left = permanent[k..].iter().map(|&j| &held[j]);
-                            let (what, it) = if deleted.get() > 0 {
-                                ("was only partly deleted", "What remains of it")
-                            } else {
-                                ("was not deleted", "It")
-                            };
-                            let back = if left.clone().all(|h| h.stranded().is_none()) {
-                                format!("{it}{rest} is back in place.")
-                            } else {
-                                format!("Could {}.", &unrestored(left)[6..])
-                            };
-                            outcome.warning = Some(if e == CANCELLED {
-                                format!(
-                                    "Stopped after deleting {k} of {}; {:?} {what}. {back}",
-                                    permanent.len(),
-                                    sources[i],
-                                )
-                            } else {
-                                format!(
-                                    "Deleted {k} of {}; {:?} {what} ({e}). {back}",
-                                    permanent.len(),
-                                    sources[i],
-                                )
-                            });
-                            return Ok(());
-                        }
-                        if let Hold::Stage(stage) = &mut held[i] {
-                            stage.keep = false;
-                        }
-                        outcome.removed.push(sources[i].clone());
-                        outcome.lost += 1;
-                    }
-                }
-
-                Request::Create { directory, .. } => {
-                    let d = &dst[0];
-                    if directory {
-                        sys::mkdirat(&d.parent, &d.name, Mode::from_raw_mode(0o755))
-                            .map_err(err)?;
-                    } else {
-                        // Ordinary permissions, as the user's umask allows.
-                        File::from(
-                            sys::openat(
-                                &d.parent,
-                                &d.name,
-                                OFlags::WRONLY
-                                    | OFlags::CREATE
-                                    | OFlags::EXCL
-                                    | OFlags::NOFOLLOW
-                                    | OFlags::CLOEXEC,
-                                Mode::from_raw_mode(0o666),
-                            )
-                            .map_err(err)?,
-                        )
-                        .sync_all()
-                        .map_err(err)?;
-                    }
-                    if let Some(id) = identity(&d.parent, &d.name) {
-                        outcome.undo.push(undo::Step::Discard {
-                            path: d.path.clone(),
-                            id,
-                        });
-                    }
-                }
-                Request::Extract { .. } => {
-                    // Until everything is staged, stopping changes nothing.
-                    self.phase(0, true);
-                    // One stage per destination holds every archive bound for it,
-                    // so entries colliding across archives abort before anything
-                    // is published.
-                    let mut groups = vec![];
-                    for (k, d) in dst.iter().enumerate() {
-                        // An existing destination hosts its stage, so its parent
-                        // need not be writable; otherwise the parent does.
-                        let existing = exists(&d.parent, &d.name)?;
-                        let dest = if existing {
-                            Some(child_dir(&d.parent, &d.name)?)
-                        } else {
-                            None
-                        };
-                        let stage = match &dest {
-                            Some(dest) => Stage::new(dest, &d.path.join("x"))?,
-                            None => Stage::new(&d.parent, &d.path)?,
-                        };
-                        for (i, s) in src.iter().enumerate() {
-                            // Without a common destination, each archive goes
-                            // to the target that is its own (resolved) folder.
-                            if dst.len() > 1 && s.path.parent() != Some(d.path.as_path()) {
-                                continue;
-                            }
-                            // Non-blocking: a FIFO swapped in cannot hang the job.
-                            let input = File::from(
-                                sys::openat(
-                                    &s.parent,
-                                    &s.name,
-                                    OFlags::RDONLY
-                                        | OFlags::NOFOLLOW
-                                        | OFlags::NONBLOCK
-                                        | OFlags::CLOEXEC,
-                                    Mode::empty(),
-                                )
-                                .map_err(err)?,
-                            );
-                            if !input.metadata().map_err(err)?.is_file() {
-                                return Err(format!("{:?} is not a regular archive file", s.name));
-                            }
-                            crate::archive::extract(input, &stage.dir, &|n| self.tick(n)).map_err(
-                                |e| {
-                                    if e == CANCELLED {
-                                        e
-                                    } else {
-                                        format!("{:?}: {e}", s.name)
-                                    }
-                                },
-                            )?;
-                            if tree(s)? != before[i] {
-                                return Err(format!("{:?} changed during extraction", s.name));
-                            }
-                        }
-                        groups.push((k, existing, dest, stage));
-                    }
-                    self.settle();
-                    // Plan every publication and check every collision first.
-                    let mut plan = vec![];
-                    for (k, existing, dest, stage) in &groups {
-                        let d = &dst[*k];
-                        if exists(&d.parent, &d.name)? != *existing {
-                            return Err("Extraction destination changed".into());
-                        }
-                        if let Some(dest) = dest {
-                            for item in fs::read_dir(fdpath(&stage.dir)).map_err(err)? {
-                                let name = item.map_err(err)?.file_name();
-                                if exists(dest, &name)? {
-                                    return Err(format!(
-                                        "{:?} already contains {:?}",
-                                        d.path, name
-                                    ));
-                                }
-                                let id = identity(&stage.dir, &name);
-                                let path = d.path.join(&name);
-                                plan.push((&stage.dir, name.clone(), dest, name, id, path));
-                            }
-                        } else {
-                            // The private stage becomes an ordinary new directory.
-                            stage
-                                .dir
-                                .set_permissions(fs::Permissions::from_mode(0o755))
-                                .map_err(err)?;
-                            let id = identity(&stage.parent, &stage.name);
-                            plan.push((
-                                &stage.parent,
-                                stage.name.clone(),
-                                &d.parent,
-                                d.name.clone(),
-                                id,
-                                d.path.clone(),
-                            ));
-                        }
-                    }
-                    let mut done: Vec<usize> = vec![];
-                    for (n, (from, name, to, as_name, _, _)) in plan.iter().enumerate() {
-                        if let Err(e) = rename(from, name, to, as_name) {
-                            let mut rollback = true;
-                            for &n in done.iter().rev() {
-                                let (from, name, to, as_name, id, _) = &plan[n];
-                                // Only take back what this extraction published.
-                                rollback &= identity(to, as_name) == *id
-                                    && rename(to, as_name, from, name).is_ok();
-                            }
-                            if !rollback {
-                                return Err(format!("{e}; extraction rollback incomplete"));
-                            }
-                            return Err(e);
-                        }
-                        done.push(n);
-                    }
-                    for (_, _, _, _, id, path) in plan {
-                        if let Some(id) = id {
-                            outcome.undo.push(undo::Step::Discard { path, id });
-                        }
-                    }
-                }
+        let mut over = Overwrite::detach(&old, &replaced, &dst)?;
+        let mut done: Vec<usize> = vec![];
+        for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
+            if s.path == d.path {
+                continue;
             }
-            Ok(())
-        })();
-        result?;
+            self.checkpoint(i);
+            let result = tree(s).and_then(|now| {
+                if now == before[i] {
+                    rename(&s.parent, &s.name, &d.parent, &d.name)
+                } else {
+                    Err("Source changed before move".into())
+                }
+            });
+            if let Err(e) = result {
+                let mut rollback = true;
+                for &j in done.iter().rev() {
+                    let a: &Entry = &src[j];
+                    let b: &Entry = &dst[j];
+                    // Only move back the entry this operation published.
+                    let root = &before[j][Path::new("")];
+                    rollback &= identity(&b.parent, &b.name) == Some((root.0, root.1))
+                        && rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
+                }
+                rollback &= over.restore();
+                return Err(format!(
+                    "{e}; {}",
+                    if rollback {
+                        "earlier moves rolled back".to_string()
+                    } else {
+                        format!("rollback incomplete; {}", over.whereabouts())
+                    }
+                ));
+            }
+            done.push(i);
+        }
+        over.finish(self, &mut outcome);
+        let names = rename_map(&sources, &targets);
+        for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
+            if s.path == d.path {
+                continue;
+            }
+            let to = if renaming {
+                renamed(&sources[i], &names)
+            } else {
+                d.path.clone()
+            };
+            // Undone deepest first, a renamed entry goes back to
+            // its old name in its (still renamed) parent.
+            let back = if renaming {
+                to.with_file_name(&s.name)
+            } else {
+                s.path.clone()
+            };
+            let root = &before[i][Path::new("")];
+            outcome.undo.push(undo::Step::Return {
+                now: to.clone(),
+                back,
+                id: (root.0, root.1),
+            });
+            outcome.moved.push((sources[i].clone(), to));
+        }
         Ok(outcome)
     }
+    /// Copies (or links) every source into a stage, then publishes them all,
+    /// replacing confirmed destinations.
+    fn copy_entries(&self, prepared: Prepared, linking: bool) -> Result<Outcome> {
+        let Prepared {
+            src,
+            dst,
+            old,
+            before,
+            replaced,
+            ..
+        } = prepared;
+        let mut outcome = Outcome::new(true);
+        // Stage all entries before publishing any. Never follow an
+        // existing destination or replace one created concurrently.
+        let stage = Stage::new(&dst[0].parent, &dst[0].path)?;
+        let bytes = before
+            .iter()
+            .flat_map(|t| t.values())
+            .filter(|s| s.7 & 0o170000 == 0o100000)
+            .fold(0u64, |n, s| n.saturating_add(s.2));
+        // Until everything is staged, stopping changes nothing.
+        self.phase(bytes, true);
+        let mut staged = vec![];
+        for (i, s) in src.iter().enumerate() {
+            let name = format!("{i}");
+            if linking {
+                sys::symlinkat(&s.path, &stage.dir, &name).map_err(err)?;
+            } else {
+                copy_tree(&s.parent, &s.name, &stage.dir, OsStr::new(&name), &|n| {
+                    self.tick(n)
+                })?;
+            }
+            staged.push(identity(&stage.dir, OsStr::new(&name)));
+        }
+        self.settle();
+        for (source, was) in src.iter().zip(&before) {
+            if tree(source)? != *was {
+                return Err("Source changed while staging; nothing copied".into());
+            }
+        }
+        // Staging is complete, so overwritten entries are absent only
+        // while the copies are published.
+        let mut over = Overwrite::detach(&old, &replaced, &dst)?;
+        let mut done: Vec<usize> = vec![];
+        for (i, d) in dst.iter().enumerate() {
+            self.checkpoint(i);
+            if let Err(e) = reparent(&stage.dir, OsStr::new(&i.to_string()), &d.parent, &d.name) {
+                let mut rollback = true;
+                for &j in done.iter().rev() {
+                    let d: &Entry = &dst[j];
+                    // Never pull back (and then delete) an entry that
+                    // replaced the published copy concurrently.
+                    rollback &= identity(&d.parent, &d.name) == staged[j]
+                        && reparent(&d.parent, &d.name, &stage.dir, OsStr::new(&j.to_string()))
+                            .is_ok();
+                }
+                rollback &= over.restore();
+                return Err(format!(
+                    "{e}; {}",
+                    if rollback {
+                        "copies rolled back".to_string()
+                    } else {
+                        format!("rollback incomplete; {}", over.whereabouts())
+                    }
+                ));
+            }
+            done.push(i);
+        }
+        over.finish(self, &mut outcome);
+        for (d, id) in dst.iter().zip(&staged) {
+            if let Some(id) = *id {
+                outcome.undo.push(undo::Step::Discard {
+                    path: d.path.clone(),
+                    id,
+                });
+            }
+        }
+        Ok(outcome)
+    }
+    /// Detaches every source, then trashes those marked in `trash` and
+    /// deletes the others for good.
+    fn delete_entries(&self, prepared: Prepared, trash: &[bool]) -> Result<Outcome> {
+        let Prepared {
+            sources,
+            src,
+            before,
+            ..
+        } = prepared;
+        let mut outcome = Outcome::new(true);
+        let trashing = |i: usize| trash.get(i).copied().unwrap_or(false);
+        // Counted from the start: what deleting will remove.
+        let entries = (0..src.len())
+            .filter(|&i| !trashing(i))
+            .map(|i| before[i].len() as u64)
+            .sum();
+        self.phase(entries, false);
+        // Every bin is found before anything moves.
+        let mut bins = vec![];
+        for (i, s) in src.iter().enumerate() {
+            bins.push(if trashing(i) {
+                Some(
+                    self.bin(s)
+                        .map_err(|e| format!("{:?} cannot go to the trash: {e}", s.name))?,
+                )
+            } else {
+                None
+            });
+        }
+        // Detach all selected roots before deleting any contents;
+        // a failure to detach rolls earlier roots back intact.
+        let mut held: Vec<Hold> = vec![];
+        for (i, s) in src.iter().enumerate() {
+            self.checkpoint(i);
+            let bin = bins[i].take();
+            let result = tree(s).and_then(|now| {
+                if now != before[i] {
+                    return Err("Source changed before deletion".into());
+                }
+                Ok(match bin {
+                    Some(bin) => {
+                        let slot = bin.put(&s.parent, &s.name, &s.path)?;
+                        Hold::Trash {
+                            bin,
+                            slot,
+                            stranded: false,
+                        }
+                    }
+                    None => {
+                        let mut stage = Stage::new(&s.parent, &s.path)?;
+                        reparent(&s.parent, &s.name, &stage.dir, OsStr::new("entry"))?;
+                        stage.keep = true;
+                        Hold::Stage(stage)
+                    }
+                })
+            });
+            match result {
+                Ok(hold) => held.push(hold),
+                Err(e) => {
+                    for (j, hold) in held.iter_mut().enumerate().rev() {
+                        hold.restore(&src[j]);
+                    }
+                    return Err(format!("{e}; {}", unrestored(&held)));
+                }
+            }
+        }
+        self.checkpoint(usize::MAX - 1);
+        let validation: Result<()> = held.iter().enumerate().try_for_each(|(i, h)| {
+            let (dir, name) = h.at();
+            if detached_matches(dir, name, &before[i])? {
+                Ok(())
+            } else {
+                Err("Source changed while preparing deletion".into())
+            }
+        });
+        if let Err(error) = validation {
+            for (i, hold) in held.iter_mut().enumerate().rev() {
+                hold.restore(&src[i]);
+            }
+            return Err(format!("{error}; {}", unrestored(&held)));
+        }
+        // Trashed entries are done; undoing takes them back out.
+        for (i, hold) in held.iter().enumerate() {
+            if let Hold::Trash { bin, slot, .. } = hold {
+                let root = &before[i][Path::new("")];
+                outcome.undo.push(undo::Step::Restore {
+                    bin: bin.path.clone(),
+                    slot: slot.clone(),
+                    back: src[i].path.clone(),
+                    id: (root.0, root.1),
+                });
+                outcome.removed.push(sources[i].clone());
+                outcome.trashed += 1;
+            }
+        }
+        self.checkpoint(usize::MAX - 2);
+        let permanent = (0..held.len())
+            .filter(|&i| matches!(held[i], Hold::Stage(_)))
+            .collect::<Vec<_>>();
+        self.phase(entries, true);
+        for (k, &i) in permanent.iter().enumerate() {
+            let (dir, name) = held[i].at();
+            let deleted = std::cell::Cell::new(0);
+            let tick = |n| {
+                deleted.set(deleted.get() + n);
+                self.tick(n)
+            };
+            if let Err(e) = remove_counting(dir, name, &tick) {
+                // Put back what remains of this root and every root not
+                // yet deleted, so nothing is left hidden in staging.
+                for &j in &permanent[k..] {
+                    held[j].restore(&src[j]);
+                }
+                let rest = match permanent.len() - k - 1 {
+                    0 => String::new(),
+                    1 => ", and the entry after it,".into(),
+                    n => format!(", and the {n} entries after it,"),
+                };
+                let left = permanent[k..].iter().map(|&j| &held[j]);
+                let (what, it) = if deleted.get() > 0 {
+                    ("was only partly deleted", "What remains of it")
+                } else {
+                    ("was not deleted", "It")
+                };
+                let back = if left.clone().all(|h| h.stranded().is_none()) {
+                    format!("{it}{rest} is back in place.")
+                } else {
+                    format!("Could {}.", &unrestored(left)[6..])
+                };
+                outcome.warning = Some(if e == CANCELLED {
+                    format!(
+                        "Stopped after deleting {k} of {}; {:?} {what}. {back}",
+                        permanent.len(),
+                        sources[i],
+                    )
+                } else {
+                    format!(
+                        "Deleted {k} of {}; {:?} {what} ({e}). {back}",
+                        permanent.len(),
+                        sources[i],
+                    )
+                });
+                return Ok(outcome);
+            }
+            if let Hold::Stage(stage) = &mut held[i] {
+                stage.keep = false;
+            }
+            outcome.removed.push(sources[i].clone());
+            outcome.lost += 1;
+        }
+        Ok(outcome)
+    }
+    /// A new empty file or directory.
+    fn create_entry(&self, prepared: Prepared, directory: bool) -> Result<Outcome> {
+        let Prepared { dst, .. } = prepared;
+        let mut outcome = Outcome::new(true);
+        let d = &dst[0];
+        if directory {
+            sys::mkdirat(&d.parent, &d.name, Mode::from_raw_mode(0o755)).map_err(err)?;
+        } else {
+            // Ordinary permissions, as the user's umask allows.
+            File::from(
+                sys::openat(
+                    &d.parent,
+                    &d.name,
+                    OFlags::WRONLY
+                        | OFlags::CREATE
+                        | OFlags::EXCL
+                        | OFlags::NOFOLLOW
+                        | OFlags::CLOEXEC,
+                    Mode::from_raw_mode(0o666),
+                )
+                .map_err(err)?,
+            )
+            .sync_all()
+            .map_err(err)?;
+        }
+        if let Some(id) = identity(&d.parent, &d.name) {
+            outcome.undo.push(undo::Step::Discard {
+                path: d.path.clone(),
+                id,
+            });
+        }
+        Ok(outcome)
+    }
+    /// Extracts every archive into a stage per destination, then publishes
+    /// what each holds.
+    fn extract(&self, prepared: Prepared) -> Result<Outcome> {
+        let Prepared {
+            src, dst, before, ..
+        } = prepared;
+        let mut outcome = Outcome::new(true);
+        // Until everything is staged, stopping changes nothing.
+        self.phase(0, true);
+        // One stage per destination holds every archive bound for it,
+        // so entries colliding across archives abort before anything
+        // is published.
+        let mut groups = vec![];
+        for (k, d) in dst.iter().enumerate() {
+            // An existing destination hosts its stage, so its parent
+            // need not be writable; otherwise the parent does.
+            let existing = exists(&d.parent, &d.name)?;
+            let dest = if existing {
+                Some(child_dir(&d.parent, &d.name)?)
+            } else {
+                None
+            };
+            let stage = match &dest {
+                Some(dest) => Stage::new(dest, &d.path.join("x"))?,
+                None => Stage::new(&d.parent, &d.path)?,
+            };
+            for (i, s) in src.iter().enumerate() {
+                // Without a common destination, each archive goes
+                // to the target that is its own (resolved) folder.
+                if dst.len() > 1 && s.path.parent() != Some(d.path.as_path()) {
+                    continue;
+                }
+                // Non-blocking: a FIFO swapped in cannot hang the job.
+                let input = File::from(
+                    sys::openat(
+                        &s.parent,
+                        &s.name,
+                        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+                        Mode::empty(),
+                    )
+                    .map_err(err)?,
+                );
+                if !input.metadata().map_err(err)?.is_file() {
+                    return Err(format!("{:?} is not a regular archive file", s.name));
+                }
+                crate::archive::extract(input, &stage.dir, &|n| self.tick(n)).map_err(|e| {
+                    if e == CANCELLED {
+                        e
+                    } else {
+                        format!("{:?}: {e}", s.name)
+                    }
+                })?;
+                if tree(s)? != before[i] {
+                    return Err(format!("{:?} changed during extraction", s.name));
+                }
+            }
+            groups.push((k, existing, dest, stage));
+        }
+        self.settle();
+        // Plan every publication and check every collision first.
+        let mut plan = vec![];
+        for (k, existing, dest, stage) in &groups {
+            let d = &dst[*k];
+            if exists(&d.parent, &d.name)? != *existing {
+                return Err("Extraction destination changed".into());
+            }
+            if let Some(dest) = dest {
+                for item in fs::read_dir(fdpath(&stage.dir)).map_err(err)? {
+                    let name = item.map_err(err)?.file_name();
+                    if exists(dest, &name)? {
+                        return Err(format!("{:?} already contains {:?}", d.path, name));
+                    }
+                    let id = identity(&stage.dir, &name);
+                    let path = d.path.join(&name);
+                    plan.push((&stage.dir, name.clone(), dest, name, id, path));
+                }
+            } else {
+                // The private stage becomes an ordinary new directory.
+                stage
+                    .dir
+                    .set_permissions(fs::Permissions::from_mode(0o755))
+                    .map_err(err)?;
+                let id = identity(&stage.parent, &stage.name);
+                plan.push((
+                    &stage.parent,
+                    stage.name.clone(),
+                    &d.parent,
+                    d.name.clone(),
+                    id,
+                    d.path.clone(),
+                ));
+            }
+        }
+        let mut done: Vec<usize> = vec![];
+        for (n, (from, name, to, as_name, _, _)) in plan.iter().enumerate() {
+            if let Err(e) = rename(from, name, to, as_name) {
+                let mut rollback = true;
+                for &n in done.iter().rev() {
+                    let (from, name, to, as_name, id, _) = &plan[n];
+                    // Only take back what this extraction published.
+                    rollback &=
+                        identity(to, as_name) == *id && rename(to, as_name, from, name).is_ok();
+                }
+                if !rollback {
+                    return Err(format!("{e}; extraction rollback incomplete"));
+                }
+                return Err(e);
+            }
+            done.push(n);
+        }
+        for (_, _, _, _, id, path) in plan {
+            if let Some(id) = id {
+                outcome.undo.push(undo::Step::Discard { path, id });
+            }
+        }
+        Ok(outcome)
+    }
+}
+/// A request's entries, opened and checked against what was confirmed.
+struct Prepared {
+    /// The paths as requested, for messages and undo.
+    sources: Vec<PathBuf>,
+    targets: Vec<PathBuf>,
+    src: Vec<Entry>,
+    dst: Vec<Entry>,
+    /// Confirmed destinations to overwrite.
+    old: Vec<Entry>,
+    /// The trees of `src` and `old` when checked.
+    before: Vec<BTreeMap<PathBuf, Stamp>>,
+    replaced: Vec<BTreeMap<PathBuf, Stamp>>,
 }
 /// Where a delete root waits once detached: a private stage beside it, to
 /// be deleted for good, or a slot in the trash.

@@ -1,9 +1,11 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
-use fuzzy_file_finder::{App, Policy, completion, config::Settings, keys::KeyMap, ui, write_paths};
+use fuzzy_file_finder::{
+    App, Policy, completion, config::Settings, explorer::Dialog, keys::KeyMap, ui, write_paths,
+};
 use std::{
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
 };
 
@@ -441,13 +443,23 @@ struct Mode {
     no_dir: bool,
     explorer: Option<ExplorerArgs>,
 }
+/// Exits with a usage error (status 2) for arguments that cannot go together.
+fn conflict(message: &str) -> ! {
+    Args::command()
+        .error(clap::error::ErrorKind::ArgumentConflict, message)
+        .exit()
+}
+/// Exits with a usage error (status 2) for a malformed value, like clap's own.
+fn usage(flag: &str, error: &dyn std::fmt::Display) -> ! {
+    Args::command()
+        .error(
+            clap::error::ErrorKind::ValueValidation,
+            format!("invalid value for {flag}: {error}"),
+        )
+        .exit()
+}
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let mut args = Args::parse();
-    let conflict = |message: &str| -> ! {
-        Args::command()
-            .error(clap::error::ErrorKind::ArgumentConflict, message)
-            .exit()
-    };
     if let Some(instead) = args.moved.instead() {
         Args::command()
             .error(clap::error::ErrorKind::UnknownArgument, instead)
@@ -504,15 +516,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     if mode.resume && !mode.roots.is_empty() {
         conflict("--resume continues the last session's own roots; give no ROOTS");
     }
-    // Malformed argument values are usage errors (exit 2), like clap's own.
-    let usage = |flag: &str, error: &dyn std::fmt::Display| -> ! {
-        Args::command()
-            .error(
-                clap::error::ErrorKind::ValueValidation,
-                format!("invalid value for {flag}: {error}"),
-            )
-            .exit()
-    };
     if let Err(e) = KeyMap::parse(&args.key_maps) {
         usage("--map-key", &e);
     }
@@ -541,47 +544,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         fuzzy_file_finder::reload::PaletteState::from_settings(&settings),
     );
     let invocation = std::env::current_dir()?.canonicalize()?;
-    // --browse and explorer: where to start, and the file to highlight there.
-    let mut browse_from = None;
-    let mut dialog = None;
-    if let Some(explorer) = &mode.explorer {
-        let (asked, start, highlight) = fuzzy_file_finder::explorer::Dialog::new(
-            explorer.path.as_deref(),
-            explorer.multiple,
-            explorer.directory,
-            explorer.save,
-            &invocation,
-        );
-        dialog = Some(asked);
-        let start = start.canonicalize()?;
-        let highlight = highlight.and_then(|h| h.file_name().map(|n| start.join(n)));
-        browse_from = Some((start, highlight));
-    } else if mode.browse {
-        if mode.roots.len() > 1 {
-            usage("--browse", &"give at most one path to browse from");
-        }
-        if let Some(path) = mode.roots.first() {
-            let full = path
-                .canonicalize()
-                .map_err(|e| format!("{}: {e}", path.display()))?;
-            browse_from = Some(match full.parent() {
-                Some(parent) if !full.is_dir() => (parent.to_owned(), Some(full.clone())),
-                _ => (full, None),
-            });
-        }
-    }
-    let mut roots = Vec::new();
-    for root in mode.roots.iter().filter(|_| !mode.browse) {
-        let path = root
-            .canonicalize()
-            .map_err(|e| format!("{}: {e}", root.display()))?;
-        if !path.is_dir() {
-            return Err(format!("Not a directory: {}", root.display()).into());
-        }
-        if !roots.contains(&path) {
-            roots.push(path);
-        }
-    }
+    let (browse_from, dialog) = starting_place(&mode, &invocation)?;
+    let roots = pinned_roots(&mode)?;
     let state = fuzzy_file_finder::state::path()
         .map(|p| fuzzy_file_finder::state::load(&p))
         .unwrap_or_default();
@@ -652,6 +616,71 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.home.clone(),
     );
     let finish = ui::run(app, keys, settings.cache, watcher, settings.performance)?;
+    report(finish, &mode, dialog, args.cd_file.as_deref(), &invocation)
+}
+/// --browse and fff explorer: the folder to start in and the file to
+/// highlight there, and explorer's dialog. `None` starts in the roots.
+type Start = Option<(PathBuf, Option<PathBuf>)>;
+fn starting_place(
+    mode: &Mode,
+    invocation: &Path,
+) -> Result<(Start, Option<Dialog>), Box<dyn std::error::Error>> {
+    if let Some(explorer) = &mode.explorer {
+        let (asked, start, highlight) = Dialog::new(
+            explorer.path.as_deref(),
+            explorer.multiple,
+            explorer.directory,
+            explorer.save,
+            invocation,
+        );
+        let start = start.canonicalize()?;
+        let highlight = highlight.and_then(|h| h.file_name().map(|n| start.join(n)));
+        return Ok((Some((start, highlight)), Some(asked)));
+    }
+    if !mode.browse {
+        return Ok((None, None));
+    }
+    if mode.roots.len() > 1 {
+        usage("--browse", &"give at most one path to browse from");
+    }
+    let Some(path) = mode.roots.first() else {
+        return Ok((None, None));
+    };
+    let full = path
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let start = match full.parent() {
+        Some(parent) if !full.is_dir() => (parent.to_owned(), Some(full.clone())),
+        _ => (full, None),
+    };
+    Ok((Some(start), None))
+}
+/// The ROOTS of fff roam, pick and seek, resolved, each once.
+fn pinned_roots(mode: &Mode) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut roots = Vec::new();
+    for root in mode.roots.iter().filter(|_| !mode.browse) {
+        let path = root
+            .canonicalize()
+            .map_err(|e| format!("{}: {e}", root.display()))?;
+        if !path.is_dir() {
+            return Err(format!("Not a directory: {}", root.display()).into());
+        }
+        if !roots.contains(&path) {
+            roots.push(path);
+        }
+    }
+    Ok(roots)
+}
+/// What the session's end prints or changes: a dialog's answer, chosen
+/// paths, or (fff roam) the directory the shell changes to; gX then
+/// replaces fff with its program. False when nothing was chosen.
+fn report(
+    finish: ui::Finish,
+    mode: &Mode,
+    dialog: Option<Dialog>,
+    cd_file: Option<&Path>,
+    invocation: &Path,
+) -> Result<bool, Box<dyn std::error::Error>> {
     // In the default mode the session chooses a directory: the folder of the
     // confirmed entry (a directory itself for directories).
     let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
@@ -667,13 +696,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         if dir == invocation {
             return Ok(());
         }
-        match &args.cd_file {
+        match cd_file {
             Some(file) => std::fs::write(file, dir.as_os_str().as_encoded_bytes()),
             // Without the wrapper, `cd "$(command fff)"` still works.
             None => write_paths(
                 io::stdout().lock(),
                 &[dir.to_owned()],
-                &invocation,
+                invocation,
                 false,
                 false,
             ),
@@ -699,7 +728,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             write_paths(
                 io::stdout().lock(),
                 &paths,
-                &invocation,
+                invocation,
                 mode.relative,
                 mode.null,
             )?;
@@ -709,7 +738,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             write_paths(
                 io::stdout().lock(),
                 &[folder],
-                &invocation,
+                invocation,
                 mode.relative,
                 mode.null,
             )?;
@@ -730,7 +759,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             }
             let error = plan.exec();
             // It never started, so the shell stays where it was.
-            if let Some(file) = args.cd_file.as_ref().filter(|_| !mode.output_paths) {
+            if let Some(file) = cd_file.filter(|_| !mode.output_paths) {
                 let _ = std::fs::write(file, b"");
             }
             Err(format!("Could not run {}: {error}", plan.name).into())
