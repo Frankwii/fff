@@ -80,8 +80,9 @@ and highlighted row, the other tabs and their back/forward history, the
 marks, the query, the depth, filters, exclusions, and the hidden-entry,
 directory and preview toggles. Only the last session is kept, wherever it was
 started, and `q` still returns to where you start the new one. Folders that
-are gone fall back to their nearest existing parent. `fff pick`, `fff seek`
-and `fff explorer` sessions are never saved. Without `--resume`, fff starts in
+are gone fall back to their nearest existing parent. A session is saved when
+it ends as `fff roam` (switched to it with `gm` too); `fff pick`, `fff seek`,
+`fff grep` and `fff explorer` sessions are not. Without `--resume`, fff starts in
 the current directory, on the row last highlighted there (see [remembered
 locations](docs/CONFIGURATION.md#remembered-locations)).
 
