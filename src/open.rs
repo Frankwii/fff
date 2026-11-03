@@ -51,11 +51,10 @@ pub struct Rule {
     #[serde(default)]
     pub terminal: bool,
     /// Arguments added before the file when it opens from a `fff grep`
-    /// match: `{page}`, `{line}` and `{query}` become the match's page (its
-    /// line where it has none), line and the contents query, e.g.
-    /// `--page {page} --find {query}` for zathura.
+    /// match, with placeholders for where the match is (see `GrepMatch`),
+    /// e.g. `--page {page} --find {query}` for zathura.
     #[serde(default)]
-    pub at_match: String,
+    pub at_grep_match: String,
 }
 
 /// How a file is opened: the command line and whether it needs a terminal.
@@ -63,28 +62,74 @@ pub struct Rule {
 pub struct Opener {
     pub line: String,
     pub terminal: bool,
-    /// `at_match`, empty when the rule has none.
-    pub at_match: String,
+    /// `at_grep_match`, empty when the rule has none.
+    pub at_grep_match: String,
 }
-/// A `fff grep` match a file opens at.
+/// A `fff grep` match a file opens at: what `at_grep_match`'s placeholders
+/// become.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Match {
+pub struct GrepMatch {
+    /// `{page}`: its page in a PDF or DjVu; else its line.
     pub page: Option<u32>,
+    /// `{line}`: its line in the text (in a document, in its extracted text).
     pub line: u32,
+    /// `{percent}`: how far into the file it is, 0 to 100.
+    pub percent: u8,
+    /// `{query}`: the contents query, as typed (spaces at its ends dropped).
     pub query: String,
+    /// `{match}`: the text that matched, as it reads in the file.
+    pub matched: String,
+    /// `{nth}` and `{count}`: which of the file's matches it is, from 1, and
+    /// how many the file has.
+    pub nth: usize,
+    pub count: usize,
 }
-impl Match {
-    /// `at_match`'s words with the placeholders filled in, split like a
-    /// typed command first, so that a query with spaces stays one word.
-    fn arguments(&self, at_match: &str, home: Option<&Path>) -> Result<Vec<String>, String> {
-        let words = split(at_match, home).map_err(|e| format!("at_match {at_match:?}: {e}"))?;
-        let page = self.page.unwrap_or(self.line).to_string();
+impl GrepMatch {
+    /// The placeholders `at_grep_match` takes, each with its value, for the
+    /// file at `path`.
+    fn values(&self, path: &Path) -> [(&'static str, String); 8] {
+        [
+            ("{path}", path.to_string_lossy().into_owned()),
+            ("{page}", self.page.unwrap_or(self.line).to_string()),
+            ("{line}", self.line.to_string()),
+            ("{percent}", self.percent.to_string()),
+            ("{query}", self.query.clone()),
+            ("{match}", self.matched.clone()),
+            ("{nth}", self.nth.to_string()),
+            ("{count}", self.count.to_string()),
+        ]
+    }
+    /// `at_grep_match`'s words with the placeholders filled in, split like
+    /// a typed command first, so that a value with spaces stays one word.
+    /// Each word is filled in one pass: a value that itself reads like a
+    /// placeholder (a query `{page}`) stays as it is.
+    fn arguments(
+        &self,
+        template: &str,
+        path: &Path,
+        home: Option<&Path>,
+    ) -> Result<Vec<String>, String> {
+        let words =
+            split(template, home).map_err(|e| format!("at_grep_match {template:?}: {e}"))?;
+        let values = self.values(path);
         Ok(words
             .into_iter()
-            .map(|w| {
-                w.replace("{page}", &page)
-                    .replace("{line}", &self.line.to_string())
-                    .replace("{query}", &self.query)
+            .map(|word| {
+                let mut out = String::new();
+                let mut rest = word.as_str();
+                'scan: while !rest.is_empty() {
+                    for (name, value) in &values {
+                        if let Some(after) = rest.strip_prefix(name) {
+                            out.push_str(value);
+                            rest = after;
+                            continue 'scan;
+                        }
+                    }
+                    let c = rest.chars().next().expect("not empty");
+                    out.push(c);
+                    rest = &rest[c.len_utf8()..];
+                }
+                out
             })
             .collect())
     }
@@ -124,8 +169,10 @@ impl OpenConfig {
             for pattern in &rule.patterns {
                 crate::glob(pattern).map_err(|e| format!("{at}: pattern {pattern:?}: {e}"))?;
             }
-            if split(&rule.at_match).is_err() {
-                return Err(format!("{at}: at_match must split like a command line"));
+            if split(&rule.at_grep_match).is_err() {
+                return Err(format!(
+                    "{at}: at_grep_match must split like a command line"
+                ));
             }
         }
         Ok(())
@@ -167,14 +214,14 @@ impl OpenConfig {
             return Ok(Opener {
                 line: rule.command.clone(),
                 terminal: rule.terminal,
-                at_match: rule.at_match.clone(),
+                at_grep_match: rule.at_grep_match.clone(),
             });
         }
         match std::env::var("EDITOR") {
             Ok(editor) if !editor.trim().is_empty() => Ok(Opener {
                 line: editor,
                 terminal: true,
-                at_match: String::new(),
+                at_grep_match: String::new(),
             }),
             _ => Err(format!(
                 "No opener for {name}; add an [[open.rules]] entry or set $EDITOR"
@@ -254,14 +301,20 @@ pub fn launch(plan: &Plan) -> Result<(), String> {
 pub fn background_plan(
     config: &OpenConfig,
     path: &Path,
-    at: Option<&Match>,
+    at: Option<&GrepMatch>,
     cwd: &Path,
     home: Option<&Path>,
 ) -> Result<Plan, String> {
     let opener = config.opener(path)?;
     let mut inner = plan(&opener.line, vec![path.to_owned()], cwd, home)?;
-    if let Some(at) = at.filter(|_| !opener.at_match.trim().is_empty()) {
-        inner.args.extend(at.arguments(&opener.at_match, home)?);
+    if let Some(at) = at.filter(|_| !opener.at_grep_match.trim().is_empty()) {
+        inner
+            .args
+            .extend(at.arguments(&opener.at_grep_match, path, home)?);
+        // Named by `{path}`, the file is where the arguments put it.
+        if opener.at_grep_match.contains("{path}") {
+            inner.paths.clear();
+        }
     }
     if !opener.terminal {
         return Ok(inner);
@@ -373,18 +426,22 @@ mod tests {
             [[rules]]
             command = "cat -n"
             extensions = ["pdf"]
-            at_match = "--page {page} --find {query}"
+            at_grep_match = "--page {page} --find {query}"
             [[rules]]
             command = "cat"
             extensions = ["txt"]
-            at_match = "+{line}"
+            at_grep_match = "+{line} -c /{match} {nth}/{count} {percent}%"
             "#,
         );
         c.validate().unwrap();
-        let at = Match {
+        let at = GrepMatch {
             page: Some(12),
             line: 340,
+            percent: 7,
             query: "canard explosion".into(),
+            matched: "Canard Explosion".into(),
+            nth: 2,
+            count: 5,
         };
         let plan = background_plan(&c, Path::new("/a/b.pdf"), Some(&at), Path::new("/"), None);
         let plan = plan.unwrap();
@@ -395,7 +452,64 @@ mod tests {
         );
         assert_eq!(plan.paths, [PathBuf::from("/a/b.pdf")]);
         let plan = background_plan(&c, Path::new("/a/b.txt"), Some(&at), Path::new("/"), None);
-        assert_eq!(plan.unwrap().args, ["+340"]);
+        assert_eq!(
+            plan.unwrap().args,
+            ["+340", "-c", "/Canard Explosion", "2/5", "7%"]
+        );
+        // A value that reads like a placeholder is not filled in again.
+        let tricky = GrepMatch {
+            query: "{line}".into(),
+            ..at.clone()
+        };
+        let plan = background_plan(
+            &c,
+            Path::new("/a/b.pdf"),
+            Some(&tricky),
+            Path::new("/"),
+            None,
+        );
+        assert_eq!(plan.unwrap().args[4], "{line}");
+        // `{path}` puts the file among the arguments instead of at the end.
+        let mupdf = config(
+            "[[rules]]\ncommand = \"cat\"\nextensions = [\"pdf\"]\nat_grep_match = \"{path} {page}\"",
+        );
+        let plan = background_plan(
+            &mupdf,
+            Path::new("/a/b.pdf"),
+            Some(&at),
+            Path::new("/"),
+            None,
+        );
+        let plan = plan.unwrap();
+        assert_eq!(plan.args, ["/a/b.pdf", "12"]);
+        assert!(plan.paths.is_empty());
+        // The documented shell wrapper: the values are the script's arguments.
+        let shell = config(
+            r#"
+            [[rules]]
+            command = "sh -c"
+            extensions = ["pdf"]
+            at_grep_match = '''
+            'notify-send "Match $3 of $4" "$2"; exec zathura --page "$1" --find "$2" "$5"'
+            fff {page} {query} {nth} {count} {path}
+            '''
+            "#,
+        );
+        shell.validate().unwrap();
+        let plan = background_plan(
+            &shell,
+            Path::new("/a/b.pdf"),
+            Some(&at),
+            Path::new("/"),
+            None,
+        );
+        let plan = plan.unwrap();
+        assert_eq!(
+            &plan.args[2..],
+            ["fff", "12", "canard explosion", "2", "5", "/a/b.pdf"]
+        );
+        assert!(plan.args[1].starts_with("notify-send"));
+        assert!(plan.paths.is_empty());
         // Opened from anywhere but a match, nothing is added.
         let plan = background_plan(&c, Path::new("/a/b.pdf"), None, Path::new("/"), None);
         assert_eq!(plan.unwrap().args, ["-n"]);

@@ -702,7 +702,7 @@ fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup (defaul
 [[open.rules]]
 command = "zathura"
 extensions = ["pdf", "djvu", "epub"]
-at_match = "--page {page} --find {query}"   # from a fff grep match: open there
+at_grep_match = "--page {page} --find {query}"   # from a fff grep match: open there
 
 [[open.rules]]
 command = "imv"
@@ -726,13 +726,75 @@ matches `notes.tar.gz` (as `"gz"` does) but not a file named `.tar.gz`;
 needs a command and at least one extension or pattern. Files no rule matches
 open with `$EDITOR`, as a terminal program.
 
-`at_match` is optional: when `l` or Alt+l (or Alt+number) opens a file from a
-`fff grep` match, its words are added before the file, with `{page}` (the
-match's page, or its line where it has none), `{line}` and `{query}` (the
-contents query) filled in. A placeholder inside a word stays in that word, so
-a query with spaces is one argument. For zathura, `--page {page} --find
-{query}` opens the document on the match's page with the query found and
-highlighted; for an editor such as `nvim`, `+{line}`.
+### Opening at a `fff grep` match
+
+`at_grep_match` is optional. When `l`, Alt+l or Alt+number opens a file from
+a [`fff grep`](../README.md#searching-contents-fff-grep) match row, its words
+are added to the command, with placeholders filled in from the match; opened
+any other way (a file row, `o`, Enter), the rule's `command` runs as it is.
+The command line is the rule's `command`, then `at_grep_match`, then the file:
+
+```toml
+[[open.rules]]
+command = "zathura"
+extensions = ["pdf", "djvu"]
+at_grep_match = "--page {page} --find {query}"
+# runs: zathura --page 233 --find 'Sobolev embedding' /home/you/Gilbarg-Trudinger.pdf
+```
+
+| Placeholder | Becomes | Example |
+| --- | --- | --- |
+| `{page}` | The match's page in a PDF or DjVu (from 1). In a text file or an EPUB, which have none, its line. | `233` |
+| `{line}` | Its line, from 1: in a text file its real line, in a document its line in the extracted text (which a viewer does not know). | `14873` |
+| `{percent}` | How far into the file the match starts, 0 to 100, by its place in the text. The useful position in an EPUB. | `42` |
+| `{query}` | The contents query as you typed it, spaces at its ends dropped. | `Sobolev embedding` |
+| `{match}` | The text that matched, as the file has it: its case and accents, and for a match broken over lines, its parts joined by one space. | `Sobolev Embedding` |
+| `{nth}` | Which of the file's matches it is, from 1, in the file's order. | `3` |
+| `{count}` | How many matches the file has (at most 200 are kept). | `7` |
+| `{path}` | The file's full path. Named anywhere in `at_grep_match`, the file goes there instead of at the end. | `/home/you/notes/Brezis.pdf` |
+
+How the words are made:
+
+- `at_grep_match` is split into words like `command`: spaces separate,
+  quotes and backslashes work, `~` is your home, and no shell runs.
+- Placeholders are filled in after splitting, so a value with spaces (a
+  query, a path) stays one argument, and a placeholder can sit inside a word:
+  `--page={page}`, `+{line}`, `"{nth}/{count}"`.
+- Each word is filled in once: a value that happens to read like a
+  placeholder (a query `{page}`) stays as it is. Unknown braces, such as
+  `{x}`, are left alone.
+- With `terminal = true` the whole line runs in `[open] terminal`, as for
+  any terminal opener.
+
+Some uses:
+
+```toml
+# zathura: on the match's page, the query found and highlighted.
+at_grep_match = "--page {page} --find {query}"
+
+# mupdf takes the page after the file.
+at_grep_match = "{path} {page}"
+
+# Neovim (terminal = true): on the line, the cursor on the match.
+at_grep_match = "+{line} -c /{query}"
+
+# Your own script: everything fff knows, as separate arguments.
+command = "my-opener"
+at_grep_match = "--path {path} --page {page} --line {line} --percent {percent} --query {query} --match {match} --nth {nth} --count {count}"
+```
+
+A shell is the way to do more, such as a notification or a log, but a
+placeholder pasted into the script's text is pasted unquoted. Pass the
+values as the shell's own arguments instead, and quote them there:
+
+```toml
+command = "sh -c"
+extensions = ["pdf"]
+at_grep_match = '''
+'notify-send "Match $3 of $4" "$2"; exec zathura --page "$1" --find "$2" "$5"'
+fff {page} {query} {nth} {count} {path}
+'''
+```
 
 `terminal` must start a terminal window running the rest of the line: `st -e`,
 `alacritty -e`, `foot`, `kitty`. `fff_terminal` does the same for fff itself

@@ -269,7 +269,7 @@ Escape clears the one being typed into (the
 other once it is empty). Enter prints the file (while typing, the marks and
 it); marking a match marks its file. `l` opens it in the background and
 keeps fff open; an [opener](docs/CONFIGURATION.md#openers) with
-`at_match` opens it at the match, zathura on its page with the query
+`at_grep_match` opens it at the match, zathura on its page with the query
 highlighted.
 
 The contents query is a literal, not a regular expression. It is case-smart

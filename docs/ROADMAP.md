@@ -83,7 +83,7 @@ every file on every search (1.85 s and about 25 CPU-seconds a search over
   choices](DEVELOPMENT.md#design-choices)), so the page itself belongs in a
   PDF viewer. zathura answers on D-Bus (`org.pwmt.zathura`): one window,
   opened by a key, could follow the highlighted match, going to its page and
-  highlighting it as the highlight moves, the way `at_match` opens a file
+  highlighting it as the highlight moves, the way `at_grep_match` opens a file
   there once.
 - **OCR stays out.** A scanned document without a text layer cannot match;
   OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text

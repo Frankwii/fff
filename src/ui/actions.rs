@@ -35,18 +35,23 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    // From a fff grep match, at the match, as the rule's at_match says.
+    // From a fff grep match, at the match, as the rule's at_grep_match says.
     let at = app
-        .highlighted_hit()
+        .highlighted()
         .filter(|_| app.highlight.as_deref() == Some(path))
-        .map(|hit| crate::open::Match {
-            page: hit.page,
-            line: hit.line,
-            query: app
-                .grep
-                .as_ref()
-                .map(|g| g.text.trim().to_owned())
-                .unwrap_or_default(),
+        .and_then(|row| {
+            let grep = app.grep.as_ref().filter(|g| g.active())?;
+            let (hits, i) = grep.shown_hits.get(row)?;
+            let hit = &hits[*i];
+            Some(crate::open::GrepMatch {
+                page: hit.page,
+                line: hit.line,
+                percent: hit.position,
+                query: grep.text.trim().to_owned(),
+                matched: hit.matched_text(),
+                nth: i + 1,
+                count: hits.len(),
+            })
         });
     let result = crate::open::background_plan(
         &app.openers,

@@ -58,6 +58,8 @@ pub struct Hit {
     /// How far into the text it is, in a document without pages (EPUB),
     /// whose lines mean nothing to a reader.
     pub percent: Option<u8>,
+    /// How far into the text it is, 0 to 100, in any file.
+    pub position: u8,
     /// Its line in the text (1 for the first).
     pub line: u32,
     /// Lines around the match, `at` being the match's own, which keeps the
@@ -89,6 +91,13 @@ impl Hit {
             parts.push(base + part.start.max(lead) - lead..base + part.end.max(lead) - lead);
         }
         (text, parts)
+    }
+    /// The text that matched, as it reads: its parts on each line, joined
+    /// by a space.
+    pub fn matched_text(&self) -> String {
+        let (text, parts) = self.joined();
+        let parts: Vec<&str> = parts.iter().filter_map(|p| text.get(p.clone())).collect();
+        parts.join(" ")
     }
     /// The match's parts on context line `i`.
     pub fn parts(&self, i: usize) -> Vec<Range<usize>> {
@@ -648,8 +657,9 @@ impl Pattern {
                 (units == Units::Pages).then_some(page),
                 line,
             );
+            hit.position = (start * 100 / text.len().max(1)) as u8;
             if units == Units::Percent {
-                hit.percent = Some((start * 100 / text.len().max(1)) as u8);
+                hit.percent = Some(hit.position);
             }
             hits.push(hit);
         }
@@ -744,6 +754,7 @@ fn hit(text: &[u8], range: Range<usize>, page: Option<u32>, line: u32) -> Hit {
     Hit {
         page,
         percent: None,
+        position: 0,
         line,
         context,
         at: index,
@@ -1066,6 +1077,9 @@ mod tests {
         assert_eq!(line, "coupled with boundary conditions, i.e.");
         let shown: Vec<&str> = parts.iter().map(|p| &line[p.clone()]).collect();
         assert_eq!(shown, ["boundary", "conditions"]);
+        // As it reads, for `{match}`; and how far in it is, for `{percent}`.
+        assert_eq!(hit.matched_text(), "boundary conditions");
+        assert_eq!(hit.position, 32);
     }
     #[test]
     fn matches_know_their_page_and_line() {

@@ -16,10 +16,12 @@ history.
   case-smart literal that ignores accents unless typed and matches across
   line breaks and hyphenation. Enter prints the chosen files, like
   `fff pick`, which it browses like.
-- **Opening at a match.** An `[[open.rules]]` entry's `at_match` adds
-  arguments when a file opens from a `fff grep` match (`l`, Alt+l), with its
-  page, line and the query: `--page {page} --find {query}` opens zathura on
-  the match's page with the query highlighted.
+- **Opening at a match.** An `[[open.rules]]` entry's `at_grep_match` adds
+  arguments when a file opens from a `fff grep` match (`l`, Alt+l), with
+  placeholders for everything fff knows about it: `{page}`, `{line}`,
+  `{percent}`, `{query}`, `{match}`, `{nth}`, `{count}` and `{path}`.
+  `--page {page} --find {query}` opens zathura on the match's page with the
+  query highlighted.
 - **`toggle_preview_wrap`** cuts the preview's long lines instead of
   wrapping them; it has no key by default.
 - **`gm` switches program**: go on as `fff roam`, `pick`, `seek` or `grep`
