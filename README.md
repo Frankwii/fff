@@ -103,10 +103,14 @@ Without root arguments, browsing starts in the invocation directory (or, with
 `--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
 depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek`); immediate children are depth
-1. Shallower matches always come first, followed within each depth by
-directories and fuzzy ranking; `fff seek` ranks by fuzzy score first, then
+1. Shallower matches come first, followed within each depth by directories
+and fuzzy ranking; `fff pick` and `fff seek` rank by fuzzy score first, then
 depth. The depth is shown on the results' bottom border, under the count.
-Matching is a case-insensitive ordered subsequence of the basename.
+Matching is a case-insensitive ordered subsequence of the basename, scored as
+fzf does: the best alignment of the query's letters, so runs and word starts
+(after `_`, `-`, `.`, a space or a lowercase-to-uppercase step) beat letters
+scattered from the start, however long the name. Latin accents are ignored
+unless the query has some: `evaluacion` finds `Evaluación`.
 
 A query containing `/` matches the path below the result's root instead, so
 `pde/stab` lists `pde/notes/stability.tex` but not `notes/stability.tex`.
@@ -115,7 +119,7 @@ order, and the last part matches the basename: `pde/` lists everything inside
 folders matching `pde`, and a leading `/` (`/stab`) only switches to path
 ranking. Parts naming whole components, and parts on consecutive components,
 rank higher; the matched letters are highlighted along the whole label. Depth
-and directories still sort first.
+and directories still sort first, except in `fff pick` and `fff seek`.
 
 Enter depends on the editing mode:
 

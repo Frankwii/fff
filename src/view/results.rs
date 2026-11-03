@@ -311,7 +311,7 @@ pub(super) fn filename_spans(
     let start = label
         .len()
         .saturating_sub(safe(&basename).len() + usize::from(candidate.directory));
-    let matched = matched_letters(label, candidate, query, start);
+    let matched = matched_letters(label, candidate, query);
     label
         .char_indices()
         .enumerate()
@@ -336,59 +336,47 @@ pub(super) fn filename_spans(
         })
         .collect()
 }
-/// Char indices of `label` the query matches: letters of the name, which
-/// starts at byte `start`, or with a `/` in the query, along the whole path.
-/// Only a row the query matches is highlighted (a save dialog lists the
-/// others too).
-pub(super) fn matched_letters(
-    label: &str,
-    candidate: &Candidate,
-    query: &str,
-    start: usize,
-) -> HashSet<usize> {
+/// Char indices of `label` the query matches: letters of the name, or with
+/// a `/` in the query, along the whole path. Only a row the query matches is
+/// highlighted (a save dialog lists the others too).
+pub(super) fn matched_letters(label: &str, candidate: &Candidate, query: &str) -> HashSet<usize> {
     let matcher = crate::Matcher::new(query);
-    if matcher.paths() {
+    let (parts, positions) = if matcher.paths() {
         let parts = crate::relative_parts(candidate);
         let Some(positions) = matcher.path_positions(&parts) else {
             return HashSet::new();
         };
-        // The label ends with the path below the root (and a slash after a
-        // folder); align from the end, where elision and shared-name labels
-        // keep it intact.
-        let mut path = Vec::new();
-        let mut wanted = HashSet::new();
-        for (part, at) in parts.iter().zip(&positions) {
-            if !path.is_empty() {
-                path.push('/');
-            }
-            wanted.extend(at.iter().map(|i| path.len() + i));
-            path.extend(part.chars());
+        (parts, positions)
+    } else {
+        let basename = candidate
+            .path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let Some(positions) = matcher.positions(&basename) else {
+            return HashSet::new();
+        };
+        (vec![basename], vec![positions])
+    };
+    // The label ends with the name, or the path below the root (and a slash
+    // after a folder); align from the end, where elision and shared-name
+    // labels keep it intact.
+    let mut path = Vec::new();
+    let mut wanted = HashSet::new();
+    for (part, at) in parts.iter().zip(&positions) {
+        if !path.is_empty() {
+            path.push('/');
         }
-        let label: Vec<char> = label.chars().collect();
-        let end = label.len() - usize::from(candidate.directory && label.last() == Some(&'/'));
-        return wanted
-            .into_iter()
-            .filter_map(|i| {
-                let at = (end + i).checked_sub(path.len())?;
-                (label.get(at) == Some(&path[i])).then_some(at)
-            })
-            .collect();
+        wanted.extend(at.iter().map(|i| path.len() + i));
+        path.extend(part.chars());
     }
-    let basename = candidate
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    if matcher.score(&basename).is_none() {
-        return HashSet::new();
-    }
-    // `start` is a byte offset that may fall inside the `…` of an elided
-    // label: count the characters before it rather than slicing there.
-    let first = label.char_indices().take_while(|&(i, _)| i < start).count();
-    let letters: Vec<char> = crate::fold(query).chars().collect();
-    let name: String = label.chars().skip(first).collect();
-    crate::greedy(&letters, &name)
+    let label: Vec<char> = label.chars().collect();
+    let end = label.len() - usize::from(candidate.directory && label.last() == Some(&'/'));
+    wanted
         .into_iter()
-        .map(|i| first + i)
+        .filter_map(|i| {
+            let at = (end + i).checked_sub(path.len())?;
+            (label.get(at) == Some(&path[i])).then_some(at)
+        })
         .collect()
 }

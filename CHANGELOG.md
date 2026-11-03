@@ -4,6 +4,20 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Matching scores like fzf.** A name's score is the best alignment of the
+  query's letters, so a whole word or a run deep in a long name beats letters
+  scattered from its start: `canard` finds
+  `krupa_szmolyan_relaxation_oscillation_canard_explosion.pdf` before
+  `minicozzi_colding_a_course_in_minimal_surfaces.djvu`. The highlighted
+  letters are the ones that scored. Latin accents are ignored unless the
+  query has some: `evaluacion` finds `Evaluación`.
+- **`fff pick` ranks the best match first**, as `fff seek` does, whatever its
+  depth; depth only breaks ties.
+
 ## 0.14.0 — 2026-11-03
 
 F1 opens the Keys screen: search every function and key, rebind them, and

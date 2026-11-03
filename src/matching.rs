@@ -1,11 +1,29 @@
 //! Fuzzy matching: scoring names and paths below their roots against the
 //! query, and the matched characters to highlight.
+//!
+//! A name is scored by nucleo, fzf's algorithm: the best alignment of the
+//! query's letters, in order, rewarding runs and word starts (after `_`, `-`,
+//! `.`, a space or a lowercase-to-uppercase step) and penalizing gaps.
 use crate::Candidate;
+use nucleo_matcher::{
+    Utf32Str,
+    pattern::{Atom, AtomKind, CaseMatching, Normalization},
+};
+use std::cell::RefCell;
 
-/// Case-insensitive basename subsequence score: reward adjacency and word starts,
-/// then prefer fewer gaps and earlier matches. Empty queries have equal score.
+/// Case-insensitive basename subsequence score: the best alignment of the
+/// query's letters, rewarding runs and word starts and penalizing gaps.
+/// Latin accents are ignored unless the query has some. Empty queries have
+/// equal score.
 pub fn score(name: &str, query: &str) -> Option<i64> {
     Matcher::new(query).score(name)
+}
+
+thread_local! {
+    /// nucleo's working memory (about 135 KB, allocated at once) and a
+    /// name's characters, reused by every match on this thread.
+    static SCRATCH: RefCell<(nucleo_matcher::Matcher, Vec<char>)> =
+        RefCell::new((nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT), Vec::new()));
 }
 
 /// Path-aware matching: bonus for a query part naming a whole component.
@@ -17,6 +35,7 @@ const NEXT: i64 = 20;
 /// A query lowercased once, for scoring many names.
 pub struct Matcher {
     letters: Vec<char>,
+    atom: Atom,
     /// A query containing `/` matches the path below a result's root: the
     /// parts before the last (empty ones dropped) match ancestors in order,
     /// the last matches the basename.
@@ -30,8 +49,19 @@ pub(crate) fn fold(text: &str) -> String {
 impl Matcher {
     pub fn new(query: &str) -> Self {
         let folded = fold(query);
+        let atom = |part: &str| {
+            // Smart normalization folds accents only for a query without any.
+            Atom::new(
+                part,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+                false,
+            )
+        };
         let plain = |part: &str| Matcher {
             letters: part.chars().collect(),
+            atom: atom(part),
             path: None,
         };
         let path = folded.rsplit_once('/').map(|(folders, last)| {
@@ -44,6 +74,7 @@ impl Matcher {
         });
         Self {
             letters: folded.chars().collect(),
+            atom: atom(&folded),
             path,
         }
     }
@@ -56,12 +87,46 @@ impl Matcher {
         if self.letters.is_empty() {
             return Some(0);
         }
-        if name.is_ascii() {
-            return self.score_ascii(name.as_bytes());
+        self.nucleo(name, None).map(i64::from)
+    }
+    /// The char indices of `name` the query matches, in order, as drawn:
+    /// the alignment that scored best. `None` when it does not match.
+    pub fn positions(&self, name: &str) -> Option<Vec<usize>> {
+        if self.letters.is_empty() {
+            return Some(Vec::new());
         }
-        // Whole-string lowercasing is context-sensitive (e.g. final sigma).
-        let name: Vec<char> = fold(name).chars().collect();
-        self.score_chars(&name)
+        let mut indices = Vec::new();
+        self.nucleo(name, Some(&mut indices))?;
+        indices.sort_unstable();
+        indices.dedup();
+        Some(indices.into_iter().map(|i| i as usize).collect())
+    }
+    /// nucleo's score of `name`, and its matched indices when asked for.
+    /// The name is passed as chars (not graphemes), so indices are chars.
+    fn nucleo(&self, name: &str, indices: Option<&mut Vec<u32>>) -> Option<u16> {
+        SCRATCH.with_borrow_mut(|(matcher, chars)| {
+            let haystack = if name.is_ascii() {
+                Utf32Str::Ascii(name.as_bytes())
+            } else {
+                // nucleo case-folds only uppercase letters while matching
+                // (and every letter when ignoring accents), so a lowercase
+                // letter with another folding, like ς (σ), is folded here.
+                // Uppercase stays: it marks word starts.
+                chars.clear();
+                chars.extend(name.chars().map(|c| {
+                    if c.is_lowercase() {
+                        nucleo_matcher::chars::to_lower_case(c)
+                    } else {
+                        c
+                    }
+                }));
+                Utf32Str::Unicode(chars)
+            };
+            match indices {
+                Some(indices) => self.atom.indices(haystack, matcher, indices),
+                None => self.atom.score(haystack, matcher),
+            }
+        })
     }
     /// Score a result: its basename, or with a `/` in the query, its path
     /// below its root.
@@ -86,9 +151,9 @@ impl Matcher {
         let (_, chosen) = self.assign(parts)?;
         let mut positions = vec![Vec::new(); parts.len()];
         for (folder, &at) in folders.iter().zip(&chosen) {
-            positions[at] = greedy(&folder.letters, parts[at].as_ref());
+            positions[at] = folder.positions(parts[at].as_ref())?;
         }
-        positions[parts.len() - 1] = greedy(&last.letters, parts[parts.len() - 1].as_ref());
+        positions[parts.len() - 1] = last.positions(parts[parts.len() - 1].as_ref())?;
         Some(positions)
     }
     /// The best path score and, for each folder part, the component it
@@ -163,47 +228,6 @@ impl Matcher {
             0
         }
     }
-    fn score_chars(&self, name: &[char]) -> Option<i64> {
-        let mut position = 0;
-        let mut previous = None;
-        let mut score = 0;
-        for &letter in &self.letters {
-            let found = (position..name.len()).find(|&i| name[i] == letter)?;
-            score += 20 - found as i64;
-            if previous == Some(found.wrapping_sub(1)) {
-                score += 30;
-            }
-            if found == 0 || !name[found - 1].is_alphanumeric() {
-                score += 20;
-            }
-            previous = Some(found);
-            position = found + 1;
-        }
-        Some(score)
-    }
-    /// Same rules as `score_chars`, without allocating, for ASCII names.
-    fn score_ascii(&self, name: &[u8]) -> Option<i64> {
-        let mut position = 0;
-        let mut previous = None;
-        let mut score = 0;
-        for &letter in &self.letters {
-            if !letter.is_ascii() {
-                return None;
-            }
-            let letter = letter as u8;
-            let found = (position..name.len()).find(|&i| name[i].to_ascii_lowercase() == letter)?;
-            score += 20 - found as i64;
-            if previous == Some(found.wrapping_sub(1)) {
-                score += 30;
-            }
-            if found == 0 || !name[found - 1].is_ascii_alphanumeric() {
-                score += 20;
-            }
-            previous = Some(found);
-            position = found + 1;
-        }
-        Some(score)
-    }
 }
 
 /// A result's components below its root, the basename last: its last
@@ -218,31 +242,6 @@ pub fn relative_parts(c: &Candidate) -> Vec<std::borrow::Cow<'_, str>> {
         .collect();
     parts.reverse();
     parts
-}
-/// Char indices of `name` matching `letters` (lowercase) in order, earliest
-/// first, as drawn.
-pub(crate) fn greedy(letters: &[char], name: &str) -> Vec<usize> {
-    let mut wanted = letters.iter().peekable();
-    name.chars()
-        .enumerate()
-        .filter(|(_, c)| {
-            let matched = wanted.peek().is_some_and(|&&q| {
-                c.to_lowercase()
-                    .any(|lower| lower == q || (lower == 'ς' && q == 'σ'))
-            });
-            if matched {
-                wanted.next();
-            }
-            matched
-        })
-        .map(|(i, _)| i)
-        .collect()
-}
-#[cfg(test)]
-#[test]
-fn final_sigma_is_highlighted_for_either_sigma() {
-    assert_eq!(greedy(&['σ'], "ΟΔΟΣ"), [3]);
-    assert_eq!(greedy(&['ο', 'σ'], "οδος"), [0, 3]);
 }
 /// Whether every match of the (lowercased) query `longer` is among those of
 /// `shorter`: it appends letters, but no `/`, which turns the part before it
@@ -261,4 +260,27 @@ fn appended_letters_narrow_but_a_slash_does_not() {
     // into a folder; letters after one narrow again.
     assert!(!narrows("rep", "rep/") && !narrows("pde", "pde/stab") && !narrows("", "/s"));
     assert!(narrows("pde/", "pde/stab"));
+}
+#[cfg(test)]
+#[test]
+fn final_sigma_is_highlighted_for_either_sigma() {
+    assert_eq!(Matcher::new("σ").positions("ΟΔΟΣ"), Some(vec![3]));
+    assert_eq!(Matcher::new("ος").positions("οδος"), Some(vec![0, 3]));
+}
+#[cfg(test)]
+#[test]
+fn the_best_alignment_is_scored_and_highlighted() {
+    // A whole word deep in a long name beats letters scattered from the start.
+    let canard = "krupa_szmolyan_relaxation_oscillation_canard_explosion.pdf";
+    let scattered = "minicozzi_colding_a_course_in_minimal_surfaces.djvu";
+    assert!(score(canard, "canard") > score(scattered, "canard"));
+    let at = canard.find("canard").unwrap();
+    assert_eq!(
+        Matcher::new("canard").positions(canard),
+        Some((at..at + 6).collect())
+    );
+    // Accents are ignored unless the query has some.
+    assert!(score("Evaluación.pdf", "evaluacion").is_some());
+    assert!(score("Evaluacion.pdf", "evaluación").is_none());
+    assert!(score("Evaluación.pdf", "evaluación").is_some());
 }

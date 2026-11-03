@@ -35,7 +35,6 @@ pub mod watch;
 
 use matching::narrows;
 pub use matching::{Matcher, relative_parts, score};
-pub(crate) use matching::{fold, greedy};
 pub(crate) use policy::Listing;
 pub use policy::{Kinds, Policy, glob};
 use policy::{eligible, shown};
@@ -78,8 +77,8 @@ const MERGE_ROUND: usize = 512;
 const MERGE_SPREAD: usize = 1024;
 
 /// Result order: depth, directories first, best score, root order, then
-/// pathname bytes, which break every tie. `by_score` (`fff seek`) puts the
-/// best score first, then depth.
+/// pathname bytes, which break every tie. `by_score` (`fff pick` and
+/// `fff seek`) puts the best score first, then depth.
 fn rank(
     by_score: bool,
     a: &Candidate,
@@ -529,6 +528,14 @@ impl App {
             None => Program::Roam,
         }
     }
+    /// `fff pick` and `fff seek` choose files from deep below, so the best
+    /// match comes first whatever its depth.
+    fn by_score(&self) -> bool {
+        matches!(
+            self.program(),
+            keymap::Program::Pick | keymap::Program::Seek
+        )
+    }
     /// The mode keys are read in: Normal in the query's Normal mode (also
     /// while a sequence begun there waits), else Insert.
     pub fn mode(&self) -> keymap::Mode {
@@ -914,7 +921,7 @@ impl App {
                     listing: Some(self.listing()),
                     query: folded.clone(),
                     labels: Some(self.no_dir || self.short_labels),
-                    by_score: self.no_dir,
+                    by_score: self.by_score(),
                 };
                 self.start_ranking(job, basis, folded);
                 return;
@@ -926,14 +933,14 @@ impl App {
                 listing: None,
                 query: folded.clone(),
                 labels: None,
-                by_score: self.no_dir,
+                by_score: self.by_score(),
             },
             None => ranking::Job {
                 base: Arc::new(self.known.values().cloned().collect()),
                 listing: Some(self.listing()),
                 query: folded.clone(),
                 labels: None,
-                by_score: self.no_dir,
+                by_score: self.by_score(),
             },
         };
         self.start_ranking(job, basis, folded);
@@ -1097,7 +1104,7 @@ impl App {
         known::discard(stale, len);
         let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
-        let by_score = self.no_dir;
+        let by_score = self.by_score();
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {

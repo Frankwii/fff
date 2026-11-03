@@ -144,7 +144,7 @@ fn overlap_and_root_order() {
     assert_eq!(app.known[&path].root, 2);
 }
 #[test]
-fn subsequence_and_depth_before_score() {
+fn subsequence_and_depth_before_score_except_when_picking() {
     assert!(score("Downloads", "dwn").is_some());
     assert!(score("report.tex", "rpx").is_some());
     assert!(score("scratch", "sh").is_some());
@@ -155,6 +155,14 @@ fn subsequence_and_depth_before_score() {
     app.insert(0, candidate("dir/ab", true, 2));
     app.refresh();
     assert_eq!(app.rows[0].depth, 1);
+    // `fff pick`, like `fff seek`, puts the best match first.
+    let mut pick = App::new(vec![PathBuf::from("/fixture")], 3, Policy::default());
+    pick.output_paths = true;
+    pick.query = "ab".into();
+    pick.insert(0, candidate("a_x_b", false, 1));
+    pick.insert(0, candidate("dir/ab", true, 2));
+    pick.refresh();
+    assert_eq!(pick.rows[0].depth, 2);
 }
 #[test]
 fn a_query_with_a_slash_matches_paths_below_the_root() {
@@ -748,30 +756,23 @@ fn incremental_refresh_matches_a_full_refresh_for_every_query_edit() {
     assert!(app.rows.iter().any(|c| c.depth == 3));
 }
 #[test]
-fn fast_scoring_matches_the_reference_definition() {
-    // The original whole-string implementation, kept as the specification.
-    fn reference(name: &str, query: &str) -> Option<i64> {
-        if query.is_empty() {
-            return Some(0);
-        }
-        // Either sigma matches: ς folds to σ.
-        let name: Vec<char> = name.to_lowercase().replace('ς', "σ").chars().collect();
-        let (mut position, mut previous, mut score) = (0, None, 0);
-        for letter in query.to_lowercase().replace('ς', "σ").chars() {
-            let found = (position..name.len()).find(|&i| name[i] == letter)?;
-            score += 20 - found as i64;
-            if previous == Some(found.wrapping_sub(1)) {
-                score += 30;
-            }
-            if found == 0 || !name[found - 1].is_alphanumeric() {
-                score += 20;
-            }
-            previous = Some(found);
-            position = found + 1;
-        }
-        Some(score)
+fn matching_is_an_ordered_subsequence_ignoring_case_and_accents() {
+    // Which names match, whatever their score: the query's letters in order,
+    // ignoring case; Latin accents too, unless the query has some.
+    fn reference(name: &str, query: &str) -> bool {
+        let fold = |c: char| {
+            let lower = c.to_lowercase().next().unwrap_or(c);
+            if lower == 'ς' { 'σ' } else { lower }
+        };
+        let query: Vec<char> = query.chars().map(fold).collect();
+        let plain = !query.contains(&'é');
+        let mut name = name
+            .chars()
+            .map(fold)
+            .map(|c| if plain && c == 'é' { 'e' } else { c });
+        query.iter().all(|&letter| name.any(|c| c == letter))
     }
-    let alphabet: Vec<char> = "aAbBkK_-.1 zZéÉΣσ\u{212a}".chars().collect();
+    let alphabet: Vec<char> = "aAbBeEkK_-.1 zZéÉΣσς\u{212a}".chars().collect();
     let mut seed = 0x1234_5678_u32;
     let mut next = |n: usize| {
         seed ^= seed << 13;
@@ -786,7 +787,7 @@ fn fast_scoring_matches_the_reference_definition() {
     for _ in 0..20_000 {
         let (name, query) = (word(12), word(4));
         assert_eq!(
-            score(&name, &query),
+            score(&name, &query).is_some(),
             reference(&name, &query),
             "{name:?} {query:?}"
         );

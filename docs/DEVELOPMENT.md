@@ -10,7 +10,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | --- | --- |
 | `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
 | `src/lib.rs` | Session state (`App`): navigation, tabs, rows and their ordering, the highlight, marks and path output. |
-| `src/matching.rs` | Fuzzy scoring of names and paths below their roots, and the matched characters to highlight. |
+| `src/matching.rs` | Fuzzy scoring of names (nucleo, fzf's algorithm) and of paths below their roots, and the matched characters to highlight. |
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
@@ -80,7 +80,7 @@ listed separately in the [roadmap](ROADMAP.md).
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes; `fff seek` puts fuzzy score before depth. Query edits do not restart discovery. Scans merge
+  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before depth. Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget, in place and with the
   rows' kept scores: rows ranked before every new path are not touched, so a
   breadth-first scan's merge costs about what it inserts. The input thread never
