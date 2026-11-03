@@ -496,11 +496,7 @@ fn marks_focus_retains_unmarked_rows_and_details_clamp_scroll() {
             .iter()
             .any(|c| c.fg == theme.marked)
     );
-    focus = Focus::Info {
-        offset: usize::MAX,
-        keys: false,
-        screen: keys_screen(&app),
-    };
+    focus = Focus::Info { offset: usize::MAX };
     terminal
         .draw(|f| {
             render(f, &mut app, &mut focus);
@@ -751,11 +747,7 @@ fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("built-in · current"));
-    focus = Focus::Info {
-        offset: 0,
-        keys: false,
-        screen: keys_screen(&app),
-    };
+    focus = Focus::Info { offset: 0 };
     terminal
         .draw(|f| {
             render(f, &mut app, &mut focus);
@@ -765,11 +757,7 @@ fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
     assert!(screen.contains("PALETTE"));
     let mut screen = keys_screen(&app);
     screen.query = "palette".into();
-    focus = Focus::Info {
-        offset: 0,
-        keys: true,
-        screen,
-    };
+    focus = Focus::Keys(screen);
     let mut terminal = Terminal::new(TestBackend::new(120, 50)).unwrap();
     terminal
         .draw(|f| {
@@ -1366,34 +1354,33 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
     app.keymap =
         crate::keymap::Keymap::parse("[normal]\ndown = ['j', '<Space>j']\nmark = 'none'\n")
             .unwrap();
-    let mut focus = Focus::Info {
-        offset: 0,
-        keys: true,
-        screen: keys_screen(&app),
-    };
+    let mut focus = Focus::Keys(keys_screen(&app));
     let mut terminal = Terminal::new(TestBackend::new(140, 46)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    assert!(screen.contains("here: roam · results"), "{screen}");
+    assert!(
+        screen.contains("showing what works in fff roam · results"),
+        "{screen}"
+    );
     let row = |name: &str| {
         screen
             .lines()
             .find(|l| {
-                l.trim_start_matches(['│', ' ', '▌', '•'])
+                l.trim_start_matches(['│', ' ', '›'])
                     .starts_with(&format!("{name} "))
             })
             .unwrap_or_else(|| panic!("{name}: {screen}"))
             .to_string()
     };
-    assert!(row("down").contains("j Space j"), "{screen}");
+    assert!(row("down").contains("j  Space j"), "{screen}");
     assert!(row("up").contains("Alt+k"), "{screen}");
     // The first row is described below the list.
     assert!(screen.contains("Highlight the previous row."), "{screen}");
     // Only what works here: no dialog answers in fff roam.
     assert!(!screen.contains("save_here"), "{screen}");
-    let Focus::Info { screen: keys, .. } = &mut focus else {
+    let Focus::Keys(keys) = &mut focus else {
         unreachable!()
     };
     keys.everywhere = true;
@@ -1404,7 +1391,7 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("save_here"), "{screen}");
     // A key search lists bindings, dimmed where they do not apply.
-    let Focus::Info { screen: keys, .. } = &mut focus else {
+    let Focus::Keys(keys) = &mut focus else {
         unreachable!()
     };
     keys.query.clear();
@@ -1783,21 +1770,17 @@ fn rebound_keys_are_shown_as_bound() {
     // The footer points to the Keys screen and says how to leave, as bound.
     let (screen, _) = draw(&mut app, 120, 26);
     assert!(screen.contains("Ctrl+g keys  Q quit"), "{screen}");
-    // The Keys screen names its own key in its tab, and the keys as bound.
-    let mut focus = Focus::Info {
-        offset: 0,
-        keys: true,
-        screen: keys_screen(&app),
-    };
+    // The Keys screen names its own key, and the keys as bound.
+    let mut focus = Focus::Keys(keys_screen(&app));
     let mut terminal = Terminal::new(TestBackend::new(140, 60)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    assert!(screen.contains("Ctrl+g Keys"), "{screen}");
+    assert!(screen.contains("Ctrl+g close"), "{screen}");
     let line = screen
         .lines()
-        .find(|l| l.contains("•trash "))
+        .find(|l| l.contains(" trash ") && l.contains('•'))
         .unwrap_or_else(|| panic!("{screen}"));
     assert!(line.contains("Alt+t") && line.contains(" T "), "{screen}");
 }

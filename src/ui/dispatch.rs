@@ -200,8 +200,13 @@ impl Session {
         if list {
             return self.list_key(app, key);
         }
-        if let Focus::Info { .. } = self.focus {
-            return self.info_key(app, key);
+        match self.focus {
+            Focus::Info { .. } => {
+                self.info_key(app, key);
+                return Ok(None);
+            }
+            Focus::Keys(_) => return self.keys_key(app, key),
+            _ => {}
         }
         match chooser_key(app, &mut self.focus, &mut self.editor, key) {
             ChooserKey::Pass(key) => self.act(app, key, false),
@@ -311,13 +316,25 @@ impl Session {
                 app.mark_rows(&rows, invert);
             }
             Exec::JumpEnd(last) => jump_to_end(app, &mut self.focus, last),
-            Exec::Overlay(keys) => {
+            Exec::Overlay(true) => {
                 let (_, here) = self.here(app);
-                self.focus = Focus::Info {
-                    offset: 0,
-                    keys,
-                    screen: Box::new(KeysScreen::new(here)),
-                };
+                self.open_keys(here);
+            }
+            Exec::Overlay(false) => self.focus = Focus::Info { offset: 0 },
+            Exec::GoIntoFolder => {
+                if let Some(path) = self.current(app) {
+                    self.discovery.checkpoint(app);
+                    if path.is_dir() {
+                        if app.ready_path(&path) && app.can_navigate() {
+                            app.navigate(path, false);
+                            app.wanted = None;
+                            self.discovery.start(app, true);
+                        }
+                    } else if app.reveal(path) {
+                        self.discovery.start(app, true);
+                    }
+                    self.focus = Focus::Results;
+                }
             }
             Exec::Cancel => return Ok(Some(Finish::Cancelled)),
         }
@@ -463,7 +480,7 @@ impl Session {
         self.focus_key(app, key, Row { on_row, unnumbered })
     }
     /// q, Q and ! in Normal mode; `current` leaves in the browsing directory.
-    fn quit(&mut self, app: &mut App, current: bool) -> Option<Finish> {
+    pub(super) fn quit(&mut self, app: &mut App, current: bool) -> Option<Finish> {
         if app.dialog.is_some() && !current {
             return Some(Finish::Cancelled);
         }

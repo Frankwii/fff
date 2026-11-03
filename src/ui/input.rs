@@ -228,6 +228,7 @@ fn focused_text<'a>(
             BookmarkField::Icon => return None,
         },
         Focus::Palettes { query, .. } => (query, Field::Palettes),
+        Focus::Keys(screen) if screen.editor.is_none() => (&mut screen.query, Field::Keys),
         _ => return None,
     })
 }
@@ -247,6 +248,7 @@ fn text_changed(app: &mut App, focus: &mut Focus) {
         | Focus::BookmarkIcons { index, .. }
         | Focus::Palettes { index, .. } => *index = 0,
         Focus::Location(location) => location.selected = None,
+        Focus::Keys(screen) => screen.index = 0,
         _ => {}
     }
 }

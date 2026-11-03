@@ -773,37 +773,53 @@ one in a window of its own, `open_and_quit` on a file in `fff roam`,
 
 ### The Keys screen
 
-F1 opens it on the functions that work in the program and list you were in
-(`here: roam · results`); Ctrl+a shows every function. Typing searches names,
-descriptions and key names; Tab switches to a key search, where the keys you
-press are recorded instead (Tab again stops recording so the arrows move,
-Backspace takes back the last key, Escape returns to the text search). A key
-search lists every binding starting with those keys, dimming those that do
-not apply here. The highlighted function is described below the list.
+F1 replaces the results with a picker over the functions, laid out like
+them: the query box on top, the functions in the list with their keys
+while typing and in Normal mode, the highlighted one's details beside them
+(what it does, where it works, each key and where it applies), and a line
+saying what the screen's own keys do. It lists the functions that work in
+the program and list you opened it from (`showing what works in fff roam ·
+results`); Ctrl+a shows every function, and the fixed keys too.
 
-Enter opens a function: what it does, where it works, and its keys by mode
-with where each applies.
+The query is a Neovim field like the results' own, ready to type: it
+searches names, descriptions and key names. Your own keys work here as they
+do in the results: `up` and `down` (Alt+j/Alt+k while typing, `j`/`k` in
+Normal mode), `page_up`, `first`, `last`, `clear_query` (Escape in Normal
+mode), `session`, `cancel` and `quit`. Escape never closes the screen; F1
+(`guide`) does, from anywhere in it. Tab searches by pressing keys instead:
+the keys are recorded (Backspace takes one back), Tab again stops recording
+so the list moves, and Escape returns to typing. A key search lists every
+key starting with those pressed, those that apply where you opened the
+screen first and the others in grey.
 
-- **`a` adds a key:** choose the mode (`i` or `n`) when the function works in
-  both, then press the keys. The first key may be any key; after it, Enter
-  adds them, Backspace takes back the last and Escape gives up. A digit for
-  `depth`, `open_row` or `enter_row` stands for every digit.
-- **`s` sets where the highlighted key applies:** one toggle per program,
-  place and highlight (Space toggles, Enter saves). Values where the function
-  does not work are marked so.
-- **When keys clash** with another function's, the scope editor opens and
-  names the clash: `u` narrows the new key to where nothing else has it, `t`
-  takes it from the others there (they keep it elsewhere).
+Enter opens the highlighted function's keys in a sheet like the bookmark
+form. Changes there are staged: **Enter saves them** (to the session and
+`keys.toml`), Escape drops them, and F1 closes the screen dropping them too.
+
+- **`a` adds a key:** choose the mode (`i` while typing, `n` in Normal mode)
+  when the function works in both, then press the keys. The first key may be
+  any key; after it, Enter adds them, Backspace takes back the last and
+  Escape gives up. A digit for `depth`, `open_row` or `enter_row` stands for
+  every digit.
+- **`s` sets where the highlighted key applies:** a row each for the
+  program, the list and what is highlighted, with a highlighted value for
+  each place it applies. Arrows (or `h`/`j`/`k`/`l`) move, Space toggles,
+  Enter is done. Values in grey are where the function does not work.
+- **When keys clash** with another function's, that view opens and names the
+  clash: narrow where the key applies, or `u` keeps it only where nothing
+  else has it, or `t` takes it from the others there (they keep it
+  elsewhere).
 - **`d` deletes** the highlighted key, **`R`** puts the function's default keys
-  back, Escape goes back to the list.
+  back.
 
-A change that would lock you in is refused, with the reason: something must
-open the Keys screen (`guide`) and something must leave fff (`cancel`, or
-`quit` in Normal mode) everywhere in the results, something must leave the
-marked list (`marked_list`), Insert-mode keys cannot
-start with a key typed as text, nor be Escape, and Normal-mode keys cannot
-start with `i`, `a`, `I`, `A` or `:`, which reach Insert mode and Neovim's
-command line. The screen's own keys, and Escape out of it, are fixed.
+Saving keys that would lock you in is refused, with the reason, and the
+sheet stays open: something must open the Keys screen (`guide`) and
+something must leave fff (`cancel`, or `quit` in Normal mode) everywhere in
+the results, something must leave the marked list (`marked_list`),
+Insert-mode keys cannot start with a key typed as text, nor be Escape, and
+Normal-mode keys cannot start with `i`, `a`, `I`, `A` or `:`, which reach
+Insert mode and Neovim's command line. Tab, Ctrl+a and Enter on the screen,
+and the sheet's keys, are fixed.
 
 ### `keys.toml`
 

@@ -24,12 +24,14 @@ pub enum Field {
     BookmarkPath,
     BookmarkIcons,
     Palettes,
+    /// The Keys screen's query.
+    Keys,
 }
 impl Field {
     fn single_line(self) -> bool {
         matches!(
             self,
-            Self::Query | Self::FileName | Self::Extraction | Self::Command
+            Self::Query | Self::FileName | Self::Extraction | Self::Command | Self::Keys
         )
     }
 }

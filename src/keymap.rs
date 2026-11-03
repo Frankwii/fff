@@ -559,6 +559,8 @@ pub enum Exec {
     MarkRows(bool),
     /// The F1/F2 overlay: the Keys screen, or with `false` the Session tab.
     Overlay(bool),
+    /// The highlighted directory, or the highlighted file's folder.
+    GoIntoFolder,
     /// The first row, or the last with `true`.
     JumpEnd(bool),
     Cancel,
@@ -634,6 +636,7 @@ functions! {
     OpenAndQuit "open_and_quit" Open "Open the highlighted file with its opener and leave fff.";
     Reveal "reveal" Open "Show the highlighted file in its own folder, clearing the query.";
     QuitIntoDir "quit_into_dir" Open "Leave into the highlighted directory, or the current one when nothing is listed.";
+    GoIntoFolder "go_into_folder" Navigate "Make the highlighted directory the current folder, or the highlighted file's own folder, with the file highlighted.";
     OpenBackground "open_background" Open "Open the highlighted file with its opener in the background; fff stays.";
     OpenHere "open_here" Open "Open the current or marked files with their openers in this terminal, then come back.";
     OpenRow "open_row" Open "Like go_into or open_background on visible row #; 0 is the last row.";
@@ -762,6 +765,8 @@ impl Function {
             ],
             QuitIntoDir => both(scope(&[Roam, Pick], &[Results], &[H::None])),
             OpenBackground => both(scope(&[], &[Results], &[H::File])),
+            GoIntoFolder if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
+            GoIntoFolder => both(scope(&NAVIGATE, &[Results], &[H::Dir, H::File])),
             Mark | MarkedList | Guide | Session => both(lists_or_results),
             // Elsewhere it says where it works.
             ReturnMarks => both(lists_or_results),
@@ -798,6 +803,7 @@ impl Function {
             SaveAs | ChooseFile | PickFile | PickWithMarks | QuitIntoFolder | OpenAndQuit
             | Reveal | QuitIntoDir => key(K::Enter, M::NONE),
             ChooseFolder => Exec::Quit(true),
+            GoIntoFolder => Exec::GoIntoFolder,
             OpenHere => Exec::Operation('o'),
             OpenRow => Exec::Digit(M::ALT),
             EnterRow => Exec::Digit(M::CONTROL),
@@ -1178,31 +1184,17 @@ impl Keymap {
     /// The defaults, with `custom` replacing a function's bindings in a
     /// mode. A default binding that clashes with a custom one gives way;
     /// any other clash is an error, as is a keymap that locks you in.
-    pub fn new(mut custom: Vec<((Function, Mode), Vec<Binding>)>) -> Result<Self, String> {
+    pub fn new(custom: Vec<((Function, Mode), Vec<Binding>)>) -> Result<Self, String> {
+        let keymap = Self::assemble(custom);
+        keymap.validate()?;
+        Ok(keymap)
+    }
+    /// The defaults with `custom` applied, as `new` would make them but
+    /// unchecked: what an edit not saved yet looks like.
+    pub fn assemble(mut custom: Vec<((Function, Mode), Vec<Binding>)>) -> Self {
         custom.sort_by_key(|(at, _)| *at);
         custom.dedup_by_key(|(at, _)| *at);
         let mut chosen: Vec<Binding> = custom.iter().flat_map(|(_, b)| b.clone()).collect();
-        for binding in &chosen {
-            check_keys(binding)?;
-            if binding.reach().is_empty() {
-                return Err(format!(
-                    "{}.{}: {} never applies: {} does not work there",
-                    binding.mode.name(),
-                    binding.function.name(),
-                    notation(&binding.keys),
-                    binding.function.name()
-                ));
-            }
-        }
-        for (i, a) in chosen.iter().enumerate() {
-            for b in &chosen[i + 1..] {
-                if a.function != b.function
-                    && let Some(at) = a.clashes(b).first()
-                {
-                    return Err(clash(a, b, *at));
-                }
-            }
-        }
         let set: Vec<(Function, Mode)> = custom.iter().map(|(at, _)| *at).collect();
         let defaults = Function::ALL.iter().flat_map(|&f| {
             Mode::ALL
@@ -1235,12 +1227,37 @@ impl Keymap {
             );
         }
         chosen.extend(kept);
-        let keymap = Self {
+        Self {
             bindings: chosen,
             custom,
-        };
-        keymap.check_escape()?;
-        Ok(keymap)
+        }
+    }
+    /// What `new` refuses: bad keys, keys that never apply, custom
+    /// bindings that clash, and a keymap that locks you in.
+    pub fn validate(&self) -> Result<(), String> {
+        let chosen: Vec<&Binding> = self.custom.iter().flat_map(|(_, b)| b).collect();
+        for binding in &chosen {
+            check_keys(binding)?;
+            if binding.reach().is_empty() {
+                return Err(format!(
+                    "{}.{}: {} never applies: {} does not work there",
+                    binding.mode.name(),
+                    binding.function.name(),
+                    notation(&binding.keys),
+                    binding.function.name()
+                ));
+            }
+        }
+        for (i, a) in chosen.iter().enumerate() {
+            for b in &chosen[i + 1..] {
+                if a.function != b.function
+                    && let Some(at) = a.clashes(b).first()
+                {
+                    return Err(clash(a, b, *at));
+                }
+            }
+        }
+        self.check_escape()
     }
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings

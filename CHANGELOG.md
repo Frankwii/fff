@@ -25,19 +25,24 @@ choose where each key applies.
 
 ### Added
 
-- **The Keys screen (F1).** Every function fff has, by name, with its keys in
-  Insert and Normal mode and what it does. Typing searches names,
-  descriptions and keys; Tab records keys instead and lists what they do,
-  dimming what does not apply where you are. It shows what works where you
-  opened it; Ctrl+a shows everything. Enter on a function adds (`a`),
-  deletes (`d`) or resets (`R`) its keys and sets where each applies (`s`).
-  Changes apply at once and are saved to `keys.toml`.
+- **The Keys screen (F1).** A picker laid out like the results: every
+  function fff has, by name, with its keys while typing and in Normal mode,
+  and the highlighted one's details beside. The query searches names,
+  descriptions and keys, and your own keys move through it (Alt+j/Alt+k,
+  `j`/`k`, Escape clears the query); Tab searches by pressing keys instead.
+  It shows what works where you opened it; Ctrl+a shows everything. Enter
+  opens a function's keys in a sheet like the bookmark form: add (`a`),
+  delete (`d`), reset (`R`) and set where each applies (`s`), then Enter
+  saves to `keys.toml` and Escape drops the changes. F1 closes the screen.
+- **`go_into_folder`**: makes the highlighted directory the current folder,
+  or the highlighted file's folder with the file highlighted. It has no key
+  by default; give it one on the Keys screen.
 - **Keys apply where you choose.** A key can be limited to programs (roam,
   window, pick, seek, each kind of explorer dialog), to the results or the
   marked list, and to a highlighted directory, file or nothing. One key does
   one thing wherever it is pressed: when keys clash, the Keys screen offers
   to narrow the new one or take it from the others there.
-- **No way to lock yourself in.** A change that would leave nothing to open
+- **No way to lock yourself in.** Saving keys that would leave nothing to open
   the Keys screen or to leave fff, that would turn typing into commands, or
   that would take `i`, `a` or `:` in Normal mode, is refused with the reason.
   A `keys.toml` with errors gives way to the default keys, and fff says why.

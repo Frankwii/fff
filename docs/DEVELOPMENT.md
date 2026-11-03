@@ -34,7 +34,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/text.rs` | Edited text with Neovim's cursor and selection, prompts, wrapped messages. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
-| `src/view/guide.rs`, `src/view/keys.rs` | The F1/F2 overlay: the Keys screen and the Session tab. |
+| `src/view/guide.rs` | F2's Session tab. |
+| `src/view/keys.rs` | The Keys screen (F1), drawn in place of the results, and its editor sheet. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
@@ -50,7 +51,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
 | `src/keymap.rs` | Functions, where they work, their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
-| `src/ui/keys.rs` | The Keys screen's state and editing: searches, adding keys, scopes, saving. |
+| `src/ui/keys.rs` | The Keys screen's state and keys: the picker (your own list keys through the keymap), key searches, and the editor's staged changes, scopes and saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
 | `src/dbus.rs` | `fff dbus-file-manager`: a minimal D-Bus client answering `org.freedesktop.FileManager1` ("Show in folder") with the open-folder launcher. |
