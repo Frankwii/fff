@@ -340,6 +340,43 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual((status, out), (0, str(self.root / "notes.txt").encode() + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_switch_program_goes_on_as_pick_at_its_depth_and_prints_the_file(self):
+        (self.root / "sub").mkdir()
+        (self.root / "sub" / "deep.txt").touch()
+        (self.root / "top.txt").touch()
+        s = self.start(implicit_root=True, output_paths=False)
+        s.wait_ui("Files · 2")
+        s.send(b"gm", "Switch program")
+        self.assertIn("pick", s.screen.text)
+        # fff pick searches to its own depth, since roam's was not changed.
+        s.send(b"p", "Now fff pick")
+        s.wait_ui("deep.txt")
+        s.send(b"ideep", "❯ deep")
+        # It prints the file, as fff pick does.
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, str(self.root / "sub" / "deep.txt").encode() + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_switch_program_keeps_grep_contents_for_coming_back(self):
+        (self.root / "notes.txt").write_text("a canard here\n")
+        (self.root / "other.txt").write_text("nothing\n")
+        s = self.start("grep", implicit_root=True, typing=True)
+        s.wait_ui("Contents · INSERT")
+        s.send(b"canard", "1 match in 1 file")
+        s.send(b"\x1b[27u", "Contents · NORMAL")
+        s.send(b"gm", "Switch program")
+        self.assertNotIn("g: grep", s.screen.text)
+        # fff seek lists the files, still in Normal mode.
+        s.send(b"s", "Now fff seek")
+        s.wait_ui("Query · NORMAL")
+        s.wait_ui("Files · 2")
+        s.send(b"gm", "Switch program")
+        s.send(b"g", "1 match in 1 file")
+        self.assertIn("❯ canard", s.screen.text)
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_pick_starts_typing_the_query(self):
         (self.root / "one").touch()
         s = self.start("--depth", "1", implicit_root=True, typing=True)

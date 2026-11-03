@@ -16,7 +16,8 @@ form's name and path, the query of `fff pick`, `fff seek` and
 start in **Insert mode**, ready for typing; rename and extraction buffers
 start in Normal. In `fff grep` Tab (`switch_query`) moves between its two
 queries in either mode; each keeps its own text, cursor, mode and undo
-history.
+history. Switching programs (`gm`) keeps the mode it was pressed in, in
+whichever query the new program types into.
 Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
 and Select modes. Pending motions/operators and command-line input are cancelled;

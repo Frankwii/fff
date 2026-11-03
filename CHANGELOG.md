@@ -22,6 +22,12 @@ history.
   the match's page with the query highlighted.
 - **`toggle_preview_wrap`** cuts the preview's long lines instead of
   wrapping them; it has no key by default.
+- **`gm` switches program**: go on as `fff roam`, `pick`, `seek` or `grep`
+  (`switch_program`). The folders, query, highlight, marks, exclusions and
+  filters stay; the depth follows the new program's default unless you set
+  another; `fff grep`'s contents query waits for coming back to it. The
+  session leaves as the program it ends in. Dialogs and `--window` sessions
+  do not switch.
 
 ### Changed
 

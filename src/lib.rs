@@ -115,6 +115,7 @@ struct RefreshBasis {
     no_dir: bool,
     kinds: Kinds,
     short_labels: bool,
+    by_score: bool,
 }
 impl RefreshBasis {
     fn of(app: &App) -> Self {
@@ -131,6 +132,7 @@ impl RefreshBasis {
             no_dir: app.no_dir,
             kinds: app.kinds,
             short_labels: app.short_labels,
+            by_score: app.by_score(),
         }
     }
 }
@@ -199,6 +201,9 @@ pub struct App {
     highlight_query: String,
     /// `fff grep`: the contents query, its search and the rows it shows.
     pub grep: Option<grep::Grep>,
+    /// The contents query `switch_program` took away from `fff grep`, given
+    /// back on returning to it.
+    kept_contents: String,
     /// Counts changes to `rows`, for what is built from them.
     rows_version: u64,
     pub marks: marks::Marks,
@@ -353,6 +358,7 @@ impl App {
             highlight_top: false,
             highlight_query: String::new(),
             grep: None,
+            kept_contents: String::new(),
             rows_version: 0,
             highlight_hint: Cell::new(0),
             marks: marks::Marks::default(),
@@ -539,6 +545,46 @@ impl App {
             None if self.output_paths => Program::Pick,
             None => Program::Roam,
         }
+    }
+    /// `switch_program`: go on as `to` (one of `Program::SWITCHABLE`). The
+    /// folders, query, highlight, marks and policies stay; the depth
+    /// follows the new program's default unless it was set to another, and
+    /// `fff grep`'s contents query is kept for coming back to it. True when
+    /// the depth changed, which needs a scan; else the rows are re-ranked.
+    pub fn switch_program(&mut self, to: keymap::Program) -> bool {
+        use keymap::{Dimension, Program};
+        let from = self.program();
+        if from == to {
+            return false;
+        }
+        if let Some(grep) = self.grep.take() {
+            self.kept_contents = grep.text;
+        }
+        self.output_paths = matches!(to, Program::Pick | Program::Grep);
+        self.no_dir = to == Program::Seek;
+        self.short_labels = to != Program::Roam;
+        if to == Program::Grep {
+            let mut grep = grep::Grep::new();
+            grep.text = std::mem::take(&mut self.kept_contents);
+            if let Some(waker) = &self.waker {
+                grep.set_waker(waker.clone());
+            }
+            self.grep = Some(grep);
+        }
+        // The highlight stays, or comes back once listed again (a folder
+        // after `fff seek`, which lists only files), unless the user moves.
+        self.wanted = self.highlight.clone().or(self.wanted.take());
+        self.highlight_top = false;
+        self.offset = 0;
+        self.status = format!("Now fff {}", to.name());
+        self.status_success = self.status.clone();
+        if self.depth == from.default_depth() && self.depth != to.default_depth() {
+            self.depth = to.default_depth();
+            return true;
+        }
+        self.refresh();
+        self.poll_grep();
+        false
     }
     /// `fff pick`, `fff seek` and `fff grep` choose files from deep below,
     /// so the best match comes first whatever its depth.

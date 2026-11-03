@@ -1263,3 +1263,61 @@ fn grep_shows_one_row_per_match_in_the_files_names_choose() {
     assert_eq!(app.shown().len(), app.rows.len());
     std::fs::remove_dir_all(&root).unwrap();
 }
+#[test]
+fn switching_program_keeps_the_session_and_follows_default_depths() {
+    use fuzzy_file_finder::keymap::{Cell, Function, Highlight, Mode, Place, Program};
+    let mut app = App::browse(PathBuf::from("/fixture"), 1, Policy::default());
+    for (name, dir, depth) in [("alpha", true, 1), ("b.txt", false, 1), ("c.txt", false, 1)] {
+        app.insert(0, candidate(name, dir, depth));
+    }
+    app.refresh();
+    app.query = "t".into();
+    app.policy.filters_off = true;
+    app.marks.push(PathBuf::from("/fixture/c.txt"));
+    app.highlight = Some(PathBuf::from("/fixture/c.txt"));
+    // At roam's default depth, pick's applies.
+    assert_eq!(app.program(), Program::Roam);
+    assert!(app.switch_program(Program::Pick));
+    assert_eq!((app.program(), app.depth), (Program::Pick, 3));
+    assert!(app.output_paths && app.short_labels && !app.no_dir);
+    // A depth set by hand stays.
+    app.depth = 4;
+    assert!(!app.switch_program(Program::Seek));
+    assert_eq!((app.program(), app.depth), (Program::Seek, 4));
+    assert_eq!(app.highlight, Some(PathBuf::from("/fixture/c.txt")));
+    // fff grep's contents query waits for coming back to it.
+    app.switch_program(Program::Grep);
+    app.grep.as_mut().unwrap().text = "canard".into();
+    app.switch_program(Program::Roam);
+    assert!(app.grep.is_none() && !app.no_dir && !app.output_paths);
+    app.switch_program(Program::Grep);
+    assert_eq!(app.grep.as_ref().unwrap().text, "canard");
+    // fff grep browses, like fff pick.
+    assert!(!app.no_dir && app.output_paths);
+    // The query, marks and policies were never touched.
+    assert_eq!(app.query, "t");
+    assert!(app.policy.filters_off);
+    assert_eq!(app.marks.to_vec(), [PathBuf::from("/fixture/c.txt")]);
+    // Seek's default depth back to pick's.
+    app.depth = 6;
+    assert!(app.switch_program(Program::Pick));
+    assert_eq!(app.depth, 3);
+    // A dialog answers its caller and a window has no shell to leave into:
+    // neither can switch, so no key can be bound to it there.
+    for program in [
+        Program::Window,
+        Program::ExplorerOpen,
+        Program::ExplorerMultiple,
+        Program::ExplorerFolder,
+        Program::ExplorerSave,
+    ] {
+        for mode in Mode::ALL {
+            let cell = Cell {
+                program,
+                place: Place::Results,
+                highlight: Highlight::File,
+            };
+            assert!(!Function::SwitchProgram.works(mode, cell), "{program:?}");
+        }
+    }
+}

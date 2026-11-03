@@ -80,6 +80,8 @@ pub(crate) enum Focus {
     Command(crate::run::Prompt),
     RunConfirm(crate::run::Plan),
     NewChoice,
+    /// `switch_program`: which program to go on as.
+    ProgramChoice,
     /// A name is taken (fff explorer --save, R): replace it, keep both or
     /// go back.
     Replace(Replace),
@@ -203,7 +205,7 @@ pub fn run(
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
     performance: crate::config::PerformanceConfig,
-) -> io::Result<Finish> {
+) -> io::Result<(Finish, crate::keymap::Program)> {
     let finish = session(&mut app, cache, palettes, performance);
     app.remember();
     if app.records_session
@@ -217,7 +219,8 @@ pub fn run(
         };
         let _ = crate::state::save(&path, &state);
     }
-    finish
+    // What the session ends as decides what it outputs (`switch_program`).
+    Ok((finish?, app.program()))
 }
 /// The session loop: each pass catches up with background work, draws when
 /// something changed, then waits for and handles one event.

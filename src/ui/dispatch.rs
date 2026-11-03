@@ -348,6 +348,7 @@ impl Session {
                     self.focus = Focus::Results;
                 }
             }
+            Exec::SwitchProgram => self.focus = Focus::ProgramChoice,
             Exec::Cancel => return Ok(Some(Finish::Cancelled)),
         }
         Ok(None)

@@ -3,6 +3,7 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
+- An incoming fix to `fff grep`'s match preview (below).
 - Content search beyond `fff grep` (below).
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
@@ -14,8 +15,6 @@ not implemented features or commitments:
   results.
 - Follow-ups to the Keys screen (below): programs as commands, the
   `keys.toml` layout, and keys inside choosers.
-- Switching modes without restarting (below): from `fff roam` to `fff seek`,
-  for example.
 - Resizing the font from fff (below).
 - Opening folders from other applications. `--window` exists so that fff,
   set up as the desktop's file manager, can be opened from programs such as
@@ -26,6 +25,23 @@ not implemented features or commitments:
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
+
+## Incoming fix: navigating grep's match preview
+
+`fff grep`'s preview of a match shows the lines around it, the match a
+third of the way down, and ignores the preview's scroll: Ctrl+j and Ctrl+k
+(`scroll_preview_down`, `scroll_preview_up`) do nothing there, so lines
+past the context cannot be read. They should scroll it as they do any
+other preview, starting from the match, with the scroll reset when the
+highlight moves to another match.
+
+To investigate alongside: whether Ctrl+h and Ctrl+l make sense there.
+With wrapping turned off (`toggle_preview_wrap`), the match's line is cut
+to keep the match in view; they could pan cut lines left and right. They
+might instead step to the file's previous and next match, though the
+highlight already does that (one row per match). Ctrl+h is Backspace on
+many terminals, and both would need to stay clear of Neovim's keys in the
+query.
 
 ## The Keys screen, continued
 
@@ -72,19 +88,6 @@ every file on every search (1.85 s and about 25 CPU-seconds a search over
 - **OCR stays out.** A scanned document without a text layer cannot match;
   OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text
   layer to the file once, for every program.
-
-## Switching modes
-
-`fff roam`, `pick`, `seek` and `explorer` are chosen when fff starts. A key
-could switch the running session to another mode, say from browsing with
-`fff roam` to `fff seek`'s flat list of files below here, keeping the query,
-marks and directory where they still make sense. A small mode picker, a
-chooser like the palette's, would list the modes with what each one does and
-returns. What a switch does to output matters: `fff pick` prints paths and
-`fff roam` changes the shell's directory, so a session started from a script
-(`$(fff pick)`) or a file dialog (`fff explorer`) must not become one that
-answers differently from what its caller expects; those would offer only the
-modes that answer the same way.
 
 ## Resizing the font
 
