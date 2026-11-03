@@ -6,6 +6,14 @@ history.
 
 ## Unreleased
 
+### Changed
+
+- **The Keys screen's tables fit their contents**: columns are as wide as
+  what they hold, so long program lists are no longer cut while other
+  columns sit empty; the details pane lists a function's keys one row each,
+  and a key's further places read `or Enter` instead of a bare `or`. Hints,
+  prose and checklists line up with the rows they explain.
+
 ### Removed
 
 - **`enlarge_font` and `shrink_font`**, and their keys (Alt+=, Alt++,
