@@ -226,10 +226,11 @@ per prompt; only names at the start of a help line count, so options mentioned
 inside descriptions are not offered.
 
 There is no shell. The line is split into words like a shell would split it
-(spaces separate; `'…'` is literal; `"…"` allows `\"` and `\\`; a backslash
-escapes one character; a leading `~` is your home), but nothing else is
-interpreted. Unquoted ``| & ; < > $ ` * ? ( )`` are refused with a message, since
-without a shell they could not mean what they mean in one. The first word must
+(spaces separate; `'…'` is literal; `"…"` allows `\"`, `\\`, `\$` and
+``\` ``; a backslash escapes one character; a leading `~` is your home), but
+nothing else is interpreted. Unquoted ``| & ; < > $ ` * ? ( )`` are refused with
+a message, as are `$` and `` ` `` inside double quotes, since without a shell
+they could not mean what they mean in one. The first word must
 be a program on PATH (empty or relative PATH entries, which depend on the
 current directory, are ignored) or a path to an executable file, such as `./script`; an unknown command
 aborts with an error, suggesting the closest command name when there is one.
@@ -282,7 +283,10 @@ moved back by hand; a name already there gets a number (`notes.2`).
 When fff starts, a background thread deletes the entries that have been in a
 trash for more than `[trash] days` (30 by default; see
 [configuration](CONFIGURATION.md#trash)). Trashes on filesystems that are not
-mounted wait for a later start; entries without a readable date are kept.
+mounted wait for a later start; entries without a readable date are kept. Each
+entry first moves to the trash's `expunged/` folder and loses its record, then
+is deleted there, so quitting fff mid-purge never leaves a half-deleted entry
+that looks whole in `files/`; the next start deletes what remains.
 
 Before anything moves, `x` asks about two kinds of entries, listed with their
 sizes in one sheet for the whole selection:
@@ -361,7 +365,10 @@ example after an edit or after a symlink in its path was repointed.
 
 Operations run to completion or roll back: a terminal hangup, `SIGTERM` or
 `SIGINT` arriving during an operation is held until it finishes, then takes
-effect. Signals ignored when fff started (such as under `nohup`) stay ignored.
+effect. Signals ignored when fff started (such as under `nohup`) stay ignored;
+fff then ends once the operation has finished, as its terminal is gone. Copies
+and extracted files are written in full and synced to disk before they appear
+under their names, so no interruption leaves a truncated file at a destination.
 A kill that cannot be held (`SIGKILL`, power loss) can leave hidden
 `.fff-stage-*` directories holding data (an entry already moved to the trash
 stays there, with its record); when fff enters a directory with such a

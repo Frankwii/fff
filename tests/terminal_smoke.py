@@ -26,7 +26,7 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 class Session:
     # Every text field is an embedded Neovim (fff requires it). Tests pin
     # fff pick (the picker mode) unless they pass output_paths=False to exercise the default directory-changing mode.
-    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True, cwd=None):
+    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True, cwd=None, hangup=True):
         master, slave = pty.openpty()
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
@@ -45,6 +45,9 @@ class Session:
             os.close(writer)
             if implicit_root:
                 os.chdir(cwd or root)
+            if not hangup:
+                # As under nohup: closing the terminal sends nothing fatal.
+                signal.signal(signal.SIGHUP, signal.SIG_IGN)
             os.environ["TERM"] = "xterm-256color"
             os.environ["COLORTERM"] = "truecolor"
             os.environ.pop("NO_COLOR", None)
@@ -1992,6 +1995,44 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_closing_the_terminal_lets_a_running_copy_finish(self):
+        tree = self.tree("tree", 80000)
+        target = self.root / "target"
+        target.mkdir()
+        s = self.start(implicit_root=True)
+        s.send(b"itree", "❯ tree")
+        s.send(b"\x1b[27u\t", "Marks (1)")
+        s.send(b"\x1b[27uitarget", "❯ target")
+        s.send(b"\x1b[27ul", ("cwd", target))
+        s.send(b"p", "Copy here")
+        s.send(b"\r", "Copying tree")
+        s.wait_ui(" of 4.9 MiB · ", timeout=10)
+        # The terminal goes away mid-copy: fff gets SIGHUP and its screen is
+        # gone, yet the copy is published whole before fff ends.
+        self.assertEqual(self.hang_up(s, timeout=60), -signal.SIGHUP)
+        self.assertEqual(os.listdir(target), ["tree"])
+        self.assertEqual(len(os.listdir(target / "tree")), 80000)
+
+    def hang_up(self, s, timeout=5):
+        """Closes the terminal under `s` and returns how fff ended."""
+        os.close(s.master)
+        s.master = os.open(os.devnull, os.O_RDWR)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            pid, status = os.waitpid(s.pid, os.WNOHANG)
+            if pid:
+                s.status = os.waitstatus_to_exitcode(status)
+                return s.status
+            time.sleep(0.02)
+        raise AssertionError("fff kept running after its terminal closed")
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_fff_ends_when_its_terminal_closes_even_under_nohup(self):
+        s = self.start(hangup=False)
+        # The session fails on the lost terminal; reading it never spins.
+        self.assertEqual(self.hang_up(s), 1)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_file_operations_extract_empty_and_explicit_destination(self):
         import zipfile
         archive = self.root / "input.zip"
@@ -2726,6 +2767,27 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual((status, output), (7, b""))
         self.assertEqual(log.read_text().splitlines(), ["-x", str(sub / "beta")])
         self.assertEqual(cd_file.read_bytes(), os.fsencode(sub))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_gX_that_cannot_start_leaves_the_shell_where_it_was(self):
+        sub = self.root / "sub"
+        sub.mkdir()
+        (sub / "beta").write_text("b")
+        # Executable, but its interpreter does not exist.
+        broken = self.root / "broken"
+        broken.write_bytes(b"#!/nonexistent/interpreter\n")
+        broken.chmod(0o755)
+        cd_file = self.root / "cd"
+        cd_file.write_bytes(b"")
+        s = self.start("--no-config", "--cd-file", str(cd_file),
+                       implicit_root=True, output_paths=False)
+        s.send(b"\x1bl", ("cwd", sub))
+        s.send(b"gX", "Run and exit · INSERT")
+        s.send(os.fsencode(broken) + b"\r", "Run and exit")
+        s.send(b"\r")
+        status, output = s.finish()
+        self.assertEqual((status, output), (1, b""))
+        self.assertEqual(cd_file.read_bytes(), b"")
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_single_line_naming_and_extraction_keys(self):

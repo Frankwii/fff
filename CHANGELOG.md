@@ -79,6 +79,20 @@ history.
 
 ### Fixed
 
+- **fff ends when its terminal closes, also under `nohup`.** With the hangup
+  signal ignored it kept running forever, one thread spinning a CPU core on
+  the closed terminal; during an operation that thread spun until the
+  operation finished.
+- **Quitting fff while it empties old entries from the trash** could leave a
+  half-deleted entry with its record, looking whole and restorable. Entries
+  now leave `files/` and lose their record before they are deleted, and the
+  next start finishes an interrupted purge.
+- **A `gX` program that cannot start leaves your shell where it was.** The
+  shell integration still changed to the browsing directory.
+- **`$` and backticks inside double quotes are refused** in `gx` / `gX`
+  lines, `[[open.rules]]` commands and `$EDITOR`, as they already were outside
+  quotes: a shell would expand them, and fff passed them on literally. Write
+  `\$` or `'$'` for a literal one.
 - **`[[open.rules]]` extensions with several parts match**: `"tar.gz"` never
   matched anything, since only the part after the last dot was compared.
   An empty extension is now refused when the configuration loads.

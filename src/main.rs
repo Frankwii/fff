@@ -422,7 +422,8 @@ fn main() -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(130),
         Err(e) => {
-            eprintln!("fff: {e}");
+            // Not eprintln!, which panics when the terminal is gone.
+            let _ = writeln!(io::stderr(), "fff: {e}");
             ExitCode::from(1)
         }
     }
@@ -727,7 +728,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             if !mode.output_paths {
                 change_to(Some(&plan.cwd))?;
             }
-            Err(format!("Could not run {}: {}", plan.name, plan.exec()).into())
+            let error = plan.exec();
+            // It never started, so the shell stays where it was.
+            if let Some(file) = args.cd_file.as_ref().filter(|_| !mode.output_paths) {
+                let _ = std::fs::write(file, b"");
+            }
+            Err(format!("Could not run {}: {error}", plan.name).into())
         }
     }
 }

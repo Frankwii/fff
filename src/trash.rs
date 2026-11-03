@@ -7,8 +7,11 @@
 //! `$XDG_DATA_HOME/fff/trash`, others to `.fff-trash-UID` at the top of their
 //! filesystem. Every bin holds `files/NAME` and `info/NAME.trashinfo` (the
 //! original path and the deletion time), laid out like the freedesktop.org
-//! trash, so the entries are easy to find and put back by hand.
-use crate::operations::{Result, child_dir, err, open_dir, remove_tree, reparent};
+//! trash, so the entries are easy to find and put back by hand. The purge
+//! moves an entry to `expunged/` and drops its record before deleting it, so
+//! one cut short (fff quit meanwhile) never leaves a half-deleted entry that
+//! looks whole; the next purge finishes what is there.
+use crate::operations::{Result, child_dir, err, open_dir, remove_tree, reparent, unique};
 use rustix::fs::{self as sys, AtFlags, Mode, OFlags, StatxFlags};
 use std::{
     ffi::{OsStr, OsString},
@@ -131,6 +134,14 @@ impl Trash {
             let Ok(bin) = Bin::open(&path, false) else {
                 continue;
             };
+            // What an interrupted purge left half deleted.
+            if let Ok(expunged) = child_dir(&bin.root, OsStr::new(EXPUNGED))
+                && let Ok(leftovers) = fs::read_dir(fdpath(&expunged))
+            {
+                for item in leftovers.flatten() {
+                    let _ = remove_tree(&expunged, &item.file_name());
+                }
+            }
             let Ok(listing) = fs::read_dir(fdpath(&bin.info)) else {
                 continue;
             };
@@ -153,7 +164,7 @@ impl Trash {
                 };
                 if now.duration_since(deleted).is_ok_and(|waited| waited > age) {
                     let gone = match bin.contains(slot) {
-                        Ok(true) => remove_tree(&bin.files, slot),
+                        Ok(true) => bin.expunge(slot),
                         Ok(false) => Ok(()),
                         Err(e) => Err(e),
                     };
@@ -186,9 +197,12 @@ pub struct Purged {
 /// this user.
 pub(crate) struct Bin {
     pub(crate) path: PathBuf,
+    root: File,
     pub(crate) files: File,
     info: File,
 }
+/// Where the purge deletes entries, inside a bin.
+const EXPUNGED: &str = "expunged";
 impl Bin {
     /// Opens the bin at `path`, creating it (mode 0700) when `create`.
     pub(crate) fn open(path: &Path, create: bool) -> Result<Self> {
@@ -212,7 +226,21 @@ impl Bin {
             path: crate::operations::canonical_dir(&root)?,
             files: owned(&root, OsStr::new("files"))?,
             info: owned(&root, OsStr::new("info"))?,
+            root,
         })
+    }
+    /// Deletes `slot` for good: moved to `expunged/` and its record removed
+    /// first, then deleted there.
+    fn expunge(&self, slot: &OsStr) -> Result<()> {
+        match sys::mkdirat(&self.root, EXPUNGED, Mode::RWXU) {
+            Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+            Err(e) => return Err(err(e)),
+        }
+        let expunged = child_dir(&self.root, OsStr::new(EXPUNGED))?;
+        let name = OsString::from(unique());
+        reparent(&self.files, slot, &expunged, &name)?;
+        let _ = sys::unlinkat(&self.info, info_name(slot), AtFlags::empty());
+        remove_tree(&expunged, &name)
     }
     fn contains(&self, slot: &OsStr) -> Result<bool> {
         match sys::statat(&self.files, slot, AtFlags::SYMLINK_NOFOLLOW) {

@@ -25,7 +25,7 @@ pub(crate) fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 static NEXT: AtomicU64 = AtomicU64::new(0);
-fn unique() -> String {
+pub(crate) fn unique() -> String {
     format!(
         "{}-{}-{}",
         std::process::id(),

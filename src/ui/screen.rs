@@ -263,12 +263,25 @@ impl Input {
         let cancel = Arc::new(AtomicBool::new(false));
         let stopped = cancel.clone();
         let sending = waiting.clone();
+        // Waiting is done here rather than in crossterm, which reads a
+        // hung-up terminal's end of file forever without returning.
+        let tty = std::fs::File::open("/dev/tty").ok();
         let thread = std::thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
-                let event = match event::poll(Duration::from_millis(20)) {
-                    Ok(false) => continue,
-                    Ok(true) => event::read().map(shifted),
-                    Err(error) => Err(error),
+                let wait = Duration::from_millis(20);
+                let event = if tty.as_ref().is_some_and(|tty| hung_up(tty, wait)) {
+                    Err(io::Error::other("the terminal was closed"))
+                } else {
+                    let ready = if tty.is_some() {
+                        event::poll(Duration::ZERO)
+                    } else {
+                        event::poll(wait)
+                    };
+                    match ready {
+                        Ok(false) => continue,
+                        Ok(true) => event::read().map(shifted),
+                        Err(error) => Err(error),
+                    }
                 };
                 let failed = event.is_err();
                 // Counted first, so taking it never sees the count below zero.
@@ -301,6 +314,18 @@ impl Input {
         }
     }
 }
+/// Waits up to `wait` for input on `tty`; true once the terminal has hung up.
+fn hung_up(tty: &std::fs::File, wait: Duration) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut fd = libc::pollfd {
+        fd: tty.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one valid pollfd for the duration of the call.
+    let ready = unsafe { libc::poll(&mut fd, 1, wait.as_millis() as i32) };
+    ready > 0 && fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
+}
 impl Drop for Input {
     fn drop(&mut self) {
         self.cancel
@@ -309,7 +334,16 @@ impl Drop for Input {
         let (_, empty) = std::sync::mpsc::channel();
         drop(std::mem::replace(&mut self.events, empty));
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            // The reader stops within a poll, so a program run next never
+            // loses keys to it. One stuck in crossterm (the terminal went
+            // away) is left behind rather than holding fff open.
+            let deadline = std::time::Instant::now() + Duration::from_millis(500);
+            while !thread.is_finished() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            if thread.is_finished() {
+                let _ = thread.join();
+            }
         }
         // The events left unread are gone with the queue.
         self.waiting.store(0, std::sync::atomic::Ordering::Relaxed);

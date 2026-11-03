@@ -592,6 +592,33 @@ fn the_purge_deletes_only_what_waited_long_enough() {
     assert_eq!(t.purge_in_background().join().unwrap().removed, 0);
 }
 #[test]
+fn a_purge_cut_short_leaves_nothing_that_looks_restorable() {
+    let f = Fixture::new();
+    let t = trash(&f, u64::MAX);
+    let old = f.work.join("old");
+    fs::create_dir(&old).unwrap();
+    fs::write(old.join("file"), b"x").unwrap();
+    locked_dir(&old.join("deep"));
+    trash_all(&f, vec![old]);
+    // What a purge killed partway leaves: an entry without its record in
+    // expunged/, read-only folders included. The next purge deletes it,
+    // even with nothing else to purge.
+    let expunged = bin(&f).join("expunged");
+    fs::create_dir_all(expunged.join("1-2-3/half")).unwrap();
+    fs::write(expunged.join("1-2-3/half/file"), b"x").unwrap();
+    locked_dir(&expunged.join("1-2-3/locked"));
+    let now = SystemTime::now();
+    assert_eq!(t.purge(now).removed, 0);
+    assert!(listing(&expunged).is_empty());
+    assert_eq!(listing(&bin(&f).join("files")), ["old"]);
+    // An expired entry is deleted from there, after its record.
+    let purged = t.purge(now + Duration::from_secs(31 * 86_400));
+    assert_eq!((purged.removed, purged.errors), (1, vec![]));
+    assert!(listing(&expunged).is_empty());
+    assert!(listing(&bin(&f).join("files")).is_empty());
+    assert!(listing(&bin(&f).join("info")).is_empty());
+}
+#[test]
 fn copies_report_progress_and_stop_unchanged() {
     let f = Fixture::new();
     let big = f.file("big", &vec![1; (CHUNK as usize) * 2 + 5]);

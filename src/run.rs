@@ -16,8 +16,9 @@ use std::{
 /// something else, so they must be quoted to be passed literally.
 const SHELL_SYNTAX: &[char] = &['|', '&', ';', '<', '>', '$', '`', '*', '?', '(', ')'];
 
-/// Shell-style words: whitespace separates; '…' is literal; "…" allows \" and
-/// \\; a backslash escapes any character; `~` or `~/` starts at the home folder.
+/// Shell-style words: whitespace separates; '…' is literal; "…" allows \",
+/// \\, \$ and \` (a bare `$` or backtick there is refused, as outside); a
+/// backslash escapes any character; `~` or `~/` starts at the home folder.
 pub fn split(text: &str, home: Option<&Path>) -> Result<Vec<String>, String> {
     let mut words = vec![];
     let mut word: Option<String> = None;
@@ -44,8 +45,14 @@ pub fn split(text: &str, home: Option<&Path>) -> Result<Vec<String>, String> {
                 loop {
                     match chars.next() {
                         Some('"') => break,
-                        Some('\\') if matches!(chars.peek(), Some('"' | '\\')) => {
+                        Some('\\') if matches!(chars.peek(), Some('"' | '\\' | '$' | '`')) => {
                             w.push(chars.next().unwrap())
+                        }
+                        // A shell expands these even inside double quotes.
+                        Some(c @ ('$' | '`')) => {
+                            return Err(format!(
+                                "fff runs commands without a shell; write \\{c} or '{c}' to pass '{c}' literally"
+                            ));
                         }
                         Some(c) => w.push(c),
                         None => return Err("Unterminated \" quote".into()),
@@ -642,6 +649,11 @@ mod tests {
             ["/home/me/bin/x", "/home/me", "a~"]
         );
         assert_eq!(s("x '~'").unwrap(), ["x", "~"]);
+        // Inside double quotes, as in a shell, $ and ` need a backslash.
+        assert_eq!(s(r#""\$HOME \`x\`""#).unwrap(), ["$HOME `x`"]);
+        for bad in [r#""$HOME""#, r#""a `b`""#] {
+            assert!(s(bad).unwrap_err().contains("literally"), "{bad}");
+        }
         assert_eq!(s("x '|' \\*").unwrap(), ["x", "|", "*"]);
         for bad in [
             "a | b", "a > f", "a; b", "a &", "$HOME", "*.txt", "'open", "\"open", "x\\",
