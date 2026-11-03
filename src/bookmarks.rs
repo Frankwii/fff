@@ -92,21 +92,9 @@ impl Draft {
                 "Bookmark names and paths cannot contain line breaks or control characters".into(),
             );
         }
-        let path = if self.path == "~" {
-            home.ok_or("HOME is unavailable")?.to_path_buf()
-        } else if let Some(rest) = self.path.strip_prefix("~/") {
-            home.ok_or("HOME is unavailable")?.join(rest)
-        } else {
-            let path = PathBuf::from(&self.path);
-            if path.is_absolute() {
-                path
-            } else {
-                cwd.join(path)
-            }
-        };
         Ok(Bookmark {
             name: self.name.clone(),
-            path,
+            path: crate::config::expand_path(&self.path, cwd, home)?,
             icon: self.icon.clone(),
         })
     }

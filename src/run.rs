@@ -140,6 +140,17 @@ pub fn resolve(word: &str, cwd: &Path) -> Result<PathBuf, String> {
         .find(|p| executable(p))
         .ok_or_else(|| format!("{word}: command not found"))
 }
+/// Starts `command` in a session of its own: it has no controlling terminal,
+/// so it can neither open /dev/tty nor be hung up with fff's.
+pub(crate) fn detach(command: &mut Command) {
+    // SAFETY: setsid is async-signal-safe, as pre_exec requires.
+    unsafe {
+        command.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+}
 /// Like `resolve`, naming the closest command when there is no match.
 pub fn resolve_or_suggest(word: &str, cwd: &Path) -> Result<PathBuf, String> {
     resolve(word, cwd).map_err(|error| match suggestion(word, &commands()) {
@@ -215,14 +226,9 @@ pub fn flags(program: &Path, name: &str, cwd: &Path) -> Vec<String> {
 /// Output (stdout then stderr) of a detached run, or `None` on timeout.
 fn capture(mut command: Command, timeout: std::time::Duration) -> Option<String> {
     use io::Read;
-    use std::{os::unix::process::CommandExt, process::Stdio, sync::mpsc};
+    use std::{process::Stdio, sync::mpsc};
     // A new session has no controlling terminal: /dev/tty cannot be opened.
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
+    detach(&mut command);
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

@@ -36,7 +36,8 @@ pub(crate) fn unique() -> String {
         NEXT.fetch_add(1, Ordering::Relaxed)
     )
 }
-fn fdpath(f: &File) -> PathBuf {
+/// A path that names the open file `f`, for APIs that take paths.
+pub(crate) fn fdpath(f: &File) -> PathBuf {
     PathBuf::from(format!("/proc/self/fd/{}", f.as_raw_fd()))
 }
 pub(crate) fn open_dir(path: &Path) -> Result<File> {

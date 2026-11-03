@@ -541,25 +541,25 @@ fn resolve_bookmarks(
                 bookmark.name
             ));
         }
-        let path = if bookmark.path == "~" {
-            home.ok_or("Cannot expand ~ without HOME")?.to_path_buf()
-        } else if let Some(suffix) = bookmark.path.strip_prefix("~/") {
-            home.ok_or("Cannot expand ~/ without HOME")?.join(suffix)
-        } else {
-            let path = PathBuf::from(bookmark.path);
-            if path.is_absolute() {
-                path
-            } else {
-                base.join(path)
-            }
-        };
         bookmarks.push(Bookmark {
+            path: expand_path(&bookmark.path, base, home)?,
             name: bookmark.name,
-            path,
             icon,
         });
     }
     Ok(bookmarks)
+}
+/// A bookmark's path as written: `~` and `~/…` are in the home folder, and
+/// a relative path is below `base`.
+pub fn expand_path(text: &str, base: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
+    let home = || home.ok_or_else(|| format!("Cannot expand {text:?} without HOME"));
+    if text == "~" {
+        return Ok(home()?.to_path_buf());
+    }
+    if let Some(rest) = text.strip_prefix("~/") {
+        return Ok(home()?.join(rest));
+    }
+    Ok(base.join(text))
 }
 pub fn default_path(xdg: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     let base = xdg

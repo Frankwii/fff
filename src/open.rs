@@ -195,12 +195,7 @@ pub fn launch(plan: &Plan) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(output(&log))
         .stderr(output(&log));
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
+    crate::run::detach(&mut command);
     let mut child = command
         .spawn()
         .map_err(|e| format!("Could not start {}: {e}", plan.name))?;

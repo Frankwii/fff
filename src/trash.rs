@@ -11,7 +11,7 @@
 //! moves an entry to `expunged/` and drops its record before deleting it, so
 //! one cut short (fff quit meanwhile) never leaves a half-deleted entry that
 //! looks whole; the next purge finishes what is there.
-use crate::operations::{Result, child_dir, err, open_dir, remove_tree, reparent, unique};
+use crate::operations::{Result, child_dir, err, fdpath, open_dir, remove_tree, reparent, unique};
 use rustix::fs::{self as sys, AtFlags, Mode, OFlags, StatxFlags};
 use std::{
     ffi::{OsStr, OsString},
@@ -304,10 +304,6 @@ fn info_name(slot: &OsStr) -> OsString {
     let mut name = slot.to_owned();
     name.push(".trashinfo");
     name
-}
-fn fdpath(f: &File) -> PathBuf {
-    use std::os::fd::AsRawFd;
-    PathBuf::from(format!("/proc/self/fd/{}", f.as_raw_fd()))
 }
 /// The mount and device of a directory: a rename works only within both.
 fn place(dir: &File) -> Result<(u64, u32, u32)> {
