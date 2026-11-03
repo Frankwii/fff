@@ -3,7 +3,7 @@ use crate::{
     bookmarks::{Change as BookmarkChange, Draft as BookmarkDraft, EditField as BookmarkField},
     discovery::Discovery,
     editor::{Field, Nvim},
-    normal_keys::{ListAction, Step},
+    keymap::{self, Function, Step},
 };
 use crossterm::{
     cursor::{Hide, SetCursorStyle, Show},
@@ -28,6 +28,7 @@ mod dispatch;
 mod focus;
 mod input;
 mod jobs;
+pub(crate) mod keys;
 mod mouse;
 mod screen;
 #[cfg(test)]
@@ -39,6 +40,7 @@ use input::*;
 pub use input::{StatusTimer, alt_numbered_key, numbered_key, start_editor};
 pub(crate) use jobs::Job;
 use jobs::*;
+pub(crate) use keys::{EditStep, Editing, KeysScreen, Listed, Search};
 pub(crate) use mouse::Button;
 use mouse::*;
 use screen::*;
@@ -51,10 +53,12 @@ pub(crate) enum Focus {
         rows: Vec<PathBuf>,
         index: usize,
     },
-    /// F1 / F2 overlay: the key guide, or session details when `keys` is false.
+    /// F1 / F2 overlay: the Keys screen, or session details when `keys` is
+    /// false. The screen keeps its state across the tabs.
     Info {
         offset: usize,
         keys: bool,
+        screen: Box<KeysScreen>,
     },
     Exclusions(String),
     /// Alt+f: the file filters (`--glob`), one per line.
@@ -198,12 +202,11 @@ fn watched_dirs(app: &App, watch: &crate::watch::Watch) -> (Vec<PathBuf>, usize)
 /// Runs a session, then remembers where it was for the next one.
 pub fn run(
     mut app: App,
-    keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
-    let finish = session(&mut app, keys, cache, palettes, performance);
+    let finish = session(&mut app, cache, palettes, performance);
     app.remember();
     if app.records_session
         && let Some(path) = crate::state::session_path()
@@ -222,12 +225,11 @@ pub fn run(
 /// something changed, then waits for and handles one event.
 fn session(
     app: &mut App,
-    keys: crate::keys::KeyMap,
     cache: crate::config::CacheConfig,
     palettes: crate::reload::PaletteWatcher,
     performance: crate::config::PerformanceConfig,
 ) -> io::Result<Finish> {
-    let mut session = Session::start(app, keys, cache, palettes, performance)?;
+    let mut session = Session::start(app, cache, palettes, performance)?;
     loop {
         session.poll(app)?;
         session.sync_editor(app)?;
@@ -282,7 +284,7 @@ struct Session {
     progress_shown: bool,
     /// Whether the last frame drew the button bar.
     buttons_shown: bool,
-    /// The last key was Escape with an empty query in Normal mode: another
+    /// The last key cleared an empty query in Normal mode: clearing again
     /// clears the marks.
     escape_armed: bool,
     drawn: Drawn,
@@ -308,19 +310,19 @@ struct Session {
     terminal: Terminal,
     /// Where fff was started: `q` leaves there.
     invocation: PathBuf,
-    keys: crate::keys::KeyMap,
     palettes: crate::reload::PaletteWatcher,
 }
 impl Session {
     fn start(
         app: &mut App,
-        keys: crate::keys::KeyMap,
         cache: crate::config::CacheConfig,
         palettes: crate::reload::PaletteWatcher,
         performance: crate::config::PerformanceConfig,
     ) -> io::Result<Self> {
         let invocation = std::env::current_dir()?.canonicalize()?;
-        app.key_map = keys.clone();
+        if let Some(error) = &app.keys_broken {
+            app.status = format!("keys.toml has errors, so fff uses the default keys: {error}");
+        }
         // Entries that waited in the trash long enough go, without delaying startup.
         if let Some(trash) = &app.trash {
             trash.purge_in_background();
@@ -381,7 +383,6 @@ impl Session {
             waking,
             terminal,
             invocation,
-            keys,
             palettes,
         })
     }
@@ -551,7 +552,7 @@ impl Session {
         } else {
             app.edit_view = None;
         }
-        if app.normal_keys.pending()
+        if !app.pending.is_empty()
             && let Some(view) = &mut app.edit_view
         {
             // Show a partial list-key sequence like Neovim's own pending input.
@@ -646,7 +647,7 @@ impl Session {
         // input is read between passes, so it is never kept waiting.
         let wait = if self.discovery.catching_up(app) {
             0
-        } else if self.discovery.busy(app) || app.normal_keys.pending() {
+        } else if self.discovery.busy(app) || !app.pending.is_empty() {
             30
         } else {
             250

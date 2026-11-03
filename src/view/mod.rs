@@ -18,6 +18,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 mod choosers;
 mod footer;
 mod guide;
+mod keys;
 mod panes;
 mod results;
 mod sheets;
@@ -27,6 +28,7 @@ mod text;
 use choosers::*;
 use footer::*;
 use guide::*;
+use keys::*;
 use panes::*;
 use results::*;
 use sheets::*;
@@ -296,7 +298,11 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     }
     footer(frame, layout[4], app, focus);
     match focus {
-        Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
+        Focus::Info {
+            offset,
+            keys,
+            screen,
+        } => info(frame, area, app, offset, *keys, screen),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
         Focus::NewChoice => new_choice(frame, main, app),
         Focus::Replace(replace) => replace_choice(frame, main, app, replace),
@@ -449,13 +455,9 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     let pinned_width = pinned.iter().map(|s| s.width()).sum::<usize>();
     // In a trash, a pill after the path says so, and how to restore.
     let trash = app.in_trash().then(|| {
-        let key = app
-            .normal_keys
-            .describe(crate::normal_keys::ListAction::Restore);
-        let text = if key.is_empty() {
-            "trash".to_string()
-        } else {
-            format!("trash · {key} restores")
+        let text = match app.bound(crate::keymap::Function::Restore) {
+            Some(key) => format!("trash · {key} restores"),
+            None => "trash".to_string(),
         };
         pill(text, theme.background, theme.marked)
     });
@@ -499,13 +501,13 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     second.extend(fit_spans(
         pinned,
         width.saturating_sub(4),
-        app.key("f1").as_deref(),
+        app.bound(crate::keymap::Function::Session).as_deref(),
     ));
     vec![Line::from(first), Line::from(second)]
 }
 
 /// `pinned  notes  papers`: a pin glyph (or the word) then each root's name; the
-/// root that is also the current directory is bold. F1 shows full paths.
+/// root that is also the current directory is bold. The Session tab shows full paths.
 fn pinned_roots(app: &App) -> Vec<Span<'static>> {
     let theme = app.palette;
     if app.roots.is_empty() {

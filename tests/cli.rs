@@ -28,7 +28,7 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
         "130",
         "Keys:",
         "Alt+p",
-        "[keys.normal]",
+        "keys.toml",
         "source <(fff setup --completions bash)",
         "Commands (without one, fff roam):",
         "--resume",
@@ -49,12 +49,7 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
     let short = stdout(&fff(&["-h"], None));
     assert!(short.contains("Examples:") && short.len() < long.len());
     assert_eq!(fff(&["--bogus"], None).status.code(), Some(2));
-    for bad in [
-        &["--map-key", "space=down"][..],
-        &["--map-key", "bogus"],
-        &["--glob", "["],
-        &["--exclude", "["],
-    ] {
+    for bad in [&["--glob", "["][..], &["--exclude", "["]] {
         let mut line = vec!["--no-config"];
         line.extend_from_slice(bad);
         assert_eq!(fff(&line, None).status.code(), Some(2), "{bad:?}");
@@ -130,7 +125,6 @@ fn dynamic_completion_reads_custom_palettes_from_the_named_config() {
     assert!(!line(&["--no-config", "--palette", ""]).contains("ember"));
     assert!(line(&["--pal"]).starts_with("--palette"));
     assert!(line(&["--config", "docs/config.ex"]).contains("docs/config.example.toml"));
-    assert!(line(&["--map-key", "alt+j=no"]).contains("alt+j=none"));
 }
 
 #[test]

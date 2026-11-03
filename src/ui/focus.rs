@@ -36,7 +36,7 @@ impl Session {
             Focus::BookmarkEdit(_) => self.bookmark_edit_key(app, key),
             Focus::BookmarkIcons { .. } => self.bookmark_icons_key(app, key),
             Focus::BookmarkDelete { .. } => self.bookmark_delete_key(app, key),
-            Focus::Info { .. } => self.info_key(key),
+            Focus::Info { .. } => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
             // Keys never reach here while an operation runs, and the glob
@@ -406,32 +406,6 @@ impl Session {
             }
         }
     }
-    /// F1: the key guide; F2: the session details.
-    fn info_key(&mut self, key: KeyEvent) {
-        let page = self.drawn.page;
-        let Focus::Info { offset, keys } = &mut self.focus else {
-            return;
-        };
-        match key.code {
-            K::Esc | K::Char('q') => self.focus = Focus::Results,
-            // F1 and F2 open their own tab, and close it when it is open.
-            K::F(1) if *keys => self.focus = Focus::Results,
-            K::F(2) if !*keys => self.focus = Focus::Results,
-            K::F(1) | K::F(2) => {
-                *keys = key.code == K::F(1);
-                *offset = 0;
-            }
-            K::Tab | K::BackTab | K::Left | K::Right => {
-                *keys = !*keys;
-                *offset = 0;
-            }
-            K::Down | K::Char('j') => *offset = offset.saturating_add(1),
-            K::Up | K::Char('k') => *offset = offset.saturating_sub(1),
-            K::PageDown => *offset = offset.saturating_add(page),
-            K::PageUp => *offset = offset.saturating_sub(page),
-            _ => {}
-        }
-    }
     /// gx / gX: the command line.
     fn command_key(&mut self, app: &mut App, key: KeyEvent) {
         let Focus::Command(prompt) = &mut self.focus else {
@@ -590,6 +564,7 @@ impl Session {
                 self.focus = Focus::Info {
                     offset: 0,
                     keys: key.code == K::F(1),
+                    screen: Box::new(KeysScreen::new(app.cell())),
                 }
             }
             (K::Char('w'), true, _) => return leave_with_marks(app),
@@ -723,7 +698,7 @@ impl Session {
             // Filters only choose among discovered files: no rescan.
             (K::Char('F'), _, true) => {
                 if app.policy.filters.is_empty() {
-                    app.status = match app.either("alt+f", ListAction::EditFilters) {
+                    app.status = match app.bound(Function::EditFilters) {
                         Some(key) => format!("No file filters to turn on; {key} adds some"),
                         None => "No file filters to turn on".into(),
                     };
@@ -866,7 +841,7 @@ impl Session {
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
 fn scroll_preview(app: &mut App, down: bool) {
     if !app.preview.shown {
-        app.status = match app.either("alt+v", crate::normal_keys::ListAction::Preview) {
+        app.status = match app.bound(Function::Preview) {
             Some(key) => format!("No preview pane to scroll; {key} opens it"),
             None => "No preview pane to scroll".into(),
         };

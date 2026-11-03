@@ -111,21 +111,28 @@ fn m_marks_every_listed_row_and_shift_m_inverts_them() {
     let [a, b, c, other]: [PathBuf; 4] =
         ["/fixture/a", "/fixture/b", "/fixture/c", "/elsewhere/d"].map(PathBuf::from);
     app.marks = vec![other.clone(), b.clone()].into();
-    let mut focus = Focus::Marks {
+    let focus = Focus::Marks {
         rows: vec![a.clone(), b.clone(), c.clone()],
         index: 0,
     };
-    let Ok(mut editor) = crate::editor::Nvim::start() else {
-        eprintln!("nvim missing; skipping");
-        return;
+    let cell = crate::keymap::Cell {
+        program: crate::keymap::Program::Roam,
+        place: crate::keymap::Place::Marks,
+        highlight: crate::keymap::Highlight::File,
     };
-    let mut press = |app: &mut App, ch: char| {
+    let press = |app: &mut App, ch: char| {
         let shift = if ch.is_uppercase() { M::SHIFT } else { M::NONE };
         let key = KeyEvent::new(K::Char(ch), shift);
-        assert!(matches!(
-            normal_list_key(app, &mut focus, &mut editor, key),
-            NormalKey::Consumed
-        ));
+        let Step::Run(function, _) =
+            app.keymap
+                .feed(&mut Vec::new(), crate::keymap::Mode::Normal, cell, key)
+        else {
+            panic!("{ch} does nothing in the marked list");
+        };
+        let Focus::Marks { rows, .. } = &focus else {
+            unreachable!()
+        };
+        app.mark_rows(&rows.clone(), function == Function::InvertMarks);
     };
     press(&mut app, 'm');
     assert_eq!(app.marks, [&other, &b, &a, &c].map(Clone::clone));

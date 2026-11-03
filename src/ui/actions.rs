@@ -152,7 +152,7 @@ pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
     if !app.returns_marks() {
         app.status = format!(
             "{} returns the marks only where several paths can be chosen, as in fff pick",
-            app.key_or_none("ctrl+w")
+            app.bound_or_none(Function::ReturnMarks)
         );
         return None;
     }
@@ -178,7 +178,7 @@ pub(super) fn save_as(app: &mut App, focus: &mut Focus, target: PathBuf) -> Opti
             app.status = format!(
                 "{} is a folder; {} goes into it",
                 target.file_name().unwrap_or_default().to_string_lossy(),
-                app.key_or_none("enter")
+                app.bound_or_none(Function::GoInto)
             );
             None
         }
@@ -204,12 +204,8 @@ pub(super) fn open_here(
     paths: Vec<PathBuf>,
 ) -> io::Result<()> {
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
-        use crate::normal_keys::ListAction;
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
-        app.status = match (
-            app.sequence(ListAction::Open),
-            app.either("alt+l", ListAction::Right),
-        ) {
+        app.status = match (app.bound(Function::OpenHere), app.bound(Function::GoInto)) {
             (Some(open), Some(enter)) => {
                 format!("{open} opens files, not directories like {name}; {enter} enters it")
             }

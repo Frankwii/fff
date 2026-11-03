@@ -438,11 +438,9 @@ pub(super) fn finish(
                     } else if !outcome.changed {
                         "Nothing to rename; no names changed".into()
                     } else if trashed {
-                        let key = app.normal_keys.describe(ListAction::Undo);
-                        if key.is_empty() {
-                            done.clone()
-                        } else {
-                            format!("{done}; {key} undoes")
+                        match app.bound(Function::Undo) {
+                            Some(key) => format!("{done}; {key} undoes"),
+                            None => done.clone(),
                         }
                     } else {
                         done.clone()

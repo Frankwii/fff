@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.13.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.14.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -267,16 +267,22 @@ or change anywhere in the results, the results follow without F5. See
 
 ## Keys
 
-F1 opens the complete guide, including configured Normal-mode bindings. F2
-opens its Session tab: exact paths, scopes, depth, policies, palette, marks and
-any errors in the configuration file. The
-footer's right end points to it and says how to leave: `F1 keys  q quit`
-(`Ctrl+c quit` while typing, where `q` is text).
+F1 opens the **Keys screen**: every function fff has, with its keys in Insert
+and Normal mode and where each applies. Type to search names and
+descriptions, or press Tab and then keys to see what they do; Enter on a
+function adds, deletes or resets its keys and sets where each one applies.
+Changes apply at once and are saved to `keys.toml`; one that would leave you
+no way to open the screen or to leave fff is refused. See
+[keys](docs/CONFIGURATION.md#keys). F2 opens the Session tab: exact paths,
+scopes, depth, policies, palette, marks and any errors in the configuration
+file. The footer's right end points to F1 and says how to leave: `F1 keys  q
+quit` (`Ctrl+c quit` while typing, where `q` is text).
 
-Alt chords that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space, Alt+digits)
-work in every mode. Alt chords for features (Alt+b, Alt+g, Alt+t, Alt+., Alt+d,
-Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p, Alt+P) work while typing; in Normal-mode results
-their sequences do the work instead, and the chord says which one.
+The defaults: Alt keys that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space,
+Alt+digits) work in both modes. Alt keys for features (Alt+b, Alt+g, Alt+t,
+Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p, Alt+P) work
+while typing; in Normal mode their letters do the work instead, and the Alt
+key says which one.
 
 | Key | Action |
 | --- | --- |
@@ -326,7 +332,7 @@ their sequences do the work instead, and the chord says which one.
 | r in Normal | Batch rename the filtered results in a buffer |
 | E in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |
-| F1 / F2 | Key guide / Session details; Tab switches between them, the same key closes |
+| F1 / F2 | Keys screen / Session details; each opens its tab, the same key closes |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | e in Normal | Open the current or marked paths in `$EDITOR`, then come back |
@@ -350,20 +356,11 @@ text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#runn
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
 Insert mode; in Normal-mode results 1–9 set the search depth
-(`depth_digits = false` in `[keys.normal]` makes them Vim counts again). Chords are case-sensitive.
+(binding `depth` to nothing makes them Vim counts again). Keys are case-sensitive.
 Ctrl+digits require distinct terminal reporting; fff requests the Kitty
 keyboard protocol and never guesses ambiguous input. Alt+digits also support
-ESC+digit reporting. Remap chords with `--map-key`, or permanently in the
-[`[keys.map]`](docs/CONFIGURATION.md#chord-remapping) configuration table:
-
-```sh
-fff --map-key ctrl+n=down --map-key ctrl+p=up
-fff --map-key alt+j=none
-```
-
-Mappings translate once to default chords; later mappings for a source win.
-Printable source characters are reserved for editing. Normal-mode sequences are
-configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURATION.md).
+ESC+digit reporting. Every key is rebound on the [Keys screen](docs/CONFIGURATION.md#keys)
+(F1), which saves to `keys.toml` beside the configuration.
 
 File operations that cannot be undone, or would overwrite, are confirmed
 first (`x`, moves, copies and links without collisions act at once), refuse to

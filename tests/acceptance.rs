@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fuzzy_file_finder::{
-    App, Candidate, Kinds, Policy, discovery::Scan, glob, keys::KeyMap, relative_to, score,
-    ui::numbered_key, write_paths,
+    App, Candidate, Kinds, Policy, discovery::Scan, glob, relative_to, score, ui::numbered_key,
+    write_paths,
 };
 use std::{
     fs,
@@ -440,47 +440,37 @@ fn policy_toggles_prune_and_preserve_marks() {
     assert_eq!(app.marks, vec![main]);
 }
 #[test]
-fn key_remapping_and_printable_text_safety() {
-    let map = KeyMap::parse(&["ctrl+n=alt+j".into(), "alt+j=none".into()]).unwrap();
+fn keys_bind_by_function_and_typing_stays_text() {
+    use fuzzy_file_finder::keymap::{
+        Cell, Function, Highlight, Keymap, Mode, Place, Program, Step,
+    };
+    let keymap = Keymap::parse("[insert]\ndown = '<C-n>'\n").unwrap();
+    let here = Cell {
+        program: Program::Roam,
+        place: Place::Results,
+        highlight: Highlight::File,
+    };
+    let feed = |key| keymap.feed(&mut Vec::new(), Mode::Insert, here, key);
     assert_eq!(
-        map.translate(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL))
-            .unwrap()
-            .code,
-        KeyCode::Char('j')
+        feed(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL)),
+        Step::Run(Function::Down, None)
     );
-    assert!(
-        map.translate(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT))
-            .is_none()
-    );
-    assert!(KeyMap::parse(&["2=ctrl+2".into()]).is_err());
-}
-#[test]
-fn palette_keys_can_be_remapped_in_either_shift_encoding() {
-    let map = KeyMap::parse(&["ctrl+t=alt+p".into(), "alt+P=ctrl+r".into()]).unwrap();
-    let chooser = map
-        .translate(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL))
-        .unwrap();
+    // Alt+j no longer moves while typing: down's keys there were replaced.
     assert_eq!(
-        (chooser.code, chooser.modifiers),
-        (KeyCode::Char('p'), KeyModifiers::ALT)
+        feed(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)),
+        Step::Pass
     );
+    assert!(Keymap::parse("[insert]\ndown = '2'\n").is_err());
     // Legacy terminals send `P`; kitty-protocol terminals send `p` with SHIFT.
     for code in ['P', 'p'] {
         let key = KeyEvent::new(KeyCode::Char(code), KeyModifiers::ALT | KeyModifiers::SHIFT);
-        assert_eq!(map.translate(key).unwrap().code, KeyCode::Char('r'));
+        assert_eq!(feed(key), Step::Run(Function::ReloadPalette, None));
     }
-    let reload = KeyMap::parse(&["ctrl+r=alt+P".into()])
-        .unwrap()
-        .translate(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL))
-        .unwrap();
-    assert_eq!(reload.code, KeyCode::Char('P'));
-    assert!(
-        reload
-            .modifiers
-            .contains(KeyModifiers::ALT | KeyModifiers::SHIFT)
+    assert_eq!(
+        feed(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)),
+        Step::Run(Function::Palette, None)
     );
 }
-
 #[test]
 fn navigation_combines_one_current_directory_and_fixed_roots() {
     let f = Fixture::new();

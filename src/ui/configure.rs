@@ -90,16 +90,17 @@ impl Session {
         app: &mut App,
         settings: Settings,
     ) -> io::Result<Result<(), String>> {
-        // Configured [keys.map] chords first, so --map-key rules override them.
-        let keys = match crate::keys::KeyMap::parse(
-            &[settings.key_maps.clone(), app.cli_key_maps.clone()].concat(),
-        ) {
-            Ok(keys) => keys,
-            Err(error) => return Ok(Err(format!("keys.map: {error}"))),
-        };
-        app.key_map = keys.clone();
-        self.keys = keys;
-        app.normal_keys = settings.normal_keys;
+        // keys.toml is read again too; with errors, the keys in use stay.
+        app.keys_path = settings.bookmark_path.as_deref().map(keymap::path_beside);
+        if let Some(path) = &app.keys_path {
+            match keymap::Keymap::load(path) {
+                Ok(keys) => {
+                    app.keymap = keys;
+                    app.keys_broken = None;
+                }
+                Err(error) => return Ok(Err(format!("keys.toml: {error}"))),
+            }
+        }
         app.openers = settings.open;
         app.bookmarks = settings.bookmarks;
         app.bookmark_store = crate::bookmarks::Store::new(

@@ -4,30 +4,43 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.14.0 — 2026-11-03
+
+F1 opens the Keys screen: search every function and key, rebind them, and
+choose where each key applies.
 
 ### Added
 
+- **The Keys screen (F1).** Every function fff has, by name, with its keys in
+  Insert and Normal mode and what it does. Typing searches names,
+  descriptions and keys; Tab records keys instead and lists what they do,
+  dimming what does not apply where you are. It shows what works where you
+  opened it; Ctrl+a shows everything. Enter on a function adds (`a`),
+  deletes (`d`) or resets (`R`) its keys and sets where each applies (`s`).
+  Changes apply at once and are saved to `keys.toml`.
+- **Keys apply where you choose.** A key can be limited to programs (roam,
+  window, pick, seek, each kind of explorer dialog), to the results or the
+  marked list, and to a highlighted directory, file or nothing. One key does
+  one thing wherever it is pressed: when keys clash, the Keys screen offers
+  to narrow the new one or take it from the others there.
+- **No way to lock yourself in.** A change that would leave nothing to open
+  the Keys screen or to leave fff, that would turn typing into commands, or
+  that would take `i`, `a` or `:` in Normal mode, is refused with the reason.
+  A `keys.toml` with errors gives way to the default keys, and fff says why.
 - **`gc` edits the configuration while fff runs** and applies it as soon as
   the editor ends: keys, bookmarks, openers, columns, the mouse, the trash
   and the rest take effect without restarting. A copy of the configuration
   is kept as `config.toml.bak` while you edit; if the edit has errors, fff
   goes on reading the copy, F2 shows what is wrong, and the query box says
   `config errors` until the file loads again (also in later sessions).
-  `edit_config` in `[keys.normal]`.
-- **F2 opens the Session tab** directly, F1 the key guide; each key closes
-  its own tab. `[keys.map]` and `--map-key` now take any of `f1` to `f12`,
-  so `"f4" = "f2"` moves the Session tab to F4.
+- **F2 opens the Session tab** directly, F1 the Keys screen; each key closes
+  its own tab.
 - **File filters can be turned off and on again** without losing them:
   `gf` in Normal mode, Alt+F while typing.
 - **Normal-mode keys for exclusions, filters and palettes**: `gE` edits the
   exclusions and `ge` turns their enforcement on or off, `gF` edits the file
   filters, `gp` opens the palette chooser and `gP` goes back to the
-  configuration's palette (`edit_exclusions`, `enforce_exclusions`,
-  `edit_filters`, `toggle_filters`, `palette` and `reload_palette` in
-  `[keys.normal]`).
-- **`[keys.map]` targets can be named by what they do** (preliminary, until
-  key names are unified): `"f4" = "session"`, `"ctrl+b" = "bookmarks"`.
+  configuration's palette.
 - **The button bar hides once the mouse rests**: with `buttons = "mouse"`,
   it shows while the mouse is moving or clicking and goes after
   `[ui] buttons_seconds` (5 by default; 0 keeps it).
@@ -38,6 +51,14 @@ history.
 
 ### Changed
 
+- **Keys live in `keys.toml`** beside the configuration, written in Vim's
+  notation (`<M-h>`, `<CR>`, `gg`) by function, in an `[insert]` and a
+  `[normal]` table. Each Enter, `l` and `o` case is a function of its own
+  (`quit_into_dir`, `open_and_quit`, `pick_file`, `reveal`,
+  `open_background`, `open_here`...), so each can be bound apart. A
+  configuration with `[keys]` says where they went.
+- **Keys inside choosers, prompts and sheets are fixed**: Enter, Escape, Tab,
+  and `j`, `k`, `gg`, `G`, `q` and `!` in Normal mode.
 - **Moves, copies and links act at once** when nothing would be overwritten,
   and the message says `u` undoes them. Overwriting still asks first, and so
   do files dropped onto the terminal.
@@ -45,17 +66,22 @@ history.
   (was 2); `fff seek` keeps 6.
 - **`+` and `-` change the depth in Normal mode**, instead of Right and Left,
   and **`g/` opens the go-to prompt** instead of `/`.
-- **Alt chords for features work only while typing**: in Normal-mode results,
+- **Alt keys for features work only while typing**: in Normal-mode results,
   Alt+b, Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f,
   Alt+F, Alt+p and Alt+P say which Normal-mode key to use instead (`b`, `g/`,
-  `gt`, `.`, `d`, `D`, `P`, `gE`, `ge`, `gF`, `gf`, `gp`, `gP`). Alt chords that move around work in every mode.
+  `gt`, `.`, `d`, `D`, `P`, `gE`, `ge`, `gF`, `gf`, `gp`, `gP`). Alt keys
+  that move around work in both modes.
 - **`e` opens in `$EDITOR` and `E` extracts archives**, swapped from before.
-  A configuration that sets `edit` or `extract` in `[keys.normal]` keeps its
-  keys.
-- **The key guide's hints are part of its border**, like the file
-  operation sheets', and its tabs name their keys (`F1 Keys`, `F2 Session`).
+- **Pinned roots that do not fit point to F2**, whose Session tab lists them.
 - **A rule in the preview pane sets an entry's facts** (a PDF's pages,
   where a trashed entry came from) apart from its content.
+
+### Removed
+
+- **`[keys.normal]`, `[keys.map]` and `--map-key`**, replaced by `keys.toml`
+  and the Keys screen; `depth_digits = false` is now `depth = "none"` in
+  `[normal]`.
+- **The printed key guide**, replaced by the Keys screen.
 
 ## 0.13.0 — 2026-11-03
 

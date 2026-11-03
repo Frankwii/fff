@@ -54,32 +54,64 @@ impl Dialog {
     /// How to choose, shown in the empty query line; `typing` in Insert mode,
     /// where `!` is text. Keys are named as `app` binds them.
     pub fn hint(&self, typing: bool, app: &crate::App) -> String {
-        use crate::normal_keys::ListAction;
-        let enter = app.key_or_none("enter");
-        let save = app.key_or_none("ctrl+s");
-        // In Normal mode the quit-current sequence (!) saves too.
-        let either = match app.sequence(ListAction::QuitCurrent) {
-            Some(quit) => format!("{quit} or {save}"),
-            None => save.clone(),
+        use crate::keymap::{Function, Mode};
+        // Up to two keys `function` has in `mode` for this dialog, else any.
+        let keys = |function: Function, mode: Mode| {
+            let program = app.program();
+            let bindings = app.keymap.of(function, mode);
+            let mut names: Vec<String> = Vec::new();
+            let here = bindings.iter().filter(|b| {
+                b.reach()
+                    .iter()
+                    .any(|s| s.programs & crate::keymap::Dimension::bit(program) != 0)
+            });
+            for b in here.chain(bindings.iter()) {
+                if !names.contains(&b.display()) && names.len() < 2 {
+                    names.push(b.display());
+                }
+            }
+            if names.is_empty() {
+                "—".to_string()
+            } else {
+                names.join(" or ")
+            }
+        };
+        let file = if self.save.is_some() {
+            Function::SaveAs
+        } else {
+            Function::ChooseFile
+        };
+        let enter = keys(file, Mode::Normal);
+        let here = if self.save.is_some() {
+            Function::SaveHere
+        } else {
+            Function::ChooseFolder
         };
         match (&self.save, self.directory, self.multiple) {
             (Some(_), _, _) if typing => format!(
-                "Type a custom name, then press {enter} or {save} to save it here. Press {} \
-                 to browse folders.",
+                "Type a custom name, then press {} to save it here. Press {} to browse folders.",
+                keys(here, Mode::Insert),
                 app.key_or_none("esc")
             ),
             (Some(name), _, _) => format!(
-                "Press {either} to save {name} here. Press i to type a custom name. \
-                 Press {enter} on a file to replace it."
+                "Press {} to save {name} here. Press i to type a custom name. \
+                 Press {enter} on a file to replace it.",
+                keys(here, Mode::Normal)
             ),
-            (None, true, _) if typing => format!("Press {save} to choose the folder you are in."),
-            (None, true, _) => format!("Press {either} to choose the folder you are in."),
+            (None, true, _) if typing => format!(
+                "Press {} to choose the folder you are in.",
+                keys(here, Mode::Insert)
+            ),
+            (None, true, _) => format!(
+                "Press {} to choose the folder you are in.",
+                keys(here, Mode::Normal)
+            ),
             (None, false, true) => format!(
                 "Press {enter} on a file to choose it. Press {} to mark several, then {} to \
                  choose them.",
-                app.sequence(ListAction::Mark)
-                    .unwrap_or_else(|| app.key_or_none("shift+space")),
-                app.key_or_none("ctrl+w")
+                app.bound_in(Function::Mark, Mode::Normal)
+                    .unwrap_or_else(|| app.bound_or_none(Function::Mark)),
+                app.bound_or_none(Function::ReturnMarks)
             ),
             (None, false, false) => format!("Press {enter} on a file to choose it."),
         }
@@ -90,8 +122,8 @@ impl Dialog {
     pub fn file_hint(&self, app: &crate::App) -> Option<String> {
         let how = format!(
             "press {} on it{}",
-            app.key_or_none("enter"),
-            if app.digits_pick("ctrl") {
+            app.bound_or_none(crate::keymap::Function::ChooseFile),
+            if app.bound(crate::keymap::Function::EnterRow).is_some() {
                 " or Ctrl+number on its row"
             } else {
                 ""
@@ -234,6 +266,7 @@ mod tests {
         assert_eq!(Dialog::default().save_name("x"), None);
         assert_eq!(Dialog::default().title("x"), "Query");
         let mut app = crate::App::browse(std::env::temp_dir(), 1, Default::default());
+        app.dialog = Some(dialog.clone());
         assert!(
             dialog
                 .hint(false, &app)
@@ -241,13 +274,7 @@ mod tests {
         );
         assert!(dialog.hint(true, &app).starts_with("Type a custom name"));
         // Keys are named as configured.
-        app.key_map =
-            crate::keys::KeyMap::parse(&["ctrl+t=ctrl+s".into(), "ctrl+s=none".into()]).unwrap();
-        app.normal_keys =
-            toml::from_str::<crate::normal_keys::NormalKeysConfig>("quit_current='none'")
-                .unwrap()
-                .build()
-                .unwrap();
+        app.keymap = crate::keymap::Keymap::parse("[normal]\nsave_here = '<C-t>'\n").unwrap();
         assert!(
             dialog
                 .hint(false, &app)

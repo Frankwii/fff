@@ -183,7 +183,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
   line says what was opened; if the program later fails, a **Notice** pop-up
   appears at the top right with its exit status and the log's location, and
   fades after a few seconds.
-- **In this terminal:** `o` (configurable as `open` in `[keys.normal]`) opens the
+- **In this terminal:** `o` (`open_here` on the Keys screen) opens the
   current or marked files with the same current / selection / all choice as `e`.
   The opener takes over the terminal, GUI or not, and fff comes back when it
   ends. Files sharing an opener go to one invocation (three PDFs, one zathura);
@@ -205,8 +205,8 @@ before anything runs, and the file paths added as separate arguments.
 `gx` runs a program on the current or marked paths and comes back to fff; `gX`
 runs it in place of fff. Both use the same current / selection / all choice as
 extraction and deletion; with nothing current or marked, the program runs on no
-paths. Both are Normal-mode sequences, configurable as `run` and `run_exit` in
-`[keys.normal]`.
+paths. Both are Normal-mode keys, `run` and `run_and_quit` on the Keys
+screen (F1).
 
 A one-line prompt (starting in Insert mode) takes the command. **Tab** completes
 the command name from the programs on your PATH, and later words as paths
@@ -334,7 +334,7 @@ every filesystem fff trashed entries on has its own. The location line shows
 a `trash · R restores` pill there, and the preview pane names where the
 highlighted entry came from and when it was trashed.
 
-**R** (`restore` in `[keys.normal]`), only in a trash, puts the current or the
+**R** (`restore` on the Keys screen), only in a trash, puts the current or the
 marked entries back where they were deleted from (asking which, as `x` does,
 when the current entry is unmarked while others are marked). The place comes
 from the entry's record in `info/`. fff records the entry's inode there too,
@@ -356,7 +356,7 @@ what they overwrote).
 
 ## Undo
 
-`u` (configurable as `undo` in `[keys.normal]`) undoes the last file operation
+`u` (`undo` on the Keys screen) undoes the last file operation
 of the session, and pressing it again the one before, up to 100:
 
 | Operation | Undoing it |

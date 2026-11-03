@@ -1,0 +1,29 @@
+# keys.toml: beside config.toml. F1 (the Keys screen) writes it for you;
+# this file shows what it holds. Each entry replaces one function's keys in
+# one mode; functions not named keep their defaults. Names, defaults and
+# where each function works are on the Keys screen and in CONFIGURATION.md.
+#
+# Keys use Vim's notation: printable keys stand for themselves ("gg", "g/"),
+# others are named in <...> with C- (Ctrl), M- (Alt) and S- (Shift):
+# <CR> <Esc> <Tab> <BS> <Space> <lt> <Up> <PageDown> <F1> <M-h> <C-w>.
+# <#> is the digits 1-9, <M-#> and <C-#> Alt or Ctrl with any digit.
+# "none" removes every key; a list gives several.
+
+[insert]
+# Emacs-style movement while typing, keeping the arrows.
+down = ["<C-n>", "<Down>"]
+up = ["<C-p>", "<Up>"]
+
+[normal]
+# Q leaves instead of q.
+quit = "Q"
+# A key can apply only somewhere: a table names where, by program
+# (roam, window, pick, seek, explorer-open, explorer-multiple,
+# explorer-folder, explorer-save), place (results, marks) and highlight
+# (dir, file, none). Here Enter enters folders in fff roam too, instead of
+# leaving into them; elsewhere it keeps doing what it did.
+go_into = [
+  "l",
+  "<M-l>",
+  { keys = "<CR>", program = ["roam", "window", "explorer-open", "explorer-multiple", "explorer-folder", "explorer-save"], highlight = ["dir"] },
+]

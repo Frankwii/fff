@@ -27,15 +27,14 @@ pub(super) fn marks_pane(
                 Line::from(""),
                 Line::from(styled("Collect paths as you browse.", theme.muted)),
                 Line::from(styled(
-                    app.sequence(crate::normal_keys::ListAction::Mark)
-                        .or_else(|| app.key("shift+space"))
+                    app.bound(crate::keymap::Function::Mark)
                         .map(|key| format!("{key} marks the highlighted entry."))
                         .unwrap_or_default(),
                     theme.muted,
                 )),
                 Line::from(""),
                 Line::from(styled(
-                    match app.key("ctrl+w") {
+                    match app.bound(crate::keymap::Function::ReturnMarks) {
                         Some(key) if app.returns_marks() => format!("{key} returns your marks."),
                         _ => "File operations act on them.".into(),
                     },

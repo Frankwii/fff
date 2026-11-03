@@ -1,8 +1,9 @@
-//! Routing one input event: a running operation hears only Ctrl+c, pastes
-//! and the mouse become keys or actions, and keys pass the session-wide
-//! bindings (Normal-mode list keys, operations, numbered rows) before the
-//! focus's own handler in `focus.rs`. `Ok(None)` goes on with the session;
-//! `Ok(Some(_))` ends it.
+//! Routing one input event: a running operation hears only `cancel`, pastes
+//! and the mouse become keys or actions, and keys in the results and the
+//! marked list resolve through the keymap to a [`Function`], which runs as
+//! a session action or as the default key the focus's own handler in
+//! `focus.rs` takes. Elsewhere keys are fixed. `Ok(None)` goes on with the
+//! session; `Ok(Some(_))` ends it.
 use super::*;
 
 /// What a mouse event comes to.
@@ -20,13 +21,11 @@ impl Session {
     pub(super) fn handle(&mut self, app: &mut App, event: Event) -> io::Result<Option<Finish>> {
         self.dirty = true;
         self.answering = true;
-        // While an operation runs, only Ctrl+c (stop it) is heard.
+        // While an operation runs, only cancel (stop it) is heard.
         if let Focus::Busy(job) = &self.focus {
             if let Event::Key(key) = event
                 && key.kind != KeyEventKind::Release
-                && let Some(key) = self.keys.translate(key)
-                && key.modifiers.contains(M::CONTROL)
-                && key.code == K::Char('c')
+                && cancels(app, key)
                 && job.stop()
             {
                 // Only checking: nothing changed, so it is dropped at once.
@@ -37,33 +36,34 @@ impl Session {
         }
         // Typing a query may run ahead of rows being ranked on another
         // thread; anything else may act on rows, so it waits for them,
-        // except Ctrl+c, which leaves without them.
-        let cancels = matches!(&event, Event::Key(key) if self.keys.translate(*key).is_some_and(|k| {
-            k.modifiers.contains(M::CONTROL) && k.code == K::Char('c')
-        }));
-        if app.ranking_pending() && !cancels && !types_query(app, &self.focus, &event) {
+        // except cancel, which leaves without them.
+        let cancel = matches!(&event, Event::Key(key) if cancels(app, *key));
+        if app.ranking_pending() && !cancel && !types_query(app, &self.focus, &event) {
             app.finish_ranking();
         }
-        let (key, on_row) = match event {
+        match event {
             Event::Paste(text) => {
                 self.paste(app, &text);
-                return Ok(None);
+                Ok(None)
             }
+            // The mouse's keys are fixed: Enter and Escape as they are by
+            // default, past the keymap.
             Event::Mouse(event) => match self.click(app, event) {
-                Click::Key { key, on_row } => (key, on_row),
-                Click::Handled => return Ok(None),
-                Click::Finish(finish) => return Ok(Some(finish)),
+                Click::Key { key, on_row } => {
+                    self.escape_armed = false;
+                    self.status.before_key(app);
+                    self.act(app, key, on_row)
+                }
+                Click::Handled => Ok(None),
+                Click::Finish(finish) => Ok(Some(finish)),
             },
-            Event::Key(key) => (key, false),
-            _ => return Ok(None),
-        };
-        // Escape twice in a row clears the marks; any other key disarms it.
-        self.escape_armed &= key.code == K::Esc;
-        self.key(app, key, on_row)
+            Event::Key(key) => self.key(app, key),
+            _ => Ok(None),
+        }
     }
     fn paste(&mut self, app: &mut App, text: &str) {
-        // A held-back Normal-mode prefix reaches Neovim before the paste.
-        for pending in app.normal_keys.take_pending() {
+        // A held-back sequence prefix reaches Neovim before the paste.
+        for pending in std::mem::take(&mut app.pending) {
             deliver(app, &mut self.focus, &mut self.editor, pending);
         }
         // Terminals paste the paths of files dropped onto them. While
@@ -84,7 +84,7 @@ impl Session {
     /// that stands for a key goes on as that key.
     fn click(&mut self, app: &mut App, event: MouseEvent) -> Click {
         app.mouse_seen = Some(std::time::Instant::now());
-        if app.normal_keys.pending() {
+        if !app.pending.is_empty() {
             return Click::Handled;
         }
         let enter = KeyEvent::new(K::Enter, M::NONE);
@@ -174,24 +174,17 @@ impl Session {
             }
         }
     }
-    /// `on_row`: Enter on a row the user pointed at (a double click,
-    /// Ctrl+number), rather than the Enter key itself.
-    fn key(
-        &mut self,
-        app: &mut App,
-        key: KeyEvent,
-        mut on_row: bool,
-    ) -> io::Result<Option<Finish>> {
+    fn key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
         if key.kind == KeyEventKind::Release {
             return Ok(None);
         }
         self.status.before_key(app);
-        let pressed_alt = key.modifiers.contains(M::ALT);
-        let Some(key) = self.keys.translate(key) else {
-            return Ok(None);
-        };
-        if key.modifiers.contains(M::CONTROL) && key.code == K::Char('c') {
-            return Ok(Some(Finish::Cancelled));
+        let list = matches!(self.focus, Focus::Results | Focus::Marks { .. });
+        if !list {
+            self.escape_armed = false;
+            if cancels(app, key) {
+                return Ok(Some(Finish::Cancelled));
+            }
         }
         // Multiline buffers keep Neovim's write/close lifecycle; single-line
         // names and destinations take Enter/Escape like the bookmark form.
@@ -204,45 +197,93 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
             return Ok(None);
         }
-        // Alt chords for features are for typing; Normal-mode results have
-        // their sequences, which the message names. Another chord mapped to
-        // a feature works in every mode.
-        if pressed_alt
-            && matches!(self.focus, Focus::Results)
-            && !app.normal_keys.pending()
-            && app.edit_view.as_ref().is_some_and(|v| v.normal())
-            && let Some(action) = ListAction::typing_chord(key)
-            // fff seek has no d and D to name, and says why instead.
-            && !(app.no_dir && matches!(action, ListAction::Directories | ListAction::Files))
+        if list {
+            return self.list_key(app, key);
+        }
+        if let Focus::Info { .. } = self.focus {
+            return self.info_key(app, key);
+        }
+        match chooser_key(app, &mut self.focus, &mut self.editor, key) {
+            ChooserKey::Pass(key) => self.act(app, key, false),
+            ChooserKey::Consumed => Ok(None),
+            ChooserKey::Quit(current) => Ok(self.quit(app, current)),
+        }
+    }
+    /// A key in the results or the marked list: the keymap says which
+    /// function it is here.
+    fn list_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
+        let (mode, cell) = self.here(app);
+        // Leaving Insert mode and Neovim's command line are Neovim's.
+        if cell.place == keymap::Place::Results
+            && app.pending.is_empty()
+            && let Some(view) = &app.edit_view
+            && ((key.code == K::Esc && !view.normal())
+                || (view.command() && !key.modifiers.intersects(M::ALT | M::CONTROL)))
         {
-            let chord = crate::keys::display(key);
-            app.status = match app.sequence(action) {
-                Some(sequence) => format!("{chord} works while typing; in Normal mode, {sequence}"),
-                None => format!("{chord} works while typing"),
-            };
+            self.escape_armed = false;
+            deliver(app, &mut self.focus, &mut self.editor, key);
             return Ok(None);
         }
-        let key = match normal_list_key(app, &mut self.focus, &mut self.editor, key) {
-            NormalKey::Pass(key) => key,
-            // Configured sequences resolve to the operation's default letter.
-            NormalKey::Operation(letter) => {
-                self.operation(app, letter)?;
-                return Ok(None);
-            }
-            NormalKey::Consumed => return Ok(None),
-            NormalKey::EditConfig => {
-                self.edit_config(app)?;
-                return Ok(None);
-            }
-            NormalKey::Depth(depth) => {
-                if app.depth != depth {
-                    app.depth = depth;
-                    self.discovery.start(app, false);
+        loop {
+            match app.keymap.feed(&mut app.pending, mode, cell, key) {
+                Step::Pending => return Ok(None),
+                // Earlier keys go to Neovim unchanged; then retry this one.
+                Step::Flush(keys) => {
+                    for pending in keys {
+                        deliver(app, &mut self.focus, &mut self.editor, pending);
+                    }
                 }
-                return Ok(None);
+                Step::Run(function, digit) => {
+                    // Clearing twice in a row clears the marks.
+                    if function != Function::ClearQuery {
+                        self.escape_armed = false;
+                    }
+                    return self.run_function(app, function, digit, cell.place);
+                }
+                Step::Pass => {
+                    self.escape_armed = false;
+                    self.unbound(app, mode, cell, key);
+                    return Ok(None);
+                }
             }
-            NormalKey::Quit(current) => return Ok(self.quit(app, current)),
-            NormalKey::Run(exit) => {
+        }
+    }
+    /// The mode keys are read in and where they apply, for the list in focus.
+    pub(super) fn here(&self, app: &App) -> (keymap::Mode, keymap::Cell) {
+        match &self.focus {
+            Focus::Marks { rows, index } => {
+                let highlight = match rows.get(*index) {
+                    Some(mark) if mark.is_dir() => keymap::Highlight::Dir,
+                    Some(_) => keymap::Highlight::File,
+                    None => keymap::Highlight::None,
+                };
+                let cell = keymap::Cell {
+                    program: app.program(),
+                    place: keymap::Place::Marks,
+                    highlight,
+                };
+                (keymap::Mode::Normal, cell)
+            }
+            _ => (app.mode(), app.cell()),
+        }
+    }
+    fn run_function(
+        &mut self,
+        app: &mut App,
+        function: Function,
+        digit: Option<u8>,
+        place: keymap::Place,
+    ) -> io::Result<Option<Finish>> {
+        use keymap::Exec;
+        match function.exec(place) {
+            Exec::Key(key) => return self.act(app, key, false),
+            Exec::Digit(modifiers) => {
+                let digit = (b'0' + digit.unwrap_or(0)) as char;
+                return self.act(app, KeyEvent::new(K::Char(digit), modifiers), false);
+            }
+            Exec::Operation(letter) => self.operation(app, letter)?,
+            Exec::Quit(current) => return Ok(self.quit(app, current)),
+            Exec::Run(exit) => {
                 self.focus = match scope(&app.marks, self.current(app)) {
                     Scope::Ready(paths) => start_run(&mut self.editor, paths, exit),
                     Scope::Ask(current, selected) => Focus::ScopeChoice {
@@ -253,9 +294,114 @@ impl Session {
                     // A program may run on no files, in the browsing directory.
                     Scope::Nothing => start_run(&mut self.editor, vec![], exit),
                 };
-                return Ok(None);
             }
-        };
+            Exec::EditConfig => self.edit_config(app)?,
+            Exec::Depth => {
+                let depth = digit.unwrap_or(1) as usize;
+                if app.depth != depth {
+                    app.depth = depth;
+                    self.discovery.start(app, false);
+                }
+            }
+            Exec::MarkRows(invert) => {
+                let rows: Vec<PathBuf> = match &self.focus {
+                    Focus::Marks { rows, .. } => rows.clone(),
+                    _ => app.rows.iter().map(|c| c.path.clone()).collect(),
+                };
+                app.mark_rows(&rows, invert);
+            }
+            Exec::JumpEnd(last) => jump_to_end(app, &mut self.focus, last),
+            Exec::Overlay(keys) => {
+                let (_, here) = self.here(app);
+                self.focus = Focus::Info {
+                    offset: 0,
+                    keys,
+                    screen: Box::new(KeysScreen::new(here)),
+                };
+            }
+            Exec::Cancel => return Ok(Some(Finish::Cancelled)),
+        }
+        Ok(None)
+    }
+    /// A key no binding has here. One that some binding has elsewhere says
+    /// where it works; Enter, bound somewhere in this mode, says why it did
+    /// nothing; other keys go to Neovim.
+    fn unbound(&mut self, app: &mut App, mode: keymap::Mode, cell: keymap::Cell, key: KeyEvent) {
+        let press = keymap::Key::press(key);
+        let starts = |b: &&keymap::Binding| b.keys.len() == 1 && b.keys[0] == press;
+        let special = key.modifiers.intersects(M::ALT | M::CONTROL) || matches!(key.code, K::F(_));
+        let name = press.display();
+        if special {
+            let bindings = app.keymap.bindings();
+            // Here, in the other mode.
+            if let Some(other) = bindings
+                .iter()
+                .filter(starts)
+                .find(|b| b.mode != mode && b.applies(cell))
+            {
+                let instead = app
+                    .keymap
+                    .first(other.function, mode, Some(cell))
+                    .filter(|b| b.applies(cell))
+                    .map(|b| b.display());
+                app.status = match (mode, instead) {
+                    (keymap::Mode::Normal, Some(instead)) => {
+                        format!("{name} works while typing; in Normal mode, {instead}")
+                    }
+                    (keymap::Mode::Normal, None) => format!("{name} works while typing"),
+                    (keymap::Mode::Insert, Some(instead)) => {
+                        format!("{name} works in Normal mode; while typing, {instead}")
+                    }
+                    (keymap::Mode::Insert, None) => format!("{name} works in Normal mode"),
+                };
+                return;
+            }
+            // Somewhere else, in either mode.
+            if let Some(elsewhere) = bindings
+                .iter()
+                .filter(starts)
+                .min_by_key(|b| b.mode != mode)
+            {
+                let function = elsewhere.function;
+                let in_program = function
+                    .available(mode)
+                    .iter()
+                    .any(|s| s.programs & keymap::Dimension::bit(cell.program) != 0);
+                app.status = if in_program {
+                    format!("{name} ({}) does nothing here", function.name())
+                } else {
+                    format!(
+                        "{name} ({}) does not work in fff {}",
+                        function.name(),
+                        program_title(cell.program)
+                    )
+                };
+                return;
+            }
+        }
+        if key.code == K::Enter
+            && app
+                .keymap
+                .bindings()
+                .iter()
+                .filter(starts)
+                .any(|b| b.mode == mode)
+        {
+            app.nothing_to_enter();
+            return;
+        }
+        deliver(app, &mut self.focus, &mut self.editor, key);
+    }
+    /// A key as the focus's handlers take it: the default key of a function
+    /// that resolved, a fixed key, or the mouse's. `on_row`: Enter on a
+    /// row pointed at (a double click, Ctrl+number), rather than the Enter
+    /// key itself.
+    fn act(
+        &mut self,
+        app: &mut App,
+        key: KeyEvent,
+        mut on_row: bool,
+    ) -> io::Result<Option<Finish>> {
         let capture = app.edit_view.as_ref().is_some_and(|v| {
             (key.code == K::Esc && !v.normal())
                 || (v.command() && !key.modifiers.intersects(M::ALT | M::CONTROL))
@@ -391,8 +537,8 @@ impl Session {
             'u' => undo(app, &mut self.discovery, &mut self.focus),
             // Only in the trash: elsewhere, nothing has a place to go back to.
             'R' if !app.in_trash() => {
-                let restore = app.sequence(ListAction::Restore).unwrap_or_default();
-                app.status = match app.either("alt+t", ListAction::Trash) {
+                let restore = app.bound_or_none(Function::Restore);
+                app.status = match app.bound(Function::Trash) {
                     Some(trash) => {
                         format!("{restore} restores entries in the trash; {trash} opens it")
                     }
@@ -629,5 +775,26 @@ impl Session {
             return true;
         }
         false
+    }
+}
+
+/// Whether `key` cancels: a lone key `cancel` has in either mode.
+pub(super) fn cancels(app: &App, key: KeyEvent) -> bool {
+    keymap::Mode::ALL
+        .into_iter()
+        .any(|mode| app.keymap.cancels(mode, key))
+}
+/// `fff roam`, `fff explorer --save`: the program as its command says it.
+pub(super) fn program_title(program: keymap::Program) -> &'static str {
+    use keymap::Program::*;
+    match program {
+        Roam => "roam",
+        Window => "roam --window",
+        Pick => "pick",
+        Seek => "seek",
+        ExplorerOpen => "explorer",
+        ExplorerMultiple => "explorer --multiple",
+        ExplorerFolder => "explorer --directory",
+        ExplorerSave => "explorer --save",
     }
 }

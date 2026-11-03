@@ -20,10 +20,10 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. |
-| `src/ui/dispatch.rs` | One event's route: the running job's Ctrl+c, pastes, the mouse, then session-wide keys (Normal-mode sequences, operations, numbered rows). |
+| `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`, `run_function`), and other focuses' fixed keys (`act`). |
 | `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (`results_key`, `marks_key`, the sheets and choosers). |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
-| `src/ui/input.rs` | Normal-mode list dispatch; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
+| `src/ui/input.rs` | The choosers' fixed Normal-mode keys; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |
 | `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, bookmark/glob/palette saves, dropped paths. |
 | `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations, progress, results, marks, undo records and their messages. |
@@ -34,7 +34,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/text.rs` | Edited text with Neovim's cursor and selection, prompts, wrapped messages. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
-| `src/view/guide.rs` | The F1 key guide and F2 session details. |
+| `src/view/guide.rs`, `src/view/keys.rs` | The F1/F2 overlay: the Keys screen and the Session tab. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
@@ -49,7 +49,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
-| `src/normal_keys.rs`, `src/keys.rs` | Normal-mode action sequences and CLI chord remapping. |
+| `src/keymap.rs` | Functions, where they work, their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
+| `src/ui/keys.rs` | The Keys screen's state and editing: searches, adding keys, scopes, saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
 | `src/dbus.rs` | `fff dbus-file-manager`: a minimal D-Bus client answering `org.freedesktop.FileManager1` ("Show in folder") with the open-folder launcher. |
@@ -91,7 +92,8 @@ listed separately in the [roadmap](ROADMAP.md).
   the last fully rendered visible labels.
 - The input reader hands every handler a shifted letter as legacy terminals
   send it, uppercase with Shift, whatever the kitty protocol reported, so
-  typing, `[keys.map]` chords and `[keys.normal]` sequences agree everywhere.
+  typing and key bindings agree everywhere (`keymap::Key::press` folds the
+  two encodings).
 - Escape preserves the session (twice with an empty query clears the marks,
   nothing more). In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
@@ -128,23 +130,19 @@ listed separately in the [roadmap](ROADMAP.md).
 
 Where a change usually has to touch, so that none is missed:
 
-- **A key in the results** (Alt, Ctrl or a named key): its arm in
-  `results_key` (`src/ui/focus.rs`), the F1 guide (`src/view/guide.rs`), the
-  README key table, and a PTY test.
-- **A key named on screen** (hints, sheets, messages, the guide): never as a
-  literal. Name a chord by its default name through `App::key("alt+v")` (the
-  key map may have moved it; `None` when no key does it), a Normal-mode
-  action through `App::sequence`, or both through `App::either`; sheet hints
-  take default names (`("enter", "Delete")`) and `sheet` names them.
-- **A Normal-mode action** (plain letters, configurable): a `ListAction`
-  variant with its default sequence and `[keys.normal]` name in
-  `src/normal_keys.rs`; the focuses offering it in `list_actions`
-  (`src/ui/input.rs`); its effect as the Alt key it stands for (`alt_key`),
-  as a file operation's letter (`operation_key`, carried out by
-  `Session::operation` in `src/ui/dispatch.rs`), or in `normal_list_key`;
-  then the guide, [EDITING.md](EDITING.md),
-  [Normal-mode keys](CONFIGURATION.md#normal-mode-keys) and the example
-  configuration.
+- **Something a key does in the results or the marked list:** a `Function`
+  in `src/keymap.rs` (name, group, description in `functions!`), where it
+  works (`available`, a design choice per mode), what it runs (`exec`: the
+  default key the focus's handlers take, such as an arm in `results_key`
+  in `src/ui/focus.rs`, or a session action in `run_function` in
+  `src/ui/dispatch.rs`) and its default keys (`defaults`). The tests check
+  that defaults never clash and each applies somewhere. Then the README key
+  table, [EDITING.md](EDITING.md) and a PTY test.
+- **A key named on screen** (hints, messages): never as a literal. Name a
+  function's key through `App::bound(Function::Preview)` (the one that
+  applies here, in the current mode first; `None` when it has none) or
+  `App::bound_in` for one mode; fixed keys of sheets and choosers take
+  plain names (`("enter", "Delete")`, `App::key("esc")`).
 - **A sheet, prompt or chooser:** a `Focus` variant (`src/ui/mod.rs`), its
   drawing in `render` (`src/view/mod.rs`, with `src/view/sheets.rs` or
   `choosers.rs`), its keys in a handler called from `focus_key`

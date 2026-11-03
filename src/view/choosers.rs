@@ -23,14 +23,11 @@ pub(super) fn bookmarks(
             Field::Bookmarks,
             &format!(
                 "Bookmarks · {} opens · {} returns",
-                [
-                    app.key("enter"),
-                    app.digits_pick("alt").then(|| "Alt+digit".to_string())
-                ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" / "),
+                [app.key("enter"), Some("Alt+digit".to_string())]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" / "),
                 app.key_or_none("esc")
             ),
         ),

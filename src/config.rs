@@ -256,16 +256,10 @@ struct RawConfig {
     bookmarks: Vec<RawBookmark>,
     cache: CacheConfig,
     performance: PerformanceConfig,
-    keys: KeysConfig,
+    /// Keys moved to keys.toml; here only to say so.
+    keys: Option<toml::Value>,
     open: crate::open::OpenConfig,
     trash: RawTrash,
-}
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct KeysConfig {
-    normal: crate::normal_keys::NormalKeysConfig,
-    /// Chord remapping like --map-key: source chord = default chord or "none".
-    map: BTreeMap<String, String>,
 }
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -333,9 +327,6 @@ pub struct Settings {
     pub performance: PerformanceConfig,
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
     pub icons: bool,
-    pub normal_keys: crate::normal_keys::NormalKeys,
-    /// `[keys.map]` as `SOURCE=TARGET` rules, applied before `--map-key`.
-    pub key_maps: Vec<String>,
     /// How long status messages stay visible (`[ui] message_seconds`); `None`
     /// keeps them until replaced.
     pub message_timeout: Option<std::time::Duration>,
@@ -362,6 +353,9 @@ pub struct Settings {
     /// The configuration file's errors, when these settings come from the
     /// backup beside it (`load_or_backup`).
     pub broken: Option<String>,
+    /// The file still has a `[keys]` table, which keys.toml replaced: it is
+    /// not read, and sessions say so.
+    pub old_keys: bool,
 }
 impl Settings {
     pub fn parse(
@@ -390,16 +384,8 @@ impl Settings {
         if raw.ui.buttons != Buttons::Off && !raw.ui.mouse {
             return Err("ui.buttons needs ui.mouse = true: buttons are clicked".into());
         }
-        let normal_keys = raw.keys.normal.build()?;
         raw.open.validate()?;
         let trash = raw.trash.validate()?;
-        let key_maps: Vec<String> = raw
-            .keys
-            .map
-            .iter()
-            .map(|(from, to)| format!("{from}={to}"))
-            .collect();
-        crate::keys::KeyMap::parse(&key_maps).map_err(|e| format!("keys.map: {e}"))?;
         let mut palettes = BTreeMap::new();
         for (name, values) in &raw.palettes {
             if Palette::named(name).is_some() {
@@ -449,8 +435,6 @@ impl Settings {
             cache: raw.cache,
             performance: raw.performance,
             icons: raw.ui.icons,
-            normal_keys,
-            key_maps,
             message_timeout: (raw.ui.message_seconds > 0)
                 .then(|| std::time::Duration::from_secs(raw.ui.message_seconds)),
             columns: raw.ui.columns,
@@ -466,6 +450,7 @@ impl Settings {
             source: None,
             bookmark_path: None,
             broken: None,
+            old_keys: raw.keys.is_some(),
         })
     }
     pub fn load(

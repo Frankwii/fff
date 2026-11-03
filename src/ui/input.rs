@@ -124,91 +124,69 @@ impl PalettePreview {
         })
     }
 }
-/// Opt-in hook for Normal-mode list keys: the actions a list view supports.
-/// Unsupported actions behave as unbound, so their keys still reach Neovim.
-/// List views with rows also have an arm in `jump_to_end`, and those with a
-/// text field one in `focused_text`;
-/// actions with an `alt_key` are replayed as the view's own chord handling.
-pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
-    use ListAction::*;
-    match focus {
-        Focus::Results => Some(&[
-            Left,
-            Down,
-            Up,
-            Right,
-            First,
-            Last,
-            Mark,
-            MarkAll,
-            InvertMarks,
-            Quit,
-            QuitCurrent,
-            Run,
-            RunExit,
-            Move,
-            Copy,
-            Link,
-            Delete,
-            DeletePermanently,
-            Rename,
-            Extract,
-            Edit,
-            New,
-            Open,
-            Undo,
-            Restore,
-            Trash,
-            Shallower,
-            Deeper,
-            Bookmarks,
-            Hidden,
-            Directories,
-            Files,
-            Preview,
-            GoTo,
-            PrevTab,
-            NextTab,
-            EditConfig,
-            EditExclusions,
-            EnforceExclusions,
-            EditFilters,
-            ToggleFilters,
-            Palette,
-            ReloadPalette,
-        ]),
-        Focus::Marks { .. } => Some(&[
-            Down,
-            Up,
-            First,
-            Last,
-            Mark,
-            MarkAll,
-            InvertMarks,
-            Quit,
-            QuitCurrent,
-            Run,
-            RunExit,
-            Move,
-            Copy,
-            Link,
-            Delete,
-            DeletePermanently,
-            Rename,
-            Extract,
-            Edit,
-            New,
-            Open,
-            Undo,
-            Restore,
-            EditConfig,
-        ]),
-        Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
-            Some(&[Down, Up, First, Last, Quit, QuitCurrent])
+/// Normal-mode keys of the choosers and the go-to prompt, which are fixed:
+/// j, k, gg and G move (choosers only), q and ! leave.
+pub(super) enum ChooserKey {
+    Pass(KeyEvent),
+    Consumed,
+    Quit(bool),
+}
+pub(super) fn chooser_key(
+    app: &mut App,
+    focus: &mut Focus,
+    editor: &mut Nvim,
+    key: KeyEvent,
+) -> ChooserKey {
+    let list = matches!(
+        focus,
+        Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. }
+    );
+    if !(list || matches!(focus, Focus::Location(_)))
+        // Normal mode, also while a sequence begun there waits.
+        || !app.edit_view.as_ref().is_some_and(|v| v.mode == "n")
+    {
+        return ChooserKey::Pass(key);
+    }
+    let fixed: &[(&str, u8)] = if list {
+        &[("j", 0), ("k", 1), ("gg", 2), ("G", 3), ("q", 4), ("!", 5)]
+    } else {
+        &[("q", 4), ("!", 5)]
+    };
+    loop {
+        let mut sequence: Vec<_> = app.pending.iter().map(|e| keymap::Key::press(*e)).collect();
+        sequence.push(keymap::Key::press(key));
+        let candidates: Vec<(Vec<keymap::Key>, u8)> = fixed
+            .iter()
+            .map(|(text, act)| (keymap::parse(text).unwrap(), *act))
+            .filter(|(keys, _)| {
+                keys.len() >= sequence.len() && keys[..sequence.len()] == sequence[..]
+            })
+            .collect();
+        if let Some((_, act)) = candidates.iter().find(|(k, _)| k.len() == sequence.len()) {
+            app.pending.clear();
+            return match act {
+                // As Alt+j and Alt+k: the bookmark chooser's arrows reorder.
+                0 => ChooserKey::Pass(KeyEvent::new(K::Char('j'), M::ALT)),
+                1 => ChooserKey::Pass(KeyEvent::new(K::Char('k'), M::ALT)),
+                4 => ChooserKey::Quit(false),
+                5 => ChooserKey::Quit(true),
+                act => {
+                    jump_to_end(app, focus, *act == 3);
+                    ChooserKey::Consumed
+                }
+            };
         }
-        Focus::Exclusions(_) | Focus::Filters(_) | Focus::BookmarkEdit(_) => None,
-        Focus::Location(_) => Some(&[Quit, QuitCurrent]),
-        _ => None,
+        if !candidates.is_empty() {
+            app.pending.push(key);
+            return ChooserKey::Consumed;
+        }
+        if app.pending.is_empty() {
+            return ChooserKey::Pass(key);
+        }
+        // Earlier keys go to Neovim unchanged; then retry the current key.
+        for pending in std::mem::take(&mut app.pending) {
+            deliver(app, focus, editor, pending);
+        }
     }
 }
 pub(super) fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
@@ -224,102 +202,6 @@ pub(super) fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
             *index = end(app.matching_palettes(query).len());
         }
         _ => {}
-    }
-}
-pub(super) enum NormalKey {
-    Pass(KeyEvent),
-    Consumed,
-    Quit(bool),
-    /// gx (false) or gX (true).
-    Run(bool),
-    /// A file operation, by its default letter.
-    Operation(char),
-    /// A plain digit in Normal-mode results: search to this depth.
-    Depth(usize),
-    /// gc: edit the configuration, then apply it.
-    EditConfig,
-}
-/// Dispatch configured Normal-mode actions in their supported list views.
-/// Marked lists accept their actions without an editing mode.
-pub(super) fn normal_list_key(
-    app: &mut App,
-    focus: &mut Focus,
-    editor: &mut Nvim,
-    key: KeyEvent,
-) -> NormalKey {
-    let Some(actions) = list_actions(focus) else {
-        return NormalKey::Pass(key);
-    };
-    loop {
-        let normal = matches!(focus, Focus::Marks { .. })
-            || app.edit_view.as_ref().is_some_and(|v| v.normal());
-        // Shift+Space is its own chord (mark), never a configured `<space>`.
-        let shift_space = key.code == K::Char(' ') && key.modifiers.contains(M::SHIFT);
-        if (!normal || shift_space) && !app.normal_keys.pending() {
-            return NormalKey::Pass(key);
-        }
-        if matches!(focus, Focus::Results)
-            && normal
-            && app.normal_keys.depth_digits
-            && !app.normal_keys.pending()
-            && key.modifiers.is_empty()
-            && let K::Char(c @ '1'..='9') = key.code
-        {
-            return NormalKey::Depth(c as usize - '0' as usize);
-        }
-        let can_quit = app.normal_keys.pending()
-            || matches!(focus, Focus::Marks { .. })
-            || app.edit_view.as_ref().is_some_and(|v| v.normal());
-        // fff seek cannot navigate and lists only files: it has no tabs and
-        // nothing to hide, so those keys act as unbound (Up and Down move the
-        // highlight, d and D reach Neovim).
-        let navigation = !app.no_dir;
-        match app.normal_keys.feed(key, |a| {
-            actions.contains(&a)
-                && (can_quit || !matches!(a, ListAction::Quit | ListAction::QuitCurrent))
-                && (navigation
-                    || !matches!(
-                        a,
-                        ListAction::PrevTab
-                            | ListAction::NextTab
-                            | ListAction::Directories
-                            | ListAction::Files
-                    ))
-        }) {
-            Step::Pass => return NormalKey::Pass(key),
-            Step::Pending => return NormalKey::Consumed,
-            Step::Action(ListAction::Quit) => return NormalKey::Quit(false),
-            Step::Action(ListAction::QuitCurrent) => return NormalKey::Quit(true),
-            Step::Action(ListAction::Run) => return NormalKey::Run(false),
-            Step::Action(ListAction::RunExit) => return NormalKey::Run(true),
-            Step::Action(ListAction::EditConfig) => return NormalKey::EditConfig,
-            Step::Action(action @ (ListAction::MarkAll | ListAction::InvertMarks)) => {
-                let rows: Vec<PathBuf> = match focus {
-                    Focus::Marks { rows, .. } => rows.clone(),
-                    _ => app.rows.iter().map(|c| c.path.clone()).collect(),
-                };
-                app.mark_rows(&rows, action == ListAction::InvertMarks);
-                return NormalKey::Consumed;
-            }
-            Step::Action(action) if action.operation_key().is_some() => {
-                return NormalKey::Operation(action.operation_key().unwrap());
-            }
-            Step::Action(action) => {
-                return match action.alt_key() {
-                    Some(alt) => NormalKey::Pass(alt),
-                    None => {
-                        jump_to_end(app, focus, action == ListAction::Last);
-                        NormalKey::Consumed
-                    }
-                };
-            }
-            // Earlier keys go to Neovim unchanged; then retry the current key.
-            Step::Flush(keys) => {
-                for pending in keys {
-                    deliver(app, focus, editor, pending);
-                }
-            }
-        }
     }
 }
 /// The text `focus` edits in Neovim, and its field; `query` is the results'

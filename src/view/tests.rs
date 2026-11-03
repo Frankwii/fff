@@ -499,6 +499,7 @@ fn marks_focus_retains_unmarked_rows_and_details_clamp_scroll() {
     focus = Focus::Info {
         offset: usize::MAX,
         keys: false,
+        screen: keys_screen(&app),
     };
     terminal
         .draw(|f| {
@@ -753,6 +754,7 @@ fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
     focus = Focus::Info {
         offset: 0,
         keys: false,
+        screen: keys_screen(&app),
     };
     terminal
         .draw(|f| {
@@ -761,11 +763,13 @@ fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("PALETTE"));
+    let mut screen = keys_screen(&app);
+    screen.query = "palette".into();
     focus = Focus::Info {
         offset: 0,
         keys: true,
+        screen,
     };
-    // Tall enough for the whole key guide, whose palette keys come last.
     let mut terminal = Terminal::new(TestBackend::new(120, 50)).unwrap();
     terminal
         .draw(|f| {
@@ -773,7 +777,7 @@ fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
         })
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    assert!(screen.contains("reload palette from config"));
+    assert!(screen.contains("reload_palette"), "{screen}");
 }
 #[test]
 fn operation_sheets_align_with_the_pane_edges_and_list_keys_in_the_border() {
@@ -1280,7 +1284,7 @@ fn pinned_roots_are_compact_and_separate_from_the_current_directory() {
     let (screen, _) = draw(&mut app, 36, 12);
     let pinned = screen.lines().nth(4).unwrap();
     assert!(pinned.contains("pinned  notes  papers"), "{screen}");
-    assert!(pinned.contains("+2 (F1)"), "{screen}");
+    assert!(pinned.contains("+2 (F2)"), "{screen}");
     assert!(!pinned.contains("library") && !pinned.contains("correspondence"));
 }
 #[test]
@@ -1353,67 +1357,69 @@ fn icons_keep_columns_elision_and_numbered_targets_aligned() {
     assert!(off.contains("▸ research/") && off.contains("· todo.txt"));
     assert!(!off.contains('\u{f07b}') && off.contains("● report.tex"));
 }
+fn keys_screen(app: &App) -> Box<crate::ui::KeysScreen> {
+    Box::new(crate::ui::KeysScreen::new(app.cell()))
+}
 #[test]
-fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
+fn the_keys_screen_lists_what_works_here_with_its_keys() {
     let mut app = fixture();
-    app.normal_keys = crate::normal_keys::NormalKeysConfig {
-        down: crate::normal_keys::Sequences::Many(vec!["j".into(), "<space>j".into()]),
-        mark: crate::normal_keys::Sequences::One("none".into()),
-        ..Default::default()
-    }
-    .build()
-    .unwrap();
+    app.keymap =
+        crate::keymap::Keymap::parse("[normal]\ndown = ['j', '<Space>j']\nmark = 'none'\n")
+            .unwrap();
     let mut focus = Focus::Info {
         offset: 0,
         keys: true,
+        screen: keys_screen(&app),
     };
-    let mut terminal = Terminal::new(TestBackend::new(120, 46)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(140, 46)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    // Two columns at this width, every group present, the footer gone.
-    let row = screen.lines().find(|l| l.contains("NAVIGATE")).unwrap();
-    assert!(row.contains("NORMAL MODE IN LISTS"), "{screen}");
-    for group in [
-        "SELECT AND RETURN",
-        "SEARCH",
-        "EXCLUSIONS AND FILTERS",
-        "LOOK",
-        "BOOKMARKS",
-    ] {
-        assert!(screen.contains(group), "{screen}");
-    }
-    assert!(screen.contains("j / <space>j  k"), "{screen}");
-    assert!(screen.contains("gg  G"), "{screen}");
-    assert!(
-        screen.contains("-  +") && screen.contains("1…9"),
-        "{screen}"
-    );
-    assert!(screen.contains("Alt+e") && screen.contains("one glob per line"));
-    assert!(
-        screen.contains("x / r / E / n    trash, rename, extract, new (Normal)")
-            && screen.contains("undo the last file operation")
-            && screen.contains("delete current / marked permanently"),
-        "{screen}"
-    );
-    assert!(!screen.contains("off in fff seek"));
-    app.no_dir = true;
+    assert!(screen.contains("here: roam · results"), "{screen}");
+    let row = |name: &str| {
+        screen
+            .lines()
+            .find(|l| {
+                l.trim_start_matches(['│', ' ', '▌', '•'])
+                    .starts_with(&format!("{name} "))
+            })
+            .unwrap_or_else(|| panic!("{name}: {screen}"))
+            .to_string()
+    };
+    assert!(row("down").contains("j Space j"), "{screen}");
+    assert!(row("up").contains("Alt+k"), "{screen}");
+    // The first row is described below the list.
+    assert!(screen.contains("Highlight the previous row."), "{screen}");
+    // Only what works here: no dialog answers in fff roam.
+    assert!(!screen.contains("save_here"), "{screen}");
+    let Focus::Info { screen: keys, .. } = &mut focus else {
+        unreachable!()
+    };
+    keys.everywhere = true;
+    keys.query = "save".into();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
-    let buffer = terminal.backend().buffer();
-    assert!(text(buffer).contains("crossed out: off in fff seek"));
-    let (x, y) = (0..buffer.area.height)
-        .find_map(|y| {
-            let line: String = (0..buffer.area.width)
-                .map(|x| buffer[(x, y)].symbol())
-                .collect();
-            line.find("Alt+l")
-                .map(|i| (line[..i].chars().count() as u16, y))
-        })
+    let screen = text(terminal.backend().buffer());
+    assert!(screen.contains("save_here"), "{screen}");
+    // A key search lists bindings, dimmed where they do not apply.
+    let Focus::Info { screen: keys, .. } = &mut focus else {
+        unreachable!()
+    };
+    keys.query.clear();
+    keys.search = crate::ui::Search::Captured(vec![crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::NONE,
+    )]);
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
-    assert!(buffer[(x, y)].modifier.contains(Modifier::CROSSED_OUT));
+    let screen = text(terminal.backend().buffer());
+    assert!(
+        screen.contains("quit_into_dir") && screen.contains("open_and_quit"),
+        "{screen}"
+    );
 }
 fn export_preview(buffer: &Buffer) {
     let Ok(path) = std::env::var("PICKER_PREVIEW") else {
@@ -1664,19 +1670,6 @@ fn text_wraps_between_words_and_the_guide_keeps_descriptions_first_words() {
     assert_eq!(wrap_text("abcdefghij", 4), ["abcd", "efgh", "ij"]);
     assert_eq!(wrap_text("", 4), [""]);
     let mut app = fixture();
-    let narrow = key_guide(&app, 46)
-        .iter()
-        .map(|line| {
-            line.spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        narrow.iter().any(|l| l.contains("Normal: open file")),
-        "{narrow:#?}"
-    );
     // A compact marked list shows marks, not gaps between them.
     app.marks = vec![app.cwd.join("a"), app.cwd.join("b")].into();
     let mut terminal = Terminal::new(TestBackend::new(60, 16)).unwrap();
@@ -1737,8 +1730,7 @@ fn the_trash_is_named_on_the_location_line_with_its_restore_key() {
     let line = screen.lines().find(|l| l.contains(" @ ")).unwrap();
     assert!(line.contains("trash · R restores"), "{screen}");
     // The key shown is the configured one.
-    let config: crate::normal_keys::NormalKeysConfig = toml::from_str("restore='gr'").unwrap();
-    app.normal_keys = config.build().unwrap();
+    app.keymap = crate::keymap::Keymap::parse("[normal]\nrestore = 'gr'\n").unwrap();
     let (screen, _) = draw(&mut app, 120, 26);
     assert!(screen.contains("trash · gr restores"), "{screen}");
 }
@@ -1782,63 +1774,30 @@ fn a_taken_place_offers_to_overwrite_keep_both_or_cancel() {
     );
 }
 #[test]
-fn remapped_keys_are_shown_by_the_key_that_now_does_their_work() {
+fn rebound_keys_are_shown_as_bound() {
     let mut app = fixture();
-    app.key_map = crate::keys::KeyMap::parse(&[
-        "ctrl+g=f1".into(),
-        "f1=none".into(),
-        "ctrl+e=esc".into(),
-        "esc=none".into(),
-        "ctrl+t=alt+t".into(),
-        "alt+t=none".into(),
-        "alt+v=none".into(),
-    ])
+    app.keymap = crate::keymap::Keymap::parse(
+        "[insert]\nguide = '<C-g>'\n[normal]\nguide = '<C-g>'\nquit = 'Q'\ntrash = 'T'\n",
+    )
     .unwrap();
-    app.normal_keys = toml::from_str::<crate::normal_keys::NormalKeysConfig>("quit='Q'")
-        .unwrap()
-        .build()
-        .unwrap();
-    // The footer points to the guide and says how to leave, as remapped.
+    // The footer points to the Keys screen and says how to leave, as bound.
     let (screen, _) = draw(&mut app, 120, 26);
     assert!(screen.contains("Ctrl+g keys  Q quit"), "{screen}");
-    // Sheets name their keys in the border and the prose alike.
-    let plan = crate::operations::DeletePlan::shown(vec![(app.cwd.join("todo.txt"), 9)], vec![]);
-    let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    terminal
-        .draw(|f| _ = render(f, &mut app, &mut Focus::DeleteConfirm(plan)))
-        .unwrap();
-    let screen = text(terminal.backend().buffer());
-    assert!(
-        screen.contains("Ctrl+e: Cancel") && !screen.contains("Esc"),
-        "{screen}"
-    );
-    assert!(screen.contains("Press Ctrl+e to keep it"), "{screen}");
-    // The guide follows too, and leaves out what no key does.
+    // The Keys screen names its own key in its tab, and the keys as bound.
     let mut focus = Focus::Info {
         offset: 0,
         keys: true,
+        screen: keys_screen(&app),
     };
-    let mut terminal = Terminal::new(TestBackend::new(120, 60)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(140, 60)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    let line = |what: &str| {
-        screen
-            .lines()
-            .find(|l| l.contains(what))
-            .unwrap_or_else(|| panic!("{what}: {screen}"))
-            .to_string()
-    };
-    assert!(line("open the trash; again").contains("Ctrl+t"), "{screen}");
-    assert!(
-        screen.contains("—                show / hide the preview pane"),
-        "{screen}"
-    );
-    assert!(line("this guide").contains("Ctrl+g"), "{screen}");
-    assert!(
-        line("open the trash, like").contains("like Ctrl+t"),
-        "{screen}"
-    );
-    assert!(screen.contains("Ctrl+e: close"), "{screen}");
+    assert!(screen.contains("Ctrl+g Keys"), "{screen}");
+    let line = screen
+        .lines()
+        .find(|l| l.contains("•trash "))
+        .unwrap_or_else(|| panic!("{screen}"));
+    assert!(line.contains("Alt+t") && line.contains(" T "), "{screen}");
 }

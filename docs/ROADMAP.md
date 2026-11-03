@@ -12,8 +12,8 @@ not implemented features or commitments:
   prompt still runs on the interface thread.
 - Preview pane follow-up: previewing the marked list's rows from the
   results.
-- An interactive key guide (below), building on the live-reloaded
-  configuration (`gc`) and keys shown from the configuration.
+- Follow-ups to the Keys screen (below): programs as commands, the
+  `keys.toml` layout, and keys inside choosers.
 - Switching modes without restarting (below): from `fff roam` to `fff seek`,
   for example.
 - Resizing the font from fff (below).
@@ -27,21 +27,19 @@ not implemented features or commitments:
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
 
-## An interactive guide
+## The Keys screen, continued
 
-Keys are [shown from the configuration](CONFIGURATION.md#keys-on-screen)
-(0.13.0), and `gc` [applies an edited configuration at
-once](CONFIGURATION.md#editing-while-fff-runs). What remains:
+The Keys screen (F1) and `keys.toml` came in 0.14.0. What remains:
 
-- **One way to name actions.** `[keys.normal]` names actions, `[keys.map]`
-  names default chords, with a [preliminary set of action
-  names](CONFIGURATION.md#chord-remapping) for its targets. Both should name
-  the same actions the same way, chords and sequences alike.
-- **An interactive F1 guide.** The key list becomes searchable: a fuzzy
-   query over both the descriptions and the mappings. Choosing an entry and
-   pressing a key rebinds it, saved to the configuration file the way
-   bookmarks are (preserving comments and unrelated settings), and applied
-   through the live reload.
+- **Programs as commands.** Keys apply per program, and two programs are
+  still options: `fff roam --window` and `fff explorer --multiple /
+  --directory / --save`. They would become `fff window` and `fff explorer
+  open | open-multiple | folder | save PATH`, named as on the Keys screen,
+  with the launchers and portal wrapper `fff setup` writes calling them.
+- **`keys.toml` itself.** Its layout (one table per mode, scopes as inline
+  tables) is a first version, to be settled.
+- **Keys inside choosers, prompts and sheets** are fixed for now; they could
+  become functions with places of their own.
 
 ## Content search with alternating filtering
 
@@ -147,5 +145,5 @@ shows the highlighted entry's `user:group`; this would make them a quick
 toggle for every row rather than a configuration change, with owner and
 group as columns of their own, and could show octal modes too.
 
-The current release is 0.13.0. Version 1.0 is planned once the roadmap before
+The current release is 0.14.0. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.

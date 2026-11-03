@@ -39,12 +39,12 @@ while unavailable bookmark directories are handled when you try to visit them.
 
 ## Editing while fff runs
 
-`gc` in Normal mode (`edit_config` in [`[keys.normal]`](#normal-mode-keys))
-opens the configuration file in `$EDITOR`, as `e` would, and applies it as
-soon as the editor ends: key sequences and chord mappings, bookmarks,
+`gc` in Normal mode (`edit_config` on the [Keys screen](#keys)) opens the
+configuration file in `$EDITOR`, as `e` would, and applies it as soon as the
+editor ends, reading `keys.toml` again too: bookmarks,
 openers, icons, columns, the mouse and the button bar, live updates, the
 trash, cache and performance limits, message timing and syntax colors.
-`--map-key`, `--no-icons` and `--palette` still win over the file. A palette
+`--no-icons` and `--palette` still win over the file. A palette
 chosen with Alt+p stays for the session; otherwise the file's palette takes
 over. `[ui] preview` says how a session starts, so the pane stays as it is.
 A file that does not exist yet is created by the editor; with `--no-config`
@@ -56,7 +56,7 @@ file loads, the copy is removed. When it has errors, the copy stays and fff
 reads it instead: a message says so and that F2 shows the errors, the query
 box's border says `config errors`, and F2's Session tab gives the message
 and TOML's excerpt of the file, carets under each error, until the file
-loads again. With F2 mapped to `"none"`, the message gives the first error
+loads again. With no key for `session`, the message gives the first error
 itself. Run `gc` again to fix it; the copy is kept as
 it was, since it is the last configuration that loaded. Later sessions read
 the copy too while the file has errors, saying so when they start, and
@@ -739,169 +739,115 @@ required: fff exits with an error when `nvim` is missing or cannot start.
 [editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics and
 reserved fff shortcuts.
 
-## Normal-mode keys
+## Keys
 
-While a field is in Neovim **NORMAL** mode, list views (results, bookmark
-chooser, palette chooser, marked list) accept plain motion keys; see
-[EDITING.md](EDITING.md#normal-mode-list-keys). Rebind them in `[keys.normal]`:
+Everything a key can do is a **function** with a name (`go_parent`,
+`quit_into_dir`, `toggle_filters`), a description, and a fixed set of places
+where it works. **F1 opens the Keys screen**, which lists them with their
+keys and edits them; edits apply at once and are saved to **`keys.toml`**
+beside the configuration file (`~/.config/fff/keys.toml`, or beside
+`--config FILE`). With `--no-config` they last for the session.
 
-```toml
-[keys.normal]
-left = "h"           # Same as Alt+h in the view (results: parent directory)
-down = "j"           # Same as Alt+j
-up = "k"             # Same as Alt+k
-right = "l"          # Same as Alt+l (results: enter highlighted directory)
-first = "gg"         # Highlight the first row
-last = "G"           # Highlight the last row
-mark = "<space>"     # Mark/unmark like Shift+Space (results and marks only)
-mark_all = "m"       # Mark every listed row (results and marks only)
-invert_marks = "M"   # Toggle every listed row's mark (results and marks only)
-quit = "q"           # Exit choosing nothing (no output, no directory change)
-quit_current = "!"   # Exit to the current browsing directory
-run = "gx"           # Run a program on the current/marked paths, come back
-run_exit = "gX"      # Run a program on the current/marked paths in place of fff
-move = "v"           # Move marked paths here (with a review)
-copy = "p"           # Copy marked paths here (with a review)
-link = "s"           # Symlink marked paths here (with a review)
-delete = "x"         # Move current/marked paths to the trash
-delete_permanently = "X" # Delete current/marked paths permanently (with a review)
-rename = "r"         # Batch rename the results in a buffer
-extract = "E"        # Extract current/marked archives
-edit = "e"           # Open current/marked paths in $EDITOR
-new = "n"            # Create a file or directory
-open = "o"           # Open current/marked files with their openers, here
-undo = "u"           # Undo the last file operation
-restore = "R"        # In the trash: restore current/marked entries
-trash = "gt"         # Open the trash, like Alt+t (results)
-shallower = "-"      # Search one level shallower, like Alt+Left (results)
-deeper = "+"         # Search one level deeper, like Alt+Right (results)
-bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
-hidden = "."         # Show/hide hidden entries, like Alt+. (results)
-directories = "d"    # Hide/show directories, like Alt+d (results)
-files = "D"          # Hide/show files, like Alt+D (results)
-preview = "P"        # Show/hide the preview pane, like Alt+v (results)
-go_to = "g/"         # Go-to prompt, like Alt+g (results)
-next_tab = "<up>"     # Next tab, like Alt+Up (results)
-prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
-edit_config = "gc"   # Edit the configuration, then apply it (results and marks)
-edit_exclusions = "gE" # Edit the exclusions, like Alt+e (results)
-enforce_exclusions = "ge" # Enforce the exclusions or not, like Alt+H (results)
-edit_filters = "gF"  # Edit the file filters, like Alt+f (results)
-toggle_filters = "gf" # Turn the file filters off or on, like Alt+F (results)
-palette = "gp"       # Palette chooser, like Alt+p (results)
-reload_palette = "gP" # The configuration's palette again, like Alt+P (results)
-depth_digits = true  # 1-9 set the search depth (results)
-```
+### Where keys apply
 
-`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`,
-`preview`, `go_to`, `trash`, `edit_exclusions`, `enforce_exclusions`,
-`edit_filters`, `toggle_filters`, `palette`, `reload_palette`, the tab actions
-and the depth digits work only in Normal-mode results. Their Alt chords for
-moving around (Alt+arrows) work in every mode; those for features (Alt+b,
-Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p,
-Alt+P) only while typing, and in Normal mode say which sequence to use
-instead. With
-`depth_digits = true` (the default), no sequence may start with 1–9; set it to
-`false` to give digits back to Neovim as counts or to use them in sequences.
+A place is a combination of three things, fixed by design:
 
-File operations (`move` … `restore`) work in Normal-mode results and in the
-marked list; `restore` only while browsing a trash. `undo` takes `u` from Neovim's undo in the query (`:u` still
-undoes query edits); set `undo = "U"` or `"none"` to give `u` back. To give one of their letters to another action, disable or rebind the
-operation first; for example `mark = "x"` needs `delete = "none"` or another
-sequence such as `delete = "D"`, because two actions cannot share a sequence.
+| Dimension | Values |
+| --- | --- |
+| program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
+| place | `results`, `marks` (the marked list) |
+| highlight | `dir`, `file`, `none` |
 
-`run` and `run_exit` work in results and the marked list; see
-[running programs](OPERATIONS.md#running-programs). Quit actions work in
-Normal-mode fields and in the marked list, ignoring marks;
-`fff seek` exits without returning a directory. Insert mode keeps literal
-`q` and `!`. Disable `quit` before reusing `q` as a prefix for another action.
+Each function works only in some places: `quit_into_dir` in `roam` and
+`pick` on a directory, `go_parent` everywhere but `seek`, `restore` in the
+results and the marked list. Insert mode exists only in the results.
 
-Marking is active only in results and the marked list. Buffer editors use
-Neovim writes and closes; the legacy `apply` setting is accepted but ignored.
+Keys are bound per mode, Insert or Normal, and each binding has a **scope**:
+the values of each dimension it applies to, all of them unless narrowed. Two
+bindings may share a key only where their scopes, within where their
+functions work, do not meet, so a key does exactly one thing wherever it is
+pressed. That is how Enter does different things in different places: in
+Normal mode it is `quit_into_dir` on a directory in `fff roam`, `go_into` on
+one in a window of its own, `open_and_quit` on a file in `fff roam`,
+`pick_file` on a file in `fff pick`, and so on.
 
-Each value is one key sequence or a list of sequences; `"none"`, `""`, or `[]`
-disables the action. A sequence is typed literally, one printable key per
-character (uppercase means Shift); write `<space>` for Space, `<lt>` for `<`,
-and `<left>`, `<right>`, `<up>`, `<down>` for the arrow keys. Ctrl/Alt chords,
-Escape, Enter, and other named keys are rejected: Alt and Ctrl chords remain fff
-shortcuts (remap those in [`[keys.map]`](#chord-remapping)).
-Sequences must be unambiguous: two actions cannot share a sequence, and one
-sequence cannot be a prefix of another, because a waiting prefix has no timeout.
-Only sequences you set are checked against each other: one that takes a
-default action's key (say `delete = "D"`) leaves that action without it.
-Unbound keys and unfinished prefixes still reach Neovim. `fff setup --check-config` reports
-unknown actions and invalid or conflicting sequences. Changes take effect on the
-next invocation, or at once after [`gc`](#editing-while-fff-runs).
+### The Keys screen
 
-To use Space as a sequence prefix instead of marking, disable its default first:
+F1 opens it on the functions that work in the program and list you were in
+(`here: roam · results`); Ctrl+a shows every function. Typing searches names,
+descriptions and key names; Tab switches to a key search, where the keys you
+press are recorded instead (Tab again stops recording so the arrows move,
+Backspace takes back the last key, Escape returns to the text search). A key
+search lists every binding starting with those keys, dimming those that do
+not apply here. The highlighted function is described below the list.
+
+Enter opens a function: what it does, where it works, and its keys by mode
+with where each applies.
+
+- **`a` adds a key:** choose the mode (`i` or `n`) when the function works in
+  both, then press the keys. The first key may be any key; after it, Enter
+  adds them, Backspace takes back the last and Escape gives up. A digit for
+  `depth`, `open_row` or `enter_row` stands for every digit.
+- **`s` sets where the highlighted key applies:** one toggle per program,
+  place and highlight (Space toggles, Enter saves). Values where the function
+  does not work are marked so.
+- **When keys clash** with another function's, the scope editor opens and
+  names the clash: `u` narrows the new key to where nothing else has it, `t`
+  takes it from the others there (they keep it elsewhere).
+- **`d` deletes** the highlighted key, **`R`** puts the function's default keys
+  back, Escape goes back to the list.
+
+A change that would lock you in is refused, with the reason: something must
+open the Keys screen (`guide`) and something must leave fff (`cancel`, or
+`quit` in Normal mode) everywhere in the results, something must leave the
+marked list (`marked_list`), Insert-mode keys cannot
+start with a key typed as text, nor be Escape, and Normal-mode keys cannot
+start with `i`, `a`, `I`, `A` or `:`, which reach Insert mode and Neovim's
+command line. The screen's own keys, and Escape out of it, are fixed.
+
+### `keys.toml`
 
 ```toml
-[keys.normal]
-mark = "none"
-last = ["G", "<space>e"]
+[insert]
+down = ["<C-n>", "<Down>"]
+up = ["<C-p>", "<Up>"]
+
+[normal]
+quit = "Q"
+go_into = [
+  "l",
+  "<M-l>",
+  { keys = "<CR>", program = ["roam", "window"], highlight = ["dir"] },
+]
 ```
 
-## Chord remapping
+Each entry replaces one function's keys in one mode; functions not named
+keep their defaults. A value is keys, `"none"` (or `""`, `[]`) for no keys,
+or a list of keys and tables with `keys` and any of `program`, `place` and
+`highlight`. Keys use Vim's notation: printable keys stand for themselves
+(`gg`, `g/`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),
+`M-` (Alt) and `S-` (Shift) before them: `<CR>`, `<Esc>`, `<Tab>`, `<BS>`,
+`<Del>`, `<Space>`, `<lt>` (`<`), `<Up>`, `<Down>`, `<Left>`, `<Right>`,
+`<PageUp>`, `<PageDown>`, `<Home>`, `<End>`, `<F1>` to `<F12>`, or one
+character (`<M-h>`, `<C-w>`, `<M-P>`). `<#>` is the digits 1–9, and `<M-#>`
+and `<C-#>` Alt or Ctrl with any digit. A sequence is several keys (`gx`,
+`<M-g>u`); one cannot be the start of another where both apply, since a
+waiting prefix has no timeout. Unbound keys and unfinished prefixes reach
+Neovim.
 
-Every other binding (Alt and Ctrl chords, Shift+Space, arrows, Enter, Escape, F1, F2, F5,
-PageUp/PageDown) is remapped in `[keys.map]`, the configuration form of
-`--map-key`. Each entry maps a source chord to the default chord whose action
-it should perform, or to `"none"` to disable the source:
-
-```toml
-[keys.map]
-"ctrl+n" = "down"     # Emacs-style movement
-"ctrl+p" = "up"
-"ctrl+g" = "alt+g"    # go-to prompt on Ctrl+g ...
-"alt+g" = "none"      # ... and no longer on Alt+g
-"ctrl+t" = "palette"  # palette chooser, by name (see below)
-"f4" = "session"      # Session tab on F4 ...
-"f2" = "none"         # ... and no longer on F2, so the screen names F4
-```
-
-Chords are written as `ctrl+`, `alt+` and `shift+` prefixes followed by one
-character or a key name: `f1` to `f12`, `enter`, `esc`, `tab`, `backspace`, `up`,
-`down`, `left`, `right`, `pageup`, `pagedown` or `space`. Targets name the
-default chords in the [key reference](../README.md#keys) and the F1 guide.
-
-**Preliminary:** a target can also be named by what it does. These names will
-change when key names are unified across the configuration:
-
-| Name | Default chord | Name | Default chord |
-| --- | --- | --- | --- |
-| `guide` | `f1` | `session` | `f2` |
-| `rescan` | `f5` | `palette` | `alt+p` |
-| `reload_palette` | `alt+P` | `bookmarks` | `alt+b` |
-| `go_to` | `alt+g` | `trash` | `alt+t` |
-| `hidden` | `alt+.` | `directories` | `alt+d` |
-| `files` | `alt+D` | `preview` | `alt+v` |
-| `scroll_preview_down` | `ctrl+j` | `scroll_preview_up` | `ctrl+k` |
-| `edit_exclusions` | `alt+e` | `enforce_exclusions` | `alt+H` |
-| `edit_filters` | `alt+f` | `toggle_filters` | `alt+F` |
-| `shallower` | `alt+left` | `deeper` | `alt+right` |
-| `parent` | `alt+h` | `open` | `alt+l` |
-| `back` | `ctrl+o` | `forward` | `ctrl+i` |
-| `next_tab` | `alt+up` | `prev_tab` | `alt+down` |
-| `marks` | `alt+space` | `return_marks` | `ctrl+w` |
-
-A Ctrl chord or function key mapped to a feature works in every mode; an Alt
-chord, like the features' own, only while typing in the results.
-Each key is translated once, so chords can be swapped (`"alt+h" = "alt+l"` with
-`"alt+l" = "alt+h"`). Plain printable characters cannot be sources, because
-they are typed into fields; rebind Normal-mode letters in `[keys.normal]`.
-`--map-key` rules apply after `[keys.map]` and win for the same source.
-Translation applies everywhere, including choosers and prompts. Letters inside
-confirmation sheets (such as `c`/`s`/`a` in a scope choice) are fixed.
-`fff setup --check-config` reports invalid chords.
+A key you bind takes over a default one where they clash: `quit = "Q"` frees
+`q`, and `hidden = "q"` alone would take `q` from `quit` in the results,
+leaving it in the marked list. Two keys you bind may not clash. With errors,
+fff uses the default keys and says so; `fff setup --check-config` reports
+them. [`docs/keys.example.toml`](keys.example.toml) is a commented example.
 
 ### Keys on screen
 
-What the screen says is what works: the F1 guide, sheet borders, footers,
-empty-pane hints, query-line hints and status messages name every key as the
-configuration binds it. A chord mapped away is shown by the chord now mapped
-to it (`"ctrl+g" = "alt+g"` with `"alt+g" = "none"` shows `Ctrl+g` wherever
-`Alt+g` was), a `[keys.normal]` action by its configured sequence, and a key
-that no longer does anything is left out of hints (`—` in the guide). Where a
-chord and a Normal-mode action both do something, hints name the chord, or
-the sequence when the chord is unbound; in Normal mode, where feature chords
-do nothing, they name the sequence.
+What the screen says is what works: the Keys screen, footers, empty-pane
+hints, query-line hints and status messages name each function's key as
+bound, preferring one that applies where you are and in the mode you are
+in. A key that works in the other mode says so when pressed (`Alt+b works
+while typing; in Normal mode, b`), and one that does nothing where it is
+pressed says which function it is and that it does not work there. Keys
+inside choosers, prompts and confirmation sheets (Enter, Escape, Tab,
+`j`/`k`/`gg`/`G` and `q`/`!` in Normal mode) are fixed.

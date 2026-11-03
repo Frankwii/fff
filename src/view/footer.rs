@@ -13,13 +13,16 @@ pub(super) fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     // How to leave; q is text while typing.
     let typing = app.edit_view.as_ref().is_some_and(|v| !v.normal());
     let quit = if typing {
-        app.key("ctrl+c")
+        app.bound_in(crate::keymap::Function::Cancel, crate::keymap::Mode::Insert)
     } else {
-        app.sequence(crate::normal_keys::ListAction::Quit)
-            .or_else(|| app.key("ctrl+c"))
+        app.bound_in(crate::keymap::Function::Quit, crate::keymap::Mode::Normal)
+            .or_else(|| app.bound(crate::keymap::Function::Cancel))
     };
     let mut help = vec![];
-    for (key, what) in [(app.key("f1"), " keys "), (quit, " quit ")] {
+    for (key, what) in [
+        (app.bound(crate::keymap::Function::Guide), " keys "),
+        (quit, " quit "),
+    ] {
         if let Some(key) = key {
             if !help.is_empty() {
                 help.push(Span::raw(" "));

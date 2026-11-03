@@ -57,13 +57,8 @@ pub(super) fn results_pane(
         area,
     );
     if visible.is_empty() {
-        use crate::normal_keys::ListAction;
-        let deeper = || {
-            does(
-                app.either("alt+right", ListAction::Deeper),
-                "searches deeper",
-            )
-        };
+        use crate::keymap::Function;
+        let deeper = || does(app.bound(Function::Deeper), "searches deeper");
         let (title, hint) = if app.scanning {
             (
                 "Discovering files…",
@@ -74,7 +69,7 @@ pub(super) fn results_pane(
                 "No files here",
                 [
                     deeper(),
-                    does(app.key("ctrl+c"), "leaves without a selection"),
+                    does(app.bound(Function::Cancel), "leaves without a selection"),
                 ]
                 .into_iter()
                 .flatten()
@@ -89,7 +84,7 @@ pub(super) fn results_pane(
                 sentence(
                     "Directories are hidden",
                     [
-                        does(app.either("alt+d", ListAction::Directories), "shows them"),
+                        does(app.bound(Function::Directories), "shows them"),
                         deeper(),
                     ],
                 ),
@@ -99,18 +94,15 @@ pub(super) fn results_pane(
                 "No folders here",
                 sentence(
                     "Files are hidden",
-                    [
-                        does(app.either("alt+D", ListAction::Files), "shows them"),
-                        deeper(),
-                    ],
+                    [does(app.bound(Function::Files), "shows them"), deeper()],
                 ),
             )
         } else if app.physical_empty {
             (
                 "Empty directory",
                 [
-                    does(app.key("enter"), "returns this directory"),
-                    does(app.either("alt+h", ListAction::Left), "goes up"),
+                    does(app.bound(Function::QuitIntoDir), "returns this directory"),
+                    does(app.bound(Function::GoParent), "goes up"),
                 ]
                 .into_iter()
                 .flatten()
@@ -122,7 +114,7 @@ pub(super) fn results_pane(
         } else {
             (
                 "No matching results",
-                match app.key("esc") {
+                match app.bound(Function::ClearQuery) {
                     Some(esc) => format!("Change the query, or press {esc} to clear it."),
                     None => "Change the query.".into(),
                 },

@@ -115,6 +115,13 @@ fn standard_config_location_precedence() {
 }
 
 #[test]
+fn documented_keys_example_is_valid() {
+    use fuzzy_file_finder::keymap::{Function, Keymap, Mode};
+    let keymap = Keymap::parse(include_str!("../docs/keys.example.toml")).unwrap();
+    assert_eq!(keymap.of(Function::Quit, Mode::Normal)[0].display(), "Q");
+    assert_eq!(keymap.of(Function::GoInto, Mode::Normal).len(), 3);
+}
+#[test]
 fn documented_example_is_valid() {
     let settings = parse(include_str!("../docs/config.example.toml")).unwrap();
     assert_eq!(settings.bookmarks.len(), 3);
@@ -323,37 +330,10 @@ fn ui_icons_default_on_can_be_disabled_and_reject_non_booleans() {
     }
 }
 #[test]
-fn normal_mode_list_keys_are_validated() {
-    assert!(
-        parse("[keys.normal]\nmark='none'\nfirst=['gg','<space>g']\nlast='none'\nleft=''\n")
-            .is_ok()
-    );
-    for bad in [
-        "[keys.normal]\nfirst='g'\nlast='gg'\n",
-        "[keys.normal]\ndown='x'\nup='x'\n",
-        "[keys.normal]\nfirst='<c-d>'\n",
-        "[keys.normal]\ntop='gg'\n",
-        "[keys.insert]\ndown='j'\n",
-        "[keys.normal]\nfirst=1\n",
-        "[keys.normal]\nfirst='1'\n",
-    ] {
-        assert!(parse(bad).is_err(), "accepted {bad:?}");
-    }
-    // Digits are free for sequences once they no longer set the depth.
-    assert!(parse("[keys.normal]\ndepth_digits=false\nfirst='1'\n").is_ok());
-}
-#[test]
-fn key_map_remaps_chords_like_map_key() {
-    let error = parse("[keys.map]\n'f13'='f1'\n").err().unwrap();
-    assert!(error.contains("keys.map"), "{error}");
-    // Any of F1 to F12 can stand for another: F4 for the Session tab's F2.
-    let settings = parse("[keys.map]\n'f4'='f2'\n").unwrap();
-    assert_eq!(settings.key_maps, ["f4=f2"]);
-    let settings = parse("[keys.map]\n'ctrl+g'='alt+g'\n'alt+g'='none'\n").unwrap();
-    assert_eq!(settings.key_maps, ["alt+g=none", "ctrl+g=alt+g"]);
-    for bad in ["[keys.map]\nx='alt+g'\n", "[keys.map]\n'ctrl+g'='nope'\n"] {
-        assert!(parse(bad).is_err(), "accepted {bad:?}");
-    }
+fn keys_moved_to_keys_toml() {
+    // Still read, with the table left alone and sessions told so.
+    assert!(parse("[keys.normal]\nquit='Q'\n").unwrap().old_keys);
+    assert!(!parse("").unwrap().old_keys);
 }
 #[test]
 fn message_seconds_defaults_to_four_and_zero_keeps_messages() {

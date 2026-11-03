@@ -228,7 +228,7 @@ Answers one file dialog and prints the answer: each chosen path, absolute,
 followed by a newline. The file chooser installed by `fff setup --file-chooser`
 runs it for every dialog, but it works anywhere a script needs a file, a folder
 or a place to save. The general options (`--depth`, `--hidden`,
-`--no-exclusions`, `--palette`, `--map-key`, `--no-icons`, `--config`,
+`--no-exclusions`, `--palette`, `--no-icons`, `--config`,
 `--no-config`) apply as usual and may follow the subcommand.
 
 ### Kinds of dialog

@@ -128,123 +128,9 @@ fn expand(word: &str, var: impl Fn(&str) -> Option<OsString>) -> PathBuf {
     }
 }
 
-/// Named keys accepted by `--map-key`; single characters are also accepted.
-pub const KEY_NAMES: &[&str] = &[
-    "enter",
-    "esc",
-    "tab",
-    "space",
-    "backspace",
-    "up",
-    "down",
-    "left",
-    "right",
-    "pageup",
-    "pagedown",
-    "f1",
-    "f2",
-    "f3",
-    "f4",
-    "f5",
-    "f6",
-    "f7",
-    "f8",
-    "f9",
-    "f10",
-    "f11",
-    "f12",
-];
-const MODIFIERS: &[&str] = &["ctrl+", "alt+", "shift+"];
-
-/// Complete `SOURCE=TARGET` one chord segment at a time: modifiers not yet
-/// used, then key names; after `=`, `none` disables the source chord.
-pub fn map_key_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
-    let current = current.to_string_lossy();
-    let (side_prefix, chord) = match current.split_once('=') {
-        Some((source, target)) => (format!("{source}="), target),
-        None => (String::new(), current.as_ref()),
-    };
-    let split = chord.rfind('+').map_or(0, |i| i + 1);
-    let (modifiers, fragment) = chord.split_at(split);
-    let mut options: Vec<(&str, &str)> = MODIFIERS
-        .iter()
-        .filter(|m| !modifiers.contains(*m))
-        .map(|m| (*m, "modifier"))
-        .collect();
-    // A source chord that types text (`space`) needs Ctrl or Alt.
-    let printable =
-        !side_prefix.is_empty() || modifiers.contains("ctrl+") || modifiers.contains("alt+");
-    options.extend(
-        KEY_NAMES
-            .iter()
-            .filter(|k| printable || **k != "space")
-            .map(|k| (*k, "key")),
-    );
-    if !side_prefix.is_empty() && modifiers.is_empty() {
-        options.push(("none", "disable the source chord"));
-        // A target can also be named by what it does.
-        options.extend(
-            crate::keys::TARGETS
-                .iter()
-                .map(|(name, _)| (*name, "action")),
-        );
-    }
-    options
-        .into_iter()
-        .filter(|(option, _)| option.starts_with(fragment))
-        .map(|(option, help)| {
-            CompletionCandidate::new(format!("{side_prefix}{modifiers}{option}"))
-                .help(Some(help.into()))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn values(candidates: Vec<CompletionCandidate>) -> Vec<String> {
-        candidates
-            .iter()
-            .map(|c| c.get_value().to_string_lossy().into_owned())
-            .collect()
-    }
-
-    #[test]
-    fn targets_complete_by_what_they_do() {
-        let found = values(map_key_candidates(OsStr::new("f4=sess")));
-        assert_eq!(found, ["f4=session"]);
-    }
-
-    #[test]
-    fn key_names_are_accepted_by_map_key() {
-        for name in KEY_NAMES {
-            crate::keys::KeyMap::parse(&[format!("ctrl+{name}=alt+j"), format!("alt+j={name}")])
-                .unwrap_or_else(|e| panic!("{name}: {e}"));
-        }
-    }
-
-    #[test]
-    fn map_key_completes_modifiers_names_and_none() {
-        let start = values(map_key_candidates(OsStr::new("")));
-        assert!(start.contains(&"ctrl+".into()) && start.contains(&"pagedown".into()));
-        assert_eq!(
-            values(map_key_candidates(OsStr::new("ctrl+pa"))),
-            ["ctrl+pageup", "ctrl+pagedown"]
-        );
-        let modifiers = values(map_key_candidates(OsStr::new("ctrl+")));
-        assert!(
-            modifiers.contains(&"ctrl+alt+".into()) && !modifiers.contains(&"ctrl+ctrl+".into())
-        );
-        assert_eq!(
-            values(map_key_candidates(OsStr::new("ctrl+n=n"))),
-            ["ctrl+n=none", "ctrl+n=next_tab"]
-        );
-        assert_eq!(
-            values(map_key_candidates(OsStr::new("ctrl+n=alt+e"))),
-            ["ctrl+n=alt+enter", "ctrl+n=alt+esc"]
-        );
-    }
 
     #[test]
     fn config_path_follows_the_completed_command_line() {
@@ -273,26 +159,6 @@ mod tests {
         assert_eq!(expand("~other/x", var), PathBuf::from("~other/x"));
         assert_eq!(expand("$UNSET/x", var), PathBuf::from("$UNSET/x"));
         assert_eq!(expand("rel/x.toml", var), PathBuf::from("rel/x.toml"));
-    }
-
-    #[test]
-    fn map_key_sources_only_offer_space_with_ctrl_or_alt() {
-        assert!(values(map_key_candidates(OsStr::new("sp"))).is_empty());
-        assert!(values(map_key_candidates(OsStr::new("shift+sp"))).is_empty());
-        assert_eq!(
-            values(map_key_candidates(OsStr::new("alt+sp"))),
-            ["alt+space"]
-        );
-        assert_eq!(
-            values(map_key_candidates(OsStr::new("ctrl+n=sp"))),
-            ["ctrl+n=space"]
-        );
-        for candidate in values(map_key_candidates(OsStr::new(""))) {
-            if !candidate.ends_with('+') {
-                crate::keys::KeyMap::parse(&[format!("{candidate}=down")])
-                    .unwrap_or_else(|e| panic!("{candidate}: {e}"));
-            }
-        }
     }
 
     #[test]

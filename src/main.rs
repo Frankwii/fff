@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
 use fuzzy_file_finder::{
-    App, Policy, completion, config::Settings, explorer::Dialog, keys::KeyMap, ui, write_paths,
+    App, Policy, completion, config::Settings, explorer::Dialog, keymap, ui, write_paths,
 };
 use std::{
     io::{self, Write},
@@ -58,14 +58,12 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Act on every marked path with NUL-separated records.
   <cyan>fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura</cyan>
       Choose PDFs from anywhere below ~/papers and open them.
-  <cyan>fff --map-key ctrl+n=down --map-key ctrl+p=up</cyan>
-      Add Emacs-style movement keys.
   <cyan>fff setup --desktop; fff setup --file-chooser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
   <cyan>fff explorer --save ~/Downloads/paper.pdf</cyan>
       Choose where to save a file, as a file dialog would (see fff explorer --help).
 
-<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide, <cyan>F2</cyan> for session details)
+<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff to search and rebind them, <cyan>F2</cyan> for session details)
   <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Space</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
@@ -88,16 +86,16 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
   file icons ([ui] icons), row details ([ui] columns), the preview pane
   ([ui] preview) and its syntax colors ([ui] highlight), the mouse and buttons
-  ([ui] mouse, buttons), live updates ([ui] watch), Normal-mode list keys
-  ([keys.normal]) and chord remapping ([keys.map], applied before --map-key).
-  <cyan>fff setup --check-config</cyan> validates it and prints which file was read.
+  ([ui] mouse, buttons) and live updates ([ui] watch). Keys live in keys.toml
+  beside it, which the Keys screen (<cyan>F1</cyan>) edits.
+  <cyan>fff setup --check-config</cyan> validates both and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
   <cyan>0</cyan>    normal exit: a directory was chosen or paths printed (or the
        configuration is valid); after gX, the program's own status
   <cyan>1</cyan>    startup, configuration (including an unknown --palette) or I/O error
   <cyan>2</cyan>    invalid command-line usage: unknown options or malformed values
-       (--depth, --map-key, --glob, --exclude, ...)
+       (--depth, --glob, --exclude, ...)
   <cyan>130</cyan>  cancelled with Ctrl+c; nothing printed, no directory change
 
 <bold><green>Shell completions:</green></bold>
@@ -173,15 +171,6 @@ struct Args {
     #[arg(global = true, long, value_name = "NAME", help_heading = "Interface",
         add = ArgValueCompleter::new(completion::palette_candidates))]
     palette: Option<String>,
-    /// Remap a key chord to a default chord, e.g. ctrl+n=down; TARGET=none disables it
-    ///
-    /// Modifiers are ctrl+, alt+ and shift+; key names are enter, esc, tab, space,
-    /// backspace, up, down, left, right, pageup, pagedown, f1 to f12 or a single
-    /// character. Letter case matters. Repeatable; later rules for the same
-    /// SOURCE win, and these override the configuration's [keys.map].
-    #[arg(global = true, long = "map-key", value_name = "SOURCE=TARGET", help_heading = "Interface",
-        add = ArgValueCompleter::new(completion::map_key_candidates))]
-    key_maps: Vec<String>,
     /// Hide Nerd Font filetype icons; overrides [ui] icons
     ///
     /// Rows then use the plain `▸`/`·` markers. Useful when the terminal font has
@@ -521,9 +510,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     if mode.resume && !mode.roots.is_empty() {
         conflict("--resume continues the last session's own roots; give no ROOTS");
     }
-    if let Err(e) = KeyMap::parse(&args.key_maps) {
-        usage("--map-key", &e);
-    }
     let mut policy = Policy {
         hidden: args.hidden,
         ignore: !args.no_exclusions,
@@ -541,8 +527,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         args.no_config,
         args.palette.as_deref(),
     )?;
-    // Configured [keys.map] chords first, so --map-key rules override them.
-    let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps.clone()].concat())?;
     let watcher = fuzzy_file_finder::reload::PaletteWatcher::start(
         args.config.clone(),
         args.no_config,
@@ -595,8 +579,15 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     ));
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
-    app.normal_keys = settings.normal_keys;
-    app.key_map = keys.clone();
+    // keys.toml sits beside the configuration; one with errors gives way
+    // to the defaults, and the Session tab says why.
+    app.keys_path = settings.bookmark_path.as_deref().map(keymap::path_beside);
+    if let Some(path) = &app.keys_path {
+        match keymap::Keymap::load(path) {
+            Ok(keys) => app.keymap = keys,
+            Err(error) => app.keys_broken = Some(error),
+        }
+    }
     app.no_dir = mode.no_dir;
     // Choosing paths shows names; the footer has the highlighted one's path.
     app.short_labels = mode.no_dir || (mode.output_paths && dialog.is_none());
@@ -609,7 +600,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.preview.shown = settings.preview;
     app.preview.highlight = settings.highlight;
     app.config_path = settings.bookmark_path.clone();
-    app.cli_key_maps = args.key_maps;
     app.no_icons = args.no_icons;
     app.trash = settings
         .trash
@@ -626,7 +616,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         match session {
             Some(session) => {
                 app.restore(session);
-                app.status = match app.sequence(fuzzy_file_finder::normal_keys::ListAction::Quit) {
+                app.status = match app.bound_in(keymap::Function::Quit, keymap::Mode::Normal) {
                     Some(quit) => {
                         format!("Resumed the last session; {quit} returns to where you started")
                     }
@@ -638,6 +628,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         }
     }
     app.config_broken = settings.broken;
+    if settings.old_keys && app.status.is_empty() {
+        app.status = OLD_KEYS.into();
+    }
     if let Some(status) = app.config_errors_status() {
         app.status = status;
     }
@@ -646,7 +639,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.bookmarks.clone(),
         app.home.clone(),
     );
-    let finish = ui::run(app, keys, settings.cache, watcher, settings.performance)?;
+    let finish = ui::run(app, settings.cache, watcher, settings.performance)?;
     report(finish, &mode, dialog, args.cd_file.as_deref(), &invocation)
 }
 /// --browse and fff explorer: the folder to start in and the file to
@@ -798,6 +791,9 @@ fn report(
     }
 }
 
+/// What a configuration that still has `[keys]` is told.
+const OLD_KEYS: &str = "[keys] in the configuration is no longer read: keys live in keys.toml beside it, which F1 edits";
+
 /// fff setup: one integration, printed script or check, then exit.
 fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::Error>> {
     if let Some(shell) = setup.init {
@@ -815,7 +811,12 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         args.palette.as_deref(),
     )?;
     if setup.check_config {
-        KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
+        if settings.old_keys {
+            return Err(OLD_KEYS.into());
+        }
+        if let Some(path) = settings.bookmark_path.as_deref().map(keymap::path_beside) {
+            keymap::Keymap::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
         // Openers name programs; report the ones that are not installed.
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let missing = settings
@@ -900,10 +901,6 @@ mod tests {
         // Custom palettes from the tester's own config may follow the built-ins.
         let palettes = candidates(&["fff", "--palette", "catppuccin-m"], None);
         assert_eq!(palettes[..2], ["catppuccin-macchiato", "catppuccin-mocha"]);
-        assert_eq!(
-            candidates(&["fff", "--map-key", "ctrl+n=pag"], None),
-            ["ctrl+n=pageup", "ctrl+n=pagedown"]
-        );
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         assert_eq!(candidates(&["fff", "do"], Some(root)), ["docs/"]);
         assert_eq!(

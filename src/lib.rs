@@ -11,12 +11,11 @@ pub mod editor;
 pub mod explorer;
 pub mod highlight;
 pub mod icons;
-pub mod keys;
+pub mod keymap;
 pub mod known;
 pub mod location;
 pub mod marks;
 mod matching;
-pub mod normal_keys;
 pub mod notify;
 pub mod open;
 pub mod operations;
@@ -226,7 +225,14 @@ pub struct App {
     /// Active palette name and the palettes offered by the Alt+p chooser.
     pub palette_name: String,
     pub palettes: Vec<(String, config::Palette)>,
-    pub normal_keys: normal_keys::NormalKeys,
+    /// Every key binding: the defaults with `keys.toml` applied.
+    pub keymap: keymap::Keymap,
+    /// The keys of a sequence begun and not finished yet.
+    pub pending: Vec<crossterm::event::KeyEvent>,
+    /// `keys.toml`, which the Keys screen writes; `None` with `--no-config`.
+    pub keys_path: Option<PathBuf>,
+    /// Why `keys.toml` was not read, while the defaults stand in for it.
+    pub keys_broken: Option<String>,
     /// `fff seek`: a static file choice. Directories are never listed, entered,
     /// or returned, and the current directory cannot change.
     pub no_dir: bool,
@@ -294,8 +300,6 @@ pub struct App {
     pub window: bool,
     /// `[trash]`: where `x` sends entries; `None` deletes them permanently.
     pub trash: Option<trash::Trash>,
-    /// `[keys.map]` and `--map-key`, to name keys as remapped.
-    pub key_map: keys::KeyMap,
     /// The trash's `files/` folders, home bin first, as last read
     /// (`refresh_trash`): where R restores.
     pub trash_folders: Vec<PathBuf>,
@@ -305,9 +309,8 @@ pub struct App {
     pub config_path: Option<PathBuf>,
     /// The configuration file's errors while its backup is read instead.
     pub config_broken: Option<String>,
-    /// `--map-key` and `--no-icons`, which outrank the configuration each
-    /// time it is read again.
-    pub cli_key_maps: Vec<String>,
+    /// `--no-icons`, which outranks the configuration each time it is read
+    /// again.
     pub no_icons: bool,
 }
 
@@ -365,7 +368,10 @@ impl App {
                 .iter()
                 .map(|n| (n.to_string(), config::Palette::named(n).unwrap()))
                 .collect(),
-            normal_keys: normal_keys::NormalKeys::default(),
+            keymap: keymap::Keymap::default(),
+            pending: Vec::new(),
+            keys_path: None,
+            keys_broken: None,
             no_dir: false,
             kinds: Kinds::All,
             short_labels: false,
@@ -402,11 +408,9 @@ impl App {
             window: false,
             trash: None,
             trash_folders: Vec::new(),
-            key_map: keys::KeyMap::default(),
             undo: Vec::new(),
             config_path: None,
             config_broken: None,
-            cli_key_maps: Vec::new(),
             no_icons: false,
             dialog: None,
         }
@@ -511,17 +515,72 @@ impl App {
         self.marks = session.marks.into();
         self.wanted = session.highlight;
     }
-    /// Changes directory, recording the old one for Ctrl+o.
-    /// What the interface calls the key doing what the default chord
-    /// `default` (`"alt+v"`) does: its own name, or the chord remapped to it;
-    /// `None` when no key does it.
-    pub fn key(&self, default: &str) -> Option<String> {
-        self.key_map.name(default)
+    /// What fff was started as, for where keys apply.
+    pub fn program(&self) -> keymap::Program {
+        use keymap::Program;
+        match &self.dialog {
+            Some(d) if d.save.is_some() => Program::ExplorerSave,
+            Some(d) if d.directory => Program::ExplorerFolder,
+            Some(d) if d.multiple => Program::ExplorerMultiple,
+            Some(_) => Program::ExplorerOpen,
+            None if self.window => Program::Window,
+            None if self.no_dir => Program::Seek,
+            None if self.output_paths => Program::Pick,
+            None => Program::Roam,
+        }
     }
-    /// Whether `modifier`+digit (`"alt"`, `"ctrl"`) still picks rows by
-    /// number: no digit's chord is remapped.
-    pub fn digits_pick(&self, modifier: &str) -> bool {
-        (0..=9).all(|d| self.key_map.keeps(&format!("{modifier}+{d}")))
+    /// The mode keys are read in: Normal in the query's Normal mode (also
+    /// while a sequence begun there waits), else Insert.
+    pub fn mode(&self) -> keymap::Mode {
+        if self.edit_view.as_ref().is_some_and(|v| v.mode == "n") {
+            keymap::Mode::Normal
+        } else {
+            keymap::Mode::Insert
+        }
+    }
+    /// Where a key pressed in the results would apply.
+    pub fn cell(&self) -> keymap::Cell {
+        use keymap::Highlight;
+        keymap::Cell {
+            program: self.program(),
+            place: keymap::Place::Results,
+            highlight: match self.highlighted_row() {
+                Some(row) if row.directory => Highlight::Dir,
+                Some(_) => Highlight::File,
+                None => Highlight::None,
+            },
+        }
+    }
+    /// The key the interface names for `function`: one bound in the
+    /// current mode that applies here, else in the other mode, else any;
+    /// `None` when no key does it.
+    pub fn bound(&self, function: keymap::Function) -> Option<String> {
+        let mode = self.mode();
+        let cell = Some(self.cell());
+        self.keymap
+            .first(function, mode, cell)
+            .or_else(|| self.keymap.first(function, mode.other(), cell))
+            .map(|b| b.display())
+    }
+    /// `bound`, or `—` when no key does it, for prose that names one.
+    pub fn bound_or_none(&self, function: keymap::Function) -> String {
+        self.bound(function).unwrap_or_else(|| "—".into())
+    }
+    /// A fixed key (`"enter"`, `"esc"`, `"up"`) as the interface names it.
+    pub fn key(&self, name: &str) -> Option<String> {
+        Some(keymap::named(name))
+    }
+    pub fn key_or_none(&self, name: &str) -> String {
+        keymap::named(name)
+    }
+    /// The key `function` has in `mode` that applies here, if any.
+    pub fn bound_in(&self, function: keymap::Function, mode: keymap::Mode) -> Option<String> {
+        let cell = self.cell();
+        self.keymap
+            .of(function, mode)
+            .into_iter()
+            .find(|b| b.applies(cell))
+            .map(|b| b.display())
     }
     /// The status while the configuration file has errors, short enough for
     /// the query border: the key that shows them on the Session tab, else
@@ -539,32 +598,13 @@ impl App {
             name(path),
             name(&config::backup_path(path))
         );
-        Some(match self.key("f2") {
+        Some(match self.bound(keymap::Function::Session) {
             Some(key) => format!("{reading}; {key} shows them"),
             None => format!(
                 "{reading}: {}",
                 config::brief(config::config_error(path, error))
             ),
         })
-    }
-    /// `key`, or `—` when no key does it, for prose that names one.
-    pub fn key_or_none(&self, default: &str) -> String {
-        self.key(default).unwrap_or_else(|| "—".into())
-    }
-    /// The Normal-mode sequences bound to `action`, when it has any.
-    pub fn sequence(&self, action: normal_keys::ListAction) -> Option<String> {
-        Some(self.normal_keys.describe(action)).filter(|s| !s.is_empty())
-    }
-    /// A key for what both a chord and a Normal-mode action do: the chord
-    /// while a key does it, else the action's sequence. In Normal mode, where
-    /// a chord that is for typing does nothing, the sequence comes first.
-    pub fn either(&self, default: &str, action: normal_keys::ListAction) -> Option<String> {
-        let normal = self.edit_view.as_ref().is_some_and(|v| v.normal());
-        if normal && action.typing_only() {
-            self.sequence(action).or_else(|| self.key(default))
-        } else {
-            self.key(default).or_else(|| self.sequence(action))
-        }
     }
     /// Reads which folders the trash shows again: a bin on another
     /// filesystem appears with its first entry.
