@@ -17,7 +17,9 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
-| `src/ui/mod.rs` | The session: focus states, wakeups and key dispatch. |
+| `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. |
+| `src/ui/dispatch.rs` | One event's route: the running job's Ctrl+c, pastes, the mouse, then session-wide keys (Normal-mode sequences, operations, numbered rows). |
+| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (`results_key`, `marks_key`, the sheets and choosers). |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | Normal-mode list dispatch; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/actions.rs` | Scope choice, file operations as background jobs (checks, progress, undo), running programs and their messages, bookmark/palette saves, the mouse. |
