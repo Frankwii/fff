@@ -28,6 +28,13 @@ not implemented features or commitments:
   Telegram (opening a download's folder), but Telegram does not open fff yet.
   What remains is to find how it asks (`xdg-open`, the D-Bus FileManager1
   service or the portal's OpenURI) and make that path reach fff.
+- A function that toggles how flat lists label their rows: only the parent
+  folders that tell same-named entries apart (`folder1/main.pdf`), as
+  `fff pick` and `fff seek` both do today, or full paths. `fff pick` would
+  start with the short labels and `fff seek` with full paths. To decide:
+  whether full means the path below the folder searched or the absolute
+  path, its default key, and whether a choice made with the toggle survives
+  `gm`.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
@@ -176,6 +183,35 @@ for the scan to reach its match. Measured, the time splits in halves:
   a batch would cost little more than appending it. Whatever needs every row
   in order (`G`, the count, `m`, batch rename, the printed marks) would
   finish the merge first, so nothing changes in what fff lists or does.
+
+How close this can come to fzf. Once a tree is listed, nothing in fff
+needs a slower algorithm than fzf's: each keystroke scores the same names
+with the same algorithm (nucleo is fzf's, in Rust), narrows the previous
+matches as fzf does, and sorts by keys as cheap as fzf's. That case already
+takes 0.17 seconds over `/usr`, against fzf's 0.02, and what the rest is
+spent on has not been measured; the embedded Neovim adds a round trip per
+keystroke, which costs milliseconds, not tenths. While a tree is being
+listed fff does work fzf leaves to others or does not do at all, and these
+set its limit:
+
+- fzf reads a stream it never revisits; fff keeps every known path in a map
+  (one entry per path, at its shallowest depth, for overlapping roots,
+  rescans, live updates and the discovery cache). That is a hash insertion
+  per path, a cost fzf does not pay, but a small and constant one (sharded
+  already; a faster hasher than the standard one would cut it further).
+- Labels in `fff pick` and `fff seek` depend on every listed entry with the
+  same name, so a new path can change another row's label. Kept by name and
+  updated per group as paths arrive, as the labels of additions already are,
+  they cost a lookup per path; computing them only for the rows on screen
+  would make them nearly free. The full relabelling a listing change
+  triggers today is the part to avoid.
+- Each path is its own allocation (a `PathBuf` in an `Arc`), where fzf packs
+  its input into chunks. This is the deepest change, and the last to make.
+
+None of these changes what fff can do, and none grows faster than the
+number of paths: a scan within about twice the time of `fd | fzf` looks
+reachable, where it is about eight times today. Matching fzf exactly is not
+the aim; what is lost to the features above is the price of them.
 
 The current release is 0.15.0. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.
