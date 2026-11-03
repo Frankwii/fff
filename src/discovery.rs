@@ -263,6 +263,13 @@ impl Discovery {
             input: None,
         }
     }
+    /// New `[cache]` settings: the snapshots kept so far are dropped.
+    pub fn configure(&mut self, options: crate::config::CacheConfig) {
+        if options != self.options {
+            self.cache = crate::cache::Cache::new(options.clone());
+            self.options = options;
+        }
+    }
     /// Input waiting to be read, which scans yield to.
     pub fn yield_to(&mut self, waiting: Arc<AtomicUsize>) {
         self.input = Some(waiting);

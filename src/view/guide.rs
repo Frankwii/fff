@@ -313,6 +313,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 row(key("alt+p"), "choose palette (100 ms preview)", false),
                 row(key("alt+P"), "reload palette from config", false),
                 row(
+                    normal(EditConfig),
+                    "edit the configuration, then apply it",
+                    false,
+                ),
+                row(
                     key("f1"),
                     &format!("this guide · {}: session", key("tab")),
                     false,
@@ -551,6 +556,16 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     sections.push((String::new(), theme.text));
     sections.push(("PALETTE".into(), theme.accent));
     sections.push((safe(&app.palette_name), theme.text));
+    sections.push((String::new(), theme.text));
+    sections.push(("CONFIGURATION".into(), theme.accent));
+    match (&app.config_path, &app.config_broken) {
+        (Some(path), Some(error)) => sections.push((
+            safe(crate::config::reading_backup(path, error)),
+            theme.error,
+        )),
+        (Some(path), None) => sections.push((safe(path.display().to_string()), theme.text)),
+        (None, _) => sections.push(("None (--no-config)".into(), theme.text)),
+    }
     sections.push((String::new(), theme.text));
     sections.push(("MARKED PATHS".into(), theme.marked));
     sections.extend(app.marks.iter().map(|p| {

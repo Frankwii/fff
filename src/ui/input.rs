@@ -169,6 +169,7 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             GoTo,
             PrevTab,
             NextTab,
+            EditConfig,
         ]),
         Focus::Marks { .. } => Some(&[
             Down,
@@ -194,6 +195,7 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             Open,
             Undo,
             Restore,
+            EditConfig,
         ]),
         Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
             Some(&[Down, Up, First, Last, Quit, QuitCurrent])
@@ -228,6 +230,8 @@ pub(super) enum NormalKey {
     Operation(char),
     /// A plain digit in Normal-mode results: search to this depth.
     Depth(usize),
+    /// gc: edit the configuration, then apply it.
+    EditConfig,
 }
 /// Dispatch configured Normal-mode actions in their supported list views.
 /// Marked lists accept their actions without an editing mode.
@@ -282,6 +286,7 @@ pub(super) fn normal_list_key(
             Step::Action(ListAction::QuitCurrent) => return NormalKey::Quit(true),
             Step::Action(ListAction::Run) => return NormalKey::Run(false),
             Step::Action(ListAction::RunExit) => return NormalKey::Run(true),
+            Step::Action(ListAction::EditConfig) => return NormalKey::EditConfig,
             Step::Action(action @ (ListAction::MarkAll | ListAction::InvertMarks)) => {
                 let rows: Vec<PathBuf> = match focus {
                     Focus::Marks { rows, .. } => rows.clone(),

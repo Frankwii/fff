@@ -9,6 +9,7 @@ pub mod details;
 pub mod discovery;
 pub mod editor;
 pub mod explorer;
+pub mod highlight;
 pub mod icons;
 pub mod keys;
 pub mod known;
@@ -296,6 +297,14 @@ pub struct App {
     pub trash_folders: Vec<PathBuf>,
     /// This session's file operations that `u` can undo, oldest first.
     pub undo: Vec<operations::undo::Record>,
+    /// The configuration file `gc` edits; `None` with `--no-config`.
+    pub config_path: Option<PathBuf>,
+    /// The configuration file's errors while its backup is read instead.
+    pub config_broken: Option<String>,
+    /// `--map-key` and `--no-icons`, which outrank the configuration each
+    /// time it is read again.
+    pub cli_key_maps: Vec<String>,
+    pub no_icons: bool,
 }
 
 impl App {
@@ -390,6 +399,10 @@ impl App {
             trash_folders: Vec::new(),
             key_map: keys::KeyMap::default(),
             undo: Vec::new(),
+            config_path: None,
+            config_broken: None,
+            cli_key_maps: Vec::new(),
+            no_icons: false,
             dialog: None,
         }
     }

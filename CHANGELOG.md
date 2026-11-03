@@ -4,6 +4,27 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **`gc` edits the configuration while fff runs** and applies it as soon as
+  the editor ends: keys, bookmarks, openers, columns, the mouse, the trash
+  and the rest take effect without restarting. A copy of the configuration
+  is kept as `config.toml.bak` while you edit; if the edit has errors, fff
+  goes on reading the copy, says what is wrong, and shows `config errors`
+  until the file loads again (also in later sessions). `edit_config` in
+  `[keys.normal]`.
+- **Syntax colors in the preview pane**: text files show comments, strings,
+  keywords, types, functions and numbers in the palette's colors, worked out
+  by a private Neovim with its tree-sitter parsers or `:syntax` files. The
+  text never waits for them. `[ui] highlight = false` turns them off.
+
+### Changed
+
+- **A rule in the preview pane sets an entry's facts** (a PDF's pages,
+  where a trashed entry came from) apart from its content.
+
 ## 0.13.0 — 2026-11-03
 
 The trash opens like a folder and R restores from it, the preview pane

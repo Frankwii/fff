@@ -586,6 +586,10 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     };
     let progress = app.progress_shown(std::time::Instant::now());
     let mut optional = Vec::new();
+    // Kept longest: until fixed, the configuration's backup is in use (F1).
+    if app.config_broken.is_some() {
+        optional.push(styled("config errors", theme.error));
+    }
     // Filters and exclusions are only named while they hide something; their
     // globs are listed in the editors (Alt+f, Alt+e) and in F1's details.
     if !app.policy.filters.is_empty() {

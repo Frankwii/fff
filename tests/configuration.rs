@@ -494,3 +494,44 @@ fn trash_defaults_to_a_month_and_asks_above_ten_gib() {
         assert!(error.contains(message), "{text}: {error}");
     }
 }
+#[test]
+fn a_configuration_with_errors_gives_way_to_its_backup() {
+    use fuzzy_file_finder::config::{backup_path, brief, reading_backup};
+    let folder = std::env::temp_dir().join(format!("fff-config-backup-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let config = folder.join("config.toml");
+    let backup = backup_path(&config);
+    assert_eq!(backup, folder.join("config.toml.bak"));
+    std::fs::write(&config, "[ui]\npalette = 'nord'\n").unwrap();
+    // A file that loads is read as it is, whatever is beside it.
+    std::fs::write(&backup, "[ui]\npalette = 'forest'\n").unwrap();
+    let s = Settings::load_or_backup(Some(&config), false, None).unwrap();
+    assert_eq!((s.palette_name.as_str(), s.broken), ("nord", None));
+    // With errors, the backup is read and the errors kept for the session.
+    std::fs::write(&config, "[ui]\npalette = \n").unwrap();
+    let s = Settings::load_or_backup(Some(&config), false, None).unwrap();
+    assert_eq!(s.palette_name, "forest");
+    assert_eq!(s.source.as_deref(), Some(config.as_path()));
+    let error = s.broken.unwrap();
+    assert!(Settings::load(Some(&config), false, None).is_err());
+    let message = reading_backup(&config, &error);
+    assert!(message.contains("config.toml.bak"), "{message}");
+    assert!(message.contains("line 2"), "{message}");
+    assert!(
+        !message.contains('\n') && !message.contains('^'),
+        "{message}"
+    );
+    assert!(!brief(&error).contains('|'));
+    // Without a backup that loads, the errors stand.
+    std::fs::write(&backup, "[ui]\nnope = 1\n").unwrap();
+    assert!(Settings::load_or_backup(Some(&config), false, None).is_err());
+    std::fs::remove_file(&backup).unwrap();
+    assert!(Settings::load_or_backup(Some(&config), false, None).is_err());
+    std::fs::remove_dir_all(folder).unwrap();
+}
+#[test]
+fn preview_syntax_colors_default_on_and_can_be_turned_off() {
+    assert!(parse("").unwrap().highlight);
+    assert!(!parse("[ui]\nhighlight = false\n").unwrap().highlight);
+    assert!(parse("[ui]\nhighlight = 'yes'\n").is_err());
+}

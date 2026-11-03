@@ -406,6 +406,16 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_preview_colors_a_text_files_syntax(self):
+        (self.root / "main.rs").write_text("const ANSWER: u32 = 42;\n")
+        s = self.start("--depth", "1", implicit_root=True, size=(40, 120))
+        s.wait_ui("Preview · text · 1 line")
+        # The number in the error color of the default palette (midnight).
+        s.wait_bytes(b"38;2;250;145;145;48;2;20;30;46m42")
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()
@@ -2481,6 +2491,30 @@ class TerminalTests(unittest.TestCase):
             s.finish()
             s.close()
         self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_gc_edits_the_configuration_and_falls_back_to_its_backup(self):
+        (self.root / "alpha").write_text("a")
+        config = self.root / "config.toml"
+        config.write_text("[ui]\npalette='nord'\n")
+        backup = self.root / "config.toml.bak"
+        edited = self.root / "edited.toml"
+        # The editor replaces the configuration with the prepared edit.
+        env = self.run_environment("myeditor", f'cp "{edited}" "$1"\n')
+        s = self.start("--config", str(config), implicit_root=True,
+                       environment={**env, "EDITOR": "myeditor"})
+        edited.write_text("[ui]\npalette = \n")
+        s.send(b"gc", "reads its backup")
+        s.wait_ui("config errors")
+        self.assertEqual(backup.read_text(), "[ui]\npalette='nord'\n")
+        # Editing again keeps the backup that loads, and a fixed file
+        # replaces it, with its keys in effect at once.
+        edited.write_text("[keys.normal]\nquit = 'Q'\n")
+        s.send(b"gc", "Configuration reloaded")
+        s.wait_absent("config errors")
+        self.assertFalse(backup.exists())
+        s.send(b"Q")
+        self.assertEqual(s.finish(), (0, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_go_to_suggests_zoxide_folders_and_ctrl_o_i_walk_history(self):

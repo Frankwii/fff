@@ -288,6 +288,7 @@ fn the_preview_takes_the_bottom_half_below_or_between_the_panes() {
                 ("first line".into(), Tone::Text),
                 ("x".repeat(300), Tone::Text),
             ],
+            ..Default::default()
         },
     );
     let frame = |app: &mut App, width, height| {
@@ -326,6 +327,77 @@ fn the_preview_takes_the_bottom_half_below_or_between_the_panes() {
     app.preview.shown = false;
     let (screen, page) = frame(&mut app, 120, 40);
     assert!(!screen.contains("Preview") && page > 25);
+}
+#[test]
+fn text_previews_draw_their_syntax_colors_below_a_rule() {
+    use crate::highlight::Syntax;
+    use crate::preview::{Key, Preview, Tone};
+    let mut app = fixture();
+    let theme = app.palette;
+    let preview = Preview {
+        kind: "text · 2 lines".into(),
+        facts: vec![("From".into(), "/somewhere".into())],
+        lines: vec![
+            ("fn main() {}".into(), Tone::Text),
+            (
+                "// a long comment cut at the pane's edge, past it".into(),
+                Tone::Text,
+            ),
+        ],
+        syntax: vec![
+            vec![(0, 2, Syntax::Keyword), (3, 7, Syntax::Function)],
+            vec![(0, 50, Syntax::Comment)],
+        ],
+        ..Default::default()
+    };
+    let key = Key {
+        path: app.cwd.join("main.rs"),
+        size: 9,
+        modified: None,
+        hidden: false,
+    };
+    app.preview.set(key, preview);
+    app.preview.highlight = true;
+    let mut terminal = Terminal::new(TestBackend::new(40, 30)).unwrap();
+    terminal
+        .draw(|frame| {
+            render(frame, &mut app, &mut Focus::Results);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+    let screen = text(&buffer);
+    let at = |token: &str| {
+        let row = screen.lines().position(|l| l.contains(token)).unwrap();
+        let line = screen.lines().nth(row).unwrap();
+        let column = line[..line.find(token).unwrap()].chars().count();
+        (column as u16, row as u16)
+    };
+    let fn_at = at("fn main");
+    assert_eq!(buffer[fn_at].fg, theme.accent);
+    assert_eq!(buffer[(fn_at.0 + 3, fn_at.1)].fg, theme.link);
+    assert_eq!(buffer[(fn_at.0 + 8, fn_at.1)].fg, theme.text);
+    let comment = at("// a long");
+    assert_eq!(buffer[comment].fg, theme.muted);
+    assert!(screen.contains("…"), "{screen}");
+    // The facts and the content are set apart by a rule.
+    let facts = screen
+        .lines()
+        .position(|l| l.contains("/somewhere"))
+        .unwrap();
+    let rule = screen.lines().nth(facts + 1).unwrap();
+    assert!(
+        rule.contains("│ ────") && !rule.contains("Pages"),
+        "{screen}"
+    );
+    assert_eq!(fn_at.1 as usize, facts + 2);
+    // With [ui] highlight off, the same text is plain.
+    app.preview.highlight = false;
+    terminal
+        .draw(|frame| {
+            render(frame, &mut app, &mut Focus::Results);
+        })
+        .unwrap();
+    assert_eq!(terminal.backend().buffer()[fn_at].fg, theme.text);
 }
 #[test]
 fn narrow_tiny_unicode_and_resize_frames_have_only_visible_targets() {
@@ -1636,6 +1708,7 @@ fn the_preview_scrolls_its_content_and_keeps_its_facts() {
             lines: (1..=100)
                 .map(|n| (format!("line {n:03}"), Tone::Text))
                 .collect(),
+            ..Default::default()
         },
     );
     let (screen, _) = draw(&mut app, 120, 40);

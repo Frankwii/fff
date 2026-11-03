@@ -38,6 +38,10 @@ const CACHE: usize = 32;
 /// Reads still running when another waits for one to end: moving on cannot
 /// stop a read stuck on a slow mount, only leave it behind.
 const READERS: usize = 16;
+/// How long a text waits for its syntax colors before it is shown plain;
+/// the colors follow when they come, up to `COLORS_LATE`.
+const COLORS_WAIT: Duration = Duration::from_millis(50);
+const COLORS_LATE: Duration = Duration::from_secs(3);
 
 /// How a line is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +60,10 @@ pub struct Preview {
     pub facts: Vec<(String, String)>,
     /// Then content: a text's lines, a folder's or an archive's entries.
     pub lines: Vec<(String, Tone)>,
+    /// A text file's syntax colors, by line, once they have arrived.
+    pub syntax: crate::highlight::Lines,
+    /// The lines are the start of a text file, which can have colors.
+    pub(crate) text_file: bool,
 }
 impl Preview {
     fn fact(&mut self, label: &str, value: impl Into<String>) {
@@ -83,6 +91,8 @@ pub struct Key {
 /// arrived for it.
 pub struct Pane {
     pub shown: bool,
+    /// `[ui] highlight`: color the syntax of text files.
+    pub highlight: bool,
     target: Option<Key>,
     since: Option<Instant>,
     requested: bool,
@@ -107,6 +117,7 @@ impl Default for Pane {
         let (sender, results) = mpsc::channel();
         Self {
             shown: false,
+            highlight: false,
             target: None,
             since: None,
             requested: false,
@@ -181,15 +192,36 @@ impl Pane {
             let wake = self.wake.clone();
             // A thread per entry: a read stuck on a slow mount holds up only
             // its own preview.
+            let highlight = self.highlight;
             std::thread::spawn(move || {
                 let _reading = reading;
-                let preview = build(&key.path, key.hidden, &cancel);
-                if !cancel.load(Ordering::Relaxed)
-                    && sender.send((key, preview)).is_ok()
-                    && let Some(wake) = wake
-                {
-                    let _ = wake.try_send(());
+                let mut preview = build(&key.path, key.hidden, &cancel);
+                let send = |preview: Preview| {
+                    if !cancel.load(Ordering::Relaxed)
+                        && sender.send((key.clone(), preview)).is_ok()
+                        && let Some(wake) = &wake
+                    {
+                        let _ = wake.try_send(());
+                    }
+                };
+                if highlight && preview.text_file {
+                    let lines = preview.lines.iter().map(|(l, _)| l.clone()).collect();
+                    let colors = crate::highlight::request(&key.path, lines, cancel.clone());
+                    // Shown at once in color when they come soon, else
+                    // plain first: the colors never hold the text up.
+                    match colors.recv_timeout(COLORS_WAIT) {
+                        Ok(syntax) => preview.syntax = syntax,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            send(preview.clone());
+                            match colors.recv_timeout(COLORS_LATE) {
+                                Ok(syntax) => preview.syntax = syntax,
+                                Err(_) => return,
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {}
+                    }
                 }
+                send(preview);
             });
         }
         changed
@@ -554,6 +586,7 @@ fn text(head: &[u8]) -> Option<String> {
 }
 /// A text's first lines; `whole` when the read reached the end.
 fn lines(text: &str, whole: bool, preview: &mut Preview) {
+    preview.text_file = true;
     let mut count = 0;
     for line in text.split_inclusive('\n') {
         count += 1;

@@ -70,9 +70,11 @@ pub enum ListAction {
     PrevTab,
     /// Same as Alt+↑ in the results: the next tab.
     NextTab,
+    /// Edit the configuration file in `$EDITOR`, then apply it.
+    EditConfig,
 }
 impl ListAction {
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 37] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -109,6 +111,7 @@ impl ListAction {
         Self::GoTo,
         Self::PrevTab,
         Self::NextTab,
+        Self::EditConfig,
     ];
     /// The default letter of a file operation: the view handles operations by
     /// it, whatever sequence the configuration binds.
@@ -167,7 +170,8 @@ impl ListAction {
             | Self::New
             | Self::Open
             | Self::Undo
-            | Self::Restore => return None,
+            | Self::Restore
+            | Self::EditConfig => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -339,6 +343,7 @@ pub struct NormalKeysConfig {
     pub go_to: Sequences,
     pub prev_tab: Sequences,
     pub next_tab: Sequences,
+    pub edit_config: Sequences,
     /// Plain digits 1–9 set the search depth in Normal-mode results.
     pub depth_digits: bool,
 }
@@ -382,6 +387,7 @@ impl Default for NormalKeysConfig {
             go_to: one("/"),
             prev_tab: one("<down>"),
             next_tab: one("<up>"),
+            edit_config: one("gc"),
             depth_digits: true,
         }
     }
@@ -425,6 +431,7 @@ impl NormalKeysConfig {
             ListAction::GoTo => ("go_to", &self.go_to),
             ListAction::PrevTab => ("prev_tab", &self.prev_tab),
             ListAction::NextTab => ("next_tab", &self.next_tab),
+            ListAction::EditConfig => ("edit_config", &self.edit_config),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
@@ -573,6 +580,8 @@ mod tests {
         assert_eq!(ListAction::DeletePermanently.operation_key(), Some('X'));
         assert_eq!(ListAction::Files.alt_key(), alt(KeyCode::Char('D')));
         assert_eq!(k.feed(key('/'), all), Step::Action(ListAction::GoTo));
+        assert_eq!(k.feed(key('g'), all), Step::Pending);
+        assert_eq!(k.feed(key('c'), all), Step::Action(ListAction::EditConfig));
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
         assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
         assert_eq!(k.describe(ListAction::Deeper), "→");

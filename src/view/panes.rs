@@ -176,22 +176,77 @@ pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
                     styled(truncate(value, room), theme.text),
                 ]));
             }
+            // A rule sets what the entry is apart from what it holds.
             if !preview.facts.is_empty() && !preview.lines.is_empty() {
-                lines.push(Line::from(""));
+                lines.push(Line::from(styled("─".repeat(width), theme.border)));
             }
             let room = (inner.height as usize).saturating_sub(lines.len());
             let most = preview.lines.len().saturating_sub(room);
             app.preview.room.set((room, most));
             let skip = app.preview.scrolled().min(most);
-            for (text, tone) in preview.lines.iter().skip(skip).take(room) {
+            for (i, (text, tone)) in preview.lines.iter().enumerate().skip(skip).take(room) {
                 let color = match tone {
                     Tone::Text => theme.text,
                     Tone::Muted => theme.muted,
                     Tone::Directory => theme.accent,
                 };
-                lines.push(Line::from(styled(truncate(text, width), color)));
+                lines.push(match preview.syntax.get(i) {
+                    Some(spans) if app.preview.highlight && !spans.is_empty() => {
+                        colored(text, spans, width, theme)
+                    }
+                    _ => Line::from(styled(truncate(text, width), color)),
+                });
             }
         }
     }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+/// A line of a text file in its syntax colors, cut to `width`.
+fn colored(
+    text: &str,
+    spans: &[(usize, usize, crate::highlight::Syntax)],
+    width: usize,
+    theme: Palette,
+) -> Line<'static> {
+    use crate::highlight::Syntax;
+    let shown = truncate(text, width);
+    // What is left of the text before an ellipsis.
+    let kept = if text.starts_with(&shown) {
+        shown.len()
+    } else {
+        shown.len() - '…'.len_utf8()
+    };
+    let style = |syntax| match syntax {
+        Syntax::Comment => Style::default()
+            .fg(theme.muted)
+            .add_modifier(Modifier::ITALIC),
+        Syntax::String => Style::default().fg(theme.success),
+        Syntax::Keyword => Style::default().fg(theme.accent),
+        Syntax::Type => Style::default().fg(theme.marked),
+        Syntax::Function | Syntax::Special => Style::default().fg(theme.link),
+        Syntax::Constant => Style::default().fg(theme.error),
+        Syntax::Heading => Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    };
+    let mut out = Vec::new();
+    let mut at = 0;
+    for &(start, end, syntax) in spans {
+        let (start, end) = (start.min(kept), end.min(kept));
+        let (Some(before), Some(piece)) = (text.get(at..start), text.get(start..end)) else {
+            continue;
+        };
+        if !before.is_empty() {
+            out.push(styled(before.to_string(), theme.text));
+        }
+        if !piece.is_empty() {
+            out.push(Span::styled(piece.to_string(), style(syntax)));
+            at = end;
+        }
+    }
+    out.push(styled(text[at..kept].to_string(), theme.text));
+    if kept < shown.len() {
+        out.push(styled(shown[kept..].to_string(), theme.text));
+    }
+    Line::from(out)
 }

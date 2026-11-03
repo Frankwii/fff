@@ -245,7 +245,8 @@ only the parents that tell same-named files apart, as in `fff pick`.
 The preview pane shows the highlighted entry in the bottom half of the
 screen: a text file's first lines, a folder's entries, an archive's
 contents, a PDF's facts and first pages' text, an image's size, a song's or a
-video's duration, streams and tags. It is text only, reads in the background
+video's duration, streams and tags. Text files show their syntax in the
+palette's colors, through Neovim. It is text only, reads in the background
 once the highlight rests, and never holds up the list. PDFs use poppler's
 `pdfinfo` and `pdftotext`, audio and video FFmpeg's `ffprobe`, when installed.
 Alt+v (`P` in Normal mode) hides or shows it, Ctrl+j and Ctrl+k scroll it,
@@ -321,6 +322,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | E in Normal | Open the current or marked paths in `$EDITOR`, then come back |
+| gc in Normal | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
 | q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |

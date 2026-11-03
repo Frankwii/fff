@@ -24,6 +24,8 @@ buttons = "off"
 watch = true
 # Start with the preview pane shown (Alt+v or P toggles it).
 preview = true
+# Color the syntax of text files in the preview pane, through Neovim.
+highlight = true
 
 [palettes.ember]
 # Custom palettes inherit a built-in; unspecified roles keep its values.
@@ -130,6 +132,7 @@ go_to = "/"      # Alt+g (go-to prompt),
 trash = "gt"     # Alt+t (the trash),
 next_tab = "<up>"   # and Alt+Up / Alt+Down (next / previous tab).
 prev_tab = "<down>"
+edit_config = "gc" # Edit this file in $EDITOR, then apply it at once.
 depth_digits = true # Results only: 1-9 set the search depth.
 
 # Remap any chord to a default chord, like --map-key (which wins on conflict).

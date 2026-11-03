@@ -2,7 +2,8 @@
 //!
 //! The watcher reloads the palette named by the session chooser (Alt+p) when one
 //! was applied, else the CLI pin, else `[ui] palette`. A generation counter
-//! discards reloads computed for a name the session has since replaced.
+//! discards reloads computed for a name the session has since replaced. A
+//! configuration file with errors gives way to the backup `gc` left beside it.
 use crate::config::{Palette, Settings};
 use std::{
     path::PathBuf,
@@ -38,7 +39,7 @@ struct Source {
 }
 impl Source {
     fn load(&self, name: Option<&str>) -> Result<PaletteState, String> {
-        Settings::load(
+        Settings::load_or_backup(
             self.path.as_deref(),
             self.disabled,
             name.or(self.pinned.as_deref()),
@@ -115,6 +116,20 @@ impl PaletteWatcher {
     pub fn reload_now(&self) -> Result<PaletteState, String> {
         self.set_session(None);
         self.source.load(None)
+    }
+    /// Every setting, read again as the session started reading them (`gc`).
+    pub fn settings(&self) -> Result<Settings, String> {
+        Settings::load_or_backup(
+            self.source.path.as_deref(),
+            self.source.disabled,
+            self.source.pinned.as_deref(),
+        )
+    }
+    /// Read the palette again now rather than at the next poll.
+    pub fn refresh(&self) {
+        if let Some(thread) = &self.thread {
+            thread.unpark();
+        }
     }
     fn set_session(&self, name: Option<String>) {
         let mut session = self.session.lock().unwrap();

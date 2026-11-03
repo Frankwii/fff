@@ -140,6 +140,7 @@ and always in the marked list, which has no text field:
 | `l` | Enter the highlighted directory, or open the file in the background | Neovim motion | No action |
 | `gg` / `G` | First / last result | First / last entry | First / last mark |
 | `m` / `M` | Mark all results / invert their marks | Neovim command | Mark all rows / invert their marks |
+| `gc` | [Edit the configuration](CONFIGURATION.md#editing-while-fff-runs), then apply it | Neovim command | Edit the configuration, then apply it |
 
 The palette chooser waits for a highlight to stay still for at least 100 ms
 before previewing it. Moving again restarts the wait; Enter applies immediately. The location
@@ -149,7 +150,8 @@ editing behavior. Alt bindings remain available in every mode.
 
 Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
 unmatched continuation sends both keys to Neovim, preserving commands such as
-`gU`, `ge`, `gu` and `g~`. Escape after a lone `g` cancels it without
+`gU`, `ge`, `gu` and `g~` (`gc`, Neovim's comment operator, edits the
+configuration instead). Escape after a lone `g` cancels it without
 clearing the query. The default `d`, `D` and `P` replace Neovim's delete and
 put commands in the results, which have little use in a one-line query, and
 `u` undoes file operations there instead of query edits (`:u` still undoes
@@ -163,6 +165,11 @@ No personal init, plugins, ShaDa, swap, backups, undo files or persistent histor
 are used. Logging goes to `/dev/null`; listener sockets are stopped. Communication
 uses private child stdin/stdout, separate from selected-path output. RPC has a
 bounded timeout and the child is reaped on exit.
+
+The preview pane's [syntax colors](CONFIGURATION.md#syntax-colors) come from
+another private process, `nvim --embed --headless --clean -n -i NONE`, which
+never edits: it adds only the parsers and queries under Neovim's
+`site` data directory to its runtime path.
 
 Text-local commands such as substitutions work. Commands needing Neovim windows,
 external programs or a full editor UI are outside this integration. Closing a

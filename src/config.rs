@@ -119,7 +119,7 @@ pub struct EditorConfig {
     pub backend: Option<EditorBackend>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CacheConfig {
     pub enabled: bool,
@@ -282,6 +282,7 @@ struct UiConfig {
     buttons: Buttons,
     watch: bool,
     preview: bool,
+    highlight: bool,
 }
 /// `[ui] buttons`: when the button bar is shown (opt-in).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -305,6 +306,7 @@ impl Default for UiConfig {
             buttons: Buttons::Off,
             watch: true,
             preview: true,
+            highlight: true,
         }
     }
 }
@@ -342,6 +344,8 @@ pub struct Settings {
     pub watch: bool,
     /// `[ui] preview`: start with the preview pane shown.
     pub preview: bool,
+    /// `[ui] highlight`: color the syntax of text previews.
+    pub highlight: bool,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
     pub trash: TrashConfig,
@@ -349,6 +353,9 @@ pub struct Settings {
     pub source: Option<PathBuf>,
     /// Active bookmark save destination, including a missing default config.
     pub bookmark_path: Option<PathBuf>,
+    /// The configuration file's errors, when these settings come from the
+    /// backup beside it (`load_or_backup`).
+    pub broken: Option<String>,
 }
 impl Settings {
     pub fn parse(
@@ -442,10 +449,12 @@ impl Settings {
             buttons: raw.ui.buttons,
             watch: raw.ui.watch,
             preview: raw.ui.preview,
+            highlight: raw.ui.highlight,
             open: raw.open,
             trash,
             source: None,
             bookmark_path: None,
+            broken: None,
         })
     }
     pub fn load(
@@ -453,22 +462,8 @@ impl Settings {
         disabled: bool,
         palette_override: Option<&str>,
     ) -> Result<Self, String> {
-        let home = std::env::var_os("HOME")
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from);
-        let default = default_path(
-            std::env::var_os("XDG_CONFIG_HOME")
-                .filter(|s| !s.is_empty())
-                .map(PathBuf::from)
-                .as_deref(),
-            home.as_deref(),
-        );
-        let path = if disabled {
-            None
-        } else {
-            explicit.map(PathBuf::from).or(default)
-        };
-        if let Some(path) = path {
+        let home = home();
+        if let Some(path) = chosen_path(explicit, disabled, home.as_deref()) {
             let (text, found) = match fs::read_to_string(&path) {
                 Ok(s) => (s, true),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound && explicit.is_none() => {
@@ -476,13 +471,7 @@ impl Settings {
                 }
                 Err(e) => return Err(format!("{}: {e}", path.display())),
             };
-            let absolute = if path.is_absolute() {
-                path
-            } else {
-                std::env::current_dir()
-                    .map_err(|e| e.to_string())?
-                    .join(path)
-            };
+            let absolute = absolute(path)?;
             let mut settings = Self::parse(
                 &text,
                 absolute.parent().unwrap(),
@@ -497,6 +486,104 @@ impl Settings {
             Self::parse("", Path::new("."), home.as_deref(), palette_override)
         }
     }
+    /// `load`, except that a configuration file with errors gives way to the
+    /// backup `gc` keeps beside it ([`backup_path`]) while that one loads;
+    /// `broken` then holds the file's errors.
+    pub fn load_or_backup(
+        explicit: Option<&Path>,
+        disabled: bool,
+        palette_override: Option<&str>,
+    ) -> Result<Self, String> {
+        let error = match Self::load(explicit, disabled, palette_override) {
+            Ok(settings) => return Ok(settings),
+            Err(error) => error,
+        };
+        let home = home();
+        let Some(path) = chosen_path(explicit, disabled, home.as_deref()) else {
+            return Err(error);
+        };
+        let path = absolute(path)?;
+        let Ok(text) = fs::read_to_string(backup_path(&path)) else {
+            return Err(error);
+        };
+        let mut settings = Self::parse(
+            &text,
+            path.parent().unwrap(),
+            home.as_deref(),
+            palette_override,
+        )
+        .map_err(|_| error.clone())?;
+        settings.bookmark_path = Some(path.clone());
+        settings.source = Some(path);
+        settings.broken = Some(error);
+        Ok(settings)
+    }
+}
+fn home() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+}
+/// `--config`, else the default location; `None` with `--no-config`.
+fn chosen_path(explicit: Option<&Path>, disabled: bool, home: Option<&Path>) -> Option<PathBuf> {
+    if disabled {
+        return None;
+    }
+    explicit.map(PathBuf::from).or_else(|| {
+        default_path(
+            std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .as_deref(),
+            home,
+        )
+    })
+}
+fn absolute(path: PathBuf) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(path))
+    }
+}
+/// Where `gc` keeps a copy of the configuration file at `path` while it is
+/// edited: `config.toml.bak` beside `config.toml`.
+pub fn backup_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_owned();
+    name.push(".bak");
+    path.with_file_name(name)
+}
+/// What the session says while it reads the backup of the configuration
+/// file at `path`, which has `error`.
+pub fn reading_backup(path: &Path, error: &str) -> String {
+    format!(
+        "{} has errors, so fff reads its backup {} until they are fixed: {}",
+        path.display(),
+        backup_path(path).display(),
+        brief(
+            error
+                .strip_prefix(&format!("{}: ", path.display()))
+                .unwrap_or(error)
+        )
+    )
+}
+/// A configuration error on one line: TOML's excerpt of the file, with its
+/// line numbers and carets, is left out.
+pub fn brief(error: &str) -> String {
+    error
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                && !line.starts_with('|')
+                && !line
+                    .split_once('|')
+                    .is_some_and(|(number, _)| number.trim().parse::<u64>().is_ok())
+        })
+        .collect::<Vec<_>>()
+        .join(": ")
 }
 #[derive(Deserialize)]
 struct BookmarkDocument {

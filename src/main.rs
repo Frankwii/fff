@@ -78,14 +78,15 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
   <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
-  <cyan>E</cyan> open current/marked paths in $EDITOR. Each folder remembers its cursor.
+  <cyan>E</cyan> open current/marked paths in $EDITOR; <cyan>gc</cyan> edit the configuration and apply it.
+  Each folder remembers its cursor.
   <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.
 
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
   config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
   file icons ([ui] icons), row details ([ui] columns), the preview pane
-  ([ui] preview), the mouse and buttons
+  ([ui] preview) and its syntax colors ([ui] highlight), the mouse and buttons
   ([ui] mouse, buttons), live updates ([ui] watch), Normal-mode list keys
   ([keys.normal]) and chord remapping ([keys.map], applied before --map-key).
   <cyan>fff setup --check-config</cyan> validates it and prints which file was read.
@@ -532,13 +533,14 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     if let Err(e) = policy.set_filters(args.glob) {
         usage("--glob", &e);
     }
-    let settings = Settings::load(
+    // A configuration with errors left by gc gives way to its backup.
+    let settings = Settings::load_or_backup(
         args.config.as_deref(),
         args.no_config,
         args.palette.as_deref(),
     )?;
     // Configured [keys.map] chords first, so --map-key rules override them.
-    let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps].concat())?;
+    let keys = KeyMap::parse(&[settings.key_maps.clone(), args.key_maps.clone()].concat())?;
     let watcher = fuzzy_file_finder::reload::PaletteWatcher::start(
         args.config.clone(),
         args.no_config,
@@ -594,6 +596,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.buttons = settings.buttons;
     app.watch = settings.watch;
     app.preview.shown = settings.preview;
+    app.preview.highlight = settings.highlight;
+    app.config_path = settings.bookmark_path.clone();
+    app.cli_key_maps = args.key_maps;
+    app.no_icons = args.no_icons;
     app.trash = settings
         .trash
         .enabled
@@ -620,6 +626,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             None => app.status = "No earlier session to resume; starting here".into(),
         }
     }
+    if let (Some(error), Some(path)) = (&settings.broken, &app.config_path) {
+        app.status = fuzzy_file_finder::config::reading_backup(path, error);
+    }
+    app.config_broken = settings.broken;
     app.bookmark_store = fuzzy_file_finder::bookmarks::Store::new(
         settings.bookmark_path,
         app.bookmarks.clone(),

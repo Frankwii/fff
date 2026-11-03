@@ -211,6 +211,10 @@ impl Session {
                 return Ok(None);
             }
             NormalKey::Consumed => return Ok(None),
+            NormalKey::EditConfig => {
+                self.edit_config(app)?;
+                return Ok(None);
+            }
             NormalKey::Depth(depth) => {
                 if app.depth != depth {
                     app.depth = depth;

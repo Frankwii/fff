@@ -48,6 +48,15 @@ impl Terminal {
             _ => Ok(()),
         }
     }
+    /// `[ui] mouse` changed: capture the mouse from now on, or stop.
+    pub(super) fn set_mouse(&mut self, mouse: bool) -> io::Result<()> {
+        if self.1 != mouse {
+            self.capture_mouse(false)?;
+            self.1 = mouse;
+            self.capture_mouse(true)?;
+        }
+        Ok(())
+    }
     fn capture_mouse(&mut self, on: bool) -> io::Result<()> {
         match (self.1, on) {
             (true, true) => execute!(self.0.backend_mut(), EnableMouseCapture),

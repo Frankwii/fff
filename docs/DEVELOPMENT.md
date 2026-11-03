@@ -24,6 +24,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (`results_key`, `marks_key`, the sheets and choosers). |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | Normal-mode list dispatch; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
+| `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |
 | `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, bookmark/glob/palette saves, dropped paths. |
 | `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations, progress, results, marks, undo records and their messages. |
 | `src/ui/mouse.rs` | Clicks, the wheel and drags in the results and lists; the opt-in button bar. |
@@ -35,6 +36,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | The F1 key guide and session details. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
+| `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
@@ -63,7 +65,9 @@ listed separately in the [roadmap](ROADMAP.md).
   non-negotiable: reads never block a frame or a highlight change, happen on
   their own threads after the highlight rests, and are cancelled when it
   moves. A read stuck on a slow mount cannot be interrupted, so at most 16
-  run at once; past that, the pane says it waits for one to end.
+  run at once; past that, the pane says it waits for one to end. Syntax
+  colors keep to the same rule: a read waits at most 50 ms for them before
+  showing the text plain.
 
 ## Behavior to preserve
 
@@ -151,7 +155,9 @@ Where a change usually has to touch, so that none is missed:
   (`src/operations.rs`), undo steps (`src/undo.rs`), a plan or confirmation
   started as a job from `src/ui/actions.rs`, and the
   [OPERATIONS.md](OPERATIONS.md) guarantees it keeps.
-- **A setting:** the struct, default and validation in `src/config.rs`,
+- **A setting:** the struct, default and validation in `src/config.rs`, how
+  `gc` applies it to a running session (`apply_settings` in
+  `src/ui/configure.rs`),
   [CONFIGURATION.md](CONFIGURATION.md), `docs/config.example.toml`, and a
   test in `tests/configuration.rs`.
 - **A command-line argument:** `Args` in `src/main.rs` and its completion

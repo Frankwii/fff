@@ -37,6 +37,30 @@ cargo run -- --config docs/config.example.toml --palette ember
 uses stderr; stdout remains empty. It checks syntax, names, colors, and limits,
 while unavailable bookmark directories are handled when you try to visit them.
 
+## Editing while fff runs
+
+`gc` in Normal mode (`edit_config` in [`[keys.normal]`](#normal-mode-keys))
+opens the configuration file in `$EDITOR`, as `E` would, and applies it as
+soon as the editor ends: key sequences and chord mappings, bookmarks,
+openers, icons, columns, the mouse and the button bar, live updates, the
+trash, cache and performance limits, message timing and syntax colors.
+`--map-key`, `--no-icons` and `--palette` still win over the file. A palette
+chosen with Alt+p stays for the session; otherwise the file's palette takes
+over. `[ui] preview` says how a session starts, so the pane stays as it is.
+A file that does not exist yet is created by the editor; with `--no-config`
+there is nothing to edit.
+
+Before the editor starts, fff copies a configuration that loads to
+`config.toml.bak` beside it (`NAME.bak` for `--config NAME`). When the edited
+file loads, the copy is removed. When it has errors, the copy stays and fff
+reads it instead: a message gives the file's first error, the query box's
+border says `config errors`, and F1's session details repeat the message
+until the file loads again. Run `gc` again to fix it; the copy is kept as
+it was, since it is the last configuration that loaded. Later sessions read
+the copy too while the file has errors, saying so when they start, and
+`fff setup --check-config` still checks the file itself. Alt+P and the
+palette's own reloads read the copy as well.
+
 ## File selection and overrides
 
 | Option | Effect |
@@ -283,6 +307,7 @@ same in st and any other terminal.
 ```toml
 [ui]
 preview = true   # false: start with the preview pane hidden
+highlight = true # false: text files in plain text
 ```
 
 It takes the bottom half of the panes. In wide terminals it spans the full
@@ -309,7 +334,31 @@ its name:
 | Anything else | What it is when the first bytes say (fonts, Windows executables, WebAssembly, Parquet, ...), else `binary data`. Pipes, sockets and devices are named and never opened. |
 
 Size, dates, permissions, owner and a link's target are not repeated: the
-footer right below shows them for the same entry.
+footer right below shows them for the same entry. Facts, such as a PDF's
+pages or where a trashed entry came from, are set apart from the content
+below them by a rule.
+
+### Syntax colors
+
+Text files show their syntax in the palette's colors: comments muted,
+strings in its success color, keywords in its accent, types in its marked
+color, functions in its link color, numbers and constants in its error
+color. Neovim, already fff's text engine, does the work in a private
+headless instance of its own, started with the first text preview: it finds
+the file type from the name and first lines, then colors with a tree-sitter
+parser and highlight queries where it has them (those built in, and those
+installed for your Neovim under `~/.local/share/nvim/site`, such as by
+nvim-treesitter), else with its classic `:syntax` files, which cover
+hundreds of file types. Your Neovim configuration and plugins are not
+loaded.
+
+Only what the pane holds is colored, the first 300 lines of the first
+64 KiB, so a large file costs no more than a small one: a few milliseconds
+for most files, more for the first file of a language while Neovim loads its
+parser. The text never waits for its colors: when they take longer than
+50 ms, it is shown plain and they follow. Moving on drops colors not yet
+worked out. `[ui] highlight = false` turns colors off; without `nvim`, text
+stays plain.
 
 The helper programs are optional. Without poppler (`pdfinfo`, `pdftotext`) or
 FFmpeg's `ffprobe`, the pane names the file's type and says which package
@@ -729,6 +778,7 @@ preview = "P"        # Show/hide the preview pane, like Alt+v (results)
 go_to = "/"          # Go-to prompt, like Alt+g (results)
 next_tab = "<up>"     # Next tab, like Alt+Up (results)
 prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
+edit_config = "gc"   # Edit the configuration, then apply it (results and marks)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
