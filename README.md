@@ -103,7 +103,7 @@ This section describes what each confirmation returns in `fff pick`; in
 Without root arguments, browsing starts in the invocation directory (or, with
 `--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
-depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek`); immediate children are depth
+depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek` and `fff grep`); immediate children are depth
 1. Shallower matches come first, followed within each depth by directories
 and fuzzy ranking; `fff pick` and `fff seek` rank by fuzzy score first, then
 depth. The depth is shown on the results' bottom border, under the count.
@@ -278,6 +278,22 @@ the first search through many documents takes a while, the next ones are
 immediate. A scanned document without a text layer has nothing to find
 (`ocrmypdf` adds one); a missing extractor is named in the query box.
 
+### Switching programs
+
+`gm` in Normal mode (`switch_program`) goes on as another of `fff roam`,
+`fff pick`, `fff seek` and `fff grep`, chosen by its letter (r, p, s, g).
+The session stays: folders, tabs and their history, the query, the
+highlight (one `fff seek` cannot list, a folder, comes back once it is
+listed again, unless you move), marks, exclusions, file filters and their
+toggles, hidden entries and the preview. The depth follows the new
+program's default (1, 3, 6 and 6) unless you set another, which stays.
+Leaving `fff grep` keeps its contents query for when you come back to it.
+The session then leaves as the program it ended in: `fff pick` and
+`fff grep` print the chosen files, `fff roam` and `fff seek` change
+directory. Dialogs (`fff explorer`) and `--window` sessions do not switch:
+a dialog answers the application that opened it, and a window has no shell
+to change directory or print to.
+
 ### Preview pane
 
 The preview pane shows the highlighted entry in the bottom half of the
@@ -374,6 +390,7 @@ key says which one.
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | e in Normal | Open the current or marked paths in `$EDITOR`, then come back |
+| gm in Normal | [Switch](#switching-programs) to `fff roam`, `pick`, `seek` or `grep`, keeping the session |
 | gc in Normal | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
 | q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |

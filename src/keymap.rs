@@ -54,6 +54,32 @@ pub enum Program {
     ExplorerFolder,
     ExplorerSave,
 }
+impl Program {
+    /// What `switch_program` offers, by their letters in its chooser: the
+    /// programs started from a shell. A file dialog answers its caller and
+    /// a window of its own has no shell to leave into, so neither switches.
+    pub const SWITCHABLE: [(Self, char); 4] = [
+        (Self::Roam, 'r'),
+        (Self::Pick, 'p'),
+        (Self::Seek, 's'),
+        (Self::Grep, 'g'),
+    ];
+    /// The depth it searches to without `--depth`: browsing shows a
+    /// folder's own entries, picking looks a little deeper, and seeking
+    /// deeper still.
+    pub fn default_depth(self) -> usize {
+        match self {
+            Self::Pick => 3,
+            Self::Seek | Self::Grep => 6,
+            Self::Roam
+            | Self::Window
+            | Self::ExplorerOpen
+            | Self::ExplorerMultiple
+            | Self::ExplorerFolder
+            | Self::ExplorerSave => 1,
+        }
+    }
+}
 /// The list a key acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Place {
@@ -564,6 +590,8 @@ pub enum Exec {
     Overlay(bool),
     /// The first row, or the last with `true`.
     JumpEnd(bool),
+    /// Choose another program to go on as.
+    SwitchProgram,
     Cancel,
 }
 
@@ -683,6 +711,7 @@ functions! {
     Palette "palette" Session "Choose a palette, previewing the highlighted one.";
     ReloadPalette "reload_palette" Session "Reload the configured palette, dropping a session choice.";
     EditConfig "edit_config" Session "Edit the configuration in $EDITOR, then apply it.";
+    SwitchProgram "switch_program" Session "Go on as fff roam, pick, seek or grep, keeping the query, highlight, marks, exclusions, filters and a depth you set.";
 }
 
 use Highlight as H;
@@ -771,6 +800,11 @@ impl Function {
             // Elsewhere it says where it works.
             ReturnMarks => both(lists_or_results),
             QuitCurrent => only_normal(scope(&[Roam, Window, Pick, Seek, Grep], &[], &[])),
+            SwitchProgram => both(scope(
+                &Program::SWITCHABLE.map(|(p, _)| p),
+                if normal { &[] } else { &[Results] },
+                &[],
+            )),
             Cancel => both(lists_or_results),
         }
     }
@@ -848,6 +882,7 @@ impl Function {
             Palette => alt('p'),
             ReloadPalette => alt('P'),
             EditConfig => Exec::EditConfig,
+            SwitchProgram => Exec::SwitchProgram,
         }
     }
     pub fn named(name: &str) -> Option<Self> {
@@ -1019,6 +1054,7 @@ impl Function {
             Palette => &[("gp", all)],
             ReloadPalette => &[("gP", all)],
             EditConfig => &[("gc", all)],
+            SwitchProgram => &[("gm", all)],
             _ => &[],
         };
         let specs: Vec<(&str, Scope)> = match mode {

@@ -943,6 +943,35 @@ pub(super) fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
         &[("f", "File"), ("d", "Directory"), ("esc", "Cancel")],
     );
 }
+pub(super) fn program_choice(frame: &mut Frame, main: Rect, app: &App) {
+    use crate::keymap::{Dimension, Program};
+    let current = app.program();
+    let others: Vec<_> = Program::SWITCHABLE
+        .iter()
+        .filter(|(p, _)| *p != current)
+        .collect();
+    let letters: Vec<String> = others.iter().map(|(_, l)| l.to_string()).collect();
+    let mut keys: Vec<(&str, &str)> = others
+        .iter()
+        .zip(&letters)
+        .map(|((p, _), l)| (l.as_str(), p.name()))
+        .collect();
+    keys.push(("esc", "Cancel"));
+    choice(
+        frame,
+        main,
+        app,
+        "Switch program",
+        &format!(
+            "Go on as another program than fff {}. The folders, query, highlight, \
+             marks, exclusions and filters stay; a depth you set stays too, else \
+             the new program's own applies. fff grep keeps its contents query for \
+             coming back.",
+            current.name(),
+        ),
+        &keys,
+    );
+}
 /// Rename, extraction and creation buffers. Rename fills the pane area; the
 /// single-line buffers are as tall as their explanation plus one input row.
 pub(super) fn operation_prompt(

@@ -128,7 +128,7 @@ struct Args {
     /// Change it during the session with Alt+Left / Alt+Right, or - / + in
     /// Normal mode.
     ///
-    /// [default: 1; in fff pick, 3; in fff seek, 6]
+    /// [default: 1; in fff pick, 3; in fff seek and fff grep, 6]
     #[arg(global = true, short, long, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: Option<u32>,
@@ -484,7 +484,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     if !matches!(args.command, None | Some(Command::Roam(_))) && !roam.is_empty() {
         conflict("roots, --browse, --resume and --window belong to fff roam");
     }
-    let mode = match args.command.take() {
+    let mut mode = match args.command.take() {
         None => Mode {
             roots: roam.roots,
             browse: roam.browse,
@@ -576,15 +576,20 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         .then(fuzzy_file_finder::state::session_path)
         .flatten()
         .and_then(|p| fuzzy_file_finder::state::load_session(&p));
-    // Browsing shows a folder's own entries; picking looks a little deeper,
-    // and seeking deeper still.
-    let depth = args.depth.unwrap_or(if mode.no_dir {
-        6
-    } else if mode.output_paths && mode.explorer.is_none() {
-        3
+    let program = if mode.explorer.is_some() {
+        keymap::Program::ExplorerOpen
+    } else if mode.grep {
+        keymap::Program::Grep
+    } else if mode.no_dir {
+        keymap::Program::Seek
+    } else if mode.output_paths {
+        keymap::Program::Pick
     } else {
-        1
-    }) as usize;
+        keymap::Program::Roam
+    };
+    let depth = args
+        .depth
+        .map_or(program.default_depth(), |depth| depth as usize);
     let mut app = if let Some((start, _)) = &browse_from {
         App::browse(start.clone(), depth, policy)
     } else if roots.is_empty() {
@@ -670,7 +675,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.bookmarks.clone(),
         app.home.clone(),
     );
-    let finish = ui::run(app, settings.cache, watcher, settings.performance)?;
+    let (finish, program) = ui::run(app, settings.cache, watcher, settings.performance)?;
+    // A session switched to another program leaves as that one does: fff
+    // pick and grep print paths, roam and seek change directory.
+    if dialog.is_none() {
+        mode.output_paths = matches!(program, keymap::Program::Pick | keymap::Program::Grep);
+    }
     report(finish, &mode, dialog, args.cd_file.as_deref(), &invocation)
 }
 /// --browse and fff explorer: the folder to start in and the file to

@@ -319,6 +319,7 @@ impl Session {
                     screen: Box::new(KeysScreen::new(here)),
                 };
             }
+            Exec::SwitchProgram => self.focus = Focus::ProgramChoice,
             Exec::Cancel => return Ok(Some(Finish::Cancelled)),
         }
         Ok(None)

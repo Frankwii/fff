@@ -26,6 +26,7 @@ impl Session {
             Focus::Replace(_) => return Ok(self.replace_key(app, key)),
             Focus::RunConfirm(_) => return self.run_confirm_key(app, key),
             Focus::NewChoice => self.new_choice_key(app, key),
+            Focus::ProgramChoice => self.program_choice_key(app, key),
             Focus::ScopeChoice { .. } => self.scope_choice_key(app, key)?,
             Focus::TransferConfirm(_) => self.transfer_confirm_key(app, key),
             Focus::DeleteConfirm(_) => self.delete_confirm_key(app, key),
@@ -92,6 +93,35 @@ impl Session {
             }
             K::Esc => self.focus = Focus::Results,
             _ => {}
+        }
+    }
+    /// A program's letter switches to it; Esc stays.
+    fn program_choice_key(&mut self, app: &mut App, key: KeyEvent) {
+        let K::Char(letter) = key.code else {
+            if key.code == K::Esc {
+                self.focus = Focus::Results;
+            }
+            return;
+        };
+        let Some(&(program, _)) = keymap::Program::SWITCHABLE
+            .iter()
+            .find(|&&(p, l)| l == letter && p != app.program())
+        else {
+            return;
+        };
+        self.focus = Focus::Results;
+        let scan = app.switch_program(program);
+        // The query typed into next keeps the mode gm was pressed in.
+        let field = match &app.grep {
+            Some(grep) if grep.editing => Field::Contents,
+            _ => Field::Query,
+        };
+        self.editor.reset_preserving_mode(field);
+        if scan {
+            // Starting a scan clears the status; keep saying what changed.
+            let status = std::mem::take(&mut app.status);
+            self.discovery.start(app, false);
+            app.status = status;
         }
     }
     fn scope_choice_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<()> {

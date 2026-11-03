@@ -16,6 +16,12 @@ history.
   case-smart literal that ignores accents unless typed and matches across
   line breaks and hyphenation. Enter prints the chosen files, like
   `fff pick`.
+- **`gm` switches program**: go on as `fff roam`, `pick`, `seek` or `grep`
+  (`switch_program`). The folders, query, highlight, marks, exclusions and
+  filters stay; the depth follows the new program's default unless you set
+  another; `fff grep`'s contents query waits for coming back to it. The
+  session leaves as the program it ends in. Dialogs and `--window` sessions
+  do not switch.
 
 ### Changed
 

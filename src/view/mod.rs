@@ -303,6 +303,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         } => info(frame, area, app, offset, *keys, screen),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
         Focus::NewChoice => new_choice(frame, main, app),
+        Focus::ProgramChoice => program_choice(frame, main, app),
         Focus::Replace(replace) => replace_choice(frame, main, app, replace),
         Focus::ScopeChoice {
             current,
