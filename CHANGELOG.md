@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.13.0 — 2026-11-03
+
+The trash opens like a folder and R restores from it, the preview pane
+scrolls, and the screen names keys as you configured them.
 
 ### Added
 
