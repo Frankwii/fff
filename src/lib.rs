@@ -112,6 +112,7 @@ struct RefreshBasis {
     ignore: bool,
     rules: Vec<String>,
     filters: Vec<String>,
+    filters_off: bool,
     no_dir: bool,
     kinds: Kinds,
     short_labels: bool,
@@ -127,6 +128,7 @@ impl RefreshBasis {
             ignore: app.policy.ignore,
             rules: app.policy.rules.clone(),
             filters: app.policy.filters.clone(),
+            filters_off: app.policy.filters_off,
             no_dir: app.no_dir,
             kinds: app.kinds,
             short_labels: app.short_labels,
@@ -462,6 +464,7 @@ impl App {
             query: self.query.clone(),
             depth: self.depth,
             filters: self.policy.filters.clone(),
+            filters_off: self.policy.filters_off,
             rules: self.policy.rules.clone(),
             ignore: self.policy.ignore,
             hidden: self.policy.hidden,
@@ -498,6 +501,7 @@ impl App {
         self.depth = session.depth.max(1);
         self.policy.hidden = session.hidden;
         self.policy.ignore = session.ignore;
+        self.policy.filters_off = session.filters_off;
         // Globs were valid when saved; one that no longer is drops its list.
         let _ = self.policy.set_rules(session.rules);
         let _ = self.policy.set_filters(session.filters);

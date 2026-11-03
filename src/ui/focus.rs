@@ -720,6 +720,19 @@ impl Session {
                 app.policy.ignore = !app.policy.ignore;
                 self.discovery.start(app, false);
             }
+            // Filters only choose among discovered files: no rescan.
+            (K::Char('F'), _, true) => {
+                if app.policy.filters.is_empty() {
+                    app.status = match app.either("alt+f", ListAction::EditFilters) {
+                        Some(key) => format!("No file filters to turn on; {key} adds some"),
+                        None => "No file filters to turn on".into(),
+                    };
+                } else {
+                    app.policy.filters_off = !app.policy.filters_off;
+                    app.offset = 0;
+                    app.refresh();
+                }
+            }
             // Escape clears the query; pressed again with none, the marks.
             (K::Esc, _, _) if app.query.is_empty() => {
                 if std::mem::replace(&mut self.escape_armed, true) && !app.marks.is_empty() {

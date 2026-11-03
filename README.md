@@ -208,14 +208,15 @@ Labels are presentation only: output paths are never shortened.
 `--glob` is a file filter: only files whose basename matches it are listed, and
 directories are hidden but still traversed. Repeat it to allow several patterns
 (`--glob '*.pdf' --glob '*.epub'`); a file matching any of them is listed. Alt+f
-edits the filters during the session, one glob per line. Changing them re-lists
+(`gF` in Normal mode) edits the filters during the session, one glob per line;
+Alt+F (`gf`) turns them off and on again, keeping them. Changing them re-lists
 the files already found without rescanning.
 
 Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
 a matching directory prunes its subtree. Rules match basenames or scope-relative
 paths, with literal separators. No automatic `.gitignore` integration is enabled.
 The query box's bottom border shows `filters on` and `exclusions on` only
-while filters or enforced exclusion rules exist; F2's session details list
+while filters or exclusion rules exist and are applied; F2's session details list
 their globs. It also shows discovery progress while a scan runs and for three
 seconds after it completes (`◌ partial` stays while a scan stopped at
 `max_paths`). `files only` or `folders only` appear beside the results' count.
@@ -274,7 +275,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 
 Alt chords that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space, Alt+digits)
 work in every mode. Alt chords for features (Alt+b, Alt+g, Alt+t, Alt+., Alt+d,
-Alt+D, Alt+v, Alt+e, Alt+H, Alt+f) work while typing; in Normal-mode results
+Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p, Alt+P) work while typing; in Normal-mode results
 their sequences do the work instead, and the chord says which one.
 
 | Key | Action |
@@ -312,9 +313,10 @@ their sequences do the work instead, and the chord says which one.
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
-| Alt+H / gE in Normal | Toggle exclusion enforcement |
-| Alt+e / ge in Normal | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
-| Alt+f / gf in Normal | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
+| Alt+H / ge in Normal | Toggle exclusion enforcement |
+| Alt+e / gE in Normal | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
+| Alt+f / gF in Normal | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
+| Alt+F / gf in Normal | Turn the file filters off or on again, keeping them |
 | v / p / s in Normal | Move / copy / symlink all marked paths into the current directory; a move or copy that would overwrite asks first |
 | x in Normal | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
 | X in Normal | Choose current/selected deletion, review sizes, then Enter deletes permanently |

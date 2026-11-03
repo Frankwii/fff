@@ -18,9 +18,14 @@ history.
 - **F2 opens the Session tab** directly, F1 the key guide; each key closes
   its own tab. `[keys.map]` and `--map-key` now take any of `f1` to `f12`,
   so `"f4" = "f2"` moves the Session tab to F4.
-- **`ge`, `gE` and `gf` in Normal mode** edit the exclusions, turn their
-  enforcement on or off, and edit the file filters (`exclusions`,
-  `enforce_exclusions` and `filters` in `[keys.normal]`).
+- **File filters can be turned off and on again** without losing them:
+  `gf` in Normal mode, Alt+F while typing.
+- **Normal-mode keys for exclusions, filters and palettes**: `gE` edits the
+  exclusions and `ge` turns their enforcement on or off, `gF` edits the file
+  filters, `gp` opens the palette chooser and `gP` goes back to the
+  configuration's palette (`edit_exclusions`, `enforce_exclusions`,
+  `edit_filters`, `toggle_filters`, `palette` and `reload_palette` in
+  `[keys.normal]`).
 - **`[keys.map]` targets can be named by what they do** (preliminary, until
   key names are unified): `"f4" = "session"`, `"ctrl+b" = "bookmarks"`.
 - **The button bar hides once the mouse rests**: with `buttons = "mouse"`,
@@ -41,9 +46,9 @@ history.
 - **`+` and `-` change the depth in Normal mode**, instead of Right and Left,
   and **`g/` opens the go-to prompt** instead of `/`.
 - **Alt chords for features work only while typing**: in Normal-mode results,
-  Alt+b, Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H and Alt+f say
-  which Normal-mode key to use instead (`b`, `g/`, `gt`, `.`, `d`, `D`, `P`,
-  `ge`, `gE`, `gf`). Alt chords that move around work in every mode.
+  Alt+b, Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f,
+  Alt+F, Alt+p and Alt+P say which Normal-mode key to use instead (`b`, `g/`,
+  `gt`, `.`, `d`, `D`, `P`, `gE`, `ge`, `gF`, `gf`, `gp`, `gP`). Alt chords that move around work in every mode.
 - **`e` opens in `$EDITOR` and `E` extracts archives**, swapped from before.
   A configuration that sets `edit` or `extract` in `[keys.normal]` keeps its
   keys.

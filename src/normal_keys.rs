@@ -73,14 +73,20 @@ pub enum ListAction {
     /// Edit the configuration file in `$EDITOR`, then apply it.
     EditConfig,
     /// Same as Alt+e in the results: edit the exclusions.
-    Exclusions,
+    EditExclusions,
     /// Same as Alt+H in the results: enforce the exclusions, or not.
     EnforceExclusions,
     /// Same as Alt+f in the results: edit the file filters.
-    Filters,
+    EditFilters,
+    /// Same as Alt+F in the results: turn the file filters off or on.
+    ToggleFilters,
+    /// Same as Alt+p in the results: the palette chooser.
+    Palette,
+    /// Same as Alt+P in the results: the configuration's palette again.
+    ReloadPalette,
 }
 impl ListAction {
-    pub const ALL: [Self; 40] = [
+    pub const ALL: [Self; 43] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -118,9 +124,12 @@ impl ListAction {
         Self::PrevTab,
         Self::NextTab,
         Self::EditConfig,
-        Self::Exclusions,
+        Self::EditExclusions,
         Self::EnforceExclusions,
-        Self::Filters,
+        Self::EditFilters,
+        Self::ToggleFilters,
+        Self::Palette,
+        Self::ReloadPalette,
     ];
     /// The default letter of a file operation: the view handles operations by
     /// it, whatever sequence the configuration binds.
@@ -154,9 +163,12 @@ impl ListAction {
                 | Self::Directories
                 | Self::Files
                 | Self::Preview
-                | Self::Exclusions
+                | Self::EditExclusions
                 | Self::EnforceExclusions
-                | Self::Filters
+                | Self::EditFilters
+                | Self::ToggleFilters
+                | Self::Palette
+                | Self::ReloadPalette
         )
     }
     /// The action whose Alt chord, working only while typing, `key` is.
@@ -185,9 +197,12 @@ impl ListAction {
             Self::Preview => 'v',
             Self::GoTo => 'g',
             Self::Trash => 't',
-            Self::Exclusions => 'e',
+            Self::EditExclusions => 'e',
             Self::EnforceExclusions => 'H',
-            Self::Filters => 'f',
+            Self::EditFilters => 'f',
+            Self::ToggleFilters => 'F',
+            Self::Palette => 'p',
+            Self::ReloadPalette => 'P',
             Self::First
             | Self::Last
             | Self::MarkAll
@@ -381,9 +396,12 @@ pub struct NormalKeysConfig {
     pub prev_tab: Sequences,
     pub next_tab: Sequences,
     pub edit_config: Sequences,
-    pub exclusions: Sequences,
+    pub edit_exclusions: Sequences,
     pub enforce_exclusions: Sequences,
-    pub filters: Sequences,
+    pub edit_filters: Sequences,
+    pub toggle_filters: Sequences,
+    pub palette: Sequences,
+    pub reload_palette: Sequences,
     /// Plain digits 1–9 set the search depth in Normal-mode results.
     pub depth_digits: bool,
 }
@@ -428,9 +446,12 @@ impl Default for NormalKeysConfig {
             prev_tab: one("<down>"),
             next_tab: one("<up>"),
             edit_config: one("gc"),
-            exclusions: one("ge"),
-            enforce_exclusions: one("gE"),
-            filters: one("gf"),
+            edit_exclusions: one("gE"),
+            enforce_exclusions: one("ge"),
+            edit_filters: one("gF"),
+            toggle_filters: one("gf"),
+            palette: one("gp"),
+            reload_palette: one("gP"),
             depth_digits: true,
         }
     }
@@ -475,9 +496,12 @@ impl NormalKeysConfig {
             ListAction::PrevTab => ("prev_tab", &self.prev_tab),
             ListAction::NextTab => ("next_tab", &self.next_tab),
             ListAction::EditConfig => ("edit_config", &self.edit_config),
-            ListAction::Exclusions => ("exclusions", &self.exclusions),
+            ListAction::EditExclusions => ("edit_exclusions", &self.edit_exclusions),
             ListAction::EnforceExclusions => ("enforce_exclusions", &self.enforce_exclusions),
-            ListAction::Filters => ("filters", &self.filters),
+            ListAction::EditFilters => ("edit_filters", &self.edit_filters),
+            ListAction::ToggleFilters => ("toggle_filters", &self.toggle_filters),
+            ListAction::Palette => ("palette", &self.palette),
+            ListAction::ReloadPalette => ("reload_palette", &self.reload_palette),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
@@ -624,9 +648,12 @@ mod tests {
         for (second, action) in [
             ('/', ListAction::GoTo),
             ('c', ListAction::EditConfig),
-            ('e', ListAction::Exclusions),
-            ('E', ListAction::EnforceExclusions),
-            ('f', ListAction::Filters),
+            ('E', ListAction::EditExclusions),
+            ('e', ListAction::EnforceExclusions),
+            ('F', ListAction::EditFilters),
+            ('f', ListAction::ToggleFilters),
+            ('p', ListAction::Palette),
+            ('P', ListAction::ReloadPalette),
         ] {
             assert_eq!(k.feed(key('g'), all), Step::Pending);
             assert_eq!(k.feed(key(second), all), Step::Action(action));
@@ -642,7 +669,11 @@ mod tests {
             Some(ListAction::EnforceExclusions)
         );
         assert_eq!(ListAction::typing_chord(chord('h')), None);
-        assert_eq!(ListAction::typing_chord(chord('p')), None);
+        assert_eq!(
+            ListAction::typing_chord(chord('p')),
+            Some(ListAction::Palette)
+        );
+        assert_eq!(ListAction::typing_chord(chord('l')), None);
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
         assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
         assert_eq!(k.describe(ListAction::Deeper), "+");

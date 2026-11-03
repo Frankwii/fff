@@ -201,11 +201,17 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 note("by name or scope-relative path"),
                 row(key("alt+H"), "enforce exclusions on / off", false),
                 row(key("alt+f"), "edit file filters, one glob per line", false),
+                row(key("alt+F"), "file filters off / on, keeping them", false),
                 row(
-                    [Exclusions, EnforceExclusions, Filters]
-                        .map(normal)
-                        .join(" / "),
-                    "the same three in Normal mode",
+                    [
+                        EditExclusions,
+                        EnforceExclusions,
+                        EditFilters,
+                        ToggleFilters,
+                    ]
+                    .map(normal)
+                    .join(" / "),
+                    "the same four in Normal mode",
                     false,
                 ),
                 note("only files whose name matches one"),
@@ -325,6 +331,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
             vec![
                 row(key("alt+p"), "choose palette (100 ms preview)", false),
                 row(key("alt+P"), "reload palette from config", false),
+                row(
+                    normal(Palette) + "  " + &normal(ReloadPalette),
+                    "the same two in Normal mode",
+                    false,
+                ),
                 row(
                     normal(EditConfig),
                     "edit the configuration, then apply it",
@@ -550,6 +561,8 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     ));
     if app.policy.filters.is_empty() {
         sections.push(("Filters: none".into(), theme.text));
+    } else if app.policy.filters_off {
+        sections.push(("Filters: off".into(), theme.text));
     }
     sections.extend(
         app.policy

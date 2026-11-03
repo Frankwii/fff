@@ -118,6 +118,8 @@ pub struct Session {
     pub query: String,
     pub depth: usize,
     pub filters: Vec<String>,
+    /// Filters turned off (gf).
+    pub filters_off: bool,
     pub rules: Vec<String>,
     /// Exclusions enforced (Alt+H).
     pub ignore: bool,
@@ -168,6 +170,7 @@ pub fn save_session(path: &Path, session: &Session) -> std::io::Result<()> {
         put("exclude", rule.as_bytes());
     }
     put("ignore", flag(session.ignore));
+    put("filters_off", flag(session.filters_off));
     put("hidden", flag(session.hidden));
     put("files_only", flag(session.kinds == crate::Kinds::Files));
     put(
@@ -218,6 +221,7 @@ pub fn load_session(path: &Path) -> Option<Session> {
             b"filter" => session.filters.push(text(value)),
             b"exclude" => session.rules.push(text(value)),
             b"ignore" => session.ignore = value == b"1",
+            b"filters_off" => session.filters_off = value == b"1",
             b"hidden" => session.hidden = value == b"1",
             b"files_only" if value == b"1" => session.kinds = crate::Kinds::Files,
             b"directories_only" if value == b"1" => session.kinds = crate::Kinds::Directories,
@@ -298,6 +302,7 @@ mod tests {
             query: "pap\0er".into(),
             depth: 4,
             filters: vec!["*.pdf".into()],
+            filters_off: true,
             rules: vec!["target".into(), "build".into()],
             ignore: false,
             hidden: true,

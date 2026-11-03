@@ -784,18 +784,23 @@ go_to = "g/"         # Go-to prompt, like Alt+g (results)
 next_tab = "<up>"     # Next tab, like Alt+Up (results)
 prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 edit_config = "gc"   # Edit the configuration, then apply it (results and marks)
-exclusions = "ge"    # Edit the exclusions, like Alt+e (results)
-enforce_exclusions = "gE" # Enforce the exclusions or not, like Alt+H (results)
-filters = "gf"       # Edit the file filters, like Alt+f (results)
+edit_exclusions = "gE" # Edit the exclusions, like Alt+e (results)
+enforce_exclusions = "ge" # Enforce the exclusions or not, like Alt+H (results)
+edit_filters = "gF"  # Edit the file filters, like Alt+f (results)
+toggle_filters = "gf" # Turn the file filters off or on, like Alt+F (results)
+palette = "gp"       # Palette chooser, like Alt+p (results)
+reload_palette = "gP" # The configuration's palette again, like Alt+P (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
 `shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`,
-`preview`, `go_to`, `trash`, `exclusions`, `enforce_exclusions`, `filters`, the
-tab actions and the depth digits work only in Normal-mode results. Their Alt
-chords for moving around (Alt+arrows) work in every mode; those for features
-(Alt+b, Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f) only
-while typing, and in Normal mode say which sequence to use instead. With
+`preview`, `go_to`, `trash`, `edit_exclusions`, `enforce_exclusions`,
+`edit_filters`, `toggle_filters`, `palette`, `reload_palette`, the tab actions
+and the depth digits work only in Normal-mode results. Their Alt chords for
+moving around (Alt+arrows) work in every mode; those for features (Alt+b,
+Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p,
+Alt+P) only while typing, and in Normal mode say which sequence to use
+instead. With
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.
 
@@ -871,13 +876,13 @@ change when key names are unified across the configuration:
 | `hidden` | `alt+.` | `directories` | `alt+d` |
 | `files` | `alt+D` | `preview` | `alt+v` |
 | `scroll_preview_down` | `ctrl+j` | `scroll_preview_up` | `ctrl+k` |
-| `exclusions` | `alt+e` | `enforce_exclusions` | `alt+H` |
-| `filters` | `alt+f` | `shallower` | `alt+left` |
-| `deeper` | `alt+right` | `parent` | `alt+h` |
-| `open` | `alt+l` | `back` | `ctrl+o` |
-| `forward` | `ctrl+i` | `next_tab` | `alt+up` |
-| `prev_tab` | `alt+down` | `marks` | `alt+space` |
-| `return_marks` | `ctrl+w` | | |
+| `edit_exclusions` | `alt+e` | `enforce_exclusions` | `alt+H` |
+| `edit_filters` | `alt+f` | `toggle_filters` | `alt+F` |
+| `shallower` | `alt+left` | `deeper` | `alt+right` |
+| `parent` | `alt+h` | `open` | `alt+l` |
+| `back` | `ctrl+o` | `forward` | `ctrl+i` |
+| `next_tab` | `alt+up` | `prev_tab` | `alt+down` |
+| `marks` | `alt+space` | `return_marks` | `ctrl+w` |
 
 A Ctrl chord or function key mapped to a feature works in every mode; an Alt
 chord, like the features' own, only while typing in the results.

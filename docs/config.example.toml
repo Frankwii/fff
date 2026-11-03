@@ -134,9 +134,12 @@ go_to = "g/"     # Alt+g (go-to prompt),
 trash = "gt"     # Alt+t (the trash),
 next_tab = "<up>"   # and Alt+Up / Alt+Down (next / previous tab).
 prev_tab = "<down>"
-exclusions = "ge" # Alt+e, Alt+H and Alt+f (exclusions, enforcing them,
-enforce_exclusions = "gE"
-filters = "gf"    # file filters), which work only while typing.
+edit_exclusions = "gE"    # Alt+e, Alt+H, Alt+f and Alt+F (exclusions,
+enforce_exclusions = "ge" # enforcing them, file filters, turning them off),
+edit_filters = "gF"
+toggle_filters = "gf"
+palette = "gp"            # and Alt+p / Alt+P (palette chooser, the
+reload_palette = "gP"     # configuration's palette), work only while typing.
 edit_config = "gc" # Edit this file in $EDITOR, then apply it at once.
 depth_digits = true # Results only: 1-9 set the search depth.
 

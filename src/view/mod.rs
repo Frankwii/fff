@@ -592,7 +592,7 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     }
     // Filters and exclusions are only named while they hide something; their
     // globs are listed in the editors (Alt+f, Alt+e) and in F1's details.
-    if !app.policy.filters.is_empty() {
+    if app.policy.filtering() {
         optional.push(styled("filters on", theme.accent));
     }
     if app.policy.hidden {

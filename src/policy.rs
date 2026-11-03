@@ -15,6 +15,8 @@ pub struct Policy {
     /// matches one of them are listed; directories are still traversed.
     pub filters: Vec<String>,
     pub globs: Vec<GlobMatcher>,
+    /// Filters kept but not applied (gf, Alt+F).
+    pub filters_off: bool,
 }
 
 pub fn glob(pattern: &str) -> Result<GlobMatcher, globset::Error> {
@@ -44,9 +46,14 @@ impl Policy {
         self.globs = compiled;
         Ok(())
     }
-    /// Whether a file filter admits `name`, a basename; true when there are none.
+    /// Whether file filters choose what is listed: there are some, and they
+    /// are not turned off.
+    pub fn filtering(&self) -> bool {
+        !self.filters_off && !self.globs.is_empty()
+    }
+    /// Whether a file filter admits `name`, a basename; true when none apply.
     pub fn admits(&self, name: &Path) -> bool {
-        self.globs.is_empty() || self.globs.iter().any(|g| g.is_match(name))
+        !self.filtering() || self.globs.iter().any(|g| g.is_match(name))
     }
     /// Byte-level `allows` for `path` below `root`, used on every refresh.
     /// `None` (use `allows`) when exclusion rules apply or the bytes do not
@@ -138,7 +145,7 @@ pub(crate) fn shown(kinds: Kinds, policy: &Policy, c: &Candidate) -> bool {
         Kinds::Directories => c.directory,
         Kinds::Files if c.directory => false,
         _ => {
-            policy.globs.is_empty()
+            !policy.filtering()
                 || !c.directory
                     && c.path.file_name().is_some_and(|name| {
                         policy.admits(Path::new(name.to_string_lossy().as_ref()))
