@@ -14,7 +14,7 @@ buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
 form's name and path, the query of `fff pick`, `fff seek` and
 `fff explorer --save`, and both queries of `fff grep` (contents and names)
 start in **Insert mode**, ready for typing; rename and extraction buffers
-start in Normal. In `fff grep` Alt+/ (`switch_query`) moves between its two
+start in Normal. In `fff grep` Tab (`switch_query`) moves between its two
 queries in either mode; each keeps its own text, cursor, mode and undo
 history.
 Press `i` or `a` to type in a Normal field. Directory navigation
@@ -76,13 +76,13 @@ In Normal mode, `q` exits choosing nothing (no output, no directory change);
 `!` exits and returns the current browsing directory in the normal path
 output format (`--relative` and `--null` apply). Both ignore marks. In
 `fff seek`, both exit successfully without output. They also work in the marked list. Insert-mode
-fields treat them as text. They are `quit` and `quit_current` on the [Keys screen](CONFIGURATION.md#keys).
+fields treat them as text. They are `quit` and `quit_here` on the [Keys screen](CONFIGURATION.md#keys).
 
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
 Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
 mode. Space in Normal mode marks/unmarks like Shift+Space; in Insert mode it
 types a space. Shift+Space needs a terminal that tells it from Space (the kitty
-keyboard protocol); elsewhere it types a space, so Tab marks while typing too.
+keyboard protocol); elsewhere it types a space, so Tab marks while typing too (in `fff grep` Tab switches queries instead).
 In Normal-mode results Tab does nothing.
 The marked list always accepts Space because it has no text field. In Normal mode `m` marks every
 listed row (all filtered results, not only those on screen, or every row of the
@@ -124,7 +124,7 @@ mark.
 It never exits the session.
 
 Digits are query text in Insert mode. In Normal-mode results 1–9 set the
-search depth (`depth` on the Keys screen; `"none"` gives them back); elsewhere in Normal mode they
+search depth (`search_to_depth` on the Keys screen; `"none"` gives them back); elsewhere in Normal mode they
 are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results,
 except in `fff seek`, which has no tabs, where they move the highlight too;

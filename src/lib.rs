@@ -669,7 +669,7 @@ impl App {
             name(path),
             name(&config::backup_path(path))
         );
-        Some(match self.bound(keymap::Function::Session) {
+        Some(match self.bound(keymap::Function::ShowSession) {
             Some(key) => format!("{reading}; {key} shows them"),
             None => format!(
                 "{reading}: {}",

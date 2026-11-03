@@ -9,7 +9,7 @@ history.
 ### Added
 
 - **`fff grep` chooses files by what they contain.** A contents query beside
-  the names query (Alt+/ switches) lists one row per match, with its page or
+  the names query (Tab switches) lists one row per match, with its page or
   line and the line it is on; the preview shows the lines around it. PDF,
   DjVu and EPUB documents are searched through their text, extracted once
   into `~/.cache/fff/text`; later searches are immediate. The query is a
@@ -40,19 +40,31 @@ choose where each key applies.
 
 ### Added
 
-- **The Keys screen (F1).** Every function fff has, by name, with its keys in
-  Insert and Normal mode and what it does. Typing searches names,
-  descriptions and keys; Tab records keys instead and lists what they do,
-  dimming what does not apply where you are. It shows what works where you
-  opened it; Ctrl+a shows everything. Enter on a function adds (`a`),
-  deletes (`d`) or resets (`R`) its keys and sets where each applies (`s`).
-  Changes apply at once and are saved to `keys.toml`.
+- **The Keys screen (F1).** A picker laid out like the results: every
+  function fff has, by name, with its keys in Insert and Normal mode, and the
+  highlighted one's details beside. The query searches names, descriptions
+  and keys, and your own keys move through it (Alt+j/Alt+k, `j`/`k`, Escape
+  clears the query); Tab searches by pressing keys instead. It shows what
+  works where you opened it; Ctrl+a shows everything. Space goes a level
+  deeper at every level, Enter is done and Escape goes back: Space opens a
+  function's keys in a sheet like the bookmark form (add with `a`, delete
+  with `d`, reset with `R`), Space on a key opens where it applies (three
+  checklists: programs, lists, what is highlighted), and Enter saves to
+  `keys.toml` while Escape drops the changes. F1 closes the screen.
+- **Functions are named a verb and what it acts on** (`highlight_next`,
+  `go_to_parent`, `go_to_directory`, `toggle_hidden`, `show_bookmarks`,
+  `print_highlighted`, `quit_into_highlighted`...), and each description
+  starts with that verb.
+- **`go_to_highlighted`**: goes to the highlighted directory, or to the
+  highlighted file's directory with the file highlighted. Enter while typing
+  in `fff roam` does it on a file; give it a key of its own on the Keys
+  screen.
 - **Keys apply where you choose.** A key can be limited to programs (roam,
   window, pick, seek, each kind of explorer dialog), to the results or the
   marked list, and to a highlighted directory, file or nothing. One key does
   one thing wherever it is pressed: when keys clash, the Keys screen offers
   to narrow the new one or take it from the others there.
-- **No way to lock yourself in.** A change that would leave nothing to open
+- **No way to lock yourself in.** Saving keys that would leave nothing to open
   the Keys screen or to leave fff, that would turn typing into commands, or
   that would take `i`, `a` or `:` in Normal mode, is refused with the reason.
   A `keys.toml` with errors gives way to the default keys, and fff says why.
@@ -83,8 +95,8 @@ choose where each key applies.
 - **Keys live in `keys.toml`** beside the configuration, written in Vim's
   notation (`<M-h>`, `<CR>`, `gg`) by function, in an `[insert]` and a
   `[normal]` table. Each Enter, `l` and `o` case is a function of its own
-  (`quit_into_dir`, `open_and_quit`, `pick_file`, `reveal`,
-  `open_background`, `open_here`...), so each can be bound apart. A
+  (`quit_into_highlighted`, `open_and_quit`, `print_highlighted`, `go_to_highlighted`,
+  `open_in_background`, `open_in_terminal`...), so each can be bound apart. A
   configuration with `[keys]` says where they went.
 - **Keys inside choosers, prompts and sheets are fixed**: Enter, Escape, Tab,
   and `j`, `k`, `gg`, `G`, `q` and `!` in Normal mode.

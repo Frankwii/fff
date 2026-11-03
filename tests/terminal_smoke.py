@@ -328,8 +328,8 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("Preview · l. 2 · match 1 of 2")
         self.assertIn("intro", s.screen.text)
         s.send(b"\x1b[B", "Preview · l. 4 · match 2 of 2")
-        # Alt+/ types into the names query, which chooses the files read.
-        s.send(b"\x1b/", "Names · INSERT")
+        # Tab types into the names query, which chooses the files read.
+        s.send(b"\t", "Names · INSERT")
         s.send(b"zzz", "No matches")
         s.send(b"\x7f\x7f\x7f", "Matches · 2")
         # Enter prints the file.
@@ -450,7 +450,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start(implicit_root=True, output_paths=False)
         s.wait_ui(" depth 1 ")
         # In Normal mode, Alt+b names the key that works there instead.
-        s.send(b"\x1bb", "Alt+b works while typing; in Normal mode, b")
+        s.send(b"\x1bb", "Alt+b works in Insert mode; in Normal mode, b")
         self.assertNotIn("Bookmarks", s.screen.text)
         s.send(b"i", "INSERT")
         s.send(b"\x1bb", "Bookmarks")
@@ -806,20 +806,40 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         s = self.start()
         self.assertIn("F1 keys", s.screen.text)
-        s.send(b"\x1bOP", "here: pick · results")  # F1
-        self.assertIn("Alt+k", s.screen.text)
-        # Typing searches; Tab records keys instead.
-        s.send(b"mark", "Search mark")
-        s.send(b"\t", "Press keys")
+        s.send(b"\x1bOP", "showing what works in fff pick · results")  # F1
+        self.assertIn("Keys · INSERT", s.screen.text)
+        # Typing searches, and your own keys move: Alt+j while typing.
+        s.send(b"mark", "❯ mark")
+        s.send(b"\x1bj", "mark_all")
+        # Tab records keys instead of typing them.
+        s.send(b"\t", "RECORDING")
         s.send(b"\x1b ", "marked_list")  # Alt+Space
-        s.send(b"\x1b[27u", "Search mark")
+        s.send(b"\x1b[27u", "Keys · INSERT")
+        # Escape leaves Insert, then clears the query; it never closes.
+        s.send(b"\x1b[27u", "Keys · NORMAL")
+        s.send(b"\x1b[27u", "type to find a function")
         s.send(b"\x1bOQ", "CURRENT DIRECTORY")  # F2
-        s.send(b"\x1bOP", "here: pick · results")
-        s.send(b"\x1b[27u")  # Escape clears the search, then closes
-        s.send(b"\x1b[27u", "F1 keys")
-        self.assertNotIn("here: pick", s.screen.text)
+        s.send(b"\x1bOP", "showing what works")
+        s.send(b"\x1bOP", "F1 keys")  # F1 again closes
+        self.assertNotIn("showing what works", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_go_into_folder_enters_a_directory_or_a_files_folder(self):
+        (self.root / "sub" / "deep").mkdir(parents=True)
+        (self.root / "sub" / "note.txt").touch()
+        config = self.config("", keys="[normal]\ngo_to_highlighted = 'gd'\n")
+        s = self.start("--config", config, "--depth", "2", implicit_root=True, output_paths=False)
+        s.send(b"inote", "❯ note")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"gd", ("cwd", self.root / "sub"))
+        self.assertIn("note.txt", s.screen.text)
+        s.send(b"ideep", "❯ deep")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"gd", ("cwd", self.root / "sub" / "deep"))
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_keys_screen_saves_keys_and_refuses_a_lockout(self):
@@ -827,20 +847,28 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-keys-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("")
+            keys = Path(folder) / "keys.toml"
             s = self.start("--config", str(config))
-            s.send(b"\x1bOP", "here: pick · results")
-            s.send(b"hidden\r", "Show or hide hidden entries.")
-            # a, n: a Normal-mode key; q is quit's, so the scope opens.
-            s.send(b"anq\r", "hidden and quit both apply")
-            s.send(b"t", "Taken from the others")
-            keys = (Path(folder) / "keys.toml").read_text()
-            self.assertIn('hidden = [".", "q"]', keys)
+            s.send(b"\x1bOP", "showing what works")
+            s.send(b"hidden", "❯ hidden")
+            s.send(b"\r", "Keys of toggle_hidden")
+            # a, then Normal mode below Insert mode; q is quit's, so where
+            # it applies opens.
+            s.send(b"aj q\r", "is already quit's key")
+            s.send(b"t", "taken from the others")
+            self.assertFalse(keys.exists())  # staged until Enter
+            s.send(b"\r", "Keys saved to")
+            self.assertIn('toggle_hidden = [".", "q"]', keys.read_text())
             # Removing every key of guide would leave nothing to open this.
-            s.send(b"\x1b[27u\x1b[27u", "Search ▏")
-            s.send(b"guide\r", "Open the Keys screen")
-            s.send(b"d", "Removed")
-            s.send(b"d", "Not saved: nothing would open the Keys screen")
-            s.send(b"\x1b[27u\x1b[27u\x1b[27u\x1b[27u", "F1 keys")
+            s.send(b"\x1b[27u", "Keys · NORMAL")
+            s.send(b"\x1b[27u", "type to find a function")
+            s.send(b"ishow_keys", "❯ show_keys")
+            s.send(b"\r", "Keys of show_keys")
+            s.send(b"dd")
+            s.send(b"\r", "Not saved: nothing would open the Keys screen")
+            # F1 closes the screen and drops what was not saved.
+            s.send(b"\x1bOP", "Changes to keys not saved")
+            s.send(b"\x1b[27u")
             s.send(b"q", "hidden shown")
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -1662,7 +1690,7 @@ class TerminalTests(unittest.TestCase):
                 (Path(folder) / name).mkdir()
             config = Path(folder) / "config.toml"
             (Path(folder) / "keys.toml").write_text(
-                "[normal]\nmark='<S-Space>'\nfirst='<Space>t'\nlast=['G','<Space>b']\ndown='none'\n"
+                "[normal]\ntoggle_mark='<S-Space>'\nhighlight_first='<Space>t'\nhighlight_last=['G','<Space>b']\nhighlight_next='none'\n"
             )
             config.write_text(
                 "".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
@@ -1766,7 +1794,7 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-action-keys-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("")
-            (Path(folder) / "keys.toml").write_text("[normal]\nmark='x'\ndelete='none'\nquit='none'\n")
+            (Path(folder) / "keys.toml").write_text("[normal]\ntoggle_mark='x'\ntrash='none'\nquit='none'\n")
             s = self.start("--config", str(config))
             s.send(b"x", "Marks (1)")
             s.send(b"gE", "Edit exclusions")
@@ -2600,9 +2628,9 @@ class TerminalTests(unittest.TestCase):
         # F2 opens the Session tab on the errors, F1 the key guide; each
         # closes its own tab.
         s.send(b"\x1bOQ", "TOML parse error at line 2")
-        s.send(b"\x1bOP", "here: pick · results")
+        s.send(b"\x1bOP", "showing what works in fff pick")
         s.send(b"\x1bOP", "config errors")
-        s.wait_absent("here: pick · results")
+        s.wait_absent("showing what works")
         self.assertEqual(backup.read_text(), "[ui]\npalette='nord'\n")
         # Editing again keeps the backup that loads, and a fixed file
         # replaces it, with its keys in effect at once.
@@ -2653,7 +2681,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[A", ("cwd", self.root))
         s.send(b"\x1b[111;5u", "No earlier directory")
         s.send(b"iright\r", ("cwd", self.root / "right"))
-        # Alt+Down works while typing: back to tab 1 where it was left.
+        # Alt+Down works in Insert mode: back to tab 1 where it was left.
         s.send(b"\x1b[1;3B", ("cwd", self.root / "left"))
         self.assertIn("Marks (1)", s.screen.text)
         s.send(b"\x1b[111;5u", ("cwd", self.root))
@@ -2669,7 +2697,7 @@ class TerminalTests(unittest.TestCase):
         log = self.root / "log"
         env = self.run_environment(
             "tool", f'case "$1" in --help) echo "  -x, --and-exit  stop";; *) printf "%s\\n" "$@" > "{log}";; esac\n')
-        config = self.config("", keys="[normal]\ndelete = 'D'\nedit = 'none'\n")
+        config = self.config("", keys="[normal]\ntrash = 'D'\nedit_files = 'none'\n")
         s = self.start("--config", config, implicit_root=True, environment=env)
         s.send(SHIFT_SPACE, "Marks (1)")
         s.send(b"x")  # no longer delete: Neovim gets it
@@ -3130,7 +3158,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_rebound_choice(self):
         (self.root / "file").touch()
-        s = self.start("--config", self.config("", keys="[normal]\npick_file = ['<CR>', '<C-n>']\n"))
+        s = self.start("--config", self.config("", keys="[normal]\nprint_highlighted = ['<CR>', '<C-n>']\n"))
         s.send(b"\x0e")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
@@ -3202,7 +3230,7 @@ class TerminalTests(unittest.TestCase):
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
             (Path(folder) / "keys.toml").write_text(
-                "[normal]\npalette = ['gp', '<C-t>']\nreload_palette = ['gP', '<C-r>']\n"
+                "[normal]\nshow_palettes = ['gp', '<C-t>']\nreload_palette = ['gP', '<C-r>']\n"
             )
             s = self.start("--config", str(config), "--palette", "forest")
             s.send(b"\x14", "Palettes · Enter applies")

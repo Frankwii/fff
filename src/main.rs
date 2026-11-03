@@ -307,7 +307,7 @@ enum Command {
     ///
     /// Two queries: the contents query (typed first) keeps the files that
     /// contain it, one row per match with its page or line, and the names
-    /// query filters by name as in fff seek; Alt+/ switches between them.
+    /// query filters by name as in fff seek; Tab switches between them.
     /// Text files are read as they are; PDF, DjVu and EPUB documents through
     /// their text, extracted once (pdftotext, djvutxt) into ~/.cache/fff/text.
     /// The contents query is literal and case-smart, ignores accents unless

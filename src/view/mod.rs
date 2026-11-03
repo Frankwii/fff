@@ -224,6 +224,20 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         area.width.saturating_sub(2),
         area.height,
     );
+    if let Focus::Keys(screen) = focus {
+        let page = keys_screen(frame, area, app, screen);
+        return Rendered {
+            targets: Vec::new(),
+            bookmark_targets: Vec::new(),
+            page,
+            results: Rect::default(),
+            buttons: Vec::new(),
+            tabs: Vec::new(),
+            marks_pane: Rect::default(),
+            marks: Vec::new(),
+            choices: Vec::new(),
+        };
+    }
     let location = location_lines(app, area.width as usize);
     let bar = u16::from(app.buttons_shown() && crate::ui::Button::sets(focus).is_some());
     let layout = Layout::default()
@@ -296,11 +310,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
     }
     footer(frame, layout[4], app, focus);
     match focus {
-        Focus::Info {
-            offset,
-            keys,
-            screen,
-        } => info(frame, area, app, offset, *keys, screen),
+        Focus::Info { offset } => info(frame, area, app, offset),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
         Focus::NewChoice => new_choice(frame, main, app),
         Focus::Replace(replace) => replace_choice(frame, main, app, replace),
@@ -499,7 +509,7 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     second.extend(fit_spans(
         pinned,
         width.saturating_sub(4),
-        app.bound(crate::keymap::Function::Session).as_deref(),
+        app.bound(crate::keymap::Function::ShowSession).as_deref(),
     ));
     vec![Line::from(first), Line::from(second)]
 }

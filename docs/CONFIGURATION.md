@@ -56,7 +56,7 @@ file loads, the copy is removed. When it has errors, the copy stays and fff
 reads it instead: a message says so and that F2 shows the errors, the query
 box's border says `config errors`, and F2's Session tab gives the message
 and TOML's excerpt of the file, carets under each error, until the file
-loads again. With no key for `session`, the message gives the first error
+loads again. With no key for `show_session`, the message gives the first error
 itself. Run `gc` again to fix it; the copy is kept as
 it was, since it is the last configuration that loaded. Later sessions read
 the copy too while the file has errors, saying so when they start, and
@@ -743,12 +743,22 @@ reserved fff shortcuts.
 
 ## Keys
 
-Everything a key can do is a **function** with a name (`go_parent`,
-`quit_into_dir`, `toggle_filters`), a description, and a fixed set of places
+Everything a key can do is a **function** with a name (`go_to_parent`,
+`quit_into_highlighted`, `toggle_filters`), a description, and a fixed set of places
 where it works. **F1 opens the Keys screen**, which lists them with their
 keys and edits them; edits apply at once and are saved to **`keys.toml`**
 beside the configuration file (`~/.config/fff/keys.toml`, or beside
 `--config FILE`). With `--no-config` they last for the session.
+
+### Names
+
+A function's name is a verb and what it acts on, and its description starts
+with that verb: `highlight_` functions move the highlight, `go_to_` ones
+change the current directory, `toggle_` ones turn something on or off,
+`show_` ones open a screen or chooser, `edit_` ones open something in an
+editor, `print_` ones answer with paths and leave, and `quit_` ones leave.
+File operations are their verb alone (`trash`, `delete`, `rename`), acting
+on the current or marked entries.
 
 ### Where keys apply
 
@@ -757,66 +767,92 @@ A place is a combination of three things, fixed by design:
 | Dimension | Values |
 | --- | --- |
 | program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
-| place | `results`, `marks` (the marked list) |
+| list (`place` in `keys.toml`) | `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 
-Each function works only in some places: `quit_into_dir` in `roam` and
-`pick` on a directory, `go_parent` everywhere but `seek`, `restore` in the
+Each function works only in some places, which may be several:
+`quit_into_highlighted` works in `roam` and `pick` on a directory, or in
+`seek` on a file; `go_to_parent` everywhere but `seek`; `restore` in the
 results and the marked list. Insert mode exists only in the results.
 
-Keys are bound per mode, Insert or Normal, and each binding has a **scope**:
-the values of each dimension it applies to, all of them unless narrowed. Two
-bindings may share a key only where their scopes, within where their
-functions work, do not meet, so a key does exactly one thing wherever it is
-pressed. That is how Enter does different things in different places: in
-Normal mode it is `quit_into_dir` on a directory in `fff roam`, `go_into` on
-one in a window of its own, `open_and_quit` on a file in `fff roam`,
-`pick_file` on a file in `fff pick`, and so on.
+Keys are bound per mode, Insert or Normal, and each key applies in one place
+you choose: some programs, some lists, some highlights, all of them unless
+narrowed. Two keys may be the same only where their places, within where
+their functions work, do not meet, so a key does exactly one thing wherever
+it is pressed. That is how Enter does different things in different places:
+in Normal mode it is `quit_into_highlighted` on a directory in `fff roam`,
+`go_to_directory` on one in a window of its own, `open_and_quit` on a file
+in `fff roam`, `print_highlighted` on a file in `fff pick`, and so on.
 
 ### The Keys screen
 
-F1 opens it on the functions that work in the program and list you were in
-(`here: roam · results`); Ctrl+a shows every function. Typing searches names,
-descriptions and key names; Tab switches to a key search, where the keys you
-press are recorded instead (Tab again stops recording so the arrows move,
-Backspace takes back the last key, Escape returns to the text search). A key
-search lists every binding starting with those keys, dimming those that do
-not apply here. The highlighted function is described below the list.
+F1 replaces the results with a picker over the functions, laid out like
+them: the query box on top, the functions with their keys in Insert and
+Normal mode, the highlighted one's details beside them (what it does, where
+it works, each key and where it applies), and a line saying what the
+screen's own keys do. It lists the functions that work in the program and
+list you opened it from (`showing what works in fff roam · results`);
+Ctrl+a shows every function, and the fixed keys too.
 
-Enter opens a function: what it does, where it works, and its keys by mode
-with where each applies.
+The query is a Neovim field like the results' own, ready to type: it
+searches names, descriptions and key names. Your own keys work here as they
+do in the results: `highlight_previous` and `highlight_next` (Alt+k/Alt+j in
+Insert mode, `k`/`j` in Normal mode), the other `highlight_` functions,
+`clear_query` (Escape in Normal mode), `show_session`, `cancel` and `quit`.
+Escape never closes the screen; F1 (`show_keys`) does, from anywhere in it.
+Tab searches by pressing keys instead: the keys are recorded (Backspace
+takes one back), Tab again stops recording so the list moves, and Escape
+returns to typing. A key search lists every key starting with those
+pressed, those that apply where you opened the screen first and the others
+in grey.
 
-- **`a` adds a key:** choose the mode (`i` or `n`) when the function works in
-  both, then press the keys. The first key may be any key; after it, Enter
-  adds them, Backspace takes back the last and Escape gives up. A digit for
-  `depth`, `open_row` or `enter_row` stands for every digit.
-- **`s` sets where the highlighted key applies:** one toggle per program,
-  place and highlight (Space toggles, Enter saves). Values where the function
-  does not work are marked so.
-- **When keys clash** with another function's, the scope editor opens and
-  names the clash: `u` narrows the new key to where nothing else has it, `t`
-  takes it from the others there (they keep it elsewhere).
-- **`d` deletes** the highlighted key, **`R`** puts the function's default keys
-  back, Escape goes back to the list.
+The same three keys work at every level: **Space goes a level deeper**
+(Enter does too in the picker, where Space is typed in Insert mode),
+**Enter is done** and **Escape goes back**.
 
-A change that would lock you in is refused, with the reason: something must
-open the Keys screen (`guide`) and something must leave fff (`cancel`, or
-`quit` in Normal mode) everywhere in the results, something must leave the
-marked list (`marked_list`), Insert-mode keys cannot
-start with a key typed as text, nor be Escape, and Normal-mode keys cannot
-start with `i`, `a`, `I`, `A` or `:`, which reach Insert mode and Neovim's
-command line. The screen's own keys, and Escape out of it, are fixed.
+- **The picker:** Space opens the highlighted function's keys in a sheet
+  like the bookmark form. Changes there are staged: Enter saves them (to the
+  session and `keys.toml`), Escape drops them, and F1 closes the screen
+  dropping them too.
+- **A function's keys:** each key with its mode and where it applies. Space
+  opens where the highlighted key applies. `a` adds a key: choose Insert or
+  Normal mode when the function works in both, then press the keys (the
+  first may be any key; then Enter adds them, Backspace takes one back,
+  Escape gives up). A digit for `search_to_depth`, `open_row` or
+  `confirm_row` stands for every digit. `d` deletes the highlighted key, `R`
+  puts the function's default keys back.
+- **Where a key applies:** three checklists side by side, the programs, the
+  lists and what is highlighted, `●` ticked and `○` not. The key applies
+  wherever a ticked value of each column meets. Arrows (or `h`/`j`/`k`/`l`)
+  move, Space ticks, Enter is done, Escape goes back unchanged. Values in grey
+  are where the function does not work. When the key clashes with another
+  function's, the sheet says where: untick until nothing clashes, or `u`
+  keeps it only where nothing else has it, or `t` takes it from the others
+  there (they keep it elsewhere).
+
+A key applies in one such place; to make it apply in two separate places
+(in `fff seek` and `fff pick`, or in `fff roam` on a directory), add it
+again with each place: its rows read **or**.
+
+Saving keys that would lock you in is refused, with the reason, and the
+sheet stays open: something must open the Keys screen (`show_keys`) and
+something must leave fff (`cancel`, or `quit` in Normal mode) everywhere in
+the results, something must leave the marked list (`toggle_marked_list`),
+Insert-mode keys cannot start with a key typed as text, nor be Escape, and
+Normal-mode keys cannot start with `i`, `a`, `I`, `A` or `:`, which reach
+Insert mode and Neovim's command line. Space, Enter, Escape, Tab and Ctrl+a
+on the screen, and the sheets' own keys, are fixed.
 
 ### `keys.toml`
 
 ```toml
 [insert]
-down = ["<C-n>", "<Down>"]
-up = ["<C-p>", "<Up>"]
+highlight_next = ["<C-n>", "<Down>"]
+highlight_previous = ["<C-p>", "<Up>"]
 
 [normal]
 quit = "Q"
-go_into = [
+go_to_directory = [
   "l",
   "<M-l>",
   { keys = "<CR>", program = ["roam", "window"], highlight = ["dir"] },
@@ -838,7 +874,7 @@ waiting prefix has no timeout. Unbound keys and unfinished prefixes reach
 Neovim.
 
 A key you bind takes over a default one where they clash: `quit = "Q"` frees
-`q`, and `hidden = "q"` alone would take `q` from `quit` in the results,
+`q`, and `toggle_hidden = "q"` alone would take `q` from `quit` in the results,
 leaving it in the marked list. Two keys you bind may not clash. With errors,
 fff uses the default keys and says so; `fff setup --check-config` reports
 them. [`docs/keys.example.toml`](keys.example.toml) is a commented example.

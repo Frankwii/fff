@@ -20,7 +20,7 @@ pub(super) fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     };
     let mut help = vec![];
     for (key, what) in [
-        (app.bound(crate::keymap::Function::Guide), " keys "),
+        (app.bound(crate::keymap::Function::ShowKeys), " keys "),
         (quit, " quit "),
     ] {
         if let Some(key) = key {

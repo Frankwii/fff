@@ -183,7 +183,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
   line says what was opened; if the program later fails, a **Notice** pop-up
   appears at the top right with its exit status and the log's location, and
   fades after a few seconds.
-- **In this terminal:** `o` (`open_here` on the Keys screen) opens the
+- **In this terminal:** `o` (`open_in_terminal` on the Keys screen) opens the
   current or marked files with the same current / selection / all choice as `e`.
   The opener takes over the terminal, GUI or not, and fff comes back when it
   ends. Files sharing an opener go to one invocation (three PDFs, one zathura);

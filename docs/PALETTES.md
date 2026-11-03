@@ -57,7 +57,7 @@ updates it) and ignores `[ui].palette` until Alt+P returns control to the file.
 If that re-read fails, the current colors stay and the error is shown; the
 session choice is still cleared, so fixing the file recovers automatically.
 Alt+P works with `--no-config` too (it restores the default or pinned palette).
-Both can be rebound on the Keys screen (F1), as `palette` and `reload_palette`.
+Both can be rebound on the Keys screen (F1), as `show_palettes` and `reload_palette`.
 
 ## Color sources
 

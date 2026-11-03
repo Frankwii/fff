@@ -77,15 +77,15 @@ impl Dialog {
             }
         };
         let file = if self.save.is_some() {
-            Function::SaveAs
+            Function::SaveOver
         } else {
-            Function::ChooseFile
+            Function::PrintHighlighted
         };
         let enter = keys(file, Mode::Normal);
         let here = if self.save.is_some() {
             Function::SaveHere
         } else {
-            Function::ChooseFolder
+            Function::PrintCurrent
         };
         match (&self.save, self.directory, self.multiple) {
             (Some(_), _, _) if typing => format!(
@@ -109,9 +109,9 @@ impl Dialog {
             (None, false, true) => format!(
                 "Press {enter} on a file to choose it. Press {} to mark several, then {} to \
                  choose them.",
-                app.bound_in(Function::Mark, Mode::Normal)
-                    .unwrap_or_else(|| app.bound_or_none(Function::Mark)),
-                app.bound_or_none(Function::ReturnMarks)
+                app.bound_in(Function::ToggleMark, Mode::Normal)
+                    .unwrap_or_else(|| app.bound_or_none(Function::ToggleMark)),
+                app.bound_or_none(Function::PrintMarks)
             ),
             (None, false, false) => format!("Press {enter} on a file to choose it."),
         }
@@ -122,8 +122,8 @@ impl Dialog {
     pub fn file_hint(&self, app: &crate::App) -> Option<String> {
         let how = format!(
             "press {} on it{}",
-            app.bound_or_none(crate::keymap::Function::ChooseFile),
-            if app.bound(crate::keymap::Function::EnterRow).is_some() {
+            app.bound_or_none(crate::keymap::Function::PrintHighlighted),
+            if app.bound(crate::keymap::Function::ConfirmRow).is_some() {
                 " or Ctrl+number on its row"
             } else {
                 ""

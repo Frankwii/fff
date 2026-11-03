@@ -65,7 +65,7 @@ pub(super) fn results_pane(
     );
     if visible.is_empty() {
         use crate::keymap::Function;
-        let deeper = || does(app.bound(Function::Deeper), "searches deeper");
+        let deeper = || does(app.bound(Function::SearchDeeper), "searches deeper");
         let searching = app.grep.as_ref().and_then(|g| g.progress());
         let (title, hint) = if grep && searching.is_some() {
             (
@@ -104,7 +104,7 @@ pub(super) fn results_pane(
                 sentence(
                     "Directories are hidden",
                     [
-                        does(app.bound(Function::Directories), "shows them"),
+                        does(app.bound(Function::ToggleDirectories), "shows them"),
                         deeper(),
                     ],
                 ),
@@ -114,15 +114,21 @@ pub(super) fn results_pane(
                 "No folders here",
                 sentence(
                     "Files are hidden",
-                    [does(app.bound(Function::Files), "shows them"), deeper()],
+                    [
+                        does(app.bound(Function::ToggleFiles), "shows them"),
+                        deeper(),
+                    ],
                 ),
             )
         } else if app.physical_empty {
             (
                 "Empty directory",
                 [
-                    does(app.bound(Function::QuitIntoDir), "returns this directory"),
-                    does(app.bound(Function::GoParent), "goes up"),
+                    does(
+                        app.bound(Function::QuitIntoHighlighted),
+                        "returns this directory",
+                    ),
+                    does(app.bound(Function::GoToParent), "goes up"),
                 ]
                 .into_iter()
                 .flatten()

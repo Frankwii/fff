@@ -263,7 +263,8 @@ files that contain it, with **one row per match**: the file, the match's page
 the line it is on, the match highlighted. The
 preview pane shows the lines around the highlighted match. **Names** filters
 the files by name as in `fff seek`, so it chooses which files are read.
-Alt+/ switches between them; Escape clears the one being typed into (the
+Tab switches between them, in either mode (Shift+Space marks there);
+Escape clears the one being typed into (the
 other once it is empty). Enter prints the file (while typing, the marks and
 it); marking a match marks its file.
 
@@ -304,16 +305,18 @@ or change anywhere in the results, the results follow without F5. See
 
 ## Keys
 
-F1 opens the **Keys screen**: every function fff has, with its keys in Insert
-and Normal mode and where each applies. Type to search names and
-descriptions, or press Tab and then keys to see what they do; Enter on a
-function adds, deletes or resets its keys and sets where each one applies.
-Changes apply at once and are saved to `keys.toml`; one that would leave you
-no way to open the screen or to leave fff is refused. See
-[keys](docs/CONFIGURATION.md#keys). F2 opens the Session tab: exact paths,
-scopes, depth, policies, palette, marks and any errors in the configuration
-file. The footer's right end points to F1 and says how to leave: `F1 keys  q
-quit` (`Ctrl+c quit` while typing, where `q` is text).
+F1 opens the **Keys screen**, a picker laid out like the results: every
+function fff has, with its keys while typing and in Normal mode and where
+each applies. Type to search names and descriptions, or press Tab and then
+keys to see what they do; your own keys move through the list. Enter on a
+function opens its keys: add, delete or reset them and set where each one
+applies, then Enter saves them to `keys.toml` (Escape drops the changes).
+Keys that would leave you no way to open the screen or to leave fff are
+refused. F1 closes the screen. See [keys](docs/CONFIGURATION.md#keys). F2
+opens the Session tab: exact paths, scopes, depth, policies, palette, marks
+and any errors in the configuration file. The footer's right end points to
+F1 and says how to leave: `F1 keys  q quit` (`Ctrl+c quit` while typing,
+where `q` is text).
 
 The defaults: Alt keys that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space,
 Alt+digits) work in both modes. Alt keys for features (Alt+b, Alt+g, Alt+t,
@@ -326,7 +329,7 @@ key says which one.
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Escape twice in Normal | With the query empty: clear every mark |
-| Alt+/ | `fff grep`: type into the other query, contents or names |
+| Tab | `fff grep`: type into the other query, contents or names (elsewhere, while typing, Tab marks) |
 | Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`, `fff grep`) or exit into its folder (`fff seek`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`, `fff grep`), exit into its folder (`fff seek`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
@@ -370,7 +373,7 @@ key says which one.
 | r in Normal | Batch rename the filtered results in a buffer |
 | E in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |
-| F1 / F2 | Keys screen / Session details; each opens its tab, the same key closes |
+| F1 / F2 | Keys screen / Session details; the same key closes each |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | e in Normal | Open the current or marked paths in `$EDITOR`, then come back |
@@ -394,7 +397,7 @@ text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#runn
 Normal-mode list keys apply to results, marks, bookmarks and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
 Insert mode; in Normal-mode results 1–9 set the search depth
-(binding `depth` to nothing makes them Vim counts again). Keys are case-sensitive.
+(binding `search_to_depth` to nothing makes them Vim counts again). Keys are case-sensitive.
 Ctrl+digits require distinct terminal reporting; fff requests the Kitty
 keyboard protocol and never guesses ambiguous input. Alt+digits also support
 ESC+digit reporting. Every key is rebound on the [Keys screen](docs/CONFIGURATION.md#keys)

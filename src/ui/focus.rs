@@ -36,7 +36,7 @@ impl Session {
             Focus::BookmarkEdit(_) => self.bookmark_edit_key(app, key),
             Focus::BookmarkIcons { .. } => self.bookmark_icons_key(app, key),
             Focus::BookmarkDelete { .. } => self.bookmark_delete_key(app, key),
-            Focus::Info { .. } => {}
+            Focus::Info { .. } | Focus::Keys(_) => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
             // Keys never reach here while an operation runs, and the glob
@@ -406,6 +406,33 @@ impl Session {
             }
         }
     }
+    /// F2's Session tab: the session key or Escape closes it, the guide key
+    /// goes to the Keys screen, the arrows scroll.
+    pub(super) fn info_key(&mut self, app: &App, key: KeyEvent) {
+        let press = crate::keymap::Key::press(key);
+        let is = |f: Function| {
+            keymap::Mode::ALL.into_iter().any(|m| {
+                app.keymap
+                    .of(f, m)
+                    .iter()
+                    .any(|b| b.keys.len() == 1 && b.keys[0] == press)
+            })
+        };
+        let page = self.drawn.page;
+        let Focus::Info { offset } = &mut self.focus else {
+            return;
+        };
+        match key.code {
+            K::Esc | K::Char('q') => self.focus = Focus::Results,
+            _ if is(Function::ShowSession) => self.focus = Focus::Results,
+            _ if is(Function::ShowKeys) => self.open_keys(app.cell()),
+            K::Down | K::Char('j') => *offset = offset.saturating_add(1),
+            K::Up | K::Char('k') => *offset = offset.saturating_sub(1),
+            K::PageDown => *offset = offset.saturating_add(page),
+            K::PageUp => *offset = offset.saturating_sub(page),
+            _ => {}
+        }
+    }
     /// gx / gX: the command line.
     fn command_key(&mut self, app: &mut App, key: KeyEvent) {
         let Focus::Command(prompt) = &mut self.focus else {
@@ -560,13 +587,8 @@ impl Session {
         let alt = key.modifiers.contains(M::ALT);
         let page = self.drawn.page;
         match (key.code, ctrl, alt) {
-            (K::F(1) | K::F(2), _, _) => {
-                self.focus = Focus::Info {
-                    offset: 0,
-                    keys: key.code == K::F(1),
-                    screen: Box::new(KeysScreen::new(app.cell())),
-                }
-            }
+            (K::F(1), _, _) => self.open_keys(app.cell()),
+            (K::F(2), _, _) => self.focus = Focus::Info { offset: 0 },
             (K::Char('w'), true, _) => return leave_with_marks(app),
             // Dialogs: save here, or choose this folder, while typing too.
             (K::Char('s'), true, _) if app.dialog.is_some() => {
@@ -865,7 +887,7 @@ impl Session {
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
 fn scroll_preview(app: &mut App, down: bool) {
     if !app.preview.shown {
-        app.status = match app.bound(Function::Preview) {
+        app.status = match app.bound(Function::TogglePreview) {
             Some(key) => format!("No preview pane to scroll; {key} opens it"),
             None => "No preview pane to scroll".into(),
         };

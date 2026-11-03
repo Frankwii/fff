@@ -1,14 +1,7 @@
 use super::*;
 
-/// F1 / F2 overlay with two tabs: the Keys screen and session details.
-pub(super) fn info(
-    frame: &mut Frame,
-    area: Rect,
-    app: &App,
-    offset: &mut usize,
-    keys: bool,
-    screen: &crate::ui::KeysScreen,
-) {
+/// F2: the session details, with a tab to the Keys screen beside.
+pub(super) fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize) {
     let theme = app.palette;
     // Each tab with the key that opens it, as the files pane numbers its tabs.
     let tab = |function, name: &'static str, active: bool| {
@@ -31,11 +24,7 @@ pub(super) fn info(
     };
     let hints = border_hints(
         app,
-        if keys {
-            keys_hints(screen)
-        } else {
-            &[("tab", "keys"), ("up down", "scroll"), ("esc", "close")]
-        },
+        &[("up down", "scroll"), ("esc", "close")],
         theme.accent,
         (area.width as usize).saturating_sub(4),
     );
@@ -43,9 +32,9 @@ pub(super) fn info(
         .title(Line::from(
             [
                 vec![Span::raw(" ")],
-                tab(crate::keymap::Function::Guide, "Keys", keys),
+                tab(crate::keymap::Function::ShowKeys, "Keys", false),
                 vec![Span::raw(" ")],
-                tab(crate::keymap::Function::Session, "Session", !keys),
+                tab(crate::keymap::Function::ShowSession, "Session", true),
                 vec![Span::raw(" ")],
             ]
             .concat(),
@@ -55,10 +44,6 @@ pub(super) fn info(
     let inner = block.inner(area);
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
-    if keys {
-        keys_tab(frame, inner, app, screen);
-        return;
-    }
     let lines = session_lines(app, inner.width as usize);
     *offset = (*offset).min(lines.len().saturating_sub(inner.height as usize));
     frame.render_widget(

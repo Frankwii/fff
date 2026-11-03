@@ -40,7 +40,7 @@ use input::*;
 pub use input::{StatusTimer, alt_numbered_key, numbered_key, start_editor};
 pub(crate) use jobs::Job;
 use jobs::*;
-pub(crate) use keys::{EditStep, Editing, KeysScreen, Listed, Search};
+pub(crate) use keys::{EditStep, Editor, KeysScreen, Listed, Search};
 pub(crate) use mouse::Button;
 use mouse::*;
 use screen::*;
@@ -53,13 +53,12 @@ pub(crate) enum Focus {
         rows: Vec<PathBuf>,
         index: usize,
     },
-    /// F1 / F2 overlay: the Keys screen, or session details when `keys` is
-    /// false. The screen keeps its state across the tabs.
+    /// F2: the session details.
     Info {
         offset: usize,
-        keys: bool,
-        screen: Box<KeysScreen>,
     },
+    /// F1: the Keys screen, a picker over every function and its keys.
+    Keys(Box<KeysScreen>),
     Exclusions(String),
     /// Alt+f: the file filters (`--glob`), one per line.
     Filters(String),

@@ -486,7 +486,7 @@ fn keys_bind_by_function_and_typing_stays_text() {
     use fuzzy_file_finder::keymap::{
         Cell, Function, Highlight, Keymap, Mode, Place, Program, Step,
     };
-    let keymap = Keymap::parse("[insert]\ndown = '<C-n>'\n").unwrap();
+    let keymap = Keymap::parse("[insert]\nhighlight_next = '<C-n>'\n").unwrap();
     let here = Cell {
         program: Program::Roam,
         place: Place::Results,
@@ -495,14 +495,14 @@ fn keys_bind_by_function_and_typing_stays_text() {
     let feed = |key| keymap.feed(&mut Vec::new(), Mode::Insert, here, key);
     assert_eq!(
         feed(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL)),
-        Step::Run(Function::Down, None)
+        Step::Run(Function::HighlightNext, None)
     );
     // Alt+j no longer moves while typing: down's keys there were replaced.
     assert_eq!(
         feed(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)),
         Step::Pass
     );
-    assert!(Keymap::parse("[insert]\ndown = '2'\n").is_err());
+    assert!(Keymap::parse("[insert]\nhighlight_next = '2'\n").is_err());
     // Legacy terminals send `P`; kitty-protocol terminals send `p` with SHIFT.
     for code in ['P', 'p'] {
         let key = KeyEvent::new(KeyCode::Char(code), KeyModifiers::ALT | KeyModifiers::SHIFT);
@@ -510,7 +510,7 @@ fn keys_bind_by_function_and_typing_stays_text() {
     }
     assert_eq!(
         feed(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::ALT)),
-        Step::Run(Function::Palette, None)
+        Step::Run(Function::ShowPalettes, None)
     );
 }
 #[test]
