@@ -4,7 +4,12 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.10.0 — 2026-11-03
+
+A trash with undo, progress and Ctrl+c for long operations, a folders-only
+listing, and many fixes: operations finish safely when the terminal closes,
+Enter never leaves with an entry that is gone, and the status on the query
+box reads like its title.
 
 ### Added
 
