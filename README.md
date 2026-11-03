@@ -165,7 +165,7 @@ query empty, clears every mark. Ctrl+w finishes
 with the marks only, and only where the answer can be several paths: `fff
 pick` returns them (as does `fff explorer --multiple`). Elsewhere (`fff roam`,
 `fff seek`, other dialogs) it does nothing but say so; there the marks are for
-file operations, `o`, `E` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
+file operations, `o`, `e` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
 plus that directory; a no-match query in a nonempty directory stays open, and
 a short status message says nothing matches (Ctrl+number likewise).
 Missing marks block confirmation until unmarked.
@@ -180,7 +180,7 @@ while marks, the query, depth, hidden entries, exclusions and filters are
 shared. Mark files in one tab, switch, browse somewhere far away, then move
 or copy them there with `v` / `p`. Switching to a tab in another directory lists
 it again with an empty query; a tab whose directory vanished falls back to the
-nearest existing parent. F1's session details list every tab's directory. `fff seek`, which cannot
+nearest existing parent. F2's session details list every tab's directory. `fff seek`, which cannot
 change directory, has no tabs: Up / Down in Normal mode move the highlight there.
 
 Ctrl+number is Enter on a visible row, exactly as if that row were highlighted
@@ -215,7 +215,7 @@ Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
 a matching directory prunes its subtree. Rules match basenames or scope-relative
 paths, with literal separators. No automatic `.gitignore` integration is enabled.
 The query box's bottom border shows `filters on` and `exclusions on` only
-while filters or enforced exclusion rules exist; F1's session details list
+while filters or enforced exclusion rules exist; F2's session details list
 their globs. It also shows discovery progress while a scan runs and for three
 seconds after it completes (`◌ partial` stays while a scan stopped at
 `max_paths`). `files only` or `folders only` appear beside the results' count.
@@ -266,8 +266,9 @@ or change anywhere in the results, the results follow without F5. See
 
 ## Keys
 
-F1 opens the complete guide, including configured Normal-mode bindings. Its
-Session tab shows exact paths, scopes, depth, policies, palette and marks. The
+F1 opens the complete guide, including configured Normal-mode bindings. F2
+opens its Session tab: exact paths, scopes, depth, policies, palette, marks and
+any errors in the configuration file. The
 footer's right end points to it and says how to leave: `F1 keys  q quit`
 (`Ctrl+c quit` while typing, where `q` is text).
 
@@ -316,12 +317,12 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+t / gt in Normal | Open the [trash](docs/OPERATIONS.md#the-trash-folder) like any folder; again, the next filesystem's trash |
 | R in Normal | In the trash: restore the current or marked entries where they were deleted from |
 | r in Normal | Batch rename the filtered results in a buffer |
-| e in Normal | Extract the current or marked archives (asks when ambiguous) |
+| E in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |
-| F1 | Key guide; Tab switches to Session details |
+| F1 / F2 | Key guide / Session details; Tab switches between them, the same key closes |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
-| E in Normal | Open the current or marked paths in `$EDITOR`, then come back |
+| e in Normal | Open the current or marked paths in `$EDITOR`, then come back |
 | gc in Normal | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
 | q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |

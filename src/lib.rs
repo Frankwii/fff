@@ -275,9 +275,11 @@ pub struct App {
     pub details: details::Details,
     /// `[ui] mouse`: clicks and the wheel act on the results.
     pub mouse: bool,
-    /// `[ui] buttons`, and whether the mouse has been used this session.
+    /// `[ui] buttons` and `[ui] buttons_seconds`, and when the mouse last
+    /// moved or clicked.
     pub buttons: config::Buttons,
-    pub mouse_used: bool,
+    pub buttons_timeout: Option<std::time::Duration>,
+    pub mouse_seen: Option<std::time::Instant>,
     /// The preview pane (Alt+v, `P`) and what it shows.
     pub preview: preview::Pane,
     /// `[ui] watch`: follow changes to the current directory as they happen.
@@ -391,7 +393,8 @@ impl App {
             details: details::Details::default(),
             mouse: true,
             buttons: config::Buttons::Off,
-            mouse_used: false,
+            buttons_timeout: Some(std::time::Duration::from_secs(5)),
+            mouse_seen: None,
             watch: true,
             preview: preview::Pane::default(),
             window: false,
@@ -406,13 +409,24 @@ impl App {
             dialog: None,
         }
     }
-    /// The button bar is shown: always, or once the mouse has been used.
+    /// The button bar is shown: always, or while the mouse is in use.
     pub fn buttons_shown(&self) -> bool {
+        self.buttons_shown_at(std::time::Instant::now())
+    }
+    pub fn buttons_shown_at(&self, now: std::time::Instant) -> bool {
         match self.buttons {
             config::Buttons::Off => false,
-            config::Buttons::Mouse => self.mouse_used,
+            config::Buttons::Mouse => self
+                .mouse_seen
+                .is_some_and(|seen| self.buttons_timeout.is_none_or(|t| now < seen + t)),
             config::Buttons::Always => true,
         }
+    }
+    /// When a resting mouse hides the bar of `buttons = "mouse"`.
+    pub fn buttons_hide(&self) -> Option<std::time::Instant> {
+        (self.buttons == config::Buttons::Mouse)
+            .then(|| Some(self.mouse_seen? + self.buttons_timeout?))
+            .flatten()
     }
     /// Records the current directory's highlight, as most recently used.
     pub fn remember(&mut self) {
@@ -504,6 +518,30 @@ impl App {
     /// number: no digit's chord is remapped.
     pub fn digits_pick(&self, modifier: &str) -> bool {
         (0..=9).all(|d| self.key_map.keeps(&format!("{modifier}+{d}")))
+    }
+    /// The status while the configuration file has errors, short enough for
+    /// the query border: the key that shows them on the Session tab, else
+    /// the errors in brief.
+    pub fn config_errors_status(&self) -> Option<String> {
+        let (path, error) = (self.config_path.as_ref()?, self.config_broken.as_ref()?);
+        let name = |path: &std::path::Path| {
+            path.file_name().map_or_else(
+                || path.display().to_string(),
+                |n| n.to_string_lossy().into(),
+            )
+        };
+        let reading = format!(
+            "{} has errors, so fff reads {}",
+            name(path),
+            name(&config::backup_path(path))
+        );
+        Some(match self.key("f2") {
+            Some(key) => format!("{reading}; {key} shows them"),
+            None => format!(
+                "{reading}: {}",
+                config::brief(config::config_error(path, error))
+            ),
+        })
     }
     /// `key`, or `—` when no key does it, for prose that names one.
     pub fn key_or_none(&self, default: &str) -> String {

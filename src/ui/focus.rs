@@ -406,14 +406,21 @@ impl Session {
             }
         }
     }
-    /// F1: the key guide, or the session details.
+    /// F1: the key guide; F2: the session details.
     fn info_key(&mut self, key: KeyEvent) {
         let page = self.drawn.page;
         let Focus::Info { offset, keys } = &mut self.focus else {
             return;
         };
         match key.code {
-            K::Esc | K::F(1) | K::Char('q') => self.focus = Focus::Results,
+            K::Esc | K::Char('q') => self.focus = Focus::Results,
+            // F1 and F2 open their own tab, and close it when it is open.
+            K::F(1) if *keys => self.focus = Focus::Results,
+            K::F(2) if !*keys => self.focus = Focus::Results,
+            K::F(1) | K::F(2) => {
+                *keys = key.code == K::F(1);
+                *offset = 0;
+            }
             K::Tab | K::BackTab | K::Left | K::Right => {
                 *keys = !*keys;
                 *offset = 0;
@@ -579,10 +586,10 @@ impl Session {
         let alt = key.modifiers.contains(M::ALT);
         let page = self.drawn.page;
         match (key.code, ctrl, alt) {
-            (K::F(1), _, _) => {
+            (K::F(1) | K::F(2), _, _) => {
                 self.focus = Focus::Info {
                     offset: 0,
-                    keys: true,
+                    keys: key.code == K::F(1),
                 }
             }
             (K::Char('w'), true, _) => return leave_with_marks(app),

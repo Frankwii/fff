@@ -26,7 +26,7 @@ buffers Enter applies from Normal or Insert mode; command-line Enter still
 executes commands such as `:s`. Query Enter keeps its navigation/confirmation
 action. Rename, exclusion and filter buffers retain multiline `o`, `O` and Enter.
 
-In results Normal mode, `v`, `p`, `x`, `X`, `u`, `r`, `R`, `e`, `n` and `s` invoke file
+In results Normal mode, `v`, `p`, `x`, `X`, `u`, `r`, `R`, `E`, `n` and `s` invoke file
 operations; Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
 edit, delete and reload bookmarks in the bookmark chooser's Normal mode (Alt+n,
 Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers

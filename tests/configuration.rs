@@ -344,8 +344,11 @@ fn normal_mode_list_keys_are_validated() {
 }
 #[test]
 fn key_map_remaps_chords_like_map_key() {
-    let error = parse("[keys.map]\n'f2'='f1'\n").err().unwrap();
+    let error = parse("[keys.map]\n'f13'='f1'\n").err().unwrap();
     assert!(error.contains("keys.map"), "{error}");
+    // Any of F1 to F12 can stand for another: F4 for the Session tab's F2.
+    let settings = parse("[keys.map]\n'f4'='f2'\n").unwrap();
+    assert_eq!(settings.key_maps, ["f4=f2"]);
     let settings = parse("[keys.map]\n'ctrl+g'='alt+g'\n'alt+g'='none'\n").unwrap();
     assert_eq!(settings.key_maps, ["alt+g=none", "ctrl+g=alt+g"]);
     for bad in ["[keys.map]\nx='alt+g'\n", "[keys.map]\n'ctrl+g'='nope'\n"] {
@@ -496,7 +499,7 @@ fn trash_defaults_to_a_month_and_asks_above_ten_gib() {
 }
 #[test]
 fn a_configuration_with_errors_gives_way_to_its_backup() {
-    use fuzzy_file_finder::config::{backup_path, brief, reading_backup};
+    use fuzzy_file_finder::config::{backup_path, brief, config_error, reading_backup};
     let folder = std::env::temp_dir().join(format!("fff-config-backup-{}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
     let config = folder.join("config.toml");
@@ -514,9 +517,12 @@ fn a_configuration_with_errors_gives_way_to_its_backup() {
     assert_eq!(s.source.as_deref(), Some(config.as_path()));
     let error = s.broken.unwrap();
     assert!(Settings::load(Some(&config), false, None).is_err());
-    let message = reading_backup(&config, &error);
-    assert!(message.contains("config.toml.bak"), "{message}");
-    assert!(message.contains("line 2"), "{message}");
+    assert!(reading_backup(&config).contains("config.toml.bak"));
+    let message = brief(config_error(&config, &error));
+    assert!(
+        message.starts_with("TOML parse error at line 2"),
+        "{message}"
+    );
     assert!(
         !message.contains('\n') && !message.contains('^'),
         "{message}"

@@ -65,7 +65,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>fff explorer --save ~/Downloads/paper.pdf</cyan>
       Choose where to save a file, as a file dialog would (see fff explorer --help).
 
-<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide; Tab there shows session details)
+<bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide, <cyan>F2</cyan> for session details)
   <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Space</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
@@ -174,7 +174,7 @@ struct Args {
     /// Remap a key chord to a default chord, e.g. ctrl+n=down; TARGET=none disables it
     ///
     /// Modifiers are ctrl+, alt+ and shift+; key names are enter, esc, tab, space,
-    /// backspace, up, down, left, right, pageup, pagedown, f1, f5 or a single
+    /// backspace, up, down, left, right, pageup, pagedown, f1 to f12 or a single
     /// character. Letter case matters. Repeatable; later rules for the same
     /// SOURCE win, and these override the configuration's [keys.map].
     #[arg(global = true, long = "map-key", value_name = "SOURCE=TARGET", help_heading = "Interface",
@@ -594,6 +594,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.columns = settings.columns;
     app.mouse = settings.mouse;
     app.buttons = settings.buttons;
+    app.buttons_timeout = settings.buttons_timeout;
     app.watch = settings.watch;
     app.preview.shown = settings.preview;
     app.preview.highlight = settings.highlight;
@@ -626,10 +627,10 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             None => app.status = "No earlier session to resume; starting here".into(),
         }
     }
-    if let (Some(error), Some(path)) = (&settings.broken, &app.config_path) {
-        app.status = fuzzy_file_finder::config::reading_backup(path, error);
-    }
     app.config_broken = settings.broken;
+    if let Some(status) = app.config_errors_status() {
+        app.status = status;
+    }
     app.bookmark_store = fuzzy_file_finder::bookmarks::Store::new(
         settings.bookmark_path,
         app.bookmarks.clone(),

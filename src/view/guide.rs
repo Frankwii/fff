@@ -1,41 +1,45 @@
 use super::*;
 
-/// F1 overlay with two tabs: the key guide (default) and session details.
+/// F1 / F2 overlay with two tabs: the key guide and session details.
 pub(super) fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize, keys: bool) {
     let theme = app.palette;
-    let tab = |name: &'static str, active: bool| {
+    // Each tab with the key that opens it, as the files pane numbers its tabs.
+    let tab = |key: &str, name: &'static str, active: bool| {
+        let key = app
+            .key(key)
+            .map(|key| format!("{key} "))
+            .unwrap_or_default();
         if active {
-            pill(name, theme.background, theme.accent).add_modifier(Modifier::BOLD)
+            vec![
+                pill(format!("{key}{name}"), theme.background, theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ]
         } else {
-            styled(format!(" {name} "), theme.muted)
+            vec![
+                Span::raw(" "),
+                bold(key, theme.accent),
+                styled(format!("{name} "), theme.muted),
+            ]
         }
     };
+    let hints = border_hints(
+        app,
+        &[("tab", "switch"), ("up down", "scroll"), ("esc", "close")],
+        theme.accent,
+        (area.width as usize).saturating_sub(4),
+    );
     let block = panel(theme, "", true, theme.accent)
-        .title(Line::from(vec![
-            Span::raw(" "),
-            tab("Keys", keys),
-            Span::raw(" "),
-            tab("Session", !keys),
-            Span::raw(" "),
-        ]))
-        .title_bottom(
-            Line::from(
-                [
-                    (app.key("tab"), " switches  "),
-                    (keys_named(app, "up down"), " scroll  "),
-                    (app.key("esc"), " closes "),
-                ]
-                .into_iter()
-                .filter_map(|(key, what)| {
-                    Some([bold(key?, theme.accent), styled(what, theme.muted)])
-                })
-                .fold(vec![Span::raw(" ")], |mut spans, pair| {
-                    spans.extend(pair);
-                    spans
-                }),
-            )
-            .right_aligned(),
-        )
+        .title(Line::from(
+            [
+                vec![Span::raw(" ")],
+                tab("f1", "Keys", keys),
+                vec![Span::raw(" ")],
+                tab("f2", "Session", !keys),
+                vec![Span::raw(" ")],
+            ]
+            .concat(),
+        ))
+        .title_bottom(Line::from(hints).centered())
         .padding(Padding::new(2, 2, 1, 0));
     let inner = block.inner(area);
     frame.render_widget(Clear, area);
@@ -317,11 +321,8 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "edit the configuration, then apply it",
                     false,
                 ),
-                row(
-                    key("f1"),
-                    &format!("this guide · {}: session", key("tab")),
-                    false,
-                ),
+                row(key("f1"), "this guide", false),
+                row(key("f2"), "session details and config errors", false),
             ],
         ),
         (
@@ -559,10 +560,15 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     sections.push((String::new(), theme.text));
     sections.push(("CONFIGURATION".into(), theme.accent));
     match (&app.config_path, &app.config_broken) {
-        (Some(path), Some(error)) => sections.push((
-            safe(crate::config::reading_backup(path, error)),
-            theme.error,
-        )),
+        (Some(path), Some(error)) => {
+            sections.push((safe(crate::config::reading_backup(path) + ":"), theme.error));
+            // TOML's excerpt of the file, its carets under the error.
+            sections.extend(
+                crate::config::config_error(path, error)
+                    .lines()
+                    .map(|line| (safe(line), theme.text)),
+            );
+        }
         (Some(path), None) => sections.push((safe(path.display().to_string()), theme.text)),
         (None, _) => sections.push(("None (--no-config)".into(), theme.text)),
     }

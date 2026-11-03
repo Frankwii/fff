@@ -17,9 +17,11 @@ columns = ["size", "modified"]
 # Clicks, drags and the wheel act on the results; false leaves the mouse to
 # the terminal (text selection).
 mouse = true
-# A button bar for mouse-only use: "off", "mouse" (shown once the mouse is
-# used in a session) or "always". Needs mouse = true.
+# A button bar for mouse-only use: "off", "mouse" (shown while the mouse is
+# used) or "always". Needs mouse = true.
 buttons = "off"
+# With buttons = "mouse", seconds a resting mouse keeps the bar; 0 keeps it.
+buttons_seconds = 5
 # Follow files created, removed or changed in the listed folders.
 watch = true
 # Start with the preview pane shown (Alt+v or P toggles it).
@@ -115,8 +117,8 @@ link = "s"
 delete = "x"     # move to the trash, delete permanently (with a review),
 delete_permanently = "X"
 rename = "r"     # batch rename, extract archives,
-extract = "e"
-edit = "E"       # open in $EDITOR, create a file or directory,
+extract = "E"
+edit = "e"       # open in $EDITOR, create a file or directory,
 new = "n"
 open = "o"       # open with each file's opener here,
 undo = "u"       # and undo the last of them;

@@ -526,17 +526,24 @@ fn buttons_do_what_their_keys_do() {
 fn the_button_bar_is_opt_in_and_can_wait_for_the_mouse() {
     use crate::config::Buttons;
     let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+    let now = std::time::Instant::now();
     assert!(!app.buttons_shown());
-    app.mouse_used = true;
-    assert!(!app.buttons_shown());
+    app.mouse_seen = Some(now);
+    assert!(!app.buttons_shown_at(now));
     app.buttons = Buttons::Mouse;
-    app.mouse_used = false;
-    assert!(!app.buttons_shown());
-    app.mouse_used = true;
-    assert!(app.buttons_shown());
+    app.mouse_seen = None;
+    assert!(!app.buttons_shown_at(now));
+    app.mouse_seen = Some(now);
+    assert!(app.buttons_shown_at(now));
+    // A mouse resting for buttons_seconds hides them again.
+    let rested = now + std::time::Duration::from_secs(5);
+    assert!(app.buttons_shown_at(rested - std::time::Duration::from_millis(1)));
+    assert!(!app.buttons_shown_at(rested));
+    app.buttons_timeout = None;
+    assert!(app.buttons_shown_at(rested));
     app.buttons = Buttons::Always;
-    app.mouse_used = false;
-    assert!(app.buttons_shown());
+    app.mouse_seen = None;
+    assert!(app.buttons_shown_at(now));
 }
 
 #[test]

@@ -14,9 +14,9 @@ keeps them as text.
 | `u` | [Undo](#undo) the last file operation |
 | `R` | In the [trash](#the-trash-folder), restore the current or marked entries |
 | `r` | Open a batch rename buffer for every currently filtered result |
-| `e` | Extract the current or marked archives into a prompted directory |
+| `E` | Extract the current or marked archives into a prompted directory |
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
-| `E` | Open the current or marked paths in `$EDITOR`, then come back |
+| `e` | Open the current or marked paths in `$EDITOR`, then come back |
 | `gx` / `gX` | Run a program on the current or marked paths; come back / exit into it |
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
@@ -149,7 +149,7 @@ Normal-mode Enter
 is ignored, and `o` / `O` enter Insert mode without adding a row. Insert-mode
 Enter is also ignored; command-line Enter still executes `:wq` / `:q!`.
 
-`e` extracts the current entry when nothing is marked, and the marks when the
+`E` extracts the current entry when nothing is marked, and the marks when the
 current entry is one of them. When the current entry is unmarked while others
 are marked, it asks: **current (`c`)**, **selection (`s`)** or **all (`a`)**, the
 selection plus the current entry. Every chosen file is validated before the
@@ -185,7 +185,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
   appears at the top right with its exit status and the log's location, and
   fades after a few seconds.
 - **In this terminal:** `o` (configurable as `open` in `[keys.normal]`) opens the
-  current or marked files with the same current / selection / all choice as `E`.
+  current or marked files with the same current / selection / all choice as `e`.
   The opener takes over the terminal, GUI or not, and fff comes back when it
   ends. Files sharing an opener go to one invocation (three PDFs, one zathura);
   different openers run one after another. `o` refuses directories (`l` enters
@@ -252,7 +252,7 @@ program it resolved to, and the paths in argument order. **Enter** runs it;
   the shell integration then changes to the directory you were browsing, as `!`
   would.
 
-`E` opens the current or marked paths in `$EDITOR`, then comes back, like
+`e` opens the current or marked paths in `$EDITOR`, then comes back, like
 `gx` but with no prompt and no review (it only edits). It uses the same current
 / selection / all choice. `$EDITOR` is split into words and resolved like a
 typed command, so `nvim -p` or `code --wait` work. When it is unset, empty,
@@ -365,7 +365,7 @@ of the session, and pressing it again the one before, up to 100:
 | `x` | Moves the entries back from the trash |
 | `R` | Moves the restored entries back into the trash, with their records |
 | `v`, `r` | Moves or renames the entries back |
-| `p`, `s`, `n`, `e` | Moves the copies, links, new entries or extracted entries to the trash |
+| `p`, `s`, `n`, `E` | Moves the copies, links, new entries or extracted entries to the trash |
 | Overwriting `v` / `p` | Also brings the overwritten entries back from the trash |
 
 What was deleted permanently cannot come back: undoing a selection where some
@@ -445,7 +445,7 @@ when building (for example `libarchive-dev` on Debian/Ubuntu). Browsing also lin
 to this library. No shell or external extractor is invoked by fff.
 
 libarchive reads supported ZIP, RAR, 7z, tar and compressed-tar archives. Built-in
-gzip, bzip2, xz and zstd filters are enabled. Before opening the destination buffer, `e` performs a read-only validation of
+gzip, bzip2, xz and zstd filters are enabled. Before opening the destination buffer, `E` performs a read-only validation of
 the highlighted file's contents, paths, payloads and extraction limits.
 Directories, unsupported, encrypted, corrupt or unsafe archives report an
 explanation and leave the main view open; no staging is created.

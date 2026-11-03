@@ -26,16 +26,38 @@ pub(super) fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet
         main.width,
         height,
     );
-    // Hints must fit inside the corners: tighten separators, then leave out
-    // Esc (the prose explains it), then labels, rather than clip a key.
+    let hints = border_hints(app, keys, accent, (main.width as usize).saturating_sub(4));
+    let mut block = panel(theme, title, true, accent)
+        .padding(Padding::horizontal(1))
+        .title_bottom(Line::from(hints).centered());
+    if let Some(summary) = summary {
+        block = block
+            .title_top(Line::from(styled(format!(" {summary} "), theme.muted)).right_aligned());
+    }
+    let inner = block.inner(dialog);
+    frame.render_widget(Clear, dialog);
+    frame.render_widget(block, dialog);
+    inner
+}
+/// Key hints drawn into a bottom border, `room` columns wide, joined by
+/// stretches of the border: each key by its default name (`"up down"` for a
+/// pair) as the configuration names it, with its label. They must fit inside
+/// the corners: separators tighten, then Esc (which prose explains) goes,
+/// then labels, rather than clip a key. A key that no longer does anything
+/// is not offered.
+pub(super) fn border_hints(
+    app: &App,
+    keys: &[(&str, &str)],
+    accent: Color,
+    room: usize,
+) -> Vec<Span<'static>> {
+    let theme = app.palette;
     let rule = Style::default().fg(accent).add_modifier(Modifier::BOLD);
-    // A key that no longer does anything is not offered.
     let keys = keys
         .iter()
         .filter_map(|&(key, label)| Some((keys_named(app, key)?, label, key == "esc")))
         .collect::<Vec<_>>();
-    let room = (main.width as usize).saturating_sub(4);
-    let fitting = [
+    [
         ("───", true, true),
         ("─", true, true),
         ("─", false, true),
@@ -60,19 +82,8 @@ pub(super) fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet
         }
         hints
     })
-    .find(|h| h.iter().map(|s| s.width()).sum::<usize>() <= room);
-    let hints = fitting.unwrap_or_default();
-    let mut block = panel(theme, title, true, accent)
-        .padding(Padding::horizontal(1))
-        .title_bottom(Line::from(hints).centered());
-    if let Some(summary) = summary {
-        block = block
-            .title_top(Line::from(styled(format!(" {summary} "), theme.muted)).right_aligned());
-    }
-    let inner = block.inner(dialog);
-    frame.render_widget(Clear, dialog);
-    frame.render_widget(block, dialog);
-    inner
+    .find(|h| h.iter().map(|s| s.width()).sum::<usize>() <= room)
+    .unwrap_or_default()
 }
 /// Keys by their default names, separated by spaces (`"up down"`), as the
 /// configuration names them: `↑↓`; `None` when one of them does nothing.

@@ -1,7 +1,7 @@
 //! gc: the configuration file in `$EDITOR`, then everything it sets applied
 //! to the running session.
 use super::*;
-use crate::config::{Settings, backup_path, brief, reading_backup};
+use crate::config::{Settings, backup_path, brief};
 
 impl Session {
     /// gc: edits the configuration file in this terminal, then reads it
@@ -63,8 +63,9 @@ impl Session {
             app.status = format!("{error}; the settings in use stay");
             return Ok(());
         }
-        app.status = match &broken {
-            Some(error) => reading_backup(&path, error),
+        app.config_broken = broken;
+        app.status = match app.config_errors_status() {
+            Some(status) => status,
             None => {
                 let backup = backup_path(&path);
                 match std::fs::remove_file(&backup) {
@@ -79,7 +80,6 @@ impl Session {
                 }
             }
         };
-        app.config_broken = broken;
         Ok(())
     }
     /// Everything `settings` sets, as `main` applies it at startup, except
@@ -113,6 +113,7 @@ impl Session {
         self.terminal.set_mouse(settings.mouse)?;
         app.mouse = settings.mouse;
         app.buttons = settings.buttons;
+        app.buttons_timeout = settings.buttons_timeout;
         if app.watch != settings.watch {
             app.watch = settings.watch;
             self.watch = app.watch.then(crate::watch::Watch::new).flatten();

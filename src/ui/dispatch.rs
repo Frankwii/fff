@@ -83,7 +83,7 @@ impl Session {
     /// Tabs, buttons, the lists and the results under the pointer. A button
     /// that stands for a key goes on as that key.
     fn click(&mut self, app: &mut App, event: MouseEvent) -> Click {
-        app.mouse_used = true;
+        app.mouse_seen = Some(std::time::Instant::now());
         if app.normal_keys.pending() {
             return Click::Handled;
         }

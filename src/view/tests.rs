@@ -1392,7 +1392,7 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
     );
     assert!(screen.contains("Alt+e") && screen.contains("one glob per line"));
     assert!(
-        screen.contains("x / r / e / n    trash, rename, extract, new (Normal)")
+        screen.contains("x / r / E / n    trash, rename, extract, new (Normal)")
             && screen.contains("undo the last file operation")
             && screen.contains("delete current / marked permanently"),
         "{screen}"
@@ -1840,5 +1840,5 @@ fn remapped_keys_are_shown_by_the_key_that_now_does_their_work() {
         line("open the trash, like").contains("like Ctrl+t"),
         "{screen}"
     );
-    assert!(screen.contains("Ctrl+e closes"), "{screen}");
+    assert!(screen.contains("Ctrl+e: close"), "{screen}");
 }

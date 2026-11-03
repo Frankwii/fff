@@ -280,6 +280,7 @@ struct UiConfig {
     columns: Vec<crate::details::Column>,
     mouse: bool,
     buttons: Buttons,
+    buttons_seconds: u64,
     watch: bool,
     preview: bool,
     highlight: bool,
@@ -290,7 +291,8 @@ struct UiConfig {
 pub enum Buttons {
     #[default]
     Off,
-    /// Once the mouse has been used in the session.
+    /// While the mouse is in use: from its first move until it rests
+    /// `[ui] buttons_seconds`.
     Mouse,
     Always,
 }
@@ -304,6 +306,7 @@ impl Default for UiConfig {
             columns: crate::details::DEFAULT_COLUMNS.to_vec(),
             mouse: true,
             buttons: Buttons::Off,
+            buttons_seconds: 5,
             watch: true,
             preview: true,
             highlight: true,
@@ -341,6 +344,9 @@ pub struct Settings {
     pub mouse: bool,
     /// `[ui] buttons`.
     pub buttons: Buttons,
+    /// `[ui] buttons_seconds`: how long a resting mouse keeps the bar of
+    /// `buttons = "mouse"`; `None` keeps it for the session.
+    pub buttons_timeout: Option<std::time::Duration>,
     pub watch: bool,
     /// `[ui] preview`: start with the preview pane shown.
     pub preview: bool,
@@ -377,6 +383,9 @@ impl Settings {
         }
         if raw.ui.message_seconds > 3600 {
             return Err("ui.message_seconds must be 0..3600 (0 keeps messages)".into());
+        }
+        if raw.ui.buttons_seconds > 3600 {
+            return Err("ui.buttons_seconds must be 0..3600 (0 keeps the buttons)".into());
         }
         if raw.ui.buttons != Buttons::Off && !raw.ui.mouse {
             return Err("ui.buttons needs ui.mouse = true: buttons are clicked".into());
@@ -447,6 +456,8 @@ impl Settings {
             columns: raw.ui.columns,
             mouse: raw.ui.mouse,
             buttons: raw.ui.buttons,
+            buttons_timeout: (raw.ui.buttons_seconds > 0)
+                .then(|| std::time::Duration::from_secs(raw.ui.buttons_seconds)),
             watch: raw.ui.watch,
             preview: raw.ui.preview,
             highlight: raw.ui.highlight,
@@ -556,18 +567,19 @@ pub fn backup_path(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 /// What the session says while it reads the backup of the configuration
-/// file at `path`, which has `error`.
-pub fn reading_backup(path: &Path, error: &str) -> String {
+/// file at `path`, which has errors.
+pub fn reading_backup(path: &Path) -> String {
     format!(
-        "{} has errors, so fff reads its backup {} until they are fixed: {}",
+        "{} has errors, so fff reads its backup {} until they are fixed",
         path.display(),
         backup_path(path).display(),
-        brief(
-            error
-                .strip_prefix(&format!("{}: ", path.display()))
-                .unwrap_or(error)
-        )
     )
+}
+/// `error` in the configuration file at `path`, without the path it starts with.
+pub fn config_error<'a>(path: &Path, error: &'a str) -> &'a str {
+    error
+        .strip_prefix(&format!("{}: ", path.display()))
+        .unwrap_or(error)
 }
 /// A configuration error on one line: TOML's excerpt of the file, with its
 /// line numbers and carets, is left out.

@@ -12,9 +12,15 @@ history.
   the editor ends: keys, bookmarks, openers, columns, the mouse, the trash
   and the rest take effect without restarting. A copy of the configuration
   is kept as `config.toml.bak` while you edit; if the edit has errors, fff
-  goes on reading the copy, says what is wrong, and shows `config errors`
-  until the file loads again (also in later sessions). `edit_config` in
-  `[keys.normal]`.
+  goes on reading the copy, F2 shows what is wrong, and the query box says
+  `config errors` until the file loads again (also in later sessions).
+  `edit_config` in `[keys.normal]`.
+- **F2 opens the Session tab** directly, F1 the key guide; each key closes
+  its own tab. `[keys.map]` and `--map-key` now take any of `f1` to `f12`,
+  so `"f4" = "f2"` moves the Session tab to F4.
+- **The button bar hides once the mouse rests**: with `buttons = "mouse"`,
+  it shows while the mouse is moving or clicking and goes after
+  `[ui] buttons_seconds` (5 by default; 0 keeps it).
 - **Syntax colors in the preview pane**: text files show comments, strings,
   keywords, types, functions and numbers in the palette's colors, worked out
   by a private Neovim with its tree-sitter parsers or `:syntax` files. The
@@ -22,6 +28,11 @@ history.
 
 ### Changed
 
+- **`e` opens in `$EDITOR` and `E` extracts archives**, swapped from before.
+  A configuration that sets `edit` or `extract` in `[keys.normal]` keeps its
+  keys.
+- **The key guide's hints are part of its border**, like the file
+  operation sheets', and its tabs name their keys (`F1 Keys`, `F2 Session`).
 - **A rule in the preview pane sets an entry's facts** (a PDF's pages,
   where a trashed entry came from) apart from its content.
 

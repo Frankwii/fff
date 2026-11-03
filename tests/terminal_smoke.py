@@ -1329,6 +1329,15 @@ class TerminalTests(unittest.TestCase):
             s.send(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m".encode())
             self.assertEqual(s.finish(), (0, os.fsencode(self.root / "only") + b"\n"))
 
+    def test_buttons_hide_once_the_mouse_rests(self):
+        with tempfile.TemporaryDirectory(prefix="fff-buttons-") as folder:
+            config = Path(folder) / "config.toml"
+            config.write_text('[ui]\nbuttons = "mouse"\nbuttons_seconds = 1\n')
+            s = self.start("--depth", "1", "--config", str(config), implicit_root=True)
+            s.send(b"\x1b[<35;5;5M", "Select & Exit")  # the pointer moves
+            s.wait_absent("Select & Exit")
+            s.send(b"\x1b[<35;6;5M", "Select & Exit")
+
     def test_buttons_stay_hidden_by_default(self):
         s = self.start("--depth", "1", implicit_root=True)
         s.send(b"\x1b[<65;5;5M")
@@ -2185,12 +2194,12 @@ class TerminalTests(unittest.TestCase):
         with zipfile.ZipFile(archive, "w") as z:
             z.writestr("unpacked", "payload")
         s = self.start(implicit_root=True)
-        s.send(b"e", "empty to extract beside the archive")
+        s.send(b"E", "empty to extract beside the archive")
         s.send(b":wq\r", "Extracted input.zip beside it")
         self.assertEqual((self.root / "unpacked").read_text(), "payload")
         # Filter ensures extraction continues to target the archive alone.
         s.send(b"iinput.zip", "❯ input.zip")
-        s.send(b"\x1b[27ue", "Extract archive")
+        s.send(b"\x1b[27uE", "Extract archive")
         s.send(b"ioutput", "output")
         s.send(b"\x1b[27u:wq\r", "Extracted input.zip into " + str(self.root / "output"))
         s.wait_absent("Extract archive")
@@ -2215,12 +2224,12 @@ class TerminalTests(unittest.TestCase):
         s = self.start(implicit_root=True)
         for name in [directory.name, plain.name, corrupt.name]:
             s.send(b"i" + name.encode(), "❯ " + name)
-            s.send(b"\x1b[27ue", "Cannot extract ")
+            s.send(b"\x1b[27uE", "Cannot extract ")
             self.assertNotIn("Extract archive", s.screen.text)
             self.assertIn("Query · NORMAL", s.screen.text)
             s.send(b"\x1b[27u", "❯")
         s.send(b"imissing", "No matching results")
-        s.send(b"\x1b[27ue", "Select an extractable archive first")
+        s.send(b"\x1b[27uE", "Select an extractable archive first")
         self.assertNotIn("Extract archive", s.screen.text)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()),
                          ["corrupt.zip", "folder", "not-an-archive.zip"])
@@ -2251,11 +2260,11 @@ class TerminalTests(unittest.TestCase):
         with zipfile.ZipFile(self.root / "input.zip", "w") as z:
             z.writestr("unpacked", "payload")
         s = self.start(implicit_root=True)
-        s.send(b"e", "Extract archive · NORMAL")
+        s.send(b"E", "Extract archive · NORMAL")
         s.send(b"ZQ", "Query · NORMAL")
         s.wait_absent("Extract archive")
         self.assertFalse((self.root / "unpacked").exists())
-        s.send(b"e", "Extract archive · NORMAL")
+        s.send(b"E", "Extract archive · NORMAL")
         s.send(b"ZZ", "Extracted input.zip beside it")
         self.assertEqual((self.root / "unpacked").read_text(), "payload")
         s.send(b"\x03")
@@ -2275,10 +2284,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (2)")
         s.send(b"\x1b[27uccnotes", "❯ notes")
         # notes.txt is current but unmarked while archives are marked: ask.
-        s.send(b"\x1b[27ue", "c: Current ─── s: Selection ─── a: All")
+        s.send(b"\x1b[27uE", "c: Current ─── s: Selection ─── a: All")
         s.send(b"a", "Nothing extracted; 1 of 3 cannot be extracted: notes.txt")
         self.assertFalse((self.root / "a.zip.txt").exists())
-        s.send(b"e", "c: Current")
+        s.send(b"E", "c: Current")
         s.send(b"s", "Extract archives · NORMAL")
         s.send(b"ZZ", "Extracted 2 entries beside each archive")
         self.assertEqual((self.root / "a.zip.txt").read_text(), "a.zip")
@@ -2472,13 +2481,13 @@ class TerminalTests(unittest.TestCase):
         self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_E_opens_editor_without_review_and_explains_a_bad_editor(self):
+    def test_e_opens_editor_without_review_and_explains_a_bad_editor(self):
         (self.root / "alpha").write_text("a")
         log = self.root / "log"
         env = self.run_environment("myeditor", f'printf "%s\\n" "$@" > "{log}"\n')
         s = self.start("--no-config", implicit_root=True,
                        environment={**env, "EDITOR": "myeditor -p"})
-        s.send(b"E", "myeditor finished")
+        s.send(b"e", "myeditor finished")
         self.assertEqual(log.read_text().splitlines(), ["-p", str(self.root / "alpha")])
         s.send(b"\x03")
         s.finish()
@@ -2486,7 +2495,7 @@ class TerminalTests(unittest.TestCase):
         for value, message in [("", "$EDITOR is empty"), ("myeditr", "$EDITOR: myeditr: command not found; did you mean myeditor?")]:
             s = self.session = Session(self.root, "--no-config", implicit_root=True,
                                        environment={**env, "EDITOR": value})
-            s.send(b"E", message)
+            s.send(b"e", message)
             s.send(b"\x03")
             s.finish()
             s.close()
@@ -2504,8 +2513,14 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--config", str(config), implicit_root=True,
                        environment={**env, "EDITOR": "myeditor"})
         edited.write_text("[ui]\npalette = \n")
-        s.send(b"gc", "reads its backup")
+        s.send(b"gc", "config.toml has errors, so fff reads config.toml.bak; F2 shows them")
         s.wait_ui("config errors")
+        # F2 opens the Session tab on the errors, F1 the key guide; each
+        # closes its own tab.
+        s.send(b"\x1bOQ", "TOML parse error at line 2")
+        s.send(b"\x1bOP", "SELECT AND RETURN")
+        s.send(b"\x1bOP", "config errors")
+        s.wait_absent("SELECT AND RETURN")
         self.assertEqual(backup.read_text(), "[ui]\npalette='nord'\n")
         # Editing again keeps the backup that loads, and a fixed file
         # replaces it, with its keys in effect at once.
@@ -2989,7 +3004,7 @@ class TerminalTests(unittest.TestCase):
         s.wait_absent("New file")
         self.assertTrue((self.root / "name").is_file())
         s.send(b"iinput.zip", "❯ input.zip")
-        s.send(b"\x1b[27ue", "Extract archive · NORMAL")
+        s.send(b"\x1b[27uE", "Extract archive · NORMAL")
         self.assertIn("Enter: Extract ─── Esc: Cancel", s.screen.text)
         # Command-line Enter stays in Neovim.
         s.send(b":s/^/output/\r", "❯ output")

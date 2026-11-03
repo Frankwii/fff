@@ -40,7 +40,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 ## Editing while fff runs
 
 `gc` in Normal mode (`edit_config` in [`[keys.normal]`](#normal-mode-keys))
-opens the configuration file in `$EDITOR`, as `E` would, and applies it as
+opens the configuration file in `$EDITOR`, as `e` would, and applies it as
 soon as the editor ends: key sequences and chord mappings, bookmarks,
 openers, icons, columns, the mouse and the button bar, live updates, the
 trash, cache and performance limits, message timing and syntax colors.
@@ -53,9 +53,11 @@ there is nothing to edit.
 Before the editor starts, fff copies a configuration that loads to
 `config.toml.bak` beside it (`NAME.bak` for `--config NAME`). When the edited
 file loads, the copy is removed. When it has errors, the copy stays and fff
-reads it instead: a message gives the file's first error, the query box's
-border says `config errors`, and F1's session details repeat the message
-until the file loads again. Run `gc` again to fix it; the copy is kept as
+reads it instead: a message says so and that F2 shows the errors, the query
+box's border says `config errors`, and F2's Session tab gives the message
+and TOML's excerpt of the file, carets under each error, until the file
+loads again. With F2 mapped to `"none"`, the message gives the first error
+itself. Run `gc` again to fix it; the copy is kept as
 it was, since it is the last configuration that loaded. Later sessions read
 the copy too while the file has errors, saying so when they start, and
 `fff setup --check-config` still checks the file itself. Alt+P and the
@@ -236,11 +238,14 @@ opt-in:
 
 ```toml
 [ui]
-buttons = "mouse"   # "off" (default), "mouse" (once the mouse is used) or "always"
+buttons = "mouse"   # "off" (default), "mouse" (while the mouse is used) or "always"
+buttons_seconds = 5 # how long a resting mouse keeps the "mouse" bar; 0 keeps it
 ```
 
 With `"mouse"`, keyboard-only sessions look exactly as without buttons; the bar
-appears after the first click, drag or wheel step. Each button does what its
+appears when the mouse moves, clicks, drags or scrolls, and goes again once the
+mouse has rested for `buttons_seconds` (5 by default, at most 3600; 0 keeps it
+for the rest of the session). Each button does what its
 key does:
 
 | Button | Key |
@@ -761,8 +766,8 @@ link = "s"           # Symlink marked paths here (with a review)
 delete = "x"         # Move current/marked paths to the trash
 delete_permanently = "X" # Delete current/marked paths permanently (with a review)
 rename = "r"         # Batch rename the results in a buffer
-extract = "e"        # Extract current/marked archives
-edit = "E"           # Open current/marked paths in $EDITOR
+extract = "E"        # Extract current/marked archives
+edit = "e"           # Open current/marked paths in $EDITOR
 new = "n"            # Create a file or directory
 open = "o"           # Open current/marked files with their openers, here
 undo = "u"           # Undo the last file operation
@@ -826,7 +831,7 @@ last = ["G", "<space>e"]
 
 ## Chord remapping
 
-Every other binding (Alt and Ctrl chords, Shift+Space, arrows, Enter, Escape, F1, F5,
+Every other binding (Alt and Ctrl chords, Shift+Space, arrows, Enter, Escape, F1, F2, F5,
 PageUp/PageDown) is remapped in `[keys.map]`, the configuration form of
 `--map-key`. Each entry maps a source chord to the default chord whose action
 it should perform, or to `"none"` to disable the source:
@@ -838,10 +843,11 @@ it should perform, or to `"none"` to disable the source:
 "ctrl+g" = "alt+g"    # go-to prompt on Ctrl+g ...
 "alt+g" = "none"      # ... and no longer on Alt+g
 "ctrl+t" = "alt+p"    # palette chooser
+"f4" = "f2"           # Session tab on F4
 ```
 
 Chords are written as `ctrl+`, `alt+` and `shift+` prefixes followed by one
-character or a key name: `f1`, `f5`, `enter`, `esc`, `tab`, `backspace`, `up`,
+character or a key name: `f1` to `f12`, `enter`, `esc`, `tab`, `backspace`, `up`,
 `down`, `left`, `right`, `pageup`, `pagedown` or `space`. Targets name the
 default chords in the [key reference](../README.md#keys) and the F1 guide.
 Each key is translated once, so chords can be swapped (`"alt+h" = "alt+l"` with

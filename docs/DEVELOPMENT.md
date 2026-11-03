@@ -34,7 +34,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/text.rs` | Edited text with Neovim's cursor and selection, prompts, wrapped messages. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
 | `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
-| `src/view/guide.rs` | The F1 key guide and session details. |
+| `src/view/guide.rs` | The F1 key guide and F2 session details. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |

@@ -51,7 +51,7 @@ pub(crate) enum Focus {
         rows: Vec<PathBuf>,
         index: usize,
     },
-    /// F1 overlay: the key guide, or session details when `keys` is false.
+    /// F1 / F2 overlay: the key guide, or session details when `keys` is false.
     Info {
         offset: usize,
         keys: bool,
@@ -280,6 +280,8 @@ struct Session {
     drawn_at: std::time::Instant,
     /// Whether the last pass showed the progress marker.
     progress_shown: bool,
+    /// Whether the last frame drew the button bar.
+    buttons_shown: bool,
     /// The last key was Escape with an empty query in Normal mode: another
     /// clears the marks.
     escape_armed: bool,
@@ -359,6 +361,7 @@ impl Session {
             dirty: true,
             drawn_at: std::time::Instant::now(),
             progress_shown: true,
+            buttons_shown: false,
             escape_armed: false,
             drawn: Drawn::default(),
             mouse: Mouse::default(),
@@ -473,6 +476,10 @@ impl Session {
         let progress = app.progress_shown(now);
         self.dirty |= progress != self.progress_shown;
         self.progress_shown = progress;
+        // A resting mouse hides the button bar again.
+        let buttons = app.buttons_shown_at(now);
+        self.dirty |= buttons != self.buttons_shown;
+        self.buttons_shown = buttons;
         if app.generation != self.details_generation {
             self.details_generation = app.generation;
             app.details.forget();
@@ -661,6 +668,13 @@ impl Session {
             .preview
             .remaining(std::time::Instant::now())
             .map_or(wait, |delay| delay.min(wait));
+        let wait = app
+            .buttons_hide()
+            .filter(|_| self.buttons_shown)
+            .map_or(wait, |at| {
+                at.saturating_duration_since(std::time::Instant::now())
+                    .min(wait)
+            });
         let wait = self.mouse.edge_due().map_or(wait, |at| {
             at.saturating_duration_since(std::time::Instant::now())
                 .min(wait)

@@ -123,6 +123,11 @@ fn same_chord(a: KeyEvent, b: KeyEvent) -> bool {
     }
     fold(a) == fold(b)
 }
+/// `f1` to `f12`.
+fn function_key(name: &str) -> Option<u8> {
+    let n = name.strip_prefix('f')?.parse().ok()?;
+    (1..=12).contains(&n).then_some(n)
+}
 fn parse_key(name: &str) -> Result<KeyEvent, String> {
     let mut rest = name;
     let mut modifiers = KeyModifiers::NONE;
@@ -141,8 +146,7 @@ fn parse_key(name: &str) -> Result<KeyEvent, String> {
         }
     }
     let code = match rest {
-        "f1" => KeyCode::F(1),
-        "f5" => KeyCode::F(5),
+        _ if let Some(n) = function_key(rest) => KeyCode::F(n),
         "enter" => KeyCode::Enter,
         "esc" => KeyCode::Esc,
         "tab" => KeyCode::Tab,
@@ -187,6 +191,10 @@ mod tests {
         // Still working itself, it keeps its own name.
         let map = KeyMap::parse(&["ctrl+t=alt+v".into()]).unwrap();
         assert_eq!(map.name("alt+v").as_deref(), Some("Alt+v"));
+        // Function keys up to F12 stand for one another.
+        let map = KeyMap::parse(&["f4=f2".into(), "f2=none".into()]).unwrap();
+        assert_eq!(map.name("f2").as_deref(), Some("F4"));
+        assert!(KeyMap::parse(&["f13=f2".into()]).is_err());
         // Nothing does it any more.
         let map = KeyMap::parse(&["alt+v=alt+b".into()]).unwrap();
         assert_eq!(map.name("alt+v"), None);
