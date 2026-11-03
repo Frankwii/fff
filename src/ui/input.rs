@@ -170,6 +170,9 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             PrevTab,
             NextTab,
             EditConfig,
+            Exclusions,
+            EnforceExclusions,
+            Filters,
         ]),
         Focus::Marks { .. } => Some(&[
             Down,

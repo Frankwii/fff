@@ -201,6 +201,13 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 note("by name or scope-relative path"),
                 row(key("alt+H"), "enforce exclusions on / off", false),
                 row(key("alt+f"), "edit file filters, one glob per line", false),
+                row(
+                    [Exclusions, EnforceExclusions, Filters]
+                        .map(normal)
+                        .join(" / "),
+                    "the same three in Normal mode",
+                    false,
+                ),
                 note("only files whose name matches one"),
                 note("are listed; empty lists every file"),
                 row("ZZ".into(), "apply", false),
@@ -211,6 +218,8 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
         (
             "Normal mode in lists",
             vec![
+                note("Alt chords for features work while typing;"),
+                note("these keys do their work in Normal mode"),
                 row(normal(Down) + "  " + &normal(Up), "move down / up", false),
                 row(
                     normal(Left),

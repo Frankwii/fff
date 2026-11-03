@@ -154,8 +154,8 @@ enum Then {
         clear_selection: bool,
         /// Marks to keep, for files dropped onto the terminal.
         marks: Option<crate::marks::Marks>,
-        /// A deletion that moved everything to the trash, or a restore:
-        /// the message says how to undo it.
+        /// A deletion that moved everything to the trash, a restore, a
+        /// move, copy or link: the message says how to undo it.
         trashed: bool,
     },
     Undone(crate::operations::undo::Record),
@@ -300,7 +300,14 @@ pub(super) fn perform_operation(
         app.status = "Cannot change the current directory or its ancestors; go up first".into();
         return;
     }
-    let trashed = request.trashes_all() || matches!(request, Request::Restore { .. });
+    let trashed = request.trashes_all()
+        || matches!(
+            request,
+            Request::Restore { .. }
+                | Request::Move { .. }
+                | Request::Copy { .. }
+                | Request::Symlink { .. }
+        );
     let then = Then::Executed {
         summary: operation_summary(&request),
         clear_selection,
@@ -353,6 +360,15 @@ pub(super) fn finish(
                     perform_operation(app, discovery, focus, plan.trash_request(false), None)
                 }
                 Plan::Trash(plan) => *focus = Focus::TrashConfirm(plan),
+                // `u` undoes a move, copy or link: only overwriting asks
+                // first, and files dropped onto the terminal, which may land
+                // by accident.
+                Plan::Transfer(plan) if plan.overwrites.is_empty() && !plan.dropped => {
+                    match plan.request() {
+                        Ok(request) => perform_operation(app, discovery, focus, request, None),
+                        Err(error) => app.status = error,
+                    }
+                }
                 Plan::Transfer(plan) => *focus = Focus::TransferConfirm(plan),
                 Plan::Restore(plan) if plan.taken.is_empty() => {
                     let request = plan.request(crate::operations::Taken::Replace);

@@ -6,9 +6,9 @@ keeps them as text.
 
 | Key | Action |
 | --- | --- |
-| `v` | Move all marked paths into the current directory, after confirmation |
-| `p` | Copy all marked paths into the current directory, after confirmation |
-| `s` | Create absolute symlinks to all marked paths here, after confirmation |
+| `v` | Move all marked paths into the current directory (asks before overwriting) |
+| `p` | Copy all marked paths into the current directory (asks before overwriting) |
+| `s` | Create absolute symlinks to all marked paths here |
 | `x` | Move the highlighted path or the marked paths to the [trash](#trash-and-deletion) |
 | `X` | Delete the highlighted path or the marked paths permanently, after confirmation |
 | `u` | [Undo](#undo) the last file operation |
@@ -20,15 +20,14 @@ keeps them as text.
 | `gx` / `gX` | Run a program on the current or marked paths; come back / exit into it |
 
 `v`, `p`, and `s` show **No files selected** when nothing is marked. They never
-fall back to the highlighted path. Because they are also common Vim keys, each
-opens a **Move here** / **Copy here** / **Link here** window listing the marked
-entries with their sizes; **Enter** proceeds and **Escape** cancels. Target names
-retain their source basenames. For symlinks, existing files, directories and
-dangling symlinks are collisions and never overwritten. Two marked entries with
-the same name are refused before the window opens.
+fall back to the highlighted path. With nothing to overwrite they act at once,
+and the message says how to undo them (`Copied 2 entries; u undoes`). Target
+names retain their source basenames. For symlinks, existing files, directories
+and dangling symlinks are collisions: the link is refused and nothing is
+overwritten. Two marked entries with the same name are refused.
 
-When a move or copy collides, the window becomes **Overwrite on move** /
-**Overwrite on copy** and lists the existing destinations with their sizes, like the deletion
+When a move or copy collides, it asks first: an **Overwrite on move** /
+**Overwrite on copy** window lists the marked entries with their sizes and the existing destinations with their sizes, like the deletion
 confirmation. **Escape** cancels the whole operation; **Enter** moves or copies
 everything and overwrites the listed entries. A directory is overwritten as a
 whole, never merged. The listed entries are detached into a private staging

@@ -1387,7 +1387,7 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
     assert!(screen.contains("j / <space>j  k"), "{screen}");
     assert!(screen.contains("gg  G"), "{screen}");
     assert!(
-        screen.contains("←  →") && screen.contains("1…9"),
+        screen.contains("-  +") && screen.contains("1…9"),
         "{screen}"
     );
     assert!(screen.contains("Alt+e") && screen.contains("one glob per line"));

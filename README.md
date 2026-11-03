@@ -102,7 +102,7 @@ This section describes what each confirmation returns in `fff pick`; in
 Without root arguments, browsing starts in the invocation directory (or, with
 `--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
-depth. Default depth is **2** (**6** in `fff seek`); immediate children are depth
+depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek`); immediate children are depth
 1. Shallower matches always come first, followed within each depth by
 directories and fuzzy ranking; `fff seek` ranks by fuzzy score first, then
 depth. The depth is shown on the results' bottom border, under the count.
@@ -272,6 +272,11 @@ any errors in the configuration file. The
 footer's right end points to it and says how to leave: `F1 keys  q quit`
 (`Ctrl+c quit` while typing, where `q` is text).
 
+Alt chords that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space, Alt+digits)
+work in every mode. Alt chords for features (Alt+b, Alt+g, Alt+t, Alt+., Alt+d,
+Alt+D, Alt+v, Alt+e, Alt+H, Alt+f) work while typing; in Normal-mode results
+their sequences do the work instead, and the chord says which one.
+
 | Key | Action |
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
@@ -286,13 +291,13 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l / l in Normal | Enter the highlighted directory, or open the highlighted file in the background |
 | o in Normal | Open the current or marked files with their openers in this terminal, then come back |
-| Alt+g / `/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
+| Alt+g / `g/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
 | Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
 | Alt+b / b in Normal | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P | Reload the configured palette, clearing a session choice |
-| Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (Right / Left in Normal-mode results) |
+| Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (`+` / `-` in Normal-mode results) |
 | 1 … 9 in Normal | Search results to that depth |
 | Shift+Space / Space in Normal / Tab while typing | Toggle mark; advance in results (Shift+Space needs a terminal with the kitty keyboard protocol) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
@@ -307,10 +312,10 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
 | Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
-| Alt+H | Toggle exclusion enforcement |
-| Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
-| Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
-| v / p / s in Normal | Move / copy / symlink all marked paths into the current directory, after confirmation |
+| Alt+H / gE in Normal | Toggle exclusion enforcement |
+| Alt+e / ge in Normal | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
+| Alt+f / gf in Normal | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
+| v / p / s in Normal | Move / copy / symlink all marked paths into the current directory; a move or copy that would overwrite asks first |
 | x in Normal | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
 | X in Normal | Choose current/selected deletion, review sizes, then Enter deletes permanently |
 | u in Normal | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before) |
@@ -358,9 +363,10 @@ Mappings translate once to default chords; later mappings for a source win.
 Printable source characters are reserved for editing. Normal-mode sequences are
 configured separately under `[keys.normal]`; see [configuration](docs/CONFIGURATION.md).
 
-File operations are confirmed before they change anything (except `x`, which
-only moves to the trash), refuse to overwrite unless a move or copy
-confirmation says so, roll back on failure, and can be undone with `u`; long
+File operations that cannot be undone, or would overwrite, are confirmed
+first (`x`, moves, copies and links without collisions act at once), refuse to
+overwrite unless a move or copy confirmation says so, roll back on failure, and
+can be undone with `u`; long
 ones show their progress and stop safely with Ctrl+c. Name and destination buffers use Enter to apply and Escape to
 cancel; the multiline rename buffer uses `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
 archive limits and current boundaries. Building

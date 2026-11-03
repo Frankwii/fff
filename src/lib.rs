@@ -552,9 +552,15 @@ impl App {
         Some(self.normal_keys.describe(action)).filter(|s| !s.is_empty())
     }
     /// A key for what both a chord and a Normal-mode action do: the chord
-    /// while a key does it, else the action's sequence.
+    /// while a key does it, else the action's sequence. In Normal mode, where
+    /// a chord that is for typing does nothing, the sequence comes first.
     pub fn either(&self, default: &str, action: normal_keys::ListAction) -> Option<String> {
-        self.key(default).or_else(|| self.sequence(action))
+        let normal = self.edit_view.as_ref().is_some_and(|v| v.normal());
+        if normal && action.typing_only() {
+            self.sequence(action).or_else(|| self.key(default))
+        } else {
+            self.key(default).or_else(|| self.sequence(action))
+        }
     }
     /// Reads which folders the trash shows again: a bin on another
     /// filesystem appears with its first entry.

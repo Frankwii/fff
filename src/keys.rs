@@ -23,7 +23,7 @@ impl KeyMap {
             let to = if to == "none" {
                 None
             } else {
-                Some(parse_key(to)?)
+                Some(parse_key(target(to))?)
             };
             mappings.push((from, to));
         }
@@ -123,6 +123,45 @@ fn same_chord(a: KeyEvent, b: KeyEvent) -> bool {
     }
     fold(a) == fold(b)
 }
+/// Preliminary: what a target may be called instead of its default chord,
+/// `"f4" = "session"` for `"f4" = "f2"`. Names shared with `[keys.normal]`
+/// mean the same action there.
+pub const TARGETS: &[(&str, &str)] = &[
+    ("guide", "f1"),
+    ("session", "f2"),
+    ("rescan", "f5"),
+    ("palette", "alt+p"),
+    ("reload_palette", "alt+P"),
+    ("bookmarks", "alt+b"),
+    ("go_to", "alt+g"),
+    ("trash", "alt+t"),
+    ("hidden", "alt+."),
+    ("directories", "alt+d"),
+    ("files", "alt+D"),
+    ("preview", "alt+v"),
+    ("scroll_preview_down", "ctrl+j"),
+    ("scroll_preview_up", "ctrl+k"),
+    ("exclusions", "alt+e"),
+    ("enforce_exclusions", "alt+H"),
+    ("filters", "alt+f"),
+    ("shallower", "alt+left"),
+    ("deeper", "alt+right"),
+    ("parent", "alt+h"),
+    ("open", "alt+l"),
+    ("back", "ctrl+o"),
+    ("forward", "ctrl+i"),
+    ("next_tab", "alt+up"),
+    ("prev_tab", "alt+down"),
+    ("marks", "alt+space"),
+    ("return_marks", "ctrl+w"),
+];
+/// The default chord a target names: itself, or the chord of its name.
+fn target(name: &str) -> &str {
+    TARGETS
+        .iter()
+        .find(|(action, _)| *action == name)
+        .map_or(name, |(_, chord)| chord)
+}
 /// `f1` to `f12`.
 fn function_key(name: &str) -> Option<u8> {
     let n = name.strip_prefix('f')?.parse().ok()?;
@@ -191,9 +230,18 @@ mod tests {
         // Still working itself, it keeps its own name.
         let map = KeyMap::parse(&["ctrl+t=alt+v".into()]).unwrap();
         assert_eq!(map.name("alt+v").as_deref(), Some("Alt+v"));
-        // Function keys up to F12 stand for one another.
+        // Function keys up to F12 stand for one another; a target can be
+        // named by what it does.
         let map = KeyMap::parse(&["f4=f2".into(), "f2=none".into()]).unwrap();
         assert_eq!(map.name("f2").as_deref(), Some("F4"));
+        let map = KeyMap::parse(&["f4=session".into(), "f2=none".into()]).unwrap();
+        assert_eq!(map.name("f2").as_deref(), Some("F4"));
+        let map = KeyMap::parse(&["ctrl+b=bookmarks".into()]).unwrap();
+        assert_eq!(map.chord("alt+b"), Some(parse_key("alt+b").unwrap()));
+        assert!(map.translate(parse_key("ctrl+b").unwrap()) == parse_key("alt+b").ok());
+        for (_, chord) in TARGETS {
+            assert!(parse_key(chord).is_ok(), "{chord}");
+        }
         assert!(KeyMap::parse(&["f13=f2".into()]).is_err());
         // Nothing does it any more.
         let map = KeyMap::parse(&["alt+v=alt+b".into()]).unwrap();

@@ -72,11 +72,12 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
   <cyan>Escape</cyan> leave Insert mode, clear query, twice: marks   <cyan>Ctrl+w</cyan> return marks (pick)
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
-  results take <cyan>←/→</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>/</cyan> location, <cyan>b</cyan> bookmarks,
+  results take <cyan>-/+</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>g/</cyan> location, <cyan>b</cyan> bookmarks,
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> trash, <cyan>X</cyan> delete, <cyan>u</cyan> undo.
-  <cyan>r</cyan> batch rename; <cyan>e</cyan> extract archive; <cyan>n</cyan> new file/directory.
-  <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files.
+  <cyan>r</cyan> batch rename; <cyan>E</cyan> extract archive; <cyan>e</cyan> edit; <cyan>n</cyan> new file/directory.
+  <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files;
+  feature chords like these work while typing, their letters in Normal mode.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
   <cyan>E</cyan> open current/marked paths in $EDITOR; <cyan>gc</cyan> edit the configuration and apply it.
   Each folder remembers its cursor.
@@ -126,9 +127,10 @@ struct Args {
     roam: RoamArgs,
     /// Maximum discovery depth below each scope (immediate children = 1)
     ///
-    /// Change it during the session with Alt+Left / Alt+Right.
+    /// Change it during the session with Alt+Left / Alt+Right, or - / + in
+    /// Normal mode.
     ///
-    /// [default: 2; in fff seek, 6]
+    /// [default: 1; in fff pick, 3; in fff seek, 6]
     #[arg(global = true, short, long, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: Option<u32>,
@@ -560,7 +562,15 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         .then(fuzzy_file_finder::state::session_path)
         .flatten()
         .and_then(|p| fuzzy_file_finder::state::load_session(&p));
-    let depth = args.depth.unwrap_or(if mode.no_dir { 6 } else { 2 }) as usize;
+    // Browsing shows a folder's own entries; picking looks a little deeper,
+    // and seeking deeper still.
+    let depth = args.depth.unwrap_or(if mode.no_dir {
+        6
+    } else if mode.output_paths && mode.explorer.is_none() {
+        3
+    } else {
+        1
+    }) as usize;
     let mut app = if let Some((start, _)) = &browse_from {
         App::browse(start.clone(), depth, policy)
     } else if roots.is_empty() {

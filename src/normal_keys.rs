@@ -72,9 +72,15 @@ pub enum ListAction {
     NextTab,
     /// Edit the configuration file in `$EDITOR`, then apply it.
     EditConfig,
+    /// Same as Alt+e in the results: edit the exclusions.
+    Exclusions,
+    /// Same as Alt+H in the results: enforce the exclusions, or not.
+    EnforceExclusions,
+    /// Same as Alt+f in the results: edit the file filters.
+    Filters,
 }
 impl ListAction {
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 40] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -112,6 +118,9 @@ impl ListAction {
         Self::PrevTab,
         Self::NextTab,
         Self::EditConfig,
+        Self::Exclusions,
+        Self::EnforceExclusions,
+        Self::Filters,
     ];
     /// The default letter of a file operation: the view handles operations by
     /// it, whatever sequence the configuration binds.
@@ -132,6 +141,31 @@ impl ListAction {
             _ => return None,
         })
     }
+    /// Whether the action's Alt chord works only while typing: Normal mode
+    /// has the action's own sequence instead. Navigation chords (Alt+h/j/k/l,
+    /// Alt+arrows) work in both.
+    pub fn typing_only(self) -> bool {
+        matches!(
+            self,
+            Self::Bookmarks
+                | Self::GoTo
+                | Self::Trash
+                | Self::Hidden
+                | Self::Directories
+                | Self::Files
+                | Self::Preview
+                | Self::Exclusions
+                | Self::EnforceExclusions
+                | Self::Filters
+        )
+    }
+    /// The action whose Alt chord, working only while typing, `key` is.
+    pub fn typing_chord(key: KeyEvent) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|a| a.typing_only())
+            .find(|a| a.alt_key().is_some_and(|alt| same(alt, key)))
+    }
     /// The default chord whose view-specific behavior this action repeats, if any.
     pub fn alt_key(self) -> Option<KeyEvent> {
         let c = match self {
@@ -151,6 +185,9 @@ impl ListAction {
             Self::Preview => 'v',
             Self::GoTo => 'g',
             Self::Trash => 't',
+            Self::Exclusions => 'e',
+            Self::EnforceExclusions => 'H',
+            Self::Filters => 'f',
             Self::First
             | Self::Last
             | Self::MarkAll
@@ -344,6 +381,9 @@ pub struct NormalKeysConfig {
     pub prev_tab: Sequences,
     pub next_tab: Sequences,
     pub edit_config: Sequences,
+    pub exclusions: Sequences,
+    pub enforce_exclusions: Sequences,
+    pub filters: Sequences,
     /// Plain digits 1–9 set the search depth in Normal-mode results.
     pub depth_digits: bool,
 }
@@ -377,17 +417,20 @@ impl Default for NormalKeysConfig {
             undo: one("u"),
             restore: one("R"),
             trash: one("gt"),
-            shallower: one("<left>"),
-            deeper: one("<right>"),
+            shallower: one("-"),
+            deeper: one("+"),
             bookmarks: one("b"),
             hidden: one("."),
             directories: one("d"),
             files: one("D"),
             preview: one("P"),
-            go_to: one("/"),
+            go_to: one("g/"),
             prev_tab: one("<down>"),
             next_tab: one("<up>"),
             edit_config: one("gc"),
+            exclusions: one("ge"),
+            enforce_exclusions: one("gE"),
+            filters: one("gf"),
             depth_digits: true,
         }
     }
@@ -432,6 +475,9 @@ impl NormalKeysConfig {
             ListAction::PrevTab => ("prev_tab", &self.prev_tab),
             ListAction::NextTab => ("next_tab", &self.next_tab),
             ListAction::EditConfig => ("edit_config", &self.edit_config),
+            ListAction::Exclusions => ("exclusions", &self.exclusions),
+            ListAction::EnforceExclusions => ("enforce_exclusions", &self.enforce_exclusions),
+            ListAction::Filters => ("filters", &self.filters),
         }
     }
     pub fn build(&self) -> Result<NormalKeys, String> {
@@ -555,14 +601,9 @@ mod tests {
     fn defaults_bind_arrows_and_results_shortcuts() {
         let mut k = NormalKeys::default();
         let arrow = |code| KeyEvent::new(code, KeyModifiers::NONE);
-        assert_eq!(
-            k.feed(arrow(KeyCode::Left), all),
-            Step::Action(ListAction::Shallower)
-        );
-        assert_eq!(
-            k.feed(arrow(KeyCode::Right), all),
-            Step::Action(ListAction::Deeper)
-        );
+        assert_eq!(k.feed(key('-'), all), Step::Action(ListAction::Shallower));
+        assert_eq!(k.feed(key('+'), all), Step::Action(ListAction::Deeper));
+        assert_eq!(k.feed(arrow(KeyCode::Left), all), Step::Pass);
         let alt = |code| Some(KeyEvent::new(code, KeyModifiers::ALT));
         assert_eq!(k.feed(key('b'), all), Step::Action(ListAction::Bookmarks));
         assert_eq!(k.feed(key('.'), all), Step::Action(ListAction::Hidden));
@@ -579,12 +620,32 @@ mod tests {
         assert_eq!(ListAction::Undo.operation_key(), Some('u'));
         assert_eq!(ListAction::DeletePermanently.operation_key(), Some('X'));
         assert_eq!(ListAction::Files.alt_key(), alt(KeyCode::Char('D')));
-        assert_eq!(k.feed(key('/'), all), Step::Action(ListAction::GoTo));
-        assert_eq!(k.feed(key('g'), all), Step::Pending);
-        assert_eq!(k.feed(key('c'), all), Step::Action(ListAction::EditConfig));
+        assert_eq!(k.feed(key('/'), all), Step::Pass);
+        for (second, action) in [
+            ('/', ListAction::GoTo),
+            ('c', ListAction::EditConfig),
+            ('e', ListAction::Exclusions),
+            ('E', ListAction::EnforceExclusions),
+            ('f', ListAction::Filters),
+        ] {
+            assert_eq!(k.feed(key('g'), all), Step::Pending);
+            assert_eq!(k.feed(key(second), all), Step::Action(action));
+        }
+        // Their Alt chords are for typing; navigation chords are not.
+        let chord = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+        assert_eq!(
+            ListAction::typing_chord(chord('b')),
+            Some(ListAction::Bookmarks)
+        );
+        assert_eq!(
+            ListAction::typing_chord(chord('H')),
+            Some(ListAction::EnforceExclusions)
+        );
+        assert_eq!(ListAction::typing_chord(chord('h')), None);
+        assert_eq!(ListAction::typing_chord(chord('p')), None);
         assert_eq!(ListAction::Shallower.alt_key(), alt(KeyCode::Left));
         assert_eq!(ListAction::GoTo.alt_key(), alt(KeyCode::Char('g')));
-        assert_eq!(k.describe(ListAction::Deeper), "→");
+        assert_eq!(k.describe(ListAction::Deeper), "+");
         assert_eq!(
             k.feed(arrow(KeyCode::Up), all),
             Step::Action(ListAction::NextTab)

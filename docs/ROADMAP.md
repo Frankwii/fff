@@ -12,26 +12,27 @@ not implemented features or commitments:
   prompt still runs on the interface thread.
 - Preview pane follow-up: previewing the marked list's rows from the
   results.
-- Live-reloaded configuration, then an interactive key guide (below), in
-  that order; keys are already shown from the configuration.
+- An interactive key guide (below), building on the live-reloaded
+  configuration (`gc`) and keys shown from the configuration.
+- Switching modes without restarting (below): from `fff roam` to `fff seek`,
+  for example.
+- Resizing the font from fff (below).
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
 
-## Live reload and an interactive guide
+## An interactive guide
 
-Two steps, building on keys being [shown from the
-configuration](CONFIGURATION.md#keys-on-screen) (done in 0.13.0: every hint
-and the F1 guide name keys through the active key map and `[keys.normal]`):
+Keys are [shown from the configuration](CONFIGURATION.md#keys-on-screen)
+(0.13.0), and `gc` [applies an edited configuration at
+once](CONFIGURATION.md#editing-while-fff-runs). What remains:
 
-1. **Live-reloadable configuration.** Today only the palette reloads. The
-   whole configuration file should reload while fff runs, keymaps included;
-   since the screen names keys from `App`'s key map and `[keys.normal]`,
-   replacing them (and the session's copy used to translate keys) is enough
-   for the interface and guide to follow at once. An invalid file keeps the
-   previous settings and says why.
-2. **An interactive F1 guide.** The key list becomes searchable: a fuzzy
+- **One way to name actions.** `[keys.normal]` names actions, `[keys.map]`
+  names default chords, with a [preliminary set of action
+  names](CONFIGURATION.md#chord-remapping) for its targets. Both should name
+  the same actions the same way, chords and sequences alike.
+- **An interactive F1 guide.** The key list becomes searchable: a fuzzy
    query over both the descriptions and the mappings. Choosing an entry and
    pressing a key rebinds it, saved to the configuration file the way
    bookmarks are (preserving comments and unrelated settings), and applied
@@ -74,8 +75,72 @@ TODO without leaving the browser.
   (or the PDF page it is on) instead of the file's first lines, with the
   match highlighted, and E would open `$EDITOR` there.
 
+## Switching modes
+
+`fff roam`, `pick`, `seek` and `explorer` are chosen when fff starts. A key
+could switch the running session to another mode, say from browsing with
+`fff roam` to `fff seek`'s flat list of files below here, keeping the query,
+marks and directory where they still make sense. A small mode picker, a
+chooser like the palette's, would list the modes with what each one does and
+returns. What a switch does to output matters: `fff pick` prints paths and
+`fff roam` changes the shell's directory, so a session started from a script
+(`$(fff pick)`) or a file dialog (`fff explorer`) must not become one that
+answers differently from what its caller expects; those would offer only the
+modes that answer the same way.
+
+## Resizing the font
+
+Shift with `+` and `-` would make the terminal's font larger or smaller, for
+reading from a distance or on a large screen. A terminal program cannot set
+the font itself; it asks the terminal, and only some terminals listen: kitty
+through its remote control (`kitty @ set-font-size`, when allowed), xterm and
+a few others through the OSC 50 font sequence, others not at all. fff would
+use what the terminal supports and otherwise say that it cannot. `+` and `-`
+change the search depth in Normal mode, and on many layouts Shift+`-` is `_`,
+so the chords need checking against what terminals report (the kitty keyboard
+protocol tells them apart).
+
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
 
-The current release is 0.13.0. Version 1.0 is planned once the remaining roadmap
-above is implemented. Earlier versions will not be retroactively renumbered.
+## Post-launch
+
+Ideas for after 1.0, once the features above are done.
+
+### A tree view
+
+A key would show the results as a tree, drawn with branch lines the way
+`pass` and `tree` do: folders with their contents indented below them, so
+the shape of a folder is visible at a glance. Rows would keep working as
+rows (marks, operations, the preview), and the query would show the matching
+entries with the folders leading to them.
+
+### Sorting
+
+Results are ranked by depth and match quality today. A key would open a
+sorting picker, a chooser like the others: type or move to choose the
+criterion, Tab switches between ascending and descending. Criteria:
+
+- name, alphabetically (and naturally, so `file2` comes before `file10`);
+- size (a folder by its entry count, as the size column shows it);
+- last modification, last access, and creation where the filesystem records
+  it;
+- extension, then name;
+- kind: folders first, then files, then links;
+- depth, then name.
+
+The order applies among the fuzzy matches of the current query: the query
+still decides what is listed, the sort only how. The chosen order would show
+on the results' border and could be the default in the configuration.
+
+### Permissions
+
+A key would show each entry's permissions, owner and group, the way `nnn`
+does, beside its name (`-rw-r--r--  frank  users`), toggled on and off. The
+`permissions` [column](CONFIGURATION.md#result-details) exists and the footer
+shows the highlighted entry's `user:group`; this would make them a quick
+toggle for every row rather than a configuration change, with owner and
+group as columns of their own, and could show octal modes too.
+
+The current release is 0.13.0. Version 1.0 is planned once the roadmap before
+[Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.

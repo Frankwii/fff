@@ -186,6 +186,7 @@ impl Session {
             return Ok(None);
         }
         self.status.before_key(app);
+        let pressed_alt = key.modifiers.contains(M::ALT);
         let Some(key) = self.keys.translate(key) else {
             return Ok(None);
         };
@@ -201,6 +202,24 @@ impl Session {
         };
         if buffer_input {
             deliver(app, &mut self.focus, &mut self.editor, key);
+            return Ok(None);
+        }
+        // Alt chords for features are for typing; Normal-mode results have
+        // their sequences, which the message names. Another chord mapped to
+        // a feature works in every mode.
+        if pressed_alt
+            && matches!(self.focus, Focus::Results)
+            && !app.normal_keys.pending()
+            && app.edit_view.as_ref().is_some_and(|v| v.normal())
+            && let Some(action) = ListAction::typing_chord(key)
+            // fff seek has no d and D to name, and says why instead.
+            && !(app.no_dir && matches!(action, ListAction::Directories | ListAction::Files))
+        {
+            let chord = crate::keys::display(key);
+            app.status = match app.sequence(action) {
+                Some(sequence) => format!("{chord} works while typing; in Normal mode, {sequence}"),
+                None => format!("{chord} works while typing"),
+            };
             return Ok(None);
         }
         let key = match normal_list_key(app, &mut self.focus, &mut self.editor, key) {

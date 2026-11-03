@@ -18,6 +18,11 @@ history.
 - **F2 opens the Session tab** directly, F1 the key guide; each key closes
   its own tab. `[keys.map]` and `--map-key` now take any of `f1` to `f12`,
   so `"f4" = "f2"` moves the Session tab to F4.
+- **`ge`, `gE` and `gf` in Normal mode** edit the exclusions, turn their
+  enforcement on or off, and edit the file filters (`exclusions`,
+  `enforce_exclusions` and `filters` in `[keys.normal]`).
+- **`[keys.map]` targets can be named by what they do** (preliminary, until
+  key names are unified): `"f4" = "session"`, `"ctrl+b" = "bookmarks"`.
 - **The button bar hides once the mouse rests**: with `buttons = "mouse"`,
   it shows while the mouse is moving or clicking and goes after
   `[ui] buttons_seconds` (5 by default; 0 keeps it).
@@ -28,6 +33,17 @@ history.
 
 ### Changed
 
+- **Moves, copies and links act at once** when nothing would be overwritten,
+  and the message says `u` undoes them. Overwriting still asks first, and so
+  do files dropped onto the terminal.
+- **Default depth: 1 in `fff roam` and `fff explorer`, 3 in `fff pick`**
+  (was 2); `fff seek` keeps 6.
+- **`+` and `-` change the depth in Normal mode**, instead of Right and Left,
+  and **`g/` opens the go-to prompt** instead of `/`.
+- **Alt chords for features work only while typing**: in Normal-mode results,
+  Alt+b, Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H and Alt+f say
+  which Normal-mode key to use instead (`b`, `g/`, `gt`, `.`, `d`, `D`, `P`,
+  `ge`, `gE`, `gf`). Alt chords that move around work in every mode.
 - **`e` opens in `$EDITOR` and `E` extracts archives**, swapped from before.
   A configuration that sets `edit` or `extract` in `[keys.normal]` keeps its
   keys.

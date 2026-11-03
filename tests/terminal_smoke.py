@@ -416,6 +416,22 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_default_depth_by_mode_and_feature_chords_only_while_typing(self):
+        s = self.start(implicit_root=True, output_paths=False)
+        s.wait_ui(" depth 1 ")
+        # In Normal mode, Alt+b names the key that works there instead.
+        s.send(b"\x1bb", "Alt+b works while typing; in Normal mode, b")
+        self.assertNotIn("Bookmarks", s.screen.text)
+        s.send(b"i", "INSERT")
+        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x03")
+        s.finish()
+        s.close()
+        s = self.session = Session(self.root, implicit_root=True)
+        s.wait_ui(" depth 3 ")
+        s.send(b"\x03")
+        s.finish()
+
     def test_normal_plain_keys_change_depth_hidden_and_open_prompts(self):
         (self.root / "dir").mkdir()
         (self.root / "dir" / "deep.txt").touch()
@@ -424,11 +440,11 @@ class TerminalTests(unittest.TestCase):
         s.send(b"2", "deep.txt")
         s.send(b"1")
         s.wait_absent("deep.txt")
-        s.send(b"\x1b[C", "deep.txt")
-        s.send(b"\x1b[D")
+        s.send(b"+", "deep.txt")
+        s.send(b"-")
         s.wait_absent("deep.txt")
         s.send(b".", ".secret")
-        s.send(b"/", "Go to directory · INSERT")
+        s.send(b"g/", "Go to directory · INSERT")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")
         s.wait_absent("Go to directory")
@@ -463,9 +479,9 @@ class TerminalTests(unittest.TestCase):
         config = self.root / "config.toml"
         config.write_text("".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in names))
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         s.send(b"\x1b2", ("cwd", self.root / names[1]))
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         s.send(b"iplace1", "place11")
         s.send(b"\x1b9", ("cwd", self.root / names[11]))
         s.send(b"\x1bb", "Bookmarks")
@@ -517,15 +533,15 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--depth", "1", "--exclude", "build")
         s.send(b"\x1b[1;3C", " depth 2 ")  # Alt+Right
         self.assertIn("exclusions on", s.screen.text)
-        s.send(b"\x1bH")
+        s.send(b"gE")
         s.wait_absent("exclusions on")
-        s.send(b"\x1be", b"one glob per line")
+        s.send(b"ge", b"one glob per line")
         s.send(b"o*.tex", "*.tex")
         before_apply = len(s.ui)
         s.send(b"\x1b[27uZZ")
         s.wait_absent("Edit exclusions")
         self.assertNotIn(b"No matching results", s.ui[before_apply:])
-        s.send(b"\x1bH", b"No matching results")
+        s.send(b"gE", b"No matching results")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -537,10 +553,10 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("b.epub")
         self.assertIn("a.pdf", s.screen.text)
         self.assertNotIn("c.log", s.screen.text)
-        s.send(b"\x1bf", "Edit filters")
+        s.send(b"gf", "Edit filters")
         self.assertIn("*.epub", s.screen.text)
         s.send(b"o*.log\x1b[27uZZ", "c.log")  # ZZ applies
-        s.send(b"\x1bf", "Edit filters")
+        s.send(b"gf", "Edit filters")
         s.send(b"ggdGZZ")  # clear every line: no filters left
         s.wait_absent("filters on")
         s.send(b"\x03")
@@ -620,7 +636,7 @@ class TerminalTests(unittest.TestCase):
             target.touch()
             s = self.start()
             s.send(SHIFT_SPACE, b"Marks (1)")
-            s.send(b"\x1bg", b"Go to directory")
+            s.send(b"g/", b"Go to directory")
             s.send(os.fsencode(other) + b"\r", ("cwd", other))
             self.assertIn(other, s.screen.text)
             s.send(b"b", "❯ b")  # the go-to prompt leaves the query in Insert
@@ -853,7 +869,7 @@ class TerminalTests(unittest.TestCase):
         config = self.root / "config.toml"
         config.write_text("# Keep my comment\n[ui]\npalette='nord'\n")
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         s.send(b"\x1bn", "New bookmark")
         s.send(b"\x1b[27uccNotes", "Notes")
         s.send(b"\x1b[27u\t\t", "Space chooses")
@@ -902,7 +918,7 @@ class TerminalTests(unittest.TestCase):
         environment = {"XDG_CONFIG_HOME": str(config_home)}
         s = self.start(implicit_root=True, environment=environment)
         self.assertFalse(config.exists())
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         s.send(b"\x1bn", "New bookmark")
         s.send(b"\r", "Bookmark saved")
         self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["path"], str(self.root))
@@ -911,7 +927,7 @@ class TerminalTests(unittest.TestCase):
         s.close()
         self.session = None
         s = self.start(implicit_root=True, environment=environment)
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         self.assertIn(self.root.name, s.screen.text)
         s.send(b"\r", ("cwd", self.root))
         s.wait_absent("Bookmarks ·")
@@ -920,7 +936,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_live_bookmarks_session_only_and_external_reload(self):
         s = self.start(implicit_root=True)
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         s.send(b"\x1bn", "New bookmark")
         s.send(b"\r", "for this session")
         s.send(b"\x03")
@@ -930,7 +946,7 @@ class TerminalTests(unittest.TestCase):
         config = self.root / "config.toml"
         config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"\x1bb", "Before")
+        s.send(b"b", "Before")
         s.send(b"\x1be", "Edit bookmark")
         s.send(b"!", "Before!")  # the form starts typing at the end
         config.write_text("[[bookmarks]]\nname='External'\npath='.'\n")
@@ -947,7 +963,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
     def test_live_bookmark_nvim_form_and_icon_picker(self):
         s = self.start(implicit_root=True)
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"b", "Bookmarks")
         # Normal-mode filter: plain letters act and the hint says so.
         self.assertIn("n new · e edit · d delete · r reload · ↑↓ reorder", s.screen.text)
         s.send(b"n", "New bookmark")
@@ -987,7 +1003,7 @@ class TerminalTests(unittest.TestCase):
         config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
         name = lambda: tomllib.loads(config.read_text())["bookmarks"][0]["name"]
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"\x1bb", "Before")
+        s.send(b"b", "Before")
         # Escape leaves Insert first; a second Escape cancels the form.
         s.send(b"\x1be", "Edit bookmark")
         s.send(b"\x1b[27uccDiscarded", "Discarded")
@@ -1044,7 +1060,7 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(order(), expected)
 
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"\x1bb", "red2")
+        s.send(b"b", "red2")
         s.send(b"\x1b[B")
         wait_order(["blue", "red1", "red2"])
         s.send(b"\x1b[B")
@@ -1076,12 +1092,12 @@ class TerminalTests(unittest.TestCase):
             config.write_text("[[bookmarks]]\nname='My notes'\npath='notes folder'\n[[bookmarks]]\nname='Missing'\npath='missing'\n")
             s = self.start("--config", str(config), "--null", implicit_root=True)
             s.send(SHIFT_SPACE, b"Marks (1)")
-            s.send(b"\x1bb", b"Bookmarks")
+            s.send(b"b", b"Bookmarks")
             s.send(b"iMissing\r", b"not an accessible directory")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"\x1b[27u", b"Marks (1)")
             s.wait_absent("Bookmarks ·")
-            s.send(b"\x1bb", b"Bookmarks")
+            s.send(b"b", b"Bookmarks")
             s.send(b"imnt\r", ("cwd", target))
             self.assertIn("Marks (1)", s.screen.text)
             s.send(b"\x17")
@@ -1449,11 +1465,11 @@ class TerminalTests(unittest.TestCase):
             config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
             s = self.start("--config", str(config), implicit_root=True)
             # The go-to prompt starts in Insert mode, ready for typing.
-            s.send(b"\x1bg", "Go to directory · INSERT")
+            s.send(b"g/", "Go to directory · INSERT")
             s.send(b"junk " + os.fsencode(target), b"junk")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"0dw\r", ("cwd", target))
-            s.send(b"\x1bb", "Bookmarks")
+            s.send(b"b", "Bookmarks")
             s.send(b"iJunk Notes", "Find: Junk Notes")
             s.send(b"\x1b[27u", "NORMAL")
             # n/e/d/r are chooser commands in Normal mode; other Vim keys edit.
@@ -1470,24 +1486,24 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u:q!\r", "Query · NORMAL")
         self.assertNotIn("Using basic editing", s.screen.text)
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"\x1be", "Edit exclusions")
+        s.send(b"ge", "Edit exclusions")
         s.send(b"ggdGifile", "file")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "Edit exclusions")
         self.assertIn("Edit exclusions", s.screen.text)
         s.send(b":q!\r", "Query · NORMAL")
         s.wait_absent("Edit exclusions")
-        s.send(b"\x1be", "Edit exclusions")
+        s.send(b"ge", "Edit exclusions")
         self.assertIn("build", s.screen.text)
         s.send(b"ggdGifile", "file")
         s.send(b"\x1b[27u:wq\r", "No matching results")
         s.wait_absent("Edit exclusions")
-        s.send(b"\x1be", "Edit exclusions")
+        s.send(b"ge", "Edit exclusions")
         s.send(b"ggdGi[", "[")
         s.send(b"\x1b[27u:wq\r", "Exclusion line 1:")
         s.wait_absent("Edit exclusions")
         self.assertIn("No matching results", s.screen.text)
-        s.send(b"\x1be", "Edit exclusions")
+        s.send(b"ge", "Edit exclusions")
         self.assertIn("file", s.screen.text)
         s.send(b":q!\r", "No matching results")
         s.send(b"\x03")
@@ -1498,7 +1514,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
         s = self.start("--exclude", "build")
-        s.send(b"\x1be", "NORMAL")
+        s.send(b"ge", "NORMAL")
         s.send(b"o*.tex", "*.tex")
         s.send(b"\x1b[27u:wq", ":wq")
         lines = s.screen.text.splitlines()
@@ -1548,7 +1564,7 @@ class TerminalTests(unittest.TestCase):
         # Unbound continuations reach Neovim intact: gU, ge.
         s.send(b"0gUiw", "❯ GAMMA")
         s.send(b":u\r", "❯ gamma")
-        s.send(b"$ge", "NORMAL")  # plain e would stay on the last letter
+        s.send(b"$g0", "NORMAL")  # g0 reaches Neovim: the line's first column
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"ctg\x1b[27u", "❯ gamma")
@@ -1593,7 +1609,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"G" + SHIFT_SPACE, b"Marks (2)")
             s.send(b" t" + SHIFT_SPACE, b"Marks (1)")
             s.send(b"\x1b[27u", "NORMAL")
-            s.send(b"\x1bb", "Bookmarks")
+            s.send(b"b", "Bookmarks")
             # j is unbound here, so it reaches Neovim and leaves "one" highlighted.
             s.send(b" b t")
             s.send(b"j\r", ("cwd", Path(folder) / "one"))
@@ -1661,7 +1677,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "main.tex").touch()
         (self.root / "build").mkdir()
         s = self.start("--exclude", "build")
-        s.send(b"\x1be", "Exclusions")
+        s.send(b"ge", "Exclusions")
         s.send(b"0iZZ", "ZZbuild")
         self.assertIn("Exclusions", s.screen.text)
         s.send(b"\x1b[27u", "NORMAL")
@@ -1685,7 +1701,7 @@ class TerminalTests(unittest.TestCase):
             config.write_text("[keys.normal]\nmark='x'\ndelete='none'\nquit='none'\napply='qq'\n")
             s = self.start("--config", str(config))
             s.send(b"x", "Marks (1)")
-            s.send(b"\x1be", "Edit exclusions")
+            s.send(b"ge", "Edit exclusions")
             s.send(b"inot-present", "not-present")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"qq", "Edit exclusions")
@@ -1729,12 +1745,9 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1b[27u" + SHIFT_SPACE * 2, "Marks (2)")
             s.send(b"\x1b[27ui" + target.name.encode(), "❯ " + target.name)
             s.send(b"\x1b[27ul", ("cwd", target))
-            # Vim keys never act at once: the selection is confirmed first.
-            label = {"p": "Copy", "v": "Move", "s": "Link"}[key]
-            s.send(key.encode(), label + " here")
-            self.assertIn("Enter: " + label + " ─── Esc: Cancel", s.screen.text)
-            self.assertIn("2 entries", s.screen.text)
-            s.send(b"\r", {"p": "Copied", "v": "Moved", "s": "Linked"}[key] + " 2 entries")
+            # With nothing to overwrite, they act at once: u undoes them.
+            done = {"p": "Copied", "v": "Moved", "s": "Linked"}[key]
+            s.send(key.encode(), done + " 2 entries; u undoes")
             for name in names:
                 self.assertEqual((target / name).read_text(), "payload")
                 self.assertEqual((self.root / name).exists(), key != "v")
@@ -1954,13 +1967,13 @@ class TerminalTests(unittest.TestCase):
         s = self.start(implicit_root=True)
         s.send(b"x", "Moved notes.md to the trash; u undoes")
         # Restoring is for the trash alone.
-        s.send(b"R", "R restores entries in the trash; Alt+t opens it")
+        s.send(b"R", "R restores entries in the trash; gt opens it")
         # Renamed in the trash, it still knows where it came from; a new
         # notes.md has taken its place meanwhile.
         files = self.trash() / "files"
         os.rename(files / "notes.md", files / "renamed.md")
         notes.write_text("new")
-        s.send(b"\x1bt", ("cwd", files))
+        s.send(b"gt", ("cwd", files))
         self.assertIn("trash · R restores", s.screen.text)
         s.send(b"R", "already exists in")
         self.assertIn("Enter: Overwrite ─── k: Keep both ─── Esc: Cancel", s.screen.text)
@@ -1994,7 +2007,7 @@ class TerminalTests(unittest.TestCase):
         # Without the pane, it says how to open it.
         s.send(b"P")
         s.wait_absent("line 001")
-        s.send(ctrl_k, "No preview pane to scroll; Alt+v opens it")
+        s.send(ctrl_k, "No preview pane to scroll; P opens it")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -2022,8 +2035,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
         s.send(b"\x1b[27uitarget", "❯ target")
         s.send(b"\x1b[27ul", ("cwd", target))
-        s.send(b"p", "Copy here")
-        s.send(b"\r", "Copied alpha")
+        s.send(b"p", "Copied alpha; u undoes")
         s.send(b"h", ("cwd", self.root))
         s.send(b"ialpha", "❯ alpha")
         s.send(b"\x1b[27ur", "Rename files")
@@ -2047,8 +2059,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
         s.send(b"\x1b[27uitarget", "❯ target")
         s.send(b"\x1b[27ul", ("cwd", target))
-        s.send(b"v", "Move here")
-        s.send(b"\r", "Moved folder")
+        s.send(b"v", "Moved folder")
         s.send(b"ifolder", "❯ folder")
         s.send(b"\x1b[27ul", ("cwd", target / "folder"))
         s.send(b"u", "Cannot undo: it would move the current directory")
@@ -2114,8 +2125,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
         s.send(b"\x1b[27uitarget", "❯ target")
         s.send(b"\x1b[27ul", ("cwd", target))
-        s.send(b"p", "Copy here")
-        s.send(b"\r", "Copying tree")
+        s.send(b"p", "Copying tree")
         s.wait_ui(" of 4.9 MiB · ", timeout=10)
         self.assertRegex(s.screen.text, r"[\d.]+ (B|KiB|MiB) of 4\.9 MiB · [\d.]+ (B|KiB|MiB)/s · \d+ s")
         self.assertIn("Ctrl+c: Stop", s.screen.text)
@@ -2159,8 +2169,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
         s.send(b"\x1b[27uitarget", "❯ target")
         s.send(b"\x1b[27ul", ("cwd", target))
-        s.send(b"p", "Copy here")
-        s.send(b"\r", "Copying tree")
+        s.send(b"p", "Copying tree")
         s.wait_ui(" of 4.9 MiB · ", timeout=10)
         # The terminal goes away mid-copy: fff gets SIGHUP and its screen is
         # gone, yet the copy is published whole before fff ends.
@@ -2540,7 +2549,7 @@ class TerminalTests(unittest.TestCase):
         env = self.run_environment("zoxide", f'echo "{far}"\necho "{far.parent}"\n')
         s = self.start("--no-config", implicit_root=True,
                        environment=env, output_paths=False)
-        s.send(b"\x1bg", "Go to directory")
+        s.send(b"g/", "Go to directory")
         self.assertIn("Enter: Go", s.screen.text)
         s.wait_ui(str(far.parent))
         # zoxide-style words in order pick a frequent folder.

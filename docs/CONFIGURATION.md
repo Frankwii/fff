@@ -22,7 +22,7 @@ name = "Notes"
 path = "~/notes"
 ```
 
-Run `fff` and press **Alt+b** to open bookmarks. Press **i** to filter names,
+Run `fff` and press **b** (Alt+b while typing) to open bookmarks. Press **i** to filter names,
 then **Enter** to navigate. From Normal mode, **Escape** returns to results.
 
 The [commented example](config.example.toml) also shows a custom palette and all
@@ -773,22 +773,29 @@ open = "o"           # Open current/marked files with their openers, here
 undo = "u"           # Undo the last file operation
 restore = "R"        # In the trash: restore current/marked entries
 trash = "gt"         # Open the trash, like Alt+t (results)
-shallower = "<left>" # Search one level shallower, like Alt+Left (results)
-deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
+shallower = "-"      # Search one level shallower, like Alt+Left (results)
+deeper = "+"         # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
 hidden = "."         # Show/hide hidden entries, like Alt+. (results)
 directories = "d"    # Hide/show directories, like Alt+d (results)
 files = "D"          # Hide/show files, like Alt+D (results)
 preview = "P"        # Show/hide the preview pane, like Alt+v (results)
-go_to = "/"          # Go-to prompt, like Alt+g (results)
+go_to = "g/"         # Go-to prompt, like Alt+g (results)
 next_tab = "<up>"     # Next tab, like Alt+Up (results)
 prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 edit_config = "gc"   # Edit the configuration, then apply it (results and marks)
+exclusions = "ge"    # Edit the exclusions, like Alt+e (results)
+enforce_exclusions = "gE" # Enforce the exclusions or not, like Alt+H (results)
+filters = "gf"       # Edit the file filters, like Alt+f (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
-`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`, `preview`, `go_to`, `trash`, the tab
-actions and the depth digits work only in Normal-mode results; the Alt chords keep working in every mode. With
+`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`,
+`preview`, `go_to`, `trash`, `exclusions`, `enforce_exclusions`, `filters`, the
+tab actions and the depth digits work only in Normal-mode results. Their Alt
+chords for moving around (Alt+arrows) work in every mode; those for features
+(Alt+b, Alt+g, Alt+t, Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f) only
+while typing, and in Normal mode say which sequence to use instead. With
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.
 
@@ -819,7 +826,7 @@ Only sequences you set are checked against each other: one that takes a
 default action's key (say `delete = "D"`) leaves that action without it.
 Unbound keys and unfinished prefixes still reach Neovim. `fff setup --check-config` reports
 unknown actions and invalid or conflicting sequences. Changes take effect on the
-next invocation.
+next invocation, or at once after [`gc`](#editing-while-fff-runs).
 
 To use Space as a sequence prefix instead of marking, disable its default first:
 
@@ -842,14 +849,38 @@ it should perform, or to `"none"` to disable the source:
 "ctrl+p" = "up"
 "ctrl+g" = "alt+g"    # go-to prompt on Ctrl+g ...
 "alt+g" = "none"      # ... and no longer on Alt+g
-"ctrl+t" = "alt+p"    # palette chooser
-"f4" = "f2"           # Session tab on F4
+"ctrl+t" = "palette"  # palette chooser, by name (see below)
+"f4" = "session"      # Session tab on F4 ...
+"f2" = "none"         # ... and no longer on F2, so the screen names F4
 ```
 
 Chords are written as `ctrl+`, `alt+` and `shift+` prefixes followed by one
 character or a key name: `f1` to `f12`, `enter`, `esc`, `tab`, `backspace`, `up`,
 `down`, `left`, `right`, `pageup`, `pagedown` or `space`. Targets name the
 default chords in the [key reference](../README.md#keys) and the F1 guide.
+
+**Preliminary:** a target can also be named by what it does. These names will
+change when key names are unified across the configuration:
+
+| Name | Default chord | Name | Default chord |
+| --- | --- | --- | --- |
+| `guide` | `f1` | `session` | `f2` |
+| `rescan` | `f5` | `palette` | `alt+p` |
+| `reload_palette` | `alt+P` | `bookmarks` | `alt+b` |
+| `go_to` | `alt+g` | `trash` | `alt+t` |
+| `hidden` | `alt+.` | `directories` | `alt+d` |
+| `files` | `alt+D` | `preview` | `alt+v` |
+| `scroll_preview_down` | `ctrl+j` | `scroll_preview_up` | `ctrl+k` |
+| `exclusions` | `alt+e` | `enforce_exclusions` | `alt+H` |
+| `filters` | `alt+f` | `shallower` | `alt+left` |
+| `deeper` | `alt+right` | `parent` | `alt+h` |
+| `open` | `alt+l` | `back` | `ctrl+o` |
+| `forward` | `ctrl+i` | `next_tab` | `alt+up` |
+| `prev_tab` | `alt+down` | `marks` | `alt+space` |
+| `return_marks` | `ctrl+w` | | |
+
+A Ctrl chord or function key mapped to a feature works in every mode; an Alt
+chord, like the features' own, only while typing in the results.
 Each key is translated once, so chords can be swapped (`"alt+h" = "alt+l"` with
 `"alt+l" = "alt+h"`). Plain printable characters cannot be sources, because
 they are typed into fields; rebind Normal-mode letters in `[keys.normal]`.
@@ -867,4 +898,5 @@ to it (`"ctrl+g" = "alt+g"` with `"alt+g" = "none"` shows `Ctrl+g` wherever
 `Alt+g` was), a `[keys.normal]` action by its configured sequence, and a key
 that no longer does anything is left out of hints (`—` in the guide). Where a
 chord and a Normal-mode action both do something, hints name the chord, or
-the sequence when the chord is unbound.
+the sequence when the chord is unbound; in Normal mode, where feature chords
+do nothing, they name the sequence.

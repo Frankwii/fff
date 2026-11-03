@@ -182,6 +182,12 @@ pub fn map_key_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
     );
     if !side_prefix.is_empty() && modifiers.is_empty() {
         options.push(("none", "disable the source chord"));
+        // A target can also be named by what it does.
+        options.extend(
+            crate::keys::TARGETS
+                .iter()
+                .map(|(name, _)| (*name, "action")),
+        );
     }
     options
         .into_iter()
@@ -202,6 +208,12 @@ mod tests {
             .iter()
             .map(|c| c.get_value().to_string_lossy().into_owned())
             .collect()
+    }
+
+    #[test]
+    fn targets_complete_by_what_they_do() {
+        let found = values(map_key_candidates(OsStr::new("f4=sess")));
+        assert_eq!(found, ["f4=session"]);
     }
 
     #[test]
@@ -226,7 +238,7 @@ mod tests {
         );
         assert_eq!(
             values(map_key_candidates(OsStr::new("ctrl+n=n"))),
-            ["ctrl+n=none"]
+            ["ctrl+n=none", "ctrl+n=next_tab"]
         );
         assert_eq!(
             values(map_key_candidates(OsStr::new("ctrl+n=alt+e"))),
