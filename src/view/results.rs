@@ -49,7 +49,10 @@ pub(super) fn results_pane(
     frame.render_widget(
         block
             .title_top(tab_strip(app))
-            .title_bottom(Line::from(styled(format!(" depth {} ", app.depth), theme.text)))
+            .title_bottom(Line::from(styled(
+                format!(" depth {} ", app.depth),
+                theme.text,
+            )))
             .title_bottom(Line::from(styled(range, theme.muted)).right_aligned()),
         area,
     );

@@ -299,7 +299,7 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
         Focus::Info { offset, keys } => info(frame, area, app, offset, *keys),
         Focus::Operation(draft) => operation_prompt(frame, main, app, draft),
         Focus::NewChoice => new_choice(frame, main, app),
-        Focus::Replace(target) => replace_choice(frame, main, app, target),
+        Focus::Replace(replace) => replace_choice(frame, main, app, replace),
         Focus::ScopeChoice {
             current,
             selected,
@@ -433,8 +433,20 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     let path = tilde(&app.cwd, app.home.as_deref());
     let pinned = pinned_roots(app);
     let pinned_width = pinned.iter().map(|s| s.width()).sum::<usize>();
-    // " @ " badge, a space, the path, a space.
-    let fixed = 5;
+    // In a trash, a pill after the path says so, and how to restore.
+    let trash = app.in_trash().then(|| {
+        let key = app
+            .normal_keys
+            .describe(crate::normal_keys::ListAction::Restore);
+        let text = if key.is_empty() {
+            "trash".to_string()
+        } else {
+            format!("trash · {key} restores")
+        };
+        pill(text, theme.background, theme.marked)
+    });
+    // " @ " badge, a space, the path, a space (and the pill, with a space).
+    let fixed = 5 + trash.as_ref().map_or(0, |p| p.width() + 1);
     let inline = fixed + path.width() + 2 + pinned_width <= width;
     let shown = elide(&path, width.saturating_sub(fixed));
     let basename = app
@@ -453,6 +465,10 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         styled(parent.to_string(), theme.muted),
         bold(last.to_string(), theme.text),
     ];
+    if let Some(trash) = trash {
+        first.push(Span::raw(" "));
+        first.push(trash);
+    }
     if pinned.is_empty() {
         return vec![Line::from(first)];
     }

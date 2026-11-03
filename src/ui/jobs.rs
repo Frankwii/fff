@@ -32,6 +32,23 @@ pub(super) fn delete(
         ),
     }
 }
+/// R in the trash: the entries go back where they came from at once,
+/// unless a place is taken; then a sheet asks first.
+pub(super) fn restore(
+    app: &mut App,
+    discovery: &mut Discovery,
+    focus: &mut Focus,
+    paths: Vec<PathBuf>,
+) {
+    let Some(trash) = app.trash.clone() else {
+        app.status = "The trash is off ([trash] enabled = false)".into();
+        return;
+    };
+    let title = format!("Restoring {}", entries(paths.iter()));
+    prepare(app, discovery, focus, title, move || {
+        crate::operations::RestorePlan::new(paths, &trash).map(Plan::Restore)
+    });
+}
 /// v, p, s and files dropped onto the terminal: a move, copy or link of
 /// `sources` into the browsing directory, once confirmed.
 pub(super) fn transfer(
@@ -123,6 +140,8 @@ pub(super) enum Plan {
     /// x: trash at once, or ask about entries too large for the trash.
     Trash(crate::operations::DeletePlan),
     Transfer(crate::operations::TransferPlan),
+    /// R: restore at once, or ask about places that are taken.
+    Restore(crate::operations::RestorePlan),
 }
 enum Then {
     /// Only checked: nothing changed, and Ctrl+c abandons it at once.
@@ -135,7 +154,8 @@ enum Then {
         clear_selection: bool,
         /// Marks to keep, for files dropped onto the terminal.
         marks: Option<crate::marks::Marks>,
-        /// A deletion that moved everything to the trash.
+        /// A deletion that moved everything to the trash, or a restore:
+        /// the message says how to undo it.
         trashed: bool,
     },
     Undone(crate::operations::undo::Record),
@@ -244,6 +264,7 @@ fn progress_title(request: &crate::operations::Request) -> (String, bool) {
             false,
         ),
         Request::Extract { archives, .. } => (format!("Extracting {}", what(archives)), false),
+        Request::Restore { sources, .. } => (format!("Restoring {}", what(sources)), false),
     }
 }
 /// Starts `request` unless it would move the browsing directory; `marks`
@@ -270,13 +291,16 @@ pub(super) fn perform_operation(
         Request::Rename { sources, .. } | Request::Delete { sources, .. } => {
             sources.iter().collect()
         }
+        Request::Restore {
+            sources, replace, ..
+        } => sources.iter().chain(replace).collect(),
         _ => vec![],
     };
     if moves_cwd(app, &destructive) {
         app.status = "Cannot change the current directory or its ancestors; go up first".into();
         return;
     }
-    let trashed = request.trashes_all();
+    let trashed = request.trashes_all() || matches!(request, Request::Restore { .. });
     let then = Then::Executed {
         summary: operation_summary(&request),
         clear_selection,
@@ -330,6 +354,20 @@ pub(super) fn finish(
                 }
                 Plan::Trash(plan) => *focus = Focus::TrashConfirm(plan),
                 Plan::Transfer(plan) => *focus = Focus::TransferConfirm(plan),
+                Plan::Restore(plan) if plan.taken.is_empty() => {
+                    let request = plan.request(crate::operations::Taken::Replace);
+                    perform_operation(app, discovery, focus, request, None)
+                }
+                Plan::Restore(plan) => {
+                    *focus = Focus::Replace(Replace {
+                        taken: plan
+                            .taken
+                            .iter()
+                            .map(|(i, both)| (plan.entries[*i].1.clone(), both.clone()))
+                            .collect(),
+                        then: Replacing::Restore(plan),
+                    })
+                }
             }
             return;
         }
@@ -429,6 +467,7 @@ pub(super) fn finish(
         (Err(error), _) => app.status = error,
     }
     let message = std::mem::take(&mut app.status);
+    app.refresh_trash();
     discovery.force_refresh(app);
     app.status = message;
 }
@@ -530,6 +569,25 @@ pub(super) fn operation_summary(request: &crate::operations::Request) -> Option<
                 "each archive"
             }
         ),
+        Request::Restore {
+            sources,
+            targets,
+            replace,
+            ..
+        } => {
+            let mut done = match (&sources[..], &targets[..]) {
+                ([_], [target]) => format!(
+                    "Restored {} to {}",
+                    entries(std::iter::once(target)),
+                    target.parent().unwrap_or(target).display()
+                ),
+                _ => format!("Restored {}", entries(sources.iter())),
+            };
+            if !replace.is_empty() {
+                done += &format!(", overwriting {}", entries(replace.iter()));
+            }
+            done
+        }
         Request::Rename { .. } => return None,
     })
 }

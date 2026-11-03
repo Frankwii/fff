@@ -1929,6 +1929,57 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_the_trash_is_a_folder_where_r_restores_entries(self):
+        notes = self.root / "notes.md"
+        notes.write_text("old")
+        s = self.start(implicit_root=True)
+        s.send(b"x", "Moved notes.md to the trash; u undoes")
+        # Restoring is for the trash alone.
+        s.send(b"R", "R restores entries in the trash; Alt+t opens it")
+        # Renamed in the trash, it still knows where it came from; a new
+        # notes.md has taken its place meanwhile.
+        files = self.trash() / "files"
+        os.rename(files / "notes.md", files / "renamed.md")
+        notes.write_text("new")
+        s.send(b"\x1bt", ("cwd", files))
+        self.assertIn("trash · R restores", s.screen.text)
+        s.send(b"R", "already exists in")
+        self.assertIn("Enter: Overwrite ─── k: Keep both ─── Esc: Cancel", s.screen.text)
+        s.send(b"\x1b[27u", "Restore cancelled; nothing changed")
+        s.send(b"R", "already exists in")
+        s.send(b"k", "Restored notes (1).md to")
+        self.assertEqual((self.root / "notes (1).md").read_text(), "old")
+        self.assertEqual(notes.read_text(), "new")
+        self.assertEqual(os.listdir(files), [])
+        # Undo puts it back in the trash, still restorable.
+        s.send(b"u", "Undid: Restored notes (1).md")
+        self.assertFalse((self.root / "notes (1).md").exists())
+        s.send(b"R", "already exists in")
+        s.send(b"\r", "Restored notes.md to")
+        self.assertEqual(notes.read_text(), "old")
+        self.assertEqual(os.listdir(files), ["notes.md"])
+        self.assertEqual((files / "notes.md").read_text(), "new")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_preview_scrolling_needs_the_pane(self):
+        (self.root / "long.txt").write_text("".join(f"line {n:03}\n" for n in range(1, 201)))
+        s = self.start(implicit_root=True)
+        ctrl_j, ctrl_k = b"\x1b[106;5u", b"\x1b[107;5u"
+        s.send(b"", "line 001")
+        s.send(ctrl_j)
+        s.wait_absent("line 001")
+        self.assertIn("long.txt", s.screen.text)
+        s.send(ctrl_k, "line 001")
+        # Without the pane, it says how to open it.
+        s.send(b"P")
+        s.wait_absent("line 001")
+        s.send(ctrl_k, "No preview pane to scroll; Alt+v opens it")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_without_the_trash_x_confirms_a_permanent_deletion(self):
         (self.root / "alpha").write_text("a")
         config = self.config("[trash]\nenabled = false\n")

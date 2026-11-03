@@ -274,7 +274,10 @@ unavailable or a directory cannot be watched, fff works as with
 
 The preview pane, shown when fff starts, holds the highlighted entry, or the
 highlighted mark in the marked list; Alt+v (`P` in Normal mode) hides or shows
-it. It is text only: no images or terminal graphics protocols, so it looks the
+it. Ctrl+j and Ctrl+k scroll its content down and up by half its height
+without moving the highlight (facts such as a PDF's pages stay on top); it
+starts at the top again for each entry. Pressed while the pane is hidden, they
+say which key opens it. It is text only: no images or terminal graphics protocols, so it looks the
 same in st and any other terminal.
 
 ```toml
@@ -353,7 +356,11 @@ ask_above = "10 GiB"  # larger entries ask before going to the trash
 `"500 MiB"` or `"1.5G"`. An entry counts its whole tree, like the deletion
 window's sizes. The purge runs on a thread of its own at every start, so a
 large trash never delays the first frame; with `enabled = false` nothing is
-purged either.
+purged either, and Alt+t and R say the trash is off.
+
+Alt+t (`gt` in Normal mode) opens the trash as a folder, and `R` there
+restores entries; see [the trash folder](OPERATIONS.md#the-trash-folder). A
+bookmark to the trash is not needed.
 
 ## Remembered locations
 
@@ -710,6 +717,8 @@ edit = "E"           # Open current/marked paths in $EDITOR
 new = "n"            # Create a file or directory
 open = "o"           # Open current/marked files with their openers, here
 undo = "u"           # Undo the last file operation
+restore = "R"        # In the trash: restore current/marked entries
+trash = "gt"         # Open the trash, like Alt+t (results)
 shallower = "<left>" # Search one level shallower, like Alt+Left (results)
 deeper = "<right>"   # Search one level deeper, like Alt+Right (results)
 bookmarks = "b"      # Bookmark chooser, like Alt+b (results)
@@ -723,13 +732,13 @@ prev_tab = "<down>"   # Previous tab, like Alt+Down (results)
 depth_digits = true  # 1-9 set the search depth (results)
 ```
 
-`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`, `preview`, `go_to`, the tab
+`shallower`, `deeper`, `bookmarks`, `hidden`, `directories`, `files`, `preview`, `go_to`, `trash`, the tab
 actions and the depth digits work only in Normal-mode results; the Alt chords keep working in every mode. With
 `depth_digits = true` (the default), no sequence may start with 1–9; set it to
 `false` to give digits back to Neovim as counts or to use them in sequences.
 
-File operations (`move` … `undo`) work in Normal-mode results and in the
-marked list. `undo` takes `u` from Neovim's undo in the query (`:u` still
+File operations (`move` … `restore`) work in Normal-mode results and in the
+marked list; `restore` only while browsing a trash. `undo` takes `u` from Neovim's undo in the query (`:u` still
 undoes query edits); set `undo = "U"` or `"none"` to give `u` back. To give one of their letters to another action, disable or rebind the
 operation first; for example `mark = "x"` needs `delete = "none"` or another
 sequence such as `delete = "D"`, because two actions cannot share a sequence.

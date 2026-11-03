@@ -600,6 +600,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             fuzzy_file_finder::trash::Trash::from_env(settings.trash.days, settings.trash.ask_above)
         })
         .flatten();
+    app.refresh_trash();
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);

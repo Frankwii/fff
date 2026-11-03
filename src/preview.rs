@@ -93,6 +93,11 @@ pub struct Pane {
     cancel: Arc<AtomicBool>,
     current: Option<Arc<Preview>>,
     cache: VecDeque<(Key, Arc<Preview>)>,
+    /// Content lines scrolled past (Ctrl+j / Ctrl+k), from the top.
+    scroll: usize,
+    /// Content lines the last frame had room for, and the most it could
+    /// scroll: set while drawing.
+    pub(crate) room: std::cell::Cell<(usize, usize)>,
     sender: Sender<(Key, Preview)>,
     results: Receiver<(Key, Preview)>,
     wake: Option<SyncSender<()>>,
@@ -110,6 +115,8 @@ impl Default for Pane {
             cancel: Arc::new(AtomicBool::new(false)),
             current: None,
             cache: VecDeque::new(),
+            scroll: 0,
+            room: Default::default(),
             sender,
             results,
             wake: None,
@@ -151,6 +158,7 @@ impl Pane {
             self.waiting = false;
             self.target = target;
             self.since = Some(now);
+            self.scroll = 0;
             changed = true;
         }
         let free = self.reading.load(Ordering::Relaxed) < READERS;
@@ -206,6 +214,23 @@ impl Pane {
         self.requested = true;
         self.current = Some(Arc::new(preview));
     }
+    /// Scrolls the content by half the room the last frame had; false when
+    /// it was already at that end.
+    pub fn scroll(&mut self, down: bool) -> bool {
+        let (room, most) = self.room.get();
+        let step = (room / 2).max(1);
+        let scroll = self.scroll.min(most);
+        self.scroll = if down {
+            (scroll + step).min(most)
+        } else {
+            scroll.saturating_sub(step)
+        };
+        self.scroll != scroll
+    }
+    /// Content lines scrolled past.
+    pub fn scrolled(&self) -> usize {
+        self.scroll
+    }
     /// The preview of the entry followed, once it has arrived.
     pub fn current(&self) -> Option<&Preview> {
         self.current.as_deref()
@@ -233,6 +258,17 @@ pub fn build(path: &Path, hidden: bool, cancel: &AtomicBool) -> Preview {
         preview.note("This entry no longer exists.");
         return preview;
     };
+    // At the top of a trash: where it came from, by its record.
+    if crate::trash::bin_of(path)
+        .and_then(Path::file_name)
+        .is_some_and(|n| n == "trash" || n.as_encoded_bytes().starts_with(b".fff-trash-"))
+        && let Ok(origin) = crate::trash::origin(path)
+    {
+        preview.fact("From", origin.path.to_string_lossy());
+        if let Some(when) = origin.deleted {
+            preview.fact("Trashed", crate::details::timestamp(when));
+        }
+    }
     let link = lstat
         .is_symlink()
         .then(|| fs::read_link(path).unwrap_or_default());

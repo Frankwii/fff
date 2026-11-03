@@ -248,8 +248,8 @@ contents, a PDF's facts and first pages' text, an image's size, a song's or a
 video's duration, streams and tags. It is text only, reads in the background
 once the highlight rests, and never holds up the list. PDFs use poppler's
 `pdfinfo` and `pdftotext`, audio and video FFmpeg's `ffprobe`, when installed.
-Alt+v (`P` in Normal mode) hides or shows it, and `[ui] preview = false`
-starts with it hidden; see [preview
+Alt+v (`P` in Normal mode) hides or shows it, Ctrl+j and Ctrl+k scroll it,
+and `[ui] preview = false` starts with it hidden; see [preview
 pane](docs/CONFIGURATION.md#preview-pane).
 
 ### Details and live updates
@@ -304,6 +304,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d and D reach Neovim there) |
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
+| Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
 | Alt+H | Toggle exclusion enforcement |
 | Alt+e | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
 | Alt+f | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
@@ -311,6 +312,8 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | x in Normal | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
 | X in Normal | Choose current/selected deletion, review sizes, then Enter deletes permanently |
 | u in Normal | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before) |
+| Alt+t / gt in Normal | Open the [trash](docs/OPERATIONS.md#the-trash-folder) like any folder; again, the next filesystem's trash |
+| R in Normal | In the trash: restore the current or marked entries where they were deleted from |
 | r in Normal | Batch rename the filtered results in a buffer |
 | e in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |

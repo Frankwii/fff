@@ -19,6 +19,8 @@ pub enum ScopedAction {
     Edit,
     /// o: each file's opener, in this terminal.
     Open,
+    /// R: back from the trash.
+    Restore,
 }
 /// l, Alt+l and Alt+number on a file: its opener in the background (a
 /// terminal opener in a new terminal window), while fff keeps the keyboard.
@@ -179,7 +181,12 @@ pub(super) fn save_as(app: &mut App, focus: &mut Focus, target: PathBuf) -> Opti
             None
         }
         Ok(_) => {
-            *focus = Focus::Replace(target);
+            let folder = target.parent().unwrap_or(&app.cwd);
+            let both = crate::explorer::free_name(folder, target.file_name().unwrap_or_default());
+            *focus = Focus::Replace(Replace {
+                taken: vec![(target, both)],
+                then: Replacing::Save,
+            });
             None
         }
     }

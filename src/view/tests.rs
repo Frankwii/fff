@@ -1295,7 +1295,7 @@ fn key_guide_lists_configured_normal_keys_and_dims_navigation_with_no_dir() {
         offset: 0,
         keys: true,
     };
-    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(120, 46)).unwrap();
     terminal
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
@@ -1557,11 +1557,7 @@ fn status_items_drop_from_the_end_before_the_label_shortens() {
             .collect::<String>()
     };
     let full = text(200);
-    for item in [
-        "◌ scanning, incomplete",
-        "filters on",
-        "hidden shown",
-    ] {
+    for item in ["◌ scanning, incomplete", "filters on", "hidden shown"] {
         assert!(full.contains(item), "{item:?} in {full:?}");
     }
     let shortest = text(0);
@@ -1613,6 +1609,96 @@ fn text_wraps_between_words_and_the_guide_keeps_descriptions_first_words() {
     let screen = text(terminal.backend().buffer());
     assert!(
         screen.contains(" a [MISSING]") && screen.contains(" b [MISSING]"),
+        "{screen}"
+    );
+}
+#[test]
+fn the_preview_scrolls_its_content_and_keeps_its_facts() {
+    use crate::preview::{Key, Preview, Tone};
+    let mut app = fixture();
+    let key = Key {
+        path: app.cwd.join("todo.txt"),
+        size: 9,
+        modified: None,
+        hidden: false,
+    };
+    app.preview.set(
+        key,
+        Preview {
+            kind: "text · 100 lines".into(),
+            facts: vec![("Pages".into(), "12".into())],
+            lines: (1..=100)
+                .map(|n| (format!("line {n:03}"), Tone::Text))
+                .collect(),
+        },
+    );
+    let (screen, _) = draw(&mut app, 120, 40);
+    assert!(screen.contains("line 001") && !screen.contains("line 100"));
+    // Down by half the room, never past the last line; facts stay.
+    assert!(app.preview.scroll(true));
+    let (screen, _) = draw(&mut app, 120, 40);
+    assert!(!screen.contains("line 001") && screen.contains("Pages  12"));
+    while app.preview.scroll(true) {}
+    let (screen, _) = draw(&mut app, 120, 40);
+    assert!(screen.contains("line 100"), "{screen}");
+    let below = screen.lines().position(|l| l.contains("line 100")).unwrap();
+    assert!(screen.lines().nth(below + 1).unwrap().contains('╰'));
+    while app.preview.scroll(false) {}
+    let (screen, _) = draw(&mut app, 120, 40);
+    assert!(screen.contains("line 001"));
+    assert!(!app.preview.scroll(false));
+}
+#[test]
+fn the_trash_is_named_on_the_location_line_with_its_restore_key() {
+    let mut app = fixture();
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(!screen.contains("trash ·"));
+    app.trash_folders = vec![app.cwd.clone()];
+    let (screen, _) = draw(&mut app, 120, 26);
+    let line = screen.lines().find(|l| l.contains(" @ ")).unwrap();
+    assert!(line.contains("trash · R restores"), "{screen}");
+    // The key shown is the configured one.
+    let config: crate::normal_keys::NormalKeysConfig = toml::from_str("restore='gr'").unwrap();
+    app.normal_keys = config.build().unwrap();
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("trash · gr restores"), "{screen}");
+}
+#[test]
+fn a_taken_place_offers_to_overwrite_keep_both_or_cancel() {
+    use crate::ui::{Replace, Replacing};
+    let mut app = fixture();
+    let notes = app.cwd.join("notes.md");
+    let both = app.cwd.join("notes (1).md");
+    let bin = app.cwd.join("trash/files/notes.md");
+    let draw_focus = |app: &mut App, mut focus: Focus| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        terminal
+            .draw(|frame| _ = render(frame, app, &mut focus))
+            .unwrap();
+        text(terminal.backend().buffer())
+    };
+    let plan =
+        crate::operations::RestorePlan::shown(vec![(bin, notes.clone())], vec![(0, both.clone())]);
+    let screen = draw_focus(
+        &mut app,
+        Focus::Replace(Replace {
+            taken: vec![(notes.clone(), both.clone())],
+            then: Replacing::Restore(plan),
+        }),
+    );
+    assert!(screen.contains("╭ Restore"), "{screen}");
+    assert!(screen.contains("notes (1).md") && screen.contains("goes to the trash"));
+    assert!(screen.contains("Enter: Overwrite") && screen.contains("Esc: Cancel"));
+    // Saving a file dialog's answer asks the same way.
+    let screen = draw_focus(
+        &mut app,
+        Focus::Replace(Replace {
+            taken: vec![(notes, both)],
+            then: Replacing::Save,
+        }),
+    );
+    assert!(
+        screen.contains("╭ Replace") && screen.contains("Esc: Back"),
         "{screen}"
     );
 }

@@ -867,3 +867,129 @@ fn volume_bins_in_namespace() {
         assert!(status.success());
     }
 }
+fn restore_plan(f: &Fixture, paths: Vec<PathBuf>) -> Result<RestorePlan> {
+    RestorePlan::new(paths, &trash(f, u64::MAX))
+}
+#[test]
+fn restored_entries_go_back_even_after_a_rename_in_the_trash() {
+    let f = Fixture::new();
+    let a = f.file("a", b"alpha");
+    fs::create_dir(f.work.join("dir")).unwrap();
+    let b = f.work.join("dir/b");
+    fs::write(&b, b"beta").unwrap();
+    trash_all(&f, vec![a.clone(), b.clone()]);
+    let files = bin(&f).join("files");
+    // Renamed inside the trash, by fff or by hand: the record follows the
+    // inode, never the name.
+    fs::rename(files.join("a"), files.join("renamed")).unwrap();
+    let plan = restore_plan(&f, vec![files.join("renamed"), files.join("b")]).unwrap();
+    assert_eq!(
+        plan.entries,
+        [
+            (files.join("renamed"), a.clone()),
+            (files.join("b"), b.clone())
+        ]
+    );
+    assert!(plan.taken.is_empty());
+    let out = engine(&f).execute(plan.request(Taken::Replace)).unwrap();
+    assert_eq!(fs::read(&a).unwrap(), b"alpha");
+    assert_eq!(fs::read(&b).unwrap(), b"beta");
+    assert!(listing(&files).is_empty());
+    assert!(listing(&bin(&f).join("info")).is_empty());
+    assert_eq!(
+        out.moved,
+        [
+            (files.join("renamed"), a.clone()),
+            (files.join("b"), b.clone())
+        ]
+    );
+    // Undoing puts them back in the trash with their records, so they can
+    // be restored again.
+    engine(&f).undo(&record(out)).unwrap();
+    assert!(!a.exists() && !b.exists());
+    assert_eq!(listing(&files), ["b", "renamed"]);
+    let plan = restore_plan(&f, vec![files.join("renamed")]).unwrap();
+    assert_eq!(plan.entries[0].1, a);
+}
+#[test]
+fn a_taken_place_is_overwritten_into_the_trash_or_kept_beside() {
+    let f = Fixture::new();
+    let a = f.file("notes.md", b"old");
+    trash_all(&f, vec![a.clone()]);
+    fs::write(&a, b"new").unwrap();
+    let files = bin(&f).join("files");
+    let plan = restore_plan(&f, vec![files.join("notes.md")]).unwrap();
+    let both = f.work.join("notes (1).md");
+    assert_eq!(plan.taken, [(0, both.clone())]);
+    // Keeping both restores beside it.
+    let out = engine(&f).execute(plan.request(Taken::KeepBoth)).unwrap();
+    assert_eq!(fs::read(&a).unwrap(), b"new");
+    assert_eq!(fs::read(&both).unwrap(), b"old");
+    engine(&f).undo(&record(out)).unwrap();
+    assert!(!both.exists());
+    // Overwriting sends what was there to the trash; undo swaps them back.
+    let plan = restore_plan(&f, vec![files.join("notes.md")]).unwrap();
+    let out = engine(&f).execute(plan.request(Taken::Replace)).unwrap();
+    assert_eq!(fs::read(&a).unwrap(), b"old");
+    assert_eq!(out.trashed, 1);
+    assert_eq!(listing(&files), ["notes.md.2"]);
+    assert_eq!(fs::read(files.join("notes.md.2")).unwrap(), b"new");
+    engine(&f).undo(&record(out)).unwrap();
+    assert_eq!(fs::read(&a).unwrap(), b"new");
+    assert_eq!(fs::read(files.join("notes.md")).unwrap(), b"old");
+    // An overwrite applies only to what was confirmed.
+    let plan = restore_plan(&f, vec![files.join("notes.md")]).unwrap();
+    fs::write(&a, b"newer").unwrap();
+    assert!(engine(&f).execute(plan.request(Taken::Replace)).is_err());
+    assert_eq!(fs::read(&a).unwrap(), b"newer");
+}
+#[test]
+fn only_recorded_entries_at_the_top_of_a_trash_are_restored() {
+    let f = Fixture::new();
+    let dir = f.work.join("dir");
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("inner"), b"x").unwrap();
+    let gone = f.work.join("gone");
+    fs::create_dir(&gone).unwrap();
+    let lost = f.file("gone/lost", b"lost");
+    let one = f.file("one", b"1");
+    trash_all(&f, vec![dir, lost]);
+    let files = bin(&f).join("files");
+    fs::write(files.join("stray"), b"no record").unwrap();
+    fs::remove_dir(&gone).unwrap();
+    let error = |paths: Vec<PathBuf>| restore_plan(&f, paths).unwrap_err();
+    assert!(error(vec![files.join("dir/inner")]).contains("not at the top"));
+    assert!(error(vec![one.clone()]).contains("not at the top"));
+    assert!(error(vec![files.join("stray")]).contains("no record"));
+    assert!(error(vec![files.join("lost")]).contains("no longer exists"));
+    // Two entries from the same place cannot both go there.
+    trash_all(&f, vec![one.clone()]);
+    fs::write(&one, b"2").unwrap();
+    trash_all(&f, vec![one.clone()]);
+    assert!(error(vec![files.join("one"), files.join("one.2")]).contains("one at a time"));
+    // The engine checks for itself.
+    let request = Request::Restore {
+        sources: vec![files.join("stray")],
+        targets: vec![f.work.join("stray")],
+        replace: vec![],
+        confirmed: vec![],
+    };
+    assert!(engine(&f).execute(request).is_err());
+    assert!(files.join("stray").exists());
+}
+#[test]
+fn the_purge_follows_entries_renamed_in_the_trash() {
+    let f = Fixture::new();
+    let t = trash(&f, u64::MAX);
+    let a = f.file("a", b"alpha");
+    trash_all(&f, vec![a]);
+    let files = bin(&f).join("files");
+    fs::rename(files.join("a"), files.join("b")).unwrap();
+    let now = SystemTime::now();
+    assert_eq!(t.purge(now).removed, 0);
+    // The record now names the renamed entry.
+    assert_eq!(listing(&bin(&f).join("info")), ["b.trashinfo"]);
+    assert_eq!(t.purge(now + Duration::from_secs(31 * 86_400)).removed, 1);
+    assert!(listing(&files).is_empty());
+    assert!(listing(&bin(&f).join("info")).is_empty());
+}

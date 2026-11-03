@@ -4,6 +4,28 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **The trash opens like any folder: Alt+t** (`gt` in Normal mode). Browse,
+  filter, preview, mark and rename there as anywhere; pressed again, it goes
+  on to the trash of another filesystem. The location line says you are in
+  the trash, and the preview pane says where an entry came from and when.
+- **R restores entries from the trash** to where they were deleted from,
+  only while in the trash. It finds the way even after an entry was renamed
+  there, by fff or by hand (records now carry the entry's inode). When
+  something has taken the place, a sheet asks to overwrite it (into the
+  trash), keep both as `name (1)`, or cancel. `u` puts them back into the
+  trash. Configurable as `restore` and `trash` in `[keys.normal]`.
+- **Ctrl+j / Ctrl+k scroll the preview pane** by half its height without
+  moving the highlight. With the pane hidden, they say how to open it.
+
+### Fixed
+
+- **The purge follows entries renamed in the trash** instead of keeping them
+  forever without a record.
+
 ## 0.12.1 — 2026-11-03
 
 Large trees list faster, and a stuck mount holds up only its own entries.

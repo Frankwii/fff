@@ -94,6 +94,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     true,
                 ),
                 ("Alt+b".into(), "open a bookmark", true),
+                ("Alt+t".into(), "open the trash; again, the next one", true),
                 (
                     "Alt+↑  Alt+↓".into(),
                     "next / previous of 3 tabs; marks shared",
@@ -124,6 +125,11 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                 ("Alt+d".into(), "hide / show directories", true),
                 ("Alt+D".into(), "hide / show files", true),
                 ("Alt+v".into(), "show / hide the preview pane", false),
+                (
+                    "Ctrl+j  Ctrl+k".into(),
+                    "scroll the preview down / up",
+                    false,
+                ),
                 (
                     [Move, Copy, Link].map(normal).join(" / "),
                     "move / copy / symlink selected (Normal)",
@@ -238,6 +244,12 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     false,
                 ),
                 (normal(Undo), "undo the last file operation", false),
+                (normal(Trash), "open the trash, like Alt+t", true),
+                (
+                    normal(Restore),
+                    "in the trash: restore current / marked",
+                    false,
+                ),
                 ("i  a".into(), "enter Insert mode", false),
             ],
         ),

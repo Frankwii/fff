@@ -46,6 +46,10 @@ pub enum ListAction {
     Open,
     /// Undo the last file operation.
     Undo,
+    /// In the trash: put the current or marked entries back where they were.
+    Restore,
+    /// Same as Alt+t in the results: open the trash.
+    Trash,
     /// Same as Alt+← in the results: search one level shallower.
     Shallower,
     /// Same as Alt+→ in the results: search one level deeper.
@@ -68,7 +72,7 @@ pub enum ListAction {
     NextTab,
 }
 impl ListAction {
-    pub const ALL: [Self; 34] = [
+    pub const ALL: [Self; 36] = [
         Self::Left,
         Self::Down,
         Self::Up,
@@ -93,6 +97,8 @@ impl ListAction {
         Self::New,
         Self::Open,
         Self::Undo,
+        Self::Restore,
+        Self::Trash,
         Self::Shallower,
         Self::Deeper,
         Self::Bookmarks,
@@ -119,6 +125,7 @@ impl ListAction {
             Self::New => 'n',
             Self::Open => 'o',
             Self::Undo => 'u',
+            Self::Restore => 'R',
             _ => return None,
         })
     }
@@ -140,6 +147,7 @@ impl ListAction {
             Self::Files => 'D',
             Self::Preview => 'v',
             Self::GoTo => 'g',
+            Self::Trash => 't',
             Self::First
             | Self::Last
             | Self::MarkAll
@@ -158,7 +166,8 @@ impl ListAction {
             | Self::Edit
             | Self::New
             | Self::Open
-            | Self::Undo => return None,
+            | Self::Undo
+            | Self::Restore => return None,
         };
         Some(KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT))
     }
@@ -315,6 +324,8 @@ pub struct NormalKeysConfig {
     pub new: Sequences,
     pub open: Sequences,
     pub undo: Sequences,
+    pub restore: Sequences,
+    pub trash: Sequences,
     pub shallower: Sequences,
     pub deeper: Sequences,
     pub bookmarks: Sequences,
@@ -356,6 +367,8 @@ impl Default for NormalKeysConfig {
             new: one("n"),
             open: one("o"),
             undo: one("u"),
+            restore: one("R"),
+            trash: one("gt"),
             shallower: one("<left>"),
             deeper: one("<right>"),
             bookmarks: one("b"),
@@ -397,6 +410,8 @@ impl NormalKeysConfig {
             ListAction::New => ("new", &self.new),
             ListAction::Open => ("open", &self.open),
             ListAction::Undo => ("undo", &self.undo),
+            ListAction::Restore => ("restore", &self.restore),
+            ListAction::Trash => ("trash", &self.trash),
             ListAction::Shallower => ("shallower", &self.shallower),
             ListAction::Deeper => ("deeper", &self.deeper),
             ListAction::Bookmarks => ("bookmarks", &self.bookmarks),

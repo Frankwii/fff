@@ -141,18 +141,24 @@ pub fn check_name(name: &str) -> Result<(), String> {
 
 /// `folder/name`, or the first of `name (1).ext`, `name (2).ext`, ... that
 /// does not exist yet.
-pub fn free_name(folder: &Path, name: &str) -> PathBuf {
+pub fn free_name(folder: &Path, name: impl AsRef<std::ffi::OsStr>) -> PathBuf {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let name = name.as_ref();
     let path = folder.join(name);
     if path.symlink_metadata().is_err() {
         return path;
     }
     // A leading dot is part of the stem (".bashrc"), as is a lone dot.
-    let (stem, extension) = match name.rfind('.') {
-        Some(dot) if dot > 0 => name.split_at(dot),
-        _ => (name, ""),
+    let bytes = name.as_bytes();
+    let (stem, extension) = match bytes.iter().rposition(|&b| b == b'.') {
+        Some(dot) if dot > 0 => bytes.split_at(dot),
+        _ => (bytes, &b""[..]),
     };
     (1..)
-        .map(|n| folder.join(format!("{stem} ({n}){extension}")))
+        .map(|n| {
+            let numbered = [stem, format!(" ({n})").as_bytes(), extension].concat();
+            folder.join(std::ffi::OsString::from_vec(numbered))
+        })
         .find(|p| p.symlink_metadata().is_err())
         .expect("some number is free")
 }

@@ -807,6 +807,7 @@ pub(super) fn scope_choice(
         crate::ui::ScopedAction::Run(true) => ("Run and exit", "run a program on"),
         crate::ui::ScopedAction::Edit => ("Edit", "edit"),
         crate::ui::ScopedAction::Open => ("Open", "open"),
+        crate::ui::ScopedAction::Restore => ("Restore", "restore"),
     };
     choice(
         frame,
@@ -828,23 +829,61 @@ pub(super) fn scope_choice(
         ],
     );
 }
-/// fff explorer --save: the chosen name is taken.
-pub(super) fn replace_choice(frame: &mut Frame, main: Rect, app: &App, target: &Path) {
-    let name = target.file_name().unwrap_or_default().to_string_lossy();
-    let folder = target.parent().unwrap_or(target);
-    let both = crate::explorer::free_name(folder, &name);
+/// A name that is taken: the file dialog's answer (fff explorer --save) or
+/// entries restored from the trash.
+pub(super) fn replace_choice(
+    frame: &mut Frame,
+    main: Rect,
+    app: &App,
+    replace: &crate::ui::Replace,
+) {
+    let name = |p: &Path| safe(p.file_name().unwrap_or_default().to_string_lossy());
+    let restoring = matches!(replace.then, crate::ui::Replacing::Restore(_));
+    let text = match &replace.taken[..] {
+        [(target, both)] => {
+            let folder = target.parent().unwrap_or(target);
+            let (replacing, keeping, back) = if restoring {
+                (
+                    "overwrite it (it goes to the trash)",
+                    "restoring as",
+                    "cancel",
+                )
+            } else {
+                ("replace it", "saving as", "go back and choose another name")
+            };
+            format!(
+                "*{}* already exists in {}. Press *Enter* to {replacing}, *k* to keep \
+                 both ({keeping} *{}*), or *Esc* to {back}.",
+                name(target),
+                tilde(folder, app.home.as_deref()),
+                name(both),
+            )
+        }
+        taken => format!(
+            "{} entries have their places taken: {}. Press *Enter* to overwrite them \
+             (they go to the trash), *k* to keep both (restoring beside them, \
+             numbered like *{}*), or *Esc* to cancel.",
+            taken.len(),
+            taken
+                .iter()
+                .map(|(t, _)| format!("*{}*", name(t)))
+                .collect::<Vec<_>>()
+                .join(", "),
+            name(&taken[0].1),
+        ),
+    };
+    let (title, replacing, back) = if restoring {
+        ("Restore", "Overwrite", "Cancel")
+    } else {
+        ("Replace", "Replace", "Back")
+    };
     choice(
         frame,
         main,
         app,
-        "Replace",
-        &format!(
-            "*{name}* already exists in {}. Press *Enter* to replace it, *k* to keep \
-             both (saving as *{}*), or *Esc* to go back and choose another name.",
-            tilde(folder, app.home.as_deref()),
-            both.file_name().unwrap_or_default().to_string_lossy(),
-        ),
-        &[("Enter", "Replace"), ("k", "Keep both"), ("Esc", "Back")],
+        title,
+        &text,
+        &[("Enter", replacing), ("k", "Keep both"), ("Esc", back)],
     );
 }
 pub(super) fn new_choice(frame: &mut Frame, main: Rect, app: &App) {

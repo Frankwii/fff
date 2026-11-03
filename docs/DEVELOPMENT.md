@@ -43,7 +43,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Per-directory highlights and the last session for `--resume`, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback, deletion review, progress and stopping. |
-| `src/trash.rs` | Trash bins per filesystem, their records, and the startup purge. |
+| `src/trash.rs` | Trash bins per filesystem, their records (found again after a rename, for restoring), and the startup purge. |
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |

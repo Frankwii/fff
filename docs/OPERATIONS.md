@@ -12,6 +12,7 @@ keeps them as text.
 | `x` | Move the highlighted path or the marked paths to the [trash](#trash-and-deletion) |
 | `X` | Delete the highlighted path or the marked paths permanently, after confirmation |
 | `u` | [Undo](#undo) the last file operation |
+| `R` | In the [trash](#the-trash-folder), restore the current or marked entries |
 | `r` | Open a batch rename buffer for every currently filtered result |
 | `e` | Extract the current or marked archives into a prompted directory |
 | `n` | Choose file (`f`) or directory (`d`), then enter a new name |
@@ -325,6 +326,35 @@ many were deleted and which root was only partly deleted. Marks of the deleted
 and trashed roots are removed. Anything that cannot be moved back, here or in
 any other rollback, is named with its staging or trash path.
 
+## The trash folder
+
+**Alt+t** (`gt` in Normal mode) opens the trash, `$XDG_DATA_HOME/fff/trash/files`,
+as a folder like any other: browse, filter, preview, mark, rename and delete
+in it as anywhere. Pressed in a trash, Alt+t goes on to the next one, since
+every filesystem fff trashed entries on has its own. The location line shows
+a `trash · R restores` pill there, and the preview pane names where the
+highlighted entry came from and when it was trashed.
+
+**R** (`restore` in `[keys.normal]`), only in a trash, puts the current or the
+marked entries back where they were deleted from (asking which, as `x` does,
+when the current entry is unmarked while others are marked). The place comes
+from the entry's record in `info/`. fff records the entry's inode there too,
+which a rename keeps, so an entry renamed in the trash, by fff or by hand,
+still goes back to its original path and name; the purge follows renamed
+entries the same way. Only entries at the top of a trash have records;
+restoring is refused for what lies inside them, for entries without a
+record, when the folder they came from is gone (restore that folder first),
+and when two entries came from the same place.
+
+When something now has the entry's place, a **Restore** sheet asks: **Enter**
+overwrites it (the entry there goes to the trash, as overwrites do), **k**
+keeps both, restoring as the first free `name (1).ext`, `name (2).ext`…, and
+**Esc** cancels. With several entries the answer applies to every taken
+place. Restoring is a move: the same checks, staging and rollback apply, and
+an overwrite applies only to the entry that was shown. `u` puts the restored
+entries back into the trash with their original records (and brings back
+what they overwrote).
+
 ## Undo
 
 `u` (configurable as `undo` in `[keys.normal]`) undoes the last file operation
@@ -333,6 +363,7 @@ of the session, and pressing it again the one before, up to 100:
 | Operation | Undoing it |
 | --- | --- |
 | `x` | Moves the entries back from the trash |
+| `R` | Moves the restored entries back into the trash, with their records |
 | `v`, `r` | Moves or renames the entries back |
 | `p`, `s`, `n`, `e` | Moves the copies, links, new entries or extracted entries to the trash |
 | Overwriting `v` / `p` | Also brings the overwritten entries back from the trash |

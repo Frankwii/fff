@@ -157,6 +157,8 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             New,
             Open,
             Undo,
+            Restore,
+            Trash,
             Shallower,
             Deeper,
             Bookmarks,
@@ -191,6 +193,7 @@ pub(super) fn list_actions(focus: &Focus) -> Option<&'static [ListAction]> {
             New,
             Open,
             Undo,
+            Restore,
         ]),
         Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. } => {
             Some(&[Down, Up, First, Last, Quit, QuitCurrent])

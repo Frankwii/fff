@@ -16,7 +16,7 @@ use rustix::fs::{self as sys, AtFlags, Mode, OFlags, StatxFlags};
 use std::{
     ffi::{OsStr, OsString},
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     os::unix::{
         ffi::{OsStrExt, OsStringExt},
         fs::{DirBuilderExt, MetadataExt},
@@ -162,6 +162,18 @@ impl Trash {
                 else {
                     continue;
                 };
+                // An entry renamed in the trash takes its record along.
+                let mut slot = slot.to_owned();
+                let mut info = info.clone();
+                if let Ok(false) = bin.contains(&slot)
+                    && let Some(inode) = fs::read(item.path()).ok().and_then(|t| record_inode(&t))
+                    && let Some(renamed) = bin.renamed(inode)
+                    && bin.follow(&slot, &renamed).is_ok()
+                {
+                    slot = renamed;
+                    info = info_name(&slot);
+                }
+                let slot = slot.as_os_str();
                 if now.duration_since(deleted).is_ok_and(|waited| waited > age) {
                     let gone = match bin.contains(slot) {
                         Ok(true) => bin.expunge(slot),
@@ -186,6 +198,56 @@ impl Trash {
     pub fn purge_in_background(&self) -> std::thread::JoinHandle<Purged> {
         let trash = self.clone();
         std::thread::spawn(move || trash.purge(SystemTime::now()))
+    }
+}
+/// Where an entry at the top of a trash came from, by its record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Origin {
+    /// Its original path.
+    pub path: PathBuf,
+    pub deleted: Option<SystemTime>,
+}
+/// The bin holding `entry` at its top (`BIN/files/NAME`), by its place in
+/// that layout alone.
+pub fn bin_of(entry: &Path) -> Option<&Path> {
+    let files = entry.parent()?;
+    (files.file_name()? == "files" && entry.file_name().is_some())
+        .then(|| files.parent())
+        .flatten()
+}
+/// Where `entry`, at the top of a bin, came from: read from its record,
+/// which it keeps when renamed in the trash.
+pub fn origin(entry: &Path) -> Result<Origin> {
+    let name = entry.file_name().ok_or("Not an entry")?;
+    let bin = Bin::open(bin_of(entry).ok_or("Not at the top of a trash")?, false)?;
+    let (_, text) = bin
+        .record_of(name)
+        .ok_or("The trash has no record of where it came from")?;
+    let top = bin.path.parent().unwrap_or(&bin.path);
+    Ok(Origin {
+        path: record_path(&text, top).ok_or("Its trash record names no place")?,
+        deleted: deletion_date(&text),
+    })
+}
+impl Trash {
+    /// Whether `entry` is at the top of one of the bins: a path below
+    /// `files/` of the home bin or of a registered one.
+    pub fn holds(&self, entry: &Path) -> bool {
+        let Some(bin) = bin_of(entry).and_then(|b| b.canonicalize().ok()) else {
+            return false;
+        };
+        self.bins()
+            .iter()
+            .any(|b| b == &bin || b.canonicalize().is_ok_and(|b| b == bin))
+    }
+    /// The bins' `files/` folders that exist, the home bin's first: what
+    /// the trash shows.
+    pub fn folders(&self) -> Vec<PathBuf> {
+        self.bins()
+            .into_iter()
+            .map(|b| b.join("files"))
+            .filter(|f| f.is_dir())
+            .collect()
     }
 }
 #[derive(Debug, Default)]
@@ -253,10 +315,25 @@ impl Bin {
     /// from `original` now; the slot it went to, named after `original`, is
     /// returned.
     pub(crate) fn put(&self, parent: &File, name: &OsStr, original: &Path) -> Result<OsString> {
-        let mut base = original.file_name().unwrap_or(name).as_bytes().to_vec();
+        let inode = sys::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(err)?
+            .st_ino;
+        let text = info_text(original, SystemTime::now(), Some(inode));
+        let base = original.file_name().unwrap_or(name);
+        self.put_record(parent, name, base, text.as_bytes())
+    }
+    /// Moves `name` in `parent` into the bin with the record `text`, into
+    /// the first free slot named after `base`.
+    pub(crate) fn put_record(
+        &self,
+        parent: &File,
+        name: &OsStr,
+        base: &OsStr,
+        text: &[u8],
+    ) -> Result<OsString> {
+        let mut base = base.as_bytes().to_vec();
         // Room for a numeric suffix and ".trashinfo" within NAME_MAX.
         base.truncate(200);
-        let text = info_text(original, SystemTime::now());
         for n in 1..=10_000u32 {
             let mut slot = base.clone();
             if n > 1 {
@@ -278,7 +355,7 @@ impl Bin {
                 Err(e) => return Err(err(e)),
             };
             let moved = file
-                .write_all(text.as_bytes())
+                .write_all(text)
                 .and_then(|()| file.sync_all())
                 .map_err(err)
                 .and_then(|()| reparent(parent, name, &self.files, &slot));
@@ -298,6 +375,90 @@ impl Bin {
     /// Drops the record of an entry taken back out of the bin.
     pub(crate) fn forget(&self, slot: &OsStr) {
         let _ = sys::unlinkat(&self.info, info_name(slot), AtFlags::empty());
+    }
+    /// The record `info/NAME.trashinfo`, read without following a symlink.
+    fn read_record(&self, name: &OsStr) -> Option<Vec<u8>> {
+        let fd = sys::openat(
+            &self.info,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()?;
+        let mut text = vec![];
+        File::from(fd)
+            .take(RECORD_LIMIT)
+            .read_to_end(&mut text)
+            .ok()?;
+        Some(text)
+    }
+    /// The record of the entry `slot`, as (the slot the record is named
+    /// after, its text). Its own record comes first, unless that one names
+    /// another entry; otherwise the entry was renamed in the trash, and its
+    /// record is the one naming its inode (a rename keeps it) whose own slot
+    /// is empty, the latest deleted if several do (an inode is reused only
+    /// after its entry is gone).
+    pub(crate) fn record_of(&self, slot: &OsStr) -> Option<(OsString, Vec<u8>)> {
+        let inode = sys::statat(&self.files, slot, AtFlags::SYMLINK_NOFOLLOW)
+            .ok()?
+            .st_ino;
+        if let Some(text) = self.read_record(&info_name(slot))
+            && record_inode(&text).is_none_or(|i| i == inode)
+        {
+            return Some((slot.to_owned(), text));
+        }
+        let mut found: Option<(OsString, Vec<u8>, Option<SystemTime>)> = None;
+        for item in fs::read_dir(fdpath(&self.info)).ok()?.flatten() {
+            let name = item.file_name();
+            let Some(other) = name.as_bytes().strip_suffix(b".trashinfo") else {
+                continue;
+            };
+            let other = OsStr::from_bytes(other);
+            if other == slot || matches!(other.as_bytes(), b"" | b"." | b"..") {
+                continue;
+            }
+            let Some(text) = self.read_record(&name) else {
+                continue;
+            };
+            if record_inode(&text) != Some(inode) || self.contains(other).unwrap_or(true) {
+                continue;
+            }
+            let deleted = deletion_date(&text);
+            if found.as_ref().is_none_or(|(_, _, d)| deleted > *d) {
+                found = Some((other.to_owned(), text, deleted));
+            }
+        }
+        found.map(|(other, text, _)| (other, text))
+    }
+    /// Renames the record of `from` to be the record of `to`, which has
+    /// none: after the entry was renamed in the trash.
+    fn follow(&self, from: &OsStr, to: &OsStr) -> Result<()> {
+        sys::renameat_with(
+            &self.info,
+            info_name(from),
+            &self.info,
+            info_name(to),
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(err)
+    }
+    /// The entry of files/ with this inode that has no record of its own,
+    /// for a record whose entry is gone from its slot.
+    fn renamed(&self, inode: u64) -> Option<OsString> {
+        use std::os::unix::fs::DirEntryExt;
+        fs::read_dir(fdpath(&self.files))
+            .ok()?
+            .flatten()
+            .find(|item| {
+                item.ino() == inode
+                    && sys::statat(
+                        &self.info,
+                        info_name(&item.file_name()),
+                        AtFlags::SYMLINK_NOFOLLOW,
+                    )
+                    .is_err()
+            })
+            .map(|item| item.file_name())
     }
 }
 fn info_name(slot: &OsStr) -> OsString {
@@ -328,8 +489,9 @@ fn top(dir: &Path, here: (u64, u32, u32)) -> Result<PathBuf> {
     }
     Ok(top)
 }
-/// The freedesktop.org record: percent-encoded path, local deletion time.
-fn info_text(original: &Path, when: SystemTime) -> String {
+/// The freedesktop.org record: percent-encoded path, local deletion time,
+/// and the entry's inode (`INODE_KEY`) when known.
+fn info_text(original: &Path, when: SystemTime, inode: Option<u64>) -> String {
     let mut path = String::new();
     for &b in original.as_os_str().as_bytes() {
         if b.is_ascii_alphanumeric() || b"/-_.~".contains(&b) {
@@ -338,10 +500,55 @@ fn info_text(original: &Path, when: SystemTime) -> String {
             path.push_str(&format!("%{b:02X}"));
         }
     }
-    format!(
+    let mut text = format!(
         "[Trash Info]\nPath={path}\nDeletionDate={}\n",
         local_time(when)
-    )
+    );
+    if let Some(inode) = inode {
+        text += &format!("{INODE_KEY}{inode}\n");
+    }
+    text
+}
+/// fff's own key in its records: the entry's inode number, which renaming
+/// the entry in the trash keeps, so that its record can still be found.
+const INODE_KEY: &str = "X-fff-Inode=";
+/// Records are small; a larger file in info/ is not read whole.
+const RECORD_LIMIT: u64 = 64 * 1024;
+/// The value of `key` (with its `=`) in a record.
+fn field<'a>(text: &'a [u8], key: &str) -> Option<&'a str> {
+    let text = std::str::from_utf8(text).ok()?;
+    text.lines()
+        .find_map(|l| l.trim().strip_prefix(key))
+        .map(str::trim)
+}
+fn record_inode(text: &[u8]) -> Option<u64> {
+    field(text, INODE_KEY)?.parse().ok()
+}
+/// The original path of a record, decoded; a relative one is relative to
+/// `top`, the directory holding the bin.
+fn record_path(text: &[u8], top: &Path) -> Option<PathBuf> {
+    let value = field(text, "Path=")?.as_bytes();
+    let mut bytes = Vec::with_capacity(value.len());
+    let mut i = 0;
+    while i < value.len() {
+        if value[i] == b'%' {
+            let hex = std::str::from_utf8(value.get(i + 1..i + 3)?).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            bytes.push(value[i]);
+            i += 1;
+        }
+    }
+    if bytes.is_empty() || bytes.contains(&0) {
+        return None;
+    }
+    let path = PathBuf::from(OsString::from_vec(bytes));
+    Some(if path.is_absolute() {
+        path
+    } else {
+        top.join(path)
+    })
 }
 /// `YYYY-MM-DDThh:mm:ss` in local time.
 fn local_time(when: SystemTime) -> String {
@@ -360,11 +567,7 @@ fn local_time(when: SystemTime) -> String {
 }
 /// The `DeletionDate` of a record, read as local time.
 fn deletion_date(text: &[u8]) -> Option<SystemTime> {
-    let text = std::str::from_utf8(text).ok()?;
-    let value = text
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("DeletionDate="))?
-        .trim();
+    let value = field(text, "DeletionDate=")?;
     let (date, time) = value.split_once('T')?;
     let mut date = date.split('-').map(str::parse::<i32>);
     let mut time = time.split(':').map(str::parse::<i32>);
@@ -447,7 +650,7 @@ mod tests {
     #[test]
     fn records_round_trip_the_local_deletion_time() {
         let when = UNIX_EPOCH + Duration::from_secs(1_762_000_000);
-        let text = info_text(Path::new("/home/me/a b%c/ü"), when);
+        let text = info_text(Path::new("/home/me/a b%c/ü"), when, Some(7));
         assert!(
             text.starts_with("[Trash Info]\nPath=/home/me/a%20b%25c/%C3%BC\n"),
             "{text}"

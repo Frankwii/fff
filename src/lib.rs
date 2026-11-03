@@ -289,6 +289,9 @@ pub struct App {
     pub window: bool,
     /// `[trash]`: where `x` sends entries; `None` deletes them permanently.
     pub trash: Option<trash::Trash>,
+    /// The trash's `files/` folders, home bin first, as last read
+    /// (`refresh_trash`): where R restores.
+    pub trash_folders: Vec<PathBuf>,
     /// This session's file operations that `u` can undo, oldest first.
     pub undo: Vec<operations::undo::Record>,
 }
@@ -382,6 +385,7 @@ impl App {
             preview: preview::Pane::default(),
             window: false,
             trash: None,
+            trash_folders: Vec::new(),
             undo: Vec::new(),
             dialog: None,
         }
@@ -474,6 +478,17 @@ impl App {
         self.wanted = session.highlight;
     }
     /// Changes directory, recording the old one for Ctrl+o.
+    /// Reads which folders the trash shows again: a bin on another
+    /// filesystem appears with its first entry.
+    pub fn refresh_trash(&mut self) {
+        self.trash_folders = self.trash.as_ref().map_or_else(Vec::new, |trash| {
+            trash.bins().into_iter().map(|b| b.join("files")).collect()
+        });
+    }
+    /// Whether the browsing directory is the top of a trash.
+    pub fn in_trash(&self) -> bool {
+        self.trash_folders.contains(&self.cwd)
+    }
     pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
         if path != self.cwd {
             self.back.push(self.cwd.clone());

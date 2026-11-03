@@ -366,6 +366,21 @@ impl Session {
                 Scope::Nothing => app.status = "Nothing to delete".into(),
             },
             'u' => undo(app, &mut self.discovery, &mut self.focus),
+            // Only in the trash: elsewhere, nothing has a place to go back to.
+            'R' if !app.in_trash() => {
+                app.status = "R restores entries in the trash; Alt+t opens it".into()
+            }
+            'R' => match scope(&app.marks, current) {
+                Scope::Ready(paths) => restore(app, &mut self.discovery, &mut self.focus, paths),
+                Scope::Ask(current, selected) => {
+                    self.focus = Focus::ScopeChoice {
+                        current,
+                        selected,
+                        action: ScopedAction::Restore,
+                    }
+                }
+                Scope::Nothing => app.status = "Nothing to restore".into(),
+            },
             'n' => self.focus = Focus::NewChoice,
             // $EDITOR on the current or marked paths: no review, it only edits.
             'E' => match scope(&app.marks, current) {

@@ -45,23 +45,40 @@ impl Session {
         }
         Ok(None)
     }
-    /// fff explorer --save, on a name that is taken.
-    fn replace_key(&mut self, app: &App, key: KeyEvent) -> Option<Finish> {
-        let Focus::Replace(target) = &self.focus else {
+    /// A name that is taken: Enter replaces what is there, k keeps both
+    /// (under the free name beside it), Esc goes back.
+    fn replace_key(&mut self, app: &mut App, key: KeyEvent) -> Option<Finish> {
+        use crate::operations::Taken;
+        let Focus::Replace(replace) = &self.focus else {
             return None;
         };
-        match key.code {
-            K::Enter => return Some(Finish::Paths(vec![target.clone()])),
-            K::Char('k') => {
-                let name = target.file_name().unwrap_or_default().to_string_lossy();
-                let folder = target.parent().unwrap_or(&app.cwd);
-                let both = crate::explorer::free_name(folder, &name);
-                return Some(Finish::Paths(vec![both]));
+        let taken = match key.code {
+            K::Enter => Taken::Replace,
+            K::Char('k') => Taken::KeepBoth,
+            K::Esc => {
+                if matches!(replace.then, Replacing::Restore(_)) {
+                    app.status = "Restore cancelled; nothing changed".into();
+                }
+                self.focus = Focus::Results;
+                return None;
             }
-            K::Esc => self.focus = Focus::Results,
-            _ => {}
+            _ => return None,
+        };
+        match &replace.then {
+            Replacing::Save => {
+                let (target, both) = &replace.taken[0];
+                Some(Finish::Paths(vec![if taken == Taken::Replace {
+                    target.clone()
+                } else {
+                    both.clone()
+                }]))
+            }
+            Replacing::Restore(plan) => {
+                let request = plan.request(taken);
+                perform_operation(app, &mut self.discovery, &mut self.focus, request, None);
+                None
+            }
         }
-        None
     }
     fn new_choice_key(&mut self, app: &App, key: KeyEvent) {
         match key.code {
@@ -114,6 +131,7 @@ impl Session {
                 self.focus = Focus::Results;
                 self.open_here(app, paths)?;
             }
+            ScopedAction::Restore => restore(app, &mut self.discovery, &mut self.focus, paths),
         }
         Ok(())
     }
@@ -643,6 +661,7 @@ impl Session {
                     original: app.palette,
                 };
             }
+            (K::Char('t'), _, true) if app.can_navigate() => self.open_trash(app),
             (K::F(5), _, _) => self.discovery.force_refresh(app),
             (K::Char('h'), _, true) => {
                 if let Some(p) = app.cwd.parent().map(PathBuf::from) {
@@ -650,6 +669,7 @@ impl Session {
                     self.discovery.start(app, true);
                 }
             }
+            (K::Char(c @ ('j' | 'k')), true, false) => scroll_preview(app, c == 'j'),
             (K::Char('j'), _, true) | (K::Down, false, false) => app.step(true),
             (K::Up, false, false) | (K::Char('k'), _, true) => app.step(false),
             (K::PageDown, _, _) => {
@@ -698,10 +718,8 @@ impl Session {
                 if std::mem::replace(&mut self.escape_armed, true) && !app.marks.is_empty() {
                     let count = app.marks.len();
                     app.marks.clear();
-                    app.status = format!(
-                        "Cleared {count} mark{}",
-                        if count == 1 { "" } else { "s" }
-                    );
+                    app.status =
+                        format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
                     app.status_success = app.status.clone();
                     self.escape_armed = false;
                 }
@@ -727,6 +745,33 @@ impl Session {
             _ => deliver(app, &mut self.focus, &mut self.editor, key),
         }
         None
+    }
+    /// Alt+t: the trash, a folder like any other; again, the next one (each
+    /// filesystem has its own).
+    fn open_trash(&mut self, app: &mut App) {
+        let Some(trash) = &app.trash else {
+            app.status = "The trash is off ([trash] enabled = false)".into();
+            return;
+        };
+        let folders = trash.folders();
+        app.refresh_trash();
+        let next = match folders.iter().position(|f| *f == app.cwd) {
+            Some(_) if folders.len() == 1 => {
+                app.status = "This is the only trash".into();
+                return;
+            }
+            Some(i) => folders[(i + 1) % folders.len()].clone(),
+            None => match folders.first() {
+                Some(first) => first.clone(),
+                None => {
+                    app.status = "The trash is empty".into();
+                    return;
+                }
+            },
+        };
+        self.discovery.checkpoint(app);
+        app.navigate(next, false);
+        self.discovery.start(app, true);
     }
     /// Enter in the results: what it does depends on the mode (typing or
     /// Normal), the session kind and the highlighted entry.
@@ -796,5 +841,13 @@ impl Session {
                 EnterOutcome::Stay => None,
             },
         }
+    }
+}
+/// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
+fn scroll_preview(app: &mut App, down: bool) {
+    if !app.preview.shown {
+        app.status = "No preview pane to scroll; Alt+v opens it".into();
+    } else if app.preview.current().is_some() {
+        app.preview.scroll(down);
     }
 }

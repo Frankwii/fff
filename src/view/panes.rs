@@ -175,7 +175,10 @@ pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
                 lines.push(Line::from(""));
             }
             let room = (inner.height as usize).saturating_sub(lines.len());
-            for (text, tone) in preview.lines.iter().take(room) {
+            let most = preview.lines.len().saturating_sub(room);
+            app.preview.room.set((room, most));
+            let skip = app.preview.scrolled().min(most);
+            for (text, tone) in preview.lines.iter().skip(skip).take(room) {
                 let color = match tone {
                     Tone::Text => theme.text,
                     Tone::Muted => theme.muted,

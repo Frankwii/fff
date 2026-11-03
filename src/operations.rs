@@ -423,6 +423,15 @@ pub enum Request {
         path: PathBuf,
         directory: bool,
     },
+    /// Entries at the top of a trash back to `targets` (where their records
+    /// say they came from, or a free name beside it), overwriting the
+    /// confirmed `replace`; their records go once they are back.
+    Restore {
+        sources: Vec<PathBuf>,
+        targets: Vec<PathBuf>,
+        replace: Vec<PathBuf>,
+        confirmed: Vec<Snapshot>,
+    },
     /// `destination: None` extracts each archive beside itself.
     Extract {
         archives: Vec<PathBuf>,
@@ -570,6 +579,7 @@ impl Engine {
             Request::Copy { .. } => self.copy_entries(prepared, false),
             Request::Symlink { .. } => self.copy_entries(prepared, true),
             Request::Delete { trash, .. } => self.delete_entries(prepared, &trash),
+            Request::Restore { .. } => self.restore_entries(prepared),
             Request::Create { directory, .. } => self.create_entry(prepared, directory),
             Request::Extract { .. } => self.extract(prepared),
         }
@@ -602,7 +612,10 @@ impl Engine {
                     })
                     .collect::<Result<Vec<_>>>()?,
             ),
-            Request::Rename { sources, targets } => (sources.clone(), targets.clone()),
+            Request::Rename { sources, targets }
+            | Request::Restore {
+                sources, targets, ..
+            } => (sources.clone(), targets.clone()),
             Request::Delete { sources, .. } => (sources.clone(), vec![]),
             Request::Create { path, .. } => (vec![], vec![path.clone()]),
             Request::Extract {
@@ -663,7 +676,9 @@ impl Engine {
             .map(|p| Entry::at(p))
             .collect::<Result<Vec<_>>>()?;
         let old = match &request {
-            Request::Move { replace, .. } | Request::Copy { replace, .. } => replace
+            Request::Move { replace, .. }
+            | Request::Copy { replace, .. }
+            | Request::Restore { replace, .. } => replace
                 .iter()
                 .map(|p| Entry::at(p))
                 .collect::<Result<Vec<_>>>()?,
@@ -727,6 +742,7 @@ impl Engine {
             Request::Copy { confirmed, .. }
             | Request::Move { confirmed, .. }
             | Request::Symlink { confirmed, .. }
+            | Request::Restore { confirmed, .. }
             | Request::Delete { confirmed, .. } => confirmed.as_slice(),
             _ => &[],
         };
@@ -762,12 +778,12 @@ impl Engine {
                 return Err("Destination is inside a source".into());
             }
         }
-        if matches!(request, Request::Move { .. } | Request::Rename { .. })
-            && src.iter().zip(&dst).any(|(s, d)| {
-                s.parent.metadata().map(|m| m.dev()).ok()
-                    != d.parent.metadata().map(|m| m.dev()).ok()
-            })
-        {
+        if matches!(
+            request,
+            Request::Move { .. } | Request::Rename { .. } | Request::Restore { .. }
+        ) && src.iter().zip(&dst).any(|(s, d)| {
+            s.parent.metadata().map(|m| m.dev()).ok() != d.parent.metadata().map(|m| m.dev()).ok()
+        }) {
             return Err("Moving across filesystems is not supported; copy first".into());
         }
         // Last look before acting: every source and overwritten tree is
@@ -800,7 +816,7 @@ impl Engine {
             replaced,
         } = prepared;
         let mut outcome = Outcome::new(true);
-        let mut over = Overwrite::detach(&old, &replaced, &dst)?;
+        let mut over = Overwrite::detach(&old, &replaced)?;
         let mut done: Vec<usize> = vec![];
         for (i, (s, d)) in src.iter().zip(&dst).enumerate() {
             if s.path == d.path {
@@ -864,6 +880,46 @@ impl Engine {
         }
         Ok(outcome)
     }
+    /// Moves entries out of the trash to their targets as a move does, then
+    /// drops their records; undoing puts each back with its record.
+    fn restore_entries(&self, prepared: Prepared) -> Result<Outcome> {
+        let trash = self.trash.as_ref().ok_or("The trash is off")?;
+        let mut records = vec![];
+        for s in &prepared.src {
+            if !trash.holds(&s.path) {
+                return Err(format!("{:?} is not at the top of a trash", s.name));
+            }
+            let bin = Bin::open(crate::trash::bin_of(&s.path).unwrap_or(&s.path), false)?;
+            let (record, text) = bin
+                .record_of(&s.name)
+                .ok_or_else(|| format!("{:?} has no record of where it came from", s.name))?;
+            records.push((bin, record, text));
+        }
+        let sources = prepared
+            .src
+            .iter()
+            .map(|s| s.path.clone())
+            .collect::<Vec<_>>();
+        let mut outcome = self.move_entries(prepared, false)?;
+        for step in &mut outcome.undo {
+            let undo::Step::Return { now, back, id } = step else {
+                continue;
+            };
+            let Some(i) = sources.iter().position(|s| s == back) else {
+                continue;
+            };
+            let (bin, record, text) = &records[i];
+            bin.forget(record);
+            *step = undo::Step::Retrash {
+                now: now.clone(),
+                bin: bin.path.clone(),
+                slot: back.file_name().unwrap_or_default().to_owned(),
+                record: text.clone(),
+                id: *id,
+            };
+        }
+        Ok(outcome)
+    }
     /// Copies (or links) every source into a stage, then publishes them all,
     /// replacing confirmed destinations.
     fn copy_entries(&self, prepared: Prepared, linking: bool) -> Result<Outcome> {
@@ -906,7 +962,7 @@ impl Engine {
         }
         // Staging is complete, so overwritten entries are absent only
         // while the copies are published.
-        let mut over = Overwrite::detach(&old, &replaced, &dst)?;
+        let mut over = Overwrite::detach(&old, &replaced)?;
         let mut done: Vec<usize> = vec![];
         for (i, d) in dst.iter().enumerate() {
             self.checkpoint(i);
@@ -1381,86 +1437,102 @@ mod interrupt {
         }
     }
 }
-/// Confirmed overwrite targets, detached into a private stage before
-/// publication and deleted only after every entry has been published.
+/// Confirmed overwrite targets, detached into private stages (one beside
+/// each folder holding them) before publication and deleted only after every
+/// entry has been published.
 struct Overwrite<'a> {
     old: &'a [Entry],
     expected: &'a [BTreeMap<PathBuf, Stamp>],
-    stage: Option<Stage>,
+    stages: Vec<Stage>,
+    /// The stage each detached entry waits in, by index into `stages`.
+    at: Vec<usize>,
 }
 impl<'a> Overwrite<'a> {
-    fn detach(
-        old: &'a [Entry],
-        expected: &'a [BTreeMap<PathBuf, Stamp>],
-        dst: &[Entry],
-    ) -> Result<Self> {
+    fn detach(old: &'a [Entry], expected: &'a [BTreeMap<PathBuf, Stamp>]) -> Result<Self> {
         let mut over = Self {
             old,
             expected,
-            stage: None,
+            stages: vec![],
+            at: vec![],
         };
-        if old.is_empty() {
-            return Ok(over);
-        }
-        let mut stage = Stage::new(&dst[0].parent, &dst[0].path)?;
+        let mut folders: Vec<(u64, u64)> = vec![];
         for (j, o) in old.iter().enumerate() {
-            let result = tree(o).and_then(|now| {
-                if now == expected[j] {
-                    reparent(&o.parent, &o.name, &stage.dir, OsStr::new(&j.to_string()))
-                } else {
-                    Err("An entry to overwrite changed".into())
-                }
-            });
-            if let Err(e) = result {
-                over.stage = Some(stage);
-                let restored = over.restore_first(j);
-                return Err(format!(
-                    "{e}; {}",
-                    if restored {
-                        "nothing changed"
-                    } else {
-                        "restore incomplete; originals retained in staging"
+            let result = o.parent.metadata().map_err(err).and_then(|m| {
+                let folder = (m.dev(), m.ino());
+                let k = match folders.iter().position(|&f| f == folder) {
+                    Some(k) => k,
+                    None => {
+                        over.stages.push(Stage::new(&o.parent, &o.path)?);
+                        folders.push(folder);
+                        folders.len() - 1
                     }
-                ));
+                };
+                if tree(o)? != expected[j] {
+                    return Err("An entry to overwrite changed".into());
+                }
+                let stage = &mut over.stages[k];
+                reparent(&o.parent, &o.name, &stage.dir, OsStr::new(&j.to_string()))?;
+                stage.keep = true;
+                Ok(k)
+            });
+            match result {
+                Ok(k) => over.at.push(k),
+                Err(e) => {
+                    let restored = over.restore();
+                    return Err(format!(
+                        "{e}; {}",
+                        if restored {
+                            "nothing changed"
+                        } else {
+                            "restore incomplete; originals retained in staging"
+                        }
+                    ));
+                }
             }
-            stage.keep = true;
         }
-        over.stage = Some(stage);
         Ok(over)
-    }
-    fn restore_first(&mut self, count: usize) -> bool {
-        let Some(stage) = &mut self.stage else {
-            return true;
-        };
-        let mut restored = true;
-        for (j, o) in self.old.iter().enumerate().take(count).rev() {
-            restored &=
-                reparent(&stage.dir, OsStr::new(&j.to_string()), &o.parent, &o.name).is_ok();
-        }
-        stage.keep = !restored;
-        restored
     }
     /// Puts every detached entry back after a failed publication.
     fn restore(&mut self) -> bool {
-        self.restore_first(self.old.len())
+        let mut restored = vec![true; self.stages.len()];
+        for (j, o) in self.old.iter().enumerate().take(self.at.len()).rev() {
+            let k = self.at[j];
+            restored[k] &= reparent(
+                &self.stages[k].dir,
+                OsStr::new(&j.to_string()),
+                &o.parent,
+                &o.name,
+            )
+            .is_ok();
+        }
+        for (stage, restored) in self.stages.iter_mut().zip(&restored) {
+            stage.keep = !restored;
+        }
+        restored.iter().all(|&r| r)
     }
     /// Where detached entries remain when they could not be restored.
     fn whereabouts(&self) -> String {
-        match &self.stage {
-            Some(stage) if stage.keep => format!("overwritten entries remain in {:?}", stage.path),
-            _ => "entries remain at their destinations".into(),
+        let kept = self
+            .stages
+            .iter()
+            .filter(|s| s.keep)
+            .map(|s| format!("{:?}", s.path))
+            .collect::<Vec<_>>();
+        if kept.is_empty() {
+            "entries remain at their destinations".into()
+        } else {
+            format!("overwritten entries remain in {}", kept.join(", "))
         }
     }
     /// Once every new entry is published, moves the overwritten entries to
     /// the trash (deleting them when it is off or unavailable), recording how
     /// to undo that. An entry changed while detached is kept, never removed
     /// unconfirmed.
-    fn finish(self, engine: &Engine, outcome: &mut Outcome) {
-        let Some(mut stage) = self.stage else {
-            return;
-        };
+    fn finish(mut self, engine: &Engine, outcome: &mut Outcome) {
         let mut kept = vec![];
+        let mut keep = vec![false; self.stages.len()];
         for (j, o) in self.old.iter().enumerate() {
+            let stage = &self.stages[self.at[j]];
             let name = j.to_string();
             let name = OsStr::new(&name);
             let removed = detached_matches(&stage.dir, name, &self.expected[j]).and_then(|same| {
@@ -1487,6 +1559,7 @@ impl<'a> Overwrite<'a> {
                 Ok(())
             });
             if let Err(e) = removed {
+                keep[self.at[j]] = true;
                 kept.push(format!(
                     "{:?} ({e}) is kept as {:?}",
                     o.name,
@@ -1494,7 +1567,9 @@ impl<'a> Overwrite<'a> {
                 ));
             }
         }
-        stage.keep = !kept.is_empty();
+        for (stage, keep) in self.stages.iter_mut().zip(keep) {
+            stage.keep = keep;
+        }
         if !kept.is_empty() {
             outcome.warning = Some(format!("Done, but {}", kept.join("; ")));
         }
@@ -2026,6 +2101,118 @@ impl TransferPlan {
                 into,
             },
         })
+    }
+}
+
+/// What to do with entries whose place is taken when restoring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Taken {
+    /// Overwrite what is there; it goes to the trash, as overwrites do.
+    Replace,
+    /// Restore under the first free name beside it, `name (1)`.
+    KeepBoth,
+}
+/// R in a trash: each entry with where it goes back to, as checked.
+#[derive(Clone, Debug)]
+pub struct RestorePlan {
+    /// Each entry with the place it came from.
+    pub entries: Vec<(PathBuf, PathBuf)>,
+    /// The entries whose place is taken, by index, each with the free name
+    /// beside it that keeping both would use.
+    pub taken: Vec<(usize, PathBuf)>,
+    sources: Vec<Snapshot>,
+    replaced: Vec<Snapshot>,
+}
+impl RestorePlan {
+    pub fn new(paths: Vec<PathBuf>, trash: &Trash) -> Result<Self> {
+        if paths.is_empty() {
+            return Err("Nothing to restore".into());
+        }
+        let name = |p: &Path| {
+            p.file_name()
+                .unwrap_or(p.as_os_str())
+                .to_string_lossy()
+                .into_owned()
+        };
+        let mut entries: Vec<(PathBuf, PathBuf)> = vec![];
+        let mut sources = vec![];
+        for path in paths {
+            if !trash.holds(&path) {
+                return Err(format!(
+                    "{} is not at the top of a trash; only those can be restored",
+                    name(&path)
+                ));
+            }
+            let origin =
+                crate::trash::origin(&path).map_err(|e| format!("{}: {e}", name(&path)))?;
+            let folder = origin.path.parent().ok_or("A trash record names a root")?;
+            if !folder.is_dir() {
+                return Err(format!(
+                    "{} came from {}, which no longer exists",
+                    name(&path),
+                    folder.display()
+                ));
+            }
+            if let Some((other, _)) = entries.iter().find(|(_, o)| *o == origin.path) {
+                return Err(format!(
+                    "{} and {} both came from {}; restore them one at a time",
+                    name(other),
+                    name(&path),
+                    origin.path.display()
+                ));
+            }
+            sources.push(snapshot(&path)?.0);
+            entries.push((path, origin.path));
+        }
+        let mut taken = vec![];
+        let mut replaced = vec![];
+        for (i, (_, place)) in entries.iter().enumerate() {
+            if fs::symlink_metadata(place).is_err() {
+                continue;
+            }
+            replaced.push(snapshot(place)?.0);
+            let folder = place.parent().expect("checked above");
+            let both = crate::explorer::free_name(folder, place.file_name().unwrap_or_default());
+            taken.push((i, both));
+        }
+        Ok(Self {
+            entries,
+            taken,
+            sources,
+            replaced,
+        })
+    }
+    /// A plan as checked, for frame tests.
+    #[cfg(test)]
+    pub(crate) fn shown(entries: Vec<(PathBuf, PathBuf)>, taken: Vec<(usize, PathBuf)>) -> Self {
+        Self {
+            entries,
+            taken,
+            sources: vec![],
+            replaced: vec![],
+        }
+    }
+    /// The restore, with taken places overwritten or kept beside.
+    pub fn request(&self, taken: Taken) -> Request {
+        let sources = self.entries.iter().map(|(s, _)| s.clone()).collect();
+        let mut targets: Vec<PathBuf> = self.entries.iter().map(|(_, t)| t.clone()).collect();
+        let mut confirmed = self.sources.clone();
+        let mut replace = vec![];
+        for (&(i, ref both), snapshot) in self.taken.iter().zip(&self.replaced) {
+            match taken {
+                Taken::Replace => {
+                    replace.push(targets[i].clone());
+                    confirmed.push(snapshot.clone());
+                }
+                Taken::KeepBoth => targets[i] = both.clone(),
+            }
+        }
+        Request::Restore {
+            sources,
+            targets,
+            replace,
+            confirmed,
+        }
     }
 }
 

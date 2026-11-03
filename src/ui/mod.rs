@@ -76,8 +76,9 @@ pub(crate) enum Focus {
     Command(crate::run::Prompt),
     RunConfirm(crate::run::Plan),
     NewChoice,
-    /// fff explorer --save: the name is taken; replace it, keep both or go back.
-    Replace(PathBuf),
+    /// A name is taken (fff explorer --save, R): replace it, keep both or
+    /// go back.
+    Replace(Replace),
     Location(crate::location::Location),
     Bookmarks {
         query: String,
@@ -100,6 +101,18 @@ pub(crate) enum Focus {
         index: usize,
         original: crate::config::Palette,
     },
+}
+/// Names that are taken, and what waits for the choice.
+pub(crate) struct Replace {
+    /// Each taken path with the free name beside it that keeping both uses.
+    pub taken: Vec<(PathBuf, PathBuf)>,
+    pub then: Replacing,
+}
+pub(crate) enum Replacing {
+    /// fff explorer --save: the answer.
+    Save,
+    /// R: the entries going back from the trash.
+    Restore(crate::operations::RestorePlan),
 }
 /// How a session ends.
 pub enum Finish {

@@ -19,6 +19,15 @@ pub enum Step {
         back: PathBuf,
         id: (u64, u64),
     },
+    /// An entry restored from the trash `bin` to `now`, out of `slot`; it
+    /// goes back into the bin with its old `record`.
+    Retrash {
+        now: PathBuf,
+        bin: PathBuf,
+        slot: OsString,
+        record: Vec<u8>,
+        id: (u64, u64),
+    },
     /// An entry the operation created (a copy, link, extraction or new
     /// entry); undoing moves it to the trash.
     Discard { path: PathBuf, id: (u64, u64) },
@@ -37,7 +46,9 @@ impl Record {
     /// current directory and its ancestors must not be among them.
     pub fn moving(&self) -> impl Iterator<Item = std::borrow::Cow<'_, Path>> {
         self.steps.iter().map(|step| match step {
-            Step::Return { now: path, .. } | Step::Discard { path, .. } => path.into(),
+            Step::Return { now: path, .. }
+            | Step::Retrash { now: path, .. }
+            | Step::Discard { path, .. } => path.into(),
             Step::Restore { bin, slot, .. } => bin.join("files").join(slot).into(),
         })
     }
@@ -55,6 +66,7 @@ enum Undone {
         back: Entry,
         id: (u64, u64),
     },
+    /// Back in the trash: `Retrash` and `Discard` alike.
     Discarded {
         bin: Bin,
         slot: OsString,
@@ -108,7 +120,9 @@ impl Engine {
         let _deferred = interrupt::Deferred::new();
         for step in &record.steps {
             match step {
-                Step::Return { now: path, id, .. } | Step::Discard { path, id } => {
+                Step::Return { now: path, id, .. }
+                | Step::Retrash { now: path, id, .. }
+                | Step::Discard { path, id } => {
                     still(path, *id)?;
                 }
                 Step::Restore {
@@ -185,6 +199,20 @@ impl Engine {
                     back,
                     id: *id,
                 })
+            }
+            Step::Retrash {
+                now,
+                bin,
+                slot,
+                record,
+                id,
+            } => {
+                let entry = still(now, *id)?;
+                let bin = Bin::open(bin, false)?;
+                let slot = bin
+                    .put_record(&entry.parent, &entry.name, slot, record)
+                    .map_err(|e| format!("{} cannot go back to the trash: {e}", name(now)))?;
+                Ok(Undone::Discarded { bin, slot, entry })
             }
             Step::Discard { path, id } => {
                 let entry = still(path, *id)?;
