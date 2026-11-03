@@ -8,11 +8,12 @@ is the only engine.
 
 ## Fields and modes
 
-The query, exclusions, file filters, bookmark name/path, bookmark and icon
-filters, and palette filter all initially start in **Normal mode**. New
-file/directory naming buffers, the go-to prompt (Alt+g), the gx/gX command
-prompt and the query of `fff seek` start in **Insert mode**, ready for
-typing; rename and extraction buffers start in Normal.
+The query, exclusions, file filters, bookmark and icon filters, and palette
+filter all initially start in **Normal mode**. New file/directory naming
+buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
+form's name and path, and the query of `fff pick`, `fff seek` and
+`fff explorer --save` start in **Insert mode**, ready for typing; rename and
+extraction buffers start in Normal.
 Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
 and Select modes. Pending motions/operators and command-line input are cancelled;
@@ -74,10 +75,13 @@ output format (`--relative` and `--null` apply). Both ignore marks. In
 `fff seek`, both exit successfully without output. They also work in the marked list. Insert-mode
 fields treat them as text. Configure `quit` and `quit_current` in `[keys.normal]`.
 
-Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with Tab,
-and Ctrl+w retain their fff actions in results/marks. Space in Normal mode
-marks/unmarks like Tab; in Insert mode it types a space. The marked list always
-accepts Space because it has no text field. In Normal mode `m` marks every
+Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
+Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
+mode. Space in Normal mode marks/unmarks like Shift+Space; in Insert mode it
+types a space. Shift+Space needs a terminal that tells it from Space (the kitty
+keyboard protocol); elsewhere it types a space, so Tab marks while typing too.
+In Normal-mode results Tab does nothing.
+The marked list always accepts Space because it has no text field. In Normal mode `m` marks every
 listed row (all filtered results, not only those on screen, or every row of the
 marked list) and `M` inverts the listed rows' marks, like nnn's `a` and `A`;
 marks on paths that are not listed stay as they are.
@@ -111,7 +115,8 @@ entry receive Enter instead. In exclusions and filters, Enter retains Neovim's b
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
 Escape when already Normal clears the main query, closes subordinate choosers
 or cancels the bookmark form; exclusion and operation buffers keep Escape inside
-Neovim.
+Neovim. With the query already empty, a second Escape in a row clears every
+mark.
 It never exits the session.
 
 Digits are query text in Insert mode. In Normal-mode results 1–9 set the

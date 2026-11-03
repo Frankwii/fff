@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.11.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.11.1**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -87,8 +87,10 @@ fff can also be the desktop's file manager and file chooser: `fff setup
 [desktop integration](docs/DESKTOP.md).
 
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
-except prompts made for typing (new names, the go-to prompt, the gx/gX command)
-and the query of `fff seek`, which start in **Insert mode**.
+except prompts made for typing (new names, the go-to prompt, the gx/gX command,
+the bookmark form)
+and the query of `fff pick`, `fff seek` and `fff explorer --save`, which start
+in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. See [editing](docs/EDITING.md).
 
@@ -100,8 +102,10 @@ This section describes what each confirmation returns in `fff pick`; in
 Without root arguments, browsing starts in the invocation directory (or, with
 `--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
-depth. Default depth is **2**; immediate children are depth 1. Shallower matches
-always come first, followed within each depth by directories and fuzzy ranking.
+depth. Default depth is **2** (**6** in `fff seek`); immediate children are depth
+1. Shallower matches always come first, followed within each depth by
+directories and fuzzy ranking; `fff seek` ranks by fuzzy score first, then
+depth. The depth is shown on the results' bottom border, under the count.
 Matching is a case-insensitive ordered subsequence of the basename.
 
 A query containing `/` matches the path below the result's root instead, so
@@ -154,7 +158,10 @@ opened from the desktop (`--window`) has no shell to leave into: Enter enters a
 folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
-Tab toggles a mark; marks survive navigation and filtering. Ctrl+w finishes
+Shift+Space toggles a mark in every mode; Space does in Normal mode and Tab
+while typing (for terminals that cannot tell Shift+Space from Space);
+marks survive navigation and filtering. Escape twice in Normal mode, with the
+query empty, clears every mark. Ctrl+w finishes
 with the marks only, and only where the answer can be several paths: `fff
 pick` returns them (as does `fff explorer --multiple`). Elsewhere (`fff roam`,
 `fff seek`, other dialogs) it does nothing but say so; there the marks are for
@@ -207,8 +214,11 @@ the files already found without rescanning.
 Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
 a matching directory prunes its subtree. Rules match basenames or scope-relative
 paths, with literal separators. No automatic `.gitignore` integration is enabled.
-The status line shows `filters on` and `exclusions on` only while filters or
-enforced exclusion rules exist; F1's session details list their globs.
+The query box's bottom border shows `filters on` and `exclusions on` only
+while filters or enforced exclusion rules exist; F1's session details list
+their globs. It also shows discovery progress while a scan runs and for three
+seconds after it completes (`◌ partial` stays while a scan stopped at
+`max_paths`). `files only` or `folders only` appear beside the results' count.
 Symlink directories can be selected or entered; recursive discovery does not
 follow them.
 
@@ -217,7 +227,8 @@ follow them.
 `fff seek [ROOTS]` is a static file choice: it lists only the files below the
 current directory (or ROOTS), disables location changes, and never returns
 the current directory as an empty-results fallback. It takes the search
-options (`--depth`, `--glob`, `--exclude`, `--hidden`). Choosing leaves into
+options (`--depth`, 6 by default, `--glob`, `--exclude`, `--hidden`), and ranks
+the best fuzzy matches first, however deep. Choosing leaves into
 the chosen file's folder; only `fff pick` prints paths. For a printed choice
 of files, give `fff pick` a `--glob`, which lists only matching files:
 
@@ -263,6 +274,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
+| Escape twice in Normal | With the query empty: clear every mark |
 | Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`), exit into its folder (`fff seek`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
@@ -280,7 +292,7 @@ footer's right end points to it and says how to leave: `F1 keys  q quit`
 | Alt+P | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (Right / Left in Normal-mode results) |
 | 1 … 9 in Normal | Search results to that depth |
-| Tab / Space in Normal | Toggle mark; advance in results |
+| Shift+Space / Space in Normal / Tab while typing | Toggle mark; advance in results (Shift+Space needs a terminal with the kitty keyboard protocol) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
 | Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer --multiple`; nothing elsewhere) |

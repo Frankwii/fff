@@ -264,6 +264,11 @@ struct Session {
     /// second so external changes (e.g. a deleted mark) still appear.
     dirty: bool,
     drawn_at: std::time::Instant,
+    /// Whether the last pass showed the progress marker.
+    progress_shown: bool,
+    /// The last key was Escape with an empty query in Normal mode: another
+    /// clears the marks.
+    escape_armed: bool,
     drawn: Drawn,
     mouse: Mouse,
     status: StatusTimer,
@@ -324,8 +329,10 @@ impl Session {
         discovery.start(app, true);
         app.status = notice;
         let mut editor = start_editor("nvim")?;
-        // An fff seek session is a file choice: start ready to type the query.
-        if app.no_dir {
+        // fff pick and fff seek are file choices, and a save dialog asks for
+        // a name: start ready to type the query.
+        let pick = app.output_paths && app.dialog.is_none();
+        if pick || app.no_dir || app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
             editor.reset_insert(Field::Query);
         }
         let editor_directory = app.cwd.clone();
@@ -336,6 +343,8 @@ impl Session {
             answering: false,
             dirty: true,
             drawn_at: std::time::Instant::now(),
+            progress_shown: true,
+            escape_armed: false,
             drawn: Drawn::default(),
             mouse: Mouse::default(),
             status: StatusTimer::default(),
@@ -440,6 +449,15 @@ impl Session {
             self.dirty |= self.discovery.drain(app);
         }
         self.dirty |= app.poll_ranking();
+        // The progress marker stays a few seconds after work settles.
+        let settled = (!app.working()).then(|| app.settled_at.unwrap_or(now));
+        if settled != app.settled_at {
+            app.settled_at = settled;
+            self.dirty = true;
+        }
+        let progress = app.progress_shown(now);
+        self.dirty |= progress != self.progress_shown;
+        self.progress_shown = progress;
         if app.generation != self.details_generation {
             self.details_generation = app.generation;
             app.details.forget();

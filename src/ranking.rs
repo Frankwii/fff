@@ -31,6 +31,8 @@ pub(crate) struct Job {
     pub query: String,
     /// Recompute the labels; `Some(true)` when they are shown.
     pub labels: Option<bool>,
+    /// Rank by score before depth (`fff seek`).
+    pub by_score: bool,
 }
 pub(crate) struct Ranked {
     pub rows: Vec<Arc<Candidate>>,
@@ -65,7 +67,7 @@ impl Job {
             sorted.push(rows);
             listed.extend(kept);
         }
-        let rows = merge_all(sorted, cancel)?;
+        let rows = merge_all(sorted, self.by_score, cancel)?;
         let labels = match self.labels {
             Some(shown) => Some(label(if shown { listed } else { Vec::new() }, cancel)?),
             None => None,
@@ -105,7 +107,7 @@ impl Job {
             return None;
         }
         // Pathnames break every tie, so an unstable sort yields the same order.
-        ranked.sort_unstable_by(|(sa, a), (sb, b)| rank(a, *sa, b, *sb));
+        ranked.sort_unstable_by(|(sa, a), (sb, b)| rank(self.by_score, a, *sa, b, *sb));
         Some((ranked, listed))
     }
 }
@@ -113,6 +115,7 @@ impl Job {
 /// Merge sorted pieces pairwise, each level's pairs in parallel.
 fn merge_all(
     mut pieces: Vec<Vec<(i64, Arc<Candidate>)>>,
+    by_score: bool,
     cancel: &AtomicBool,
 ) -> Option<Vec<(i64, Arc<Candidate>)>> {
     while pieces.len() > 1 {
@@ -129,7 +132,7 @@ fn merge_all(
                 .into_iter()
                 .map(|(a, b)| {
                     scope.spawn(move || match b {
-                        Some(b) => merge_two(a, b),
+                        Some(b) => merge_two(a, b, by_score),
                         None => a,
                     })
                 })
@@ -145,12 +148,13 @@ fn merge_all(
 fn merge_two(
     a: Vec<(i64, Arc<Candidate>)>,
     b: Vec<(i64, Arc<Candidate>)>,
+    by_score: bool,
 ) -> Vec<(i64, Arc<Candidate>)> {
     let mut merged = Vec::with_capacity(a.len() + b.len());
     let mut a = a.into_iter().peekable();
     let mut b = b.into_iter().peekable();
     while let (Some((sa, ca)), Some((sb, cb))) = (a.peek(), b.peek()) {
-        if rank(cb, *sb, ca, *sa).is_lt() {
+        if rank(by_score, cb, *sb, ca, *sa).is_lt() {
             merged.extend(b.next());
         } else {
             merged.extend(a.next());

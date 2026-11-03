@@ -224,7 +224,7 @@ key does:
 | ← Back | Ctrl+o: the tab's previous directory |
 | ↑ Up | Alt+h: the parent directory |
 | Open | `l`: enter the directory or open the file in the background |
-| Mark / Unmark | Tab, without moving: mark the highlighted row |
+| Mark / Unmark | Shift+Space, without moving: mark the highlighted row |
 | Show / Hide hidden | Alt+.: hidden entries |
 | Cancel | Ctrl+c: quit without output |
 | Select & Exit | Ctrl+w with marks where they are returned (`fff pick`, `fff explorer --multiple`), else Normal-mode Enter on the highlighted row |
@@ -692,7 +692,7 @@ up = "k"             # Same as Alt+k
 right = "l"          # Same as Alt+l (results: enter highlighted directory)
 first = "gg"         # Highlight the first row
 last = "G"           # Highlight the last row
-mark = "<space>"     # Mark/unmark like Tab (results and marks only)
+mark = "<space>"     # Mark/unmark like Shift+Space (results and marks only)
 mark_all = "m"       # Mark every listed row (results and marks only)
 invert_marks = "M"   # Toggle every listed row's mark (results and marks only)
 quit = "q"           # Exit choosing nothing (no output, no directory change)
@@ -767,7 +767,7 @@ last = ["G", "<space>e"]
 
 ## Chord remapping
 
-Every other binding (Alt and Ctrl chords, arrows, Enter, Escape, Tab, F1, F5,
+Every other binding (Alt and Ctrl chords, Shift+Space, arrows, Enter, Escape, F1, F5,
 PageUp/PageDown) is remapped in `[keys.map]`, the configuration form of
 `--map-key`. Each entry maps a source chord to the default chord whose action
 it should perform, or to `"none"` to disable the source:

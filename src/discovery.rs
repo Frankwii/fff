@@ -101,6 +101,7 @@ impl Scan {
     fn reset(app: &mut App, clear: bool) {
         app.generation += 1;
         app.scanning = true;
+        app.quiet_scan = false;
         app.physical_empty = false;
         app.truncated = false;
         app.cache_pending = false;
@@ -404,6 +405,7 @@ impl Discovery {
             scan.max_paths = self.max_paths;
             scan.input = self.input.clone();
             app.cache_pending = true;
+            app.quiet_scan = true;
             self.scan = Some(scan);
             self.stored = false;
             self.verified_at = None;

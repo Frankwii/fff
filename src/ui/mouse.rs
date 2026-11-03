@@ -341,7 +341,7 @@ pub(crate) enum Button {
     Up,
     /// l: enter the highlighted directory or open the highlighted file.
     Open,
-    /// Tab without moving: mark or unmark the highlighted row.
+    /// Shift+Space without moving: mark or unmark the highlighted row.
     Mark,
     /// Alt+.: show or hide hidden entries.
     Hidden,

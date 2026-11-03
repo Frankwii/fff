@@ -22,7 +22,7 @@ const LONG_ABOUT: &str = "\
 Interactive fuzzy file picker for the terminal.
 
 Press i to type and fuzzy-filter file and directory basenames (Neovim default),
-navigate with Enter, Alt+h and Alt+l, mark several paths with Tab, and confirm.
+navigate with Enter, Alt+h and Alt+l, mark several paths with Space, and confirm.
 The interface draws on /dev/tty. Without a command (fff roam), leaving fff
 changes your shell's directory, with the shell function from fff setup --init;
 fff pick prints the selected paths instead, for pipes and command substitution.
@@ -66,11 +66,11 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Choose where to save a file, as a file dialog would (see fff explorer --help).
 
 <bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff for the full guide; Tab there shows session details)
-  <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Tab</cyan>  mark
+  <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Space</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
   <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
   <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
-  <cyan>Escape</cyan> leave Insert mode (Neovim), then clear query   <cyan>Ctrl+w</cyan> return marks (pick)
+  <cyan>Escape</cyan> leave Insert mode, clear query, twice: marks   <cyan>Ctrl+w</cyan> return marks (pick)
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
   results take <cyan>←/→</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>/</cyan> location, <cyan>b</cyan> bookmarks,
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
@@ -126,9 +126,11 @@ struct Args {
     /// Maximum discovery depth below each scope (immediate children = 1)
     ///
     /// Change it during the session with Alt+Left / Alt+Right.
-    #[arg(global = true, short, long, default_value_t = 2, value_name = "N", help_heading = "Search",
+    ///
+    /// [default: 2; in fff seek, 6]
+    #[arg(global = true, short, long, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
-    depth: u32,
+    depth: Option<u32>,
     /// Only list files whose basename matches GLOB; repeat to allow several
     ///
     /// A file is listed when it matches any GLOB; directories are hidden but
@@ -367,7 +369,7 @@ struct ExplorerArgs {
     /// saving, the suggested file, which need not exist
     #[arg(value_hint = clap::ValueHint::AnyPath)]
     path: Option<PathBuf>,
-    /// Allow several files (Tab marks them)
+    /// Allow several files (Space marks them)
     #[arg(long)]
     multiple: bool,
     /// Choose folders instead of files: ! chooses the folder you are in
@@ -556,12 +558,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         .then(fuzzy_file_finder::state::session_path)
         .flatten()
         .and_then(|p| fuzzy_file_finder::state::load_session(&p));
+    let depth = args.depth.unwrap_or(if mode.no_dir { 6 } else { 2 }) as usize;
     let mut app = if let Some((start, _)) = &browse_from {
-        App::browse(start.clone(), args.depth as usize, policy)
+        App::browse(start.clone(), depth, policy)
     } else if roots.is_empty() {
-        App::browse(invocation.clone(), args.depth as usize, policy)
+        App::browse(invocation.clone(), depth, policy)
     } else {
-        App::new(roots, args.depth as usize, policy)
+        App::new(roots, depth, policy)
     };
     app.records_session = roaming;
     app.openers = settings.open.clone();

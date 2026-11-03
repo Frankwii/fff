@@ -74,7 +74,7 @@ listed separately in the [roadmap](ROADMAP.md).
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes. Query edits do not restart discovery. Scans merge
+  absolute pathname bytes; `fff seek` puts fuzzy score before depth. Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget; the input thread never
   re-sorts every known path, and discovery work yields to keys waiting to be
   read. Large re-rankings run on another thread; every key except typing into
@@ -85,7 +85,8 @@ listed separately in the [roadmap](ROADMAP.md).
 - The input reader hands every handler a shifted letter as legacy terminals
   send it, uppercase with Shift, whatever the kitty protocol reported, so
   typing, `[keys.map]` chords and `[keys.normal]` sequences agree everywhere.
-- Escape preserves the session. In Neovim it first exits transient editing modes;
+- Escape preserves the session (twice with an empty query clears the marks,
+  nothing more). In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
 - Generation checks and cancellation prevent obsolete work from changing the view.
   Reuse recomputes attribution. Partial or truncated snapshots cannot establish

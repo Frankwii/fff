@@ -17,7 +17,7 @@ pub enum ListAction {
     First,
     /// Highlight the last row.
     Last,
-    /// Toggle the highlighted mark, like Tab.
+    /// Toggle the highlighted mark, like Shift+Space.
     Mark,
     /// Mark every listed row.
     MarkAll,
@@ -129,7 +129,7 @@ impl ListAction {
             Self::Down => 'j',
             Self::Up => 'k',
             Self::Right => 'l',
-            Self::Mark => return Some(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            Self::Mark => return Some(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::SHIFT)),
             Self::Shallower => return Some(KeyEvent::new(KeyCode::Left, KeyModifiers::ALT)),
             Self::Deeper => return Some(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)),
             Self::PrevTab => return Some(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)),

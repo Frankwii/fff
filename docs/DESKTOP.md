@@ -188,10 +188,10 @@ file dialogs. In short:
 | Dialog | How to choose | The application receives |
 | --- | --- | --- |
 | Open a file (attach, upload) | Enter on a file | That file. |
-| Open several files | Tab to mark, then Enter on a file (or Ctrl+w) | The marks and that file. |
+| Open several files | Space to mark (Tab or Shift+Space while typing), then Enter on a file (or Ctrl+w) | The marks and that file. |
 | Choose a folder | Go into it and press `!` (or Ctrl+s) | That folder. |
-| Save (a download, a PDF from the viewer) | Go to the folder and press `!` (or Ctrl+s) | The suggested name in that folder. |
-| Save under another name | Go to the folder, `i`, type the name, Enter (or Ctrl+s) | That name in that folder. |
+| Save (a download, a PDF from the viewer) | Go to the folder and press Ctrl+s (or `!` after Escape: a save dialog starts typing the name) | The suggested name in that folder. |
+| Save under another name | Go to the folder (Alt+l and Alt+h while typing, or Escape to browse), type the name, Enter (or Ctrl+s) | That name in that folder. |
 
 `q` (or Ctrl+c while typing) cancels, as the footer says beside `F1 keys`. The
 empty query line says how to choose, and when saving, the query box's title
@@ -294,7 +294,7 @@ names…`. Typing (Insert mode) changes it, since `!` is then text:
 | Dialog | Normal mode | Insert mode |
 | --- | --- | --- |
 | Open one file | Press Enter on a file to choose it. | the same |
-| Open several | Press Enter on a file to choose it. Press Tab to mark several, then Ctrl+w to choose them. | the same |
+| Open several | Press Enter on a file to choose it. Press Space to mark several, then Ctrl+w to choose them. | the same |
 | Folder | Press ! or Ctrl+s to choose the folder you are in. | Press Ctrl+s to choose the folder you are in. |
 | Save | Press ! or Ctrl+s to save NAME here. Press i to type a custom name. Press Enter on a file to replace it. | Type a custom name, then press Enter or Ctrl+s to save it here. Press Esc to browse folders. |
 

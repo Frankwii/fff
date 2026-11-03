@@ -4,6 +4,33 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## 0.11.1 — 2026-11-03
+
+Choosing files starts typing, `fff seek` looks deeper and ranks by score,
+marking moves to Shift+Space, and the query box's border carries less.
+
+### Changed
+
+- **`fff pick`, `fff seek` and `fff explorer --save` start in Insert mode**,
+  ready to type the query or the name to save under. So do the bookmark
+  form's name and path.
+- **`fff seek` searches 6 levels deep by default** (2 elsewhere), and ranks
+  the best fuzzy matches first, however deep, instead of shallower first.
+- **Shift+Space marks**, in Normal and Insert mode alike (it needs a terminal
+  with the kitty keyboard protocol); Space still marks in Normal mode, and Tab
+  only while typing. The `mark` key in `[keys.normal]` stands for Shift+Space,
+  and `[keys.map]` chords that pointed at `tab` to mark now name `shift+space`.
+- **The depth is shown on the results' bottom border**, under the count, and
+  `files only` / `folders only` beside the count, instead of on the query
+  box's border.
+- **The progress marker (`✓ complete`, `◌ scanning`) shows only while a scan
+  runs and for three seconds after.** Quiet background refreshes no longer
+  show it.
+
+### Added
+
+- **Escape twice clears the marks**: in Normal mode with the query empty.
+
 ## 0.11.0 — 2026-11-03
 
 The preview pane is shown from the start.

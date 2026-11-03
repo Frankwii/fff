@@ -64,7 +64,7 @@ impl Dialog {
             ),
             (None, true, _) if typing => "Press Ctrl+s to choose the folder you are in.".into(),
             (None, true, _) => "Press ! or Ctrl+s to choose the folder you are in.".into(),
-            (None, false, true) => "Press Enter on a file to choose it. Press Tab to mark \
+            (None, false, true) => "Press Enter on a file to choose it. Press Space to mark \
                  several, then Ctrl+w to choose them."
                 .into(),
             (None, false, false) => "Press Enter on a file to choose it.".into(),

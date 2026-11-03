@@ -496,7 +496,7 @@ impl Session {
         };
         if key.code == K::Esc || (alt && key.code == K::Char(' ')) {
             self.focus = Focus::Results;
-        } else if key.code == K::Tab {
+        } else if key.code == K::Char(' ') && key.modifiers.contains(M::SHIFT) {
             if let Some(p) = rows.get(*index) {
                 app.toggle(p.clone());
             }
@@ -516,7 +516,7 @@ impl Session {
     /// Enter on a mark: like Normal-mode Enter in the results.
     fn enter_mark(&mut self, app: &mut App, mark: PathBuf) -> Option<Finish> {
         if std::fs::symlink_metadata(&mark).is_err() {
-            app.status = "This mark no longer exists; Tab unmarks it".into();
+            app.status = "This mark no longer exists; Space unmarks it".into();
             return None;
         }
         if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) && !mark.is_dir() {
@@ -577,7 +577,7 @@ impl Session {
                 }
             }
             // Ctrl+i needs a terminal that tells it apart from Tab (Kitty
-            // keyboard protocol); elsewhere it arrives as Tab and marks.
+            // keyboard protocol); elsewhere it arrives as Tab, which is unbound.
             (K::Char('o' | 'i'), true, false) if !app.can_navigate() => {}
             (K::Char('o' | 'i'), true, false) => {
                 if app.jump(key.code == K::Char('o')) {
@@ -693,17 +693,36 @@ impl Session {
                 app.policy.ignore = !app.policy.ignore;
                 self.discovery.start(app, false);
             }
+            // Escape clears the query; pressed again with none, the marks.
+            (K::Esc, _, _) if app.query.is_empty() => {
+                if std::mem::replace(&mut self.escape_armed, true) && !app.marks.is_empty() {
+                    let count = app.marks.len();
+                    app.marks.clear();
+                    app.status = format!(
+                        "Cleared {count} mark{}",
+                        if count == 1 { "" } else { "s" }
+                    );
+                    app.status_success = app.status.clone();
+                    self.escape_armed = false;
+                }
+            }
             (K::Esc, _, _) => {
                 app.query.clear();
                 app.offset = 0;
                 app.refresh();
             }
-            (K::Tab, _, _) => {
+            // Shift+Space marks in every mode; Tab only while typing, for
+            // terminals that cannot tell Shift+Space from Space.
+            (K::Char(' '), _, _) | (K::Tab, _, _)
+                if (key.code == K::Tab && !app.edit_view.as_ref().is_some_and(|v| v.normal()))
+                    || (key.code == K::Char(' ') && key.modifiers.contains(M::SHIFT)) =>
+            {
                 if let Some(p) = app.highlight.clone() {
                     app.toggle(p);
                     app.move_by(1);
                 }
             }
+            (K::Tab, _, _) => {}
             (K::Enter, _, _) => return self.results_enter(app, row),
             _ => deliver(app, &mut self.focus, &mut self.editor, key),
         }

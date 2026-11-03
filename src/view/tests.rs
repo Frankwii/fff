@@ -1112,14 +1112,20 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
     let lines: Vec<_> = screen.lines().collect();
     assert!(lines[0].contains("Query"));
     assert!(lines[1].contains("❯ type to filter"));
-    // Progress and depth always; only non-default settings are named.
-    assert!(
-        lines[2].trim_end().ends_with("✓ complete · depth 3 ╯"),
-        "{screen}"
-    );
-    assert!(!lines[2].contains("hidden"));
+    // Progress for a moment after work settles; only non-default settings
+    // are named. The depth is on the results' bottom border, under the count.
+    assert!(lines[2].trim_end().ends_with("✓ complete ╯"), "{screen}");
+    assert!(!lines[2].contains("hidden") && !lines[2].contains("depth"));
     assert_eq!(lines[3].trim_end(), "  @  /home/frank/notes");
     assert!(lines[4].contains("Files ·"));
+    let bottom = lines.iter().rposition(|l| l.contains("depth 3")).unwrap();
+    assert!(lines[bottom].starts_with(" ╰ depth 3 ─"), "{screen}");
+    // Once settled for a while, the progress marker goes.
+    app.settled_at = Some(std::time::Instant::now() - crate::PROGRESS_SHOWN);
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(!screen.contains("complete"), "{screen}");
+    assert!(screen.lines().nth(2).unwrap().contains("╰───"), "{screen}");
+    app.settled_at = None;
     assert!(!screen.contains("pinned"));
     app.scanning = true;
     app.policy.set_filters(vec!["*.tex".into()]).unwrap();
@@ -1128,17 +1134,17 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
     let (screen, _) = draw(&mut app, 120, 26);
     // Filters and exclusions are named, not spelled out, and only while active.
     assert!(
-        screen.contains("◌ scanning, incomplete · depth 3 · filters on · exclusions on"),
+        screen.contains("◌ scanning, incomplete · filters on · exclusions on"),
         "{screen}"
     );
     assert!(!screen.contains("*.tex"), "{screen}");
     app.policy.ignore = false;
     let (screen, _) = draw(&mut app, 120, 26);
     assert!(!screen.contains("exclusions"), "{screen}");
-    // The minimum frame keeps depth and an explicit incomplete label.
+    // The minimum frame keeps an explicit incomplete label.
     let (screen, targets) = draw(&mut app, 36, 12);
     let status = screen.lines().nth(2).unwrap();
-    assert!(status.contains("◌ incomplete · depth 3"), "{screen}");
+    assert!(status.contains("incomplete ╯"), "{screen}");
     assert!(
         screen
             .lines()
@@ -1553,14 +1559,13 @@ fn status_items_drop_from_the_end_before_the_label_shortens() {
     let full = text(200);
     for item in [
         "◌ scanning, incomplete",
-        "depth 3",
         "filters on",
         "hidden shown",
     ] {
         assert!(full.contains(item), "{item:?} in {full:?}");
     }
     let shortest = text(0);
-    assert_eq!(shortest.trim(), "◌ incomplete · depth 3");
+    assert_eq!(shortest.trim(), "◌ incomplete");
     for width in 0..200 {
         let shown = text(width);
         assert!(

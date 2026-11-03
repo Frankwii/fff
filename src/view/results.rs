@@ -9,9 +9,16 @@ pub(super) fn results_pane(
     focused: bool,
 ) -> Rendered {
     let theme = app.palette;
-    let block = panel(
+    // Which kinds are listed, beside the count, in a color of its own.
+    let kinds = match app.listed_kinds() {
+        crate::Kinds::Files => vec![bold("· files only ", theme.marked)],
+        crate::Kinds::Directories => vec![bold("· folders only ", theme.marked)],
+        crate::Kinds::All => Vec::new(),
+    };
+    let block = panel_with(
         app.palette,
         format!(" Files · {} ", app.rows.len()),
+        kinds,
         focused,
         theme.accent,
     );
@@ -42,6 +49,7 @@ pub(super) fn results_pane(
     frame.render_widget(
         block
             .title_top(tab_strip(app))
+            .title_bottom(Line::from(styled(format!(" depth {} ", app.depth), theme.text)))
             .title_bottom(Line::from(styled(range, theme.muted)).right_aligned()),
         area,
     );

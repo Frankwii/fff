@@ -26,7 +26,7 @@ pub(super) fn marks_pane(
             Paragraph::new(vec![
                 Line::from(""),
                 Line::from(styled("Collect paths as you browse.", theme.muted)),
-                Line::from(styled("Tab marks the highlighted entry.", theme.muted)),
+                Line::from(styled("Space marks the highlighted entry.", theme.muted)),
                 Line::from(""),
                 Line::from(styled(
                     if app.returns_marks() {

@@ -240,7 +240,9 @@ pub(super) fn normal_list_key(
     loop {
         let normal = matches!(focus, Focus::Marks { .. })
             || app.edit_view.as_ref().is_some_and(|v| v.normal());
-        if !normal && !app.normal_keys.pending() {
+        // Shift+Space is its own chord (mark), never a configured `<space>`.
+        let shift_space = key.code == K::Char(' ') && key.modifiers.contains(M::SHIFT);
+        if (!normal || shift_space) && !app.normal_keys.pending() {
             return NormalKey::Pass(key);
         }
         if matches!(focus, Focus::Results)

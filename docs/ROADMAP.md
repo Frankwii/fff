@@ -68,5 +68,5 @@ TODO without leaving the browser.
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
 
-The current release is 0.11.0. Version 1.0 is planned once the remaining roadmap
+The current release is 0.11.1. Version 1.0 is planned once the remaining roadmap
 above is implemented. Earlier versions will not be retroactively renumbered.

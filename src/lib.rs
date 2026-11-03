@@ -68,16 +68,27 @@ struct Pending {
     cancel: Arc<AtomicBool>,
 }
 
+/// How long the progress marker stays after discovery completes.
+pub const PROGRESS_SHOWN: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// Insertions merged into the rows per budgeted round.
 const MERGE_ROUND: usize = 512;
 
 /// Result order: depth, directories first, best score, root order, then
-/// pathname bytes, which break every tie.
-fn rank(a: &Candidate, score_a: i64, b: &Candidate, score_b: i64) -> std::cmp::Ordering {
-    a.depth
-        .cmp(&b.depth)
-        .then(b.directory.cmp(&a.directory))
-        .then(score_b.cmp(&score_a))
+/// pathname bytes, which break every tie. `by_score` (`fff seek`) puts the
+/// best score first, then depth.
+fn rank(
+    by_score: bool,
+    a: &Candidate,
+    score_a: i64,
+    b: &Candidate,
+    score_b: i64,
+) -> std::cmp::Ordering {
+    let score = score_b.cmp(&score_a);
+    let depth = a.depth.cmp(&b.depth).then(b.directory.cmp(&a.directory));
+    let (first, second) = if by_score { (score, depth) } else { (depth, score) };
+    first
+        .then(second)
         .then(a.root.cmp(&b.root))
         .then(a.path.as_os_str().cmp(b.path.as_os_str()))
 }
@@ -186,6 +197,12 @@ pub struct App {
     pub physical_empty: bool,
     /// The scan stopped at `[performance] max_paths`: the rows are partial.
     pub truncated: bool,
+    /// The scan running is a quiet refresh that keeps the rows (periodic or
+    /// after a change on disk): the progress marker stays hidden for it.
+    pub quiet_scan: bool,
+    /// When discovery and sorting last finished; `None` while they run. The
+    /// progress marker shows until `PROGRESS_SHOWN` after it.
+    pub settled_at: Option<std::time::Instant>,
     pub cache_pending: bool,
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
@@ -306,6 +323,8 @@ impl App {
             status_success: String::new(),
             physical_empty: false,
             truncated: false,
+            quiet_scan: false,
+            settled_at: None,
             cache_pending: false,
             edit_view: None,
             palette: config::Palette::default(),
@@ -740,6 +759,7 @@ impl App {
                     listing: Some(self.listing()),
                     query: folded.clone(),
                     labels: Some(self.no_dir || self.short_labels),
+                    by_score: self.no_dir,
                 };
                 self.start_ranking(job, basis, folded);
                 return;
@@ -751,12 +771,14 @@ impl App {
                 listing: None,
                 query: folded.clone(),
                 labels: None,
+                by_score: self.no_dir,
             },
             None => ranking::Job {
                 base: Arc::new(self.known.values().cloned().collect()),
                 listing: Some(self.listing()),
                 query: folded.clone(),
                 labels: None,
+                by_score: self.no_dir,
             },
         };
         self.start_ranking(job, basis, folded);
@@ -822,6 +844,19 @@ impl App {
     /// those of the previous query or settings.
     pub fn ranking_pending(&self) -> bool {
         self.ranking.is_some()
+    }
+    /// Discovery or sorting the user waits for, which the progress marker
+    /// reports; quiet refreshes do not count.
+    pub fn working(&self) -> bool {
+        (self.scanning && !self.quiet_scan) || self.ranking_pending()
+    }
+    /// The progress marker shows while working, while the rows are partial
+    /// and for `PROGRESS_SHOWN` after work settles.
+    pub fn progress_shown(&self, now: std::time::Instant) -> bool {
+        self.truncated
+            || self
+                .settled_at
+                .is_none_or(|at| now.saturating_duration_since(at) < PROGRESS_SHOWN)
     }
     /// Wait for a pending ranking, so that what acts on rows sees current ones.
     pub fn finish_ranking(&mut self) {
@@ -900,6 +935,7 @@ impl App {
         known::discard(stale, len);
         let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
+        let by_score = self.no_dir;
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {
@@ -926,7 +962,7 @@ impl App {
                 .into_iter()
                 .filter_map(|c| Some((score_of(&c)?, c)))
                 .collect();
-            added.sort_unstable_by(|(sa, a), (sb, b)| rank(a, *sa, b, *sb));
+            added.sort_unstable_by(|(sa, a), (sb, b)| rank(by_score, a, *sa, b, *sb));
             let mut rows = Vec::with_capacity(self.rows.len() + added.len());
             let old = std::mem::take(&mut self.rows);
             let mut old = Arc::try_unwrap(old)
@@ -935,7 +971,7 @@ impl App {
             for (score, c) in added {
                 // Rows all match the query; rank them by their own scores.
                 let before = old.as_slice().partition_point(|r| {
-                    rank(r, score_of(r).unwrap_or_default(), &c, score).is_lt()
+                    rank(by_score, r, score_of(r).unwrap_or_default(), &c, score).is_lt()
                 });
                 rows.extend(old.by_ref().take(before));
                 rows.push(c);

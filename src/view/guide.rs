@@ -104,7 +104,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
         (
             "Select and return",
             vec![
-                ("Tab".into(), "mark / unmark, then move down", false),
+                ("Shift+Space".into(), "mark / unmark, then move down", false),
                 ("Alt+Space".into(), "focus the marked list", false),
                 ("Ctrl+w".into(), "return the marked paths (fff pick)", false),
                 ("Alt+1…9 Alt+0".into(), "like Alt+l on row n", false),
@@ -118,6 +118,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
             vec![
                 ("type".into(), "fuzzy-filter names; with /, paths", false),
                 ("Esc".into(), "leave Insert, then clear query", false),
+                ("Esc Esc".into(), "with no query: clear the marks", false),
                 ("Alt+← Alt+→".into(), "search shallower / deeper", false),
                 ("Alt+.".into(), "show / hide hidden entries", false),
                 ("Alt+d".into(), "hide / show directories", true),
@@ -175,7 +176,7 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "first / last row",
                     false,
                 ),
-                (normal(Mark), "mark / unmark, like Tab", false),
+                (normal(Mark), "mark / unmark, like Shift+Space", false),
                 (
                     normal(MarkAll) + "  " + &normal(InvertMarks),
                     "mark all listed / invert their marks",

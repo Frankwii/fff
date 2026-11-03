@@ -53,6 +53,8 @@ impl Session {
             Event::Key(key) => (key, false),
             _ => return Ok(None),
         };
+        // Escape twice in a row clears the marks; any other key disarms it.
+        self.escape_armed &= key.code == K::Esc;
         self.key(app, key, on_row)
     }
     fn paste(&mut self, app: &mut App, text: &str) {
@@ -517,8 +519,9 @@ impl Session {
         if let Some(next) = next {
             match next {
                 Ok(draft) => {
-                    self.editor.reset(Field::BookmarkName);
-                    self.editor.reset(Field::BookmarkPath);
+                    // The form is for typing: its fields start in Insert mode.
+                    self.editor.reset_insert(Field::BookmarkName);
+                    self.editor.reset_insert(Field::BookmarkPath);
                     self.focus = Focus::BookmarkEdit(draft);
                 }
                 Err(error) => app.status = error,

@@ -151,6 +151,16 @@ fn truncate(text: &str, width: usize) -> String {
     if width == 0 { kept } else { kept + "…" }
 }
 fn panel(theme: Palette, title: impl Into<String>, focused: bool, accent: Color) -> Block<'static> {
+    panel_with(theme, title, Vec::new(), focused, accent)
+}
+/// A panel whose title continues with `extra` spans in their own colors.
+fn panel_with(
+    theme: Palette,
+    title: impl Into<String>,
+    extra: Vec<Span<'static>>,
+    focused: bool,
+    accent: Color,
+) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -164,10 +174,12 @@ fn panel(theme: Palette, title: impl Into<String>, focused: bool, accent: Color)
                 }),
         )
         .style(Style::default().bg(theme.panel).fg(theme.text))
-        .title(Line::from(bold(
-            title,
-            if focused { accent } else { theme.text },
-        )))
+        .title(Line::from(
+            [bold(title, if focused { accent } else { theme.text })]
+                .into_iter()
+                .chain(extra)
+                .collect::<Vec<_>>(),
+        ))
 }
 
 pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendered {
@@ -516,14 +528,15 @@ fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
 }
 
 /// Session state on the filter's bottom border, written like a title
-/// (`✓ complete · depth 2`): discovery progress and depth always, then only
-/// settings that differ from the defaults. Narrow frames drop trailing items and
-/// shorten the progress label; F1 lists everything.
+/// (`✓ complete · hidden shown`): discovery progress while it runs and for a
+/// moment after, then only settings that differ from the defaults. Narrow
+/// frames drop trailing items and shorten the progress label; F1 lists
+/// everything.
 fn status_line(app: &App, width: usize) -> Line<'static> {
     let theme = app.palette;
-    let (scan, color) = if app.cache_pending && app.scanning {
+    let (scan, color) = if app.cache_pending && app.scanning && !app.quiet_scan {
         (["◌ cached, refreshing", "◌ incomplete"], theme.marked)
-    } else if app.scanning {
+    } else if app.scanning && !app.quiet_scan {
         (["◌ scanning, incomplete", "◌ incomplete"], theme.marked)
     } else if app.ranking_pending() {
         (["◌ sorting", "◌ sorting"], theme.marked)
@@ -532,16 +545,12 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     } else {
         (["✓ complete"; 2], theme.success)
     };
+    let progress = app.progress_shown(std::time::Instant::now());
     let mut optional = Vec::new();
     // Filters and exclusions are only named while they hide something; their
     // globs are listed in the editors (Alt+f, Alt+e) and in F1's details.
     if !app.policy.filters.is_empty() {
         optional.push(styled("filters on", theme.accent));
-    }
-    match app.listed_kinds() {
-        crate::Kinds::Files => optional.push(styled("files only", theme.accent)),
-        crate::Kinds::Directories => optional.push(styled("folders only", theme.accent)),
-        crate::Kinds::All => {}
     }
     if app.policy.hidden {
         optional.push(styled("hidden shown", theme.accent));
@@ -549,16 +558,19 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     if app.policy.ignore && !app.policy.rules.is_empty() {
         optional.push(styled("exclusions on", theme.accent));
     }
-    let depth = styled(format!("depth {}", app.depth), theme.text);
     let mut keep = optional.len();
     let mut label = 0;
     loop {
-        let mut spans = vec![Span::raw(" ")];
-        for (i, item) in [styled(scan[label], color), depth.clone()]
+        let items: Vec<_> = progress
+            .then(|| styled(scan[label], color))
             .into_iter()
             .chain(optional[..keep].iter().cloned())
-            .enumerate()
-        {
+            .collect();
+        if items.is_empty() {
+            return Line::default();
+        }
+        let mut spans = vec![Span::raw(" ")];
+        for (i, item) in items.into_iter().enumerate() {
             if i > 0 {
                 spans.push(styled(" · ", theme.muted));
             }
@@ -566,7 +578,7 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
         }
         spans.push(Span::raw(" "));
         let used = spans.iter().map(|s| s.width()).sum::<usize>();
-        if used <= width || (keep == 0 && label == 1) {
+        if used <= width || (keep == 0 && (label == 1 || !progress)) {
             return Line::from(spans);
         }
         if keep > 0 {
