@@ -9,7 +9,9 @@ listed separately in the [roadmap](ROADMAP.md).
 | Module | Responsibility |
 | --- | --- |
 | `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
-| `src/lib.rs` | Session state, navigation, tabs, policies, matching, ordering, marks and path output. |
+| `src/lib.rs` | Session state (`App`): navigation, tabs, rows and their ordering, the highlight, marks and path output. |
+| `src/matching.rs` | Fuzzy scoring of names and paths below their roots, and the matched characters to highlight. |
+| `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
