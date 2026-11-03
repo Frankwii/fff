@@ -116,7 +116,7 @@ struct RefreshBasis {
     rules: Vec<String>,
     filters: Vec<String>,
     filters_off: bool,
-    no_dir: bool,
+    navigates: bool,
     kinds: Kinds,
     short_labels: bool,
     by_score: bool,
@@ -133,7 +133,7 @@ impl RefreshBasis {
             rules: app.policy.rules.clone(),
             filters: app.policy.filters.clone(),
             filters_off: app.policy.filters_off,
-            no_dir: app.no_dir,
+            navigates: app.program.navigates(),
             kinds: app.kinds,
             short_labels: app.short_labels,
             by_score: app.by_score(),
@@ -252,15 +252,19 @@ pub struct App {
     pub keys_path: Option<PathBuf>,
     /// Why `keys.toml` was not read, while the defaults stand in for it.
     pub keys_broken: Option<String>,
-    /// `fff seek`: a static file choice. Directories are never listed, entered,
-    /// or returned, and the current directory cannot change.
-    pub no_dir: bool,
+    /// The program fff runs as: what it lists, what Enter finishes with and
+    /// what it prints (see `keymap::Program`). `switch_program` changes it;
+    /// a file dialog's is its `dialog`'s.
+    pub program: keymap::Program,
     /// Alt+d / `d` hide directories and Alt+D / `D` files for now; unlike
     /// `fff seek`, navigation still works. See `listed_kinds` for seek.
     pub kinds: Kinds,
-    /// `fff pick` and `fff seek`: rows show bare names, with only the parents
-    /// that tell apart entries sharing one (`labels`).
+    /// Rows show bare names, with only the parents that tell apart entries
+    /// sharing one (`labels`), rather than their path below the folder
+    /// searched: `Program::short_labels` to start, `toggle_labels` after.
     pub short_labels: bool,
+    /// `toggle_labels` chose the labels: `switch_program` keeps them.
+    pub labels_chosen: bool,
     /// Short row labels for entries whose basename another listed entry shares
     /// (presentation only); other rows show their bare name.
     pub labels: HashMap<PathBuf, PathBuf>,
@@ -284,9 +288,6 @@ pub struct App {
     pub records_session: bool,
     /// `[open]`: which program opens a file.
     pub openers: open::OpenConfig,
-    /// `fff pick`: Insert-mode Enter on a file returns it instead of
-    /// revealing it.
-    pub output_paths: bool,
     /// Pop-up notifications and when each arrived.
     pub notices: Vec<(String, std::time::Instant)>,
     /// Ctrl+o / Ctrl+i: directories left this session, and those jumped back from.
@@ -311,12 +312,9 @@ pub struct App {
     pub preview: preview::Pane,
     /// `[ui] watch`: follow changes to the current directory as they happen.
     pub watch: bool,
-    /// `fff explorer`: the file dialog being answered. Enter chooses files in
-    /// either mode and q cancels.
+    /// `fff explorer`: the file dialog being answered (`open_dialog`).
+    /// Enter chooses files in either mode and q cancels.
     pub dialog: Option<explorer::Dialog>,
-    /// `--window`: fff has a terminal window of its own and no shell to leave
-    /// into, so Enter enters folders and `!` starts a shell in this one.
-    pub window: bool,
     /// `[trash]`: where `x` sends entries; `None` deletes them permanently.
     pub trash: Option<trash::Trash>,
     /// The trash's `files/` folders, home bin first, as last read
@@ -396,9 +394,10 @@ impl App {
             pending: Vec::new(),
             keys_path: None,
             keys_broken: None,
-            no_dir: false,
+            program: keymap::Program::Roam,
             kinds: Kinds::All,
             short_labels: false,
+            labels_chosen: false,
             labels: HashMap::new(),
             names: HashMap::new(),
             relabel: Vec::new(),
@@ -409,7 +408,6 @@ impl App {
             wanted: None,
             records_session: false,
             openers: open::OpenConfig::default(),
-            output_paths: false,
             notices: Vec::new(),
             back: Vec::new(),
             forward: Vec::new(),
@@ -429,7 +427,6 @@ impl App {
             mouse_seen: None,
             watch: true,
             preview: preview::Pane::default(),
-            window: false,
             trash: None,
             trash_folders: Vec::new(),
             undo: Vec::new(),
@@ -539,39 +536,18 @@ impl App {
         self.marks = session.marks.into();
         self.wanted = session.highlight;
     }
-    /// What fff was started as, for where keys apply.
-    pub fn program(&self) -> keymap::Program {
-        use keymap::Program;
-        match &self.dialog {
-            Some(d) if d.save.is_some() => Program::ExplorerSave,
-            Some(d) if d.directory => Program::ExplorerFolder,
-            Some(d) if d.multiple => Program::ExplorerMultiple,
-            Some(_) => Program::ExplorerOpen,
-            None if self.window => Program::Window,
-            None if self.grep.is_some() => Program::Grep,
-            None if self.no_dir => Program::Seek,
-            None if self.output_paths => Program::Pick,
-            None => Program::Roam,
+    /// Run as `program`, with its labels and, for `fff grep`, its contents
+    /// query (a file dialog is `open_dialog`).
+    pub fn set_program(&mut self, program: keymap::Program) {
+        self.program = program;
+        if !self.labels_chosen {
+            self.short_labels = program.short_labels();
         }
-    }
-    /// `switch_program`: go on as `to` (one of `Program::SWITCHABLE`). The
-    /// folders, query, highlight, marks and policies stay; the depth
-    /// follows the new program's default unless it was set to another, and
-    /// `fff grep`'s contents query is kept for coming back to it. True when
-    /// the depth changed, which needs a scan; else the rows are re-ranked.
-    pub fn switch_program(&mut self, to: keymap::Program) -> bool {
-        use keymap::{Dimension, Program};
-        let from = self.program();
-        if from == to {
-            return false;
-        }
-        if let Some(grep) = self.grep.take() {
-            self.kept_contents = grep.text;
-        }
-        self.output_paths = matches!(to, Program::Pick | Program::Grep);
-        self.no_dir = to == Program::Seek;
-        self.short_labels = to != Program::Roam;
-        if to == Program::Grep {
+        if program != keymap::Program::Grep {
+            if let Some(grep) = self.grep.take() {
+                self.kept_contents = grep.text;
+            }
+        } else if self.grep.is_none() {
             let mut grep = grep::Grep::new();
             grep.text = std::mem::take(&mut self.kept_contents);
             if let Some(waker) = &self.waker {
@@ -579,6 +555,24 @@ impl App {
             }
             self.grep = Some(grep);
         }
+    }
+    /// Answer `dialog`, as `fff explorer` does.
+    pub fn open_dialog(&mut self, dialog: explorer::Dialog) {
+        self.set_program(dialog.program());
+        self.dialog = Some(dialog);
+    }
+    /// `switch_program`: go on as `to` (one of `Program::SWITCHABLE`). The
+    /// folders, query, highlight, marks and policies stay; the depth
+    /// follows the new program's default unless it was set to another, and
+    /// `fff grep`'s contents query is kept for coming back to it. True when
+    /// the depth changed, which needs a scan; else the rows are re-ranked.
+    pub fn switch_program(&mut self, to: keymap::Program) -> bool {
+        use keymap::Dimension;
+        let from = self.program;
+        if from == to {
+            return false;
+        }
+        self.set_program(to);
         // The highlight stays, or comes back once listed again (a folder
         // after `fff seek`, which lists only files), unless the user moves.
         self.wanted = self.highlight.clone().or(self.wanted.take());
@@ -594,13 +588,8 @@ impl App {
         self.poll_grep();
         false
     }
-    /// `fff pick`, `fff seek` and `fff grep` choose files from deep below,
-    /// so the best match comes first whatever its depth.
     fn by_score(&self) -> bool {
-        matches!(
-            self.program(),
-            keymap::Program::Pick | keymap::Program::Seek | keymap::Program::Grep
-        )
+        self.program.by_score()
     }
     /// The rows on screen: the ranked rows, or in `fff grep` with a contents
     /// query, one row per match in their files' order.
@@ -667,7 +656,7 @@ impl App {
     pub fn cell(&self) -> keymap::Cell {
         use keymap::Highlight;
         keymap::Cell {
-            program: self.program(),
+            program: self.program,
             place: keymap::Place::Results,
             highlight: match self.highlighted_row() {
                 Some(row) if row.directory => Highlight::Dir,
@@ -915,7 +904,7 @@ impl App {
     }
     /// The kinds listed: `fff seek` lists only files whatever `kinds` says.
     pub fn listed_kinds(&self) -> Kinds {
-        if self.no_dir {
+        if !self.program.navigates() {
             Kinds::Files
         } else {
             self.kinds
@@ -1043,7 +1032,7 @@ impl App {
                     base: Arc::new(self.known.values().cloned().collect()),
                     listing: Some(self.listing()),
                     query: folded.clone(),
-                    labels: Some(self.no_dir || self.short_labels),
+                    labels: Some(self.short_labels),
                     by_score: self.by_score(),
                 };
                 // This job takes over the additions and removals discarded
@@ -1221,7 +1210,7 @@ impl App {
                     .retain(|_| kept.next().expect("as many scores as rows"));
             }
             rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
-            if self.no_dir || self.short_labels {
+            if self.short_labels {
                 for c in &self.outdated {
                     if let Some(name) = c.path.file_name()
                         && let Some(group) = self.names.get_mut(name)
@@ -1255,7 +1244,7 @@ impl App {
             // and the rows fill in that order.
             let round: Vec<_> = self.added.drain(..take).collect();
             let listed: Vec<_> = round.into_iter().filter(|c| self.listed(c)).collect();
-            if self.no_dir || self.short_labels {
+            if self.short_labels {
                 for c in &listed {
                     if let Some(name) = c.path.file_name() {
                         let group = self.names.entry(name.to_os_string()).or_default();
@@ -1478,10 +1467,11 @@ impl App {
     }
     /// Whether the current directory may change; false in `fff seek`.
     pub fn can_navigate(&mut self) -> bool {
-        if self.no_dir {
+        let navigates = self.program.navigates();
+        if !navigates {
             self.status = "Navigation is disabled in fff seek".into();
         }
-        !self.no_dir
+        navigates
     }
     pub fn navigate_highlighted(&mut self) -> bool {
         let target = self
@@ -1612,7 +1602,8 @@ impl App {
     /// not in `fff seek`, with no shell to leave into (`--window`), or in a
     /// dialog choosing files, whose answer has no room for a folder.
     fn returns_folder(&self) -> bool {
-        !self.no_dir && !self.window && self.dialog.as_ref().is_none_or(|d| d.directory)
+        use keymap::Program::*;
+        matches!(self.program, Roam | Pick | Grep | ExplorerFolder)
     }
     /// Says why Enter (or Ctrl+number) with no row did nothing.
     pub fn nothing_to_enter(&mut self) {
@@ -1642,11 +1633,10 @@ impl App {
     /// Whether Ctrl+w may finish with the marks: only where the answer can be
     /// several paths, `fff pick` and `fff explorer --multiple` (not saving).
     pub fn returns_marks(&self) -> bool {
-        self.output_paths
-            && self
-                .dialog
-                .as_ref()
-                .is_none_or(|d| d.multiple && d.save.is_none())
+        match &self.dialog {
+            Some(dialog) => dialog.multiple && dialog.save.is_none(),
+            None => self.program.prints_paths(),
+        }
     }
     pub fn confirm(&mut self, target: Option<PathBuf>) -> Option<Vec<PathBuf>> {
         if self.marks.iter().any(|p| !p.exists()) {

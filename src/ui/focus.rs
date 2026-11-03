@@ -4,7 +4,7 @@
 use super::*;
 
 /// How Enter reached the results.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub(super) struct Row {
     /// Enter on a row pointed at (Ctrl+number, a double click): it must
     /// still be listed.
@@ -21,8 +21,13 @@ impl Session {
         row: Row,
     ) -> io::Result<Option<Finish>> {
         match self.focus {
-            Focus::Results => return Ok(self.results_key(app, key, row)),
-            Focus::Marks { .. } => return Ok(self.marks_key(app, key)),
+            // The mouse's Enter (a double click, the button bar); the lists'
+            // other keys are functions (`run_function`).
+            Focus::Results | Focus::Marks { .. } if key.code == K::Enter => {
+                return Ok(self.confirm(app, row));
+            }
+            Focus::Results => deliver(app, &mut self.focus, &mut self.editor, key),
+            Focus::Marks { .. } => {}
             Focus::Replace(_) => return Ok(self.replace_key(app, key)),
             Focus::RunConfirm(_) => return self.run_confirm_key(app, key),
             Focus::NewChoice => self.new_choice_key(app, key),
@@ -105,7 +110,7 @@ impl Session {
         };
         let Some(&(program, _)) = keymap::Program::SWITCHABLE
             .iter()
-            .find(|&&(p, l)| l == letter && p != app.program())
+            .find(|&&(p, l)| l == letter && p != app.program)
         else {
             return;
         };
@@ -543,31 +548,38 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
         }
     }
-    /// Alt+Space: the marked list.
-    fn marks_key(&mut self, app: &mut App, key: KeyEvent) -> Option<Finish> {
-        let ctrl = key.modifiers.contains(M::CONTROL);
-        let alt = key.modifiers.contains(M::ALT);
-        let Focus::Marks { rows, index } = &mut self.focus else {
-            return None;
-        };
-        if key.code == K::Esc || (alt && key.code == K::Char(' ')) {
-            self.focus = Focus::Results;
-        } else if key.code == K::Char(' ') && key.modifiers.contains(M::SHIFT) {
-            if let Some(p) = rows.get(*index) {
-                app.toggle(p.clone());
+    /// Enter on the highlighted row of the list in focus, by its key or
+    /// pointed at (`row`).
+    pub(super) fn confirm(&mut self, app: &mut App, row: Row) -> Option<Finish> {
+        match &self.focus {
+            Focus::Marks { rows, index } => {
+                let mark = rows.get(*index).cloned()?;
+                self.enter_mark(app, mark)
             }
-        } else if key.code == K::Down || (alt && key.code == K::Char('j')) {
-            *index = cycle(*index, rows.len(), true);
-        } else if key.code == K::Up || (alt && key.code == K::Char('k')) {
-            *index = cycle(*index, rows.len(), false);
-        } else if ctrl && key.code == K::Char('w') {
-            return leave_with_marks(app);
-        } else if key.code == K::Enter
-            && let Some(mark) = rows.get(*index).cloned()
-        {
-            return self.enter_mark(app, mark);
+            _ => {
+                self.discovery.checkpoint(app);
+                self.results_enter(app, row)
+            }
         }
-        None
+    }
+    /// Ctrl+number: Enter on that row, as if it were highlighted first (with
+    /// no visible rows, Enter with nothing highlighted).
+    pub(super) fn confirm_row(&mut self, app: &mut App, digit: u32) -> Option<Finish> {
+        let mut row = Row::default();
+        if !app.rendered.is_empty() {
+            app.highlight_numbered(digit);
+            app.highlight_top = false;
+            app.wanted = None;
+            row.on_row = true;
+        } else if !app.program.navigates() {
+            // Static (fff seek) sessions never fall back to the current
+            // directory.
+            app.nothing_to_enter();
+            return None;
+        } else {
+            row.unnumbered = true;
+        }
+        self.confirm(app, row)
     }
     /// Enter on a mark: like Normal-mode Enter in the results.
     fn enter_mark(&mut self, app: &mut App, mark: PathBuf) -> Option<Finish> {
@@ -575,35 +587,33 @@ impl Session {
             app.status = "This mark no longer exists; Space unmarks it".into();
             return None;
         }
-        if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) && !mark.is_dir() {
-            return save_as(app, &mut self.focus, mark);
-        }
-        if app.dialog.is_some() {
-            return Some(Finish::Paths(vec![mark]));
-        }
-        // A file opens and fff leaves (or is printed), a directory is left
-        // into.
-        if app.output_paths && !mark.is_dir() {
-            return Some(Finish::Paths(vec![mark]));
-        }
-        if !app.output_paths && !app.no_dir && !mark.is_dir() {
-            return match open_and_leave(app, std::slice::from_ref(&mark)) {
-                Ok(finish) => Some(finish),
-                Err(error) => {
-                    app.status = error;
-                    None
-                }
-            };
-        }
-        // With a window of its own, a directory is entered.
-        if app.window && mark.is_dir() {
-            if app.can_navigate() {
-                app.navigate(mark, false);
-                app.wanted = None;
-                self.discovery.start(app, true);
-                self.focus = Focus::Results;
+        use Program::*;
+        let file = !mark.is_dir();
+        match app.program {
+            ExplorerSave if file => return save_as(app, &mut self.focus, mark),
+            program if program.dialog() => return Some(Finish::Paths(vec![mark])),
+            // A file is printed, or opens as fff leaves; a directory is left
+            // into, or with a window of its own entered.
+            Pick | Grep if file => return Some(Finish::Paths(vec![mark])),
+            Roam | Window if file => {
+                return match open_and_leave(app, std::slice::from_ref(&mark)) {
+                    Ok(finish) => Some(finish),
+                    Err(error) => {
+                        app.status = error;
+                        None
+                    }
+                };
             }
-            return None;
+            Window => {
+                if app.can_navigate() {
+                    app.navigate(mark, false);
+                    app.wanted = None;
+                    self.discovery.start(app, true);
+                    self.focus = Focus::Results;
+                }
+                return None;
+            }
+            _ => {}
         }
         let folder = if mark.is_dir() {
             mark
@@ -612,213 +622,79 @@ impl Session {
         };
         Some(Finish::Folder(folder))
     }
-    fn results_key(&mut self, app: &mut App, key: KeyEvent, row: Row) -> Option<Finish> {
-        let ctrl = key.modifiers.contains(M::CONTROL);
-        let alt = key.modifiers.contains(M::ALT);
-        let page = self.drawn.page;
-        match (key.code, ctrl, alt) {
-            (K::F(1), _, _) => self.open_keys(app.cell()),
-            (K::F(2), _, _) => self.focus = Focus::Info { offset: 0 },
-            (K::Char('w'), true, _) => return leave_with_marks(app),
-            // Dialogs: save here, or choose this folder, while typing too.
-            (K::Char('s'), true, _) if app.dialog.is_some() => {
-                if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
-                    return save_here(app, &mut self.focus);
-                } else if app.dialog.as_ref().is_some_and(|d| d.directory) {
-                    return Some(Finish::Paths(vec![app.cwd.clone()]));
-                }
+    /// `go_to_highlighted`: into the highlighted directory, or to the
+    /// highlighted file's folder with the file highlighted.
+    pub(super) fn go_into_folder(&mut self, app: &mut App) {
+        let Some(path) = self.current(app) else {
+            return;
+        };
+        self.discovery.checkpoint(app);
+        if path.is_dir() {
+            if app.ready_path(&path) && app.can_navigate() {
+                // Arriving, the cursor left there comes back.
+                app.navigate(path, false);
+                self.discovery.start(app, true);
             }
-            // Ctrl+i needs a terminal that tells it apart from Tab (Kitty
-            // keyboard protocol); elsewhere it arrives as Tab, which is unbound.
-            (K::Char('o' | 'i'), true, false) if !app.can_navigate() => {}
-            (K::Char('o' | 'i'), true, false) => {
-                if app.jump(key.code == K::Char('o')) {
-                    self.discovery.start(app, true);
-                } else {
-                    app.status = if key.code == K::Char('o') {
-                        "No earlier directory to go back to"
-                    } else {
-                        "No later directory to go forward to"
-                    }
-                    .into();
-                }
-            }
-            // Tabs keep their own directory and history; marks are shared.
-            (K::Up | K::Down, false, true) => {
-                // Up counts up to the next tab.
-                if app.can_navigate() && app.switch_tab(key.code == K::Up) {
-                    self.discovery.start(app, true);
-                }
-            }
-            (K::Char(' '), _, true) => {
-                self.focus = Focus::Marks {
-                    rows: app.marks.to_vec(),
-                    index: 0,
-                }
-            }
-            (K::Char('e'), _, true) => self.focus = Focus::Exclusions(app.policy.rules.join("\n")),
-            (K::Char('f'), _, true) => self.focus = Focus::Filters(app.policy.filters.join("\n")),
-            (K::Char('g' | 'b' | 'h'), _, true) if !app.can_navigate() => {}
-            (K::Char('g'), _, true) => {
-                let bookmarks = app
-                    .bookmarks
-                    .iter()
-                    .map(|b| (b.name.clone(), b.path.clone()))
-                    .collect::<Vec<_>>();
-                let frequent = crate::location::zoxide(&app.cwd);
-                // It exists for typing, like the run prompt.
-                self.editor.reset_insert(Field::Location);
-                self.focus = Focus::Location(crate::location::Location::new(
-                    &bookmarks, frequent, &app.cwd,
-                ));
-            }
-            (K::Char('b'), _, true) => {
-                self.focus = Focus::Bookmarks {
-                    query: String::new(),
-                    index: 0,
-                }
-            }
-            (K::Char('l'), _, true) => activate_highlighted(app, &mut self.discovery),
-            (K::Char('p' | 'P'), _, true) if palette_key(key) == Some(PaletteKey::Reload) => {
-                reload_palette(app, &self.palettes)
-            }
-            (K::Char('p'), _, true) => {
-                let index = app
-                    .palettes
-                    .iter()
-                    .position(|(name, _)| *name == app.palette_name)
-                    .or_else(|| app.palettes.iter().position(|(_, p)| *p == app.palette))
-                    .unwrap_or(0);
-                self.focus = Focus::Palettes {
-                    query: String::new(),
-                    index,
-                    original: app.palette,
-                };
-            }
-            (K::Char('t'), _, true) if app.can_navigate() => self.open_trash(app),
-            (K::F(5), _, _) => self.discovery.force_refresh(app),
-            (K::Char('h'), _, true) => {
-                if let Some(p) = app.cwd.parent().map(PathBuf::from) {
-                    app.navigate(p, true);
-                    self.discovery.start(app, true);
-                }
-            }
-            (K::Char(c @ ('j' | 'k')), true, false) => scroll_preview(app, c == 'j'),
-            (K::Char('j'), _, true) | (K::Down, false, false) => app.step(true),
-            (K::Up, false, false) | (K::Char('k'), _, true) => app.step(false),
-            (K::PageDown, _, _) => {
-                app.move_by(page as isize);
-                app.offset = app
-                    .offset
-                    .saturating_add(page)
-                    .min(app.shown().len().saturating_sub(page));
-            }
-            (K::PageUp, _, _) => {
-                app.move_by(-(page as isize));
-                app.offset = app.offset.saturating_sub(page);
-            }
-            (K::Right, _, true) => {
-                app.depth = app.depth.saturating_add(1);
-                self.discovery.start(app, false);
-            }
-            (K::Left, _, true) => {
-                app.depth = app.depth.saturating_sub(1).max(1);
-                self.discovery.start(app, false);
-            }
-            (K::Char('.'), _, true) => {
-                app.policy.hidden = !app.policy.hidden;
-                self.discovery.start(app, false);
-            }
-            (K::Char('v'), _, true) => app.preview.shown = !app.preview.shown,
-            (K::Char('d' | 'D'), _, true) if app.no_dir => {
-                app.status = "fff seek lists only files".into();
-            }
-            // fff grep: type into the other query.
-            (K::Char('/'), _, true) if app.grep.is_some() => {
-                if let Some(grep) = &mut app.grep {
-                    grep.editing = !grep.editing;
-                }
-            }
-            (K::Char(c @ ('d' | 'D')), _, true) => {
-                let only = if c == 'd' {
-                    crate::Kinds::Files
-                } else {
-                    crate::Kinds::Directories
-                };
-                app.kinds = app.kinds.toggled(only);
-                app.offset = 0;
-                app.refresh();
-            }
-            (K::Char('H'), _, true) => {
-                app.policy.ignore = !app.policy.ignore;
-                self.discovery.start(app, false);
-            }
-            // Filters only choose among discovered files: no rescan.
-            (K::Char('F'), _, true) => {
-                if app.policy.filters.is_empty() {
-                    app.status = match app.bound(Function::EditFilters) {
-                        Some(key) => format!("No file filters to turn on; {key} adds some"),
-                        None => "No file filters to turn on".into(),
-                    };
-                } else {
-                    app.policy.filters_off = !app.policy.filters_off;
-                    app.offset = 0;
-                    app.refresh();
-                }
-            }
-            // fff grep: Escape clears the query being typed into, else the
-            // other one.
-            (K::Esc, _, _)
-                if app
-                    .grep
-                    .as_ref()
-                    .is_some_and(|g| !g.text.is_empty() && (g.editing || app.query.is_empty())) =>
-            {
-                app.set_contents(String::new());
-            }
-            (K::Esc, _, _)
-                if app.grep.as_ref().is_some_and(|g| g.editing) && !app.query.is_empty() =>
-            {
-                app.query.clear();
-                app.offset = 0;
-                app.refresh();
-            }
-            // Escape clears the query; pressed again with none, the marks.
-            (K::Esc, _, _) if app.query.is_empty() => {
-                if std::mem::replace(&mut self.escape_armed, true) && !app.marks.is_empty() {
-                    let count = app.marks.len();
-                    app.marks.clear();
-                    app.status =
-                        format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
-                    app.status_success = app.status.clone();
-                    self.escape_armed = false;
-                }
-            }
-            (K::Esc, _, _) => {
-                app.query.clear();
-                app.offset = 0;
-                app.refresh();
-            }
-            // Shift+Space marks in every mode; Tab only while typing, for
-            // terminals that cannot tell Shift+Space from Space.
-            (K::Char(' '), _, _) | (K::Tab, _, _)
-                if (key.code == K::Tab && !app.edit_view.as_ref().is_some_and(|v| v.normal()))
-                    || (key.code == K::Char(' ') && key.modifiers.contains(M::SHIFT)) =>
-            {
-                if let Some(p) = app.highlight.clone() {
-                    app.toggle(p);
-                    app.move_by(1);
-                }
-            }
-            (K::Tab, _, _) => {}
-            (K::Enter, _, _) => return self.results_enter(app, row),
-            _ => deliver(app, &mut self.focus, &mut self.editor, key),
+        } else if app.reveal(path) {
+            self.discovery.start(app, true);
+        } else {
+            // The query was cleared here, not by moving: keep its mode, as
+            // after a move.
+            self.editor.reset_preserving_mode(Field::Query);
         }
-        None
+        self.focus = Focus::Results;
+    }
+    /// `go_to_path`: the prompt, with bookmarks and zoxide's suggestions.
+    pub(super) fn open_location(&mut self, app: &App) {
+        let bookmarks = app
+            .bookmarks
+            .iter()
+            .map(|b| (b.name.clone(), b.path.clone()))
+            .collect::<Vec<_>>();
+        let frequent = crate::location::zoxide(&app.cwd);
+        // It exists for typing, like the run prompt.
+        self.editor.reset_insert(Field::Location);
+        self.focus = Focus::Location(crate::location::Location::new(
+            &bookmarks, frequent, &app.cwd,
+        ));
+    }
+    /// `show_palettes`: the chooser, on the palette in use.
+    pub(super) fn open_palettes(&mut self, app: &App) {
+        let index = app
+            .palettes
+            .iter()
+            .position(|(name, _)| *name == app.palette_name)
+            .or_else(|| app.palettes.iter().position(|(_, p)| *p == app.palette))
+            .unwrap_or(0);
+        self.focus = Focus::Palettes {
+            query: String::new(),
+            index,
+            original: app.palette,
+        };
+    }
+    /// `clear_query`: the query; pressed again with none, the marks. In fff
+    /// grep, the query being typed into, else the other one.
+    pub(super) fn clear_query(&mut self, app: &mut App) {
+        if let Some(grep) = &app.grep
+            && !grep.text.is_empty()
+            && (grep.editing || app.query.is_empty())
+        {
+            app.set_contents(String::new());
+        } else if !app.query.is_empty() {
+            app.query.clear();
+            app.offset = 0;
+            app.refresh();
+        } else if std::mem::replace(&mut self.escape_armed, true) && !app.marks.is_empty() {
+            let count = app.marks.len();
+            app.marks.clear();
+            app.status = format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
+            app.status_success = app.status.clone();
+            self.escape_armed = false;
+        }
     }
     /// Alt+t: the trash, a folder like any other; again, the next one (each
     /// filesystem has its own).
-    fn open_trash(&mut self, app: &mut App) {
+    pub(super) fn open_trash(&mut self, app: &mut App) {
         let Some(trash) = &app.trash else {
             app.status = "The trash is off ([trash] enabled = false)".into();
             return;
@@ -845,7 +721,7 @@ impl Session {
     }
     /// Enter in the results: what it does depends on the mode (typing or
     /// Normal), the session kind and the highlighted entry.
-    fn results_enter(&mut self, app: &mut App, row: Row) -> Option<Finish> {
+    pub(super) fn results_enter(&mut self, app: &mut App, row: Row) -> Option<Finish> {
         let target = app
             .highlighted_row()
             .filter(|_| !row.unnumbered)
@@ -857,7 +733,7 @@ impl Session {
             return None;
         }
         let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
-        let saving = app.dialog.as_ref().is_some_and(|d| d.save.is_some());
+        let saving = app.program == Program::ExplorerSave;
         // Typing a name to save under: Enter saves it, as in any name field.
         // Ctrl+number and a double click still act on their row.
         if !normal && !row.on_row && saving {
@@ -867,18 +743,18 @@ impl Session {
         // opens and fff leaves; otherwise fff exits into the entry's folder
         // (a directory itself), also for deep results. A dialog chooses files
         // and enters folders instead.
-        if app.dialog.is_none() && normal {
+        if !app.program.dialog() && normal {
             return finish_with(app, &mut self.discovery, target.as_ref());
         }
         match target {
             // fff seek never navigates, so there is nothing to reveal:
             // typing, Enter chooses the file too.
-            Some(file) if !file.directory && app.no_dir && app.dialog.is_none() => {
+            Some(file) if !file.directory && !app.program.navigates() && !app.program.dialog() => {
                 finish_with(app, &mut self.discovery, Some(&file))
             }
             // Typing: a file is revealed in its folder, unless fff is picking
             // paths for a script.
-            Some(file) if !file.directory && !app.output_paths => {
+            Some(file) if !file.directory && !app.program.prints_paths() => {
                 if app.reveal(file.path) {
                     self.discovery.start(app, true);
                 } else {
@@ -914,7 +790,7 @@ impl Session {
     }
 }
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
-fn scroll_preview(app: &mut App, down: bool) {
+pub(super) fn scroll_preview(app: &mut App, down: bool) {
     if !app.preview.shown {
         app.status = match app.bound(Function::TogglePreview) {
             Some(key) => format!("No preview pane to scroll; {key} opens it"),

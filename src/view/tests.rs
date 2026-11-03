@@ -224,7 +224,7 @@ fn tab_click_areas_cover_the_drawn_numbers() {
             .collect();
         assert_eq!(cells, format!(" {} ", index + 1));
     }
-    app.no_dir = true;
+    app.set_program(crate::keymap::Program::Seek);
     terminal
         .draw(|frame| {
             tabs = results_pane(frame, Rect::new(3, 1, 60, 8), &mut app, true).tabs;
@@ -560,9 +560,10 @@ fn relative_labels_compact_parents_without_changing_targets() {
     assert_eq!(bytes, b"/work/papers/file.tex\0");
 }
 #[test]
-fn no_dir_rows_show_names_with_only_the_parents_that_tell_them_apart() {
+fn short_labels_show_names_with_only_the_parents_that_tell_them_apart() {
     let mut app = App::new(vec!["/work".into()], 3, crate::Policy::default());
-    app.no_dir = true;
+    app.set_program(crate::keymap::Program::Seek);
+    app.short_labels = true;
     app.icons = false;
     for (name, depth) in [
         ("folder/folder2/main.pdf", 3),
@@ -1171,7 +1172,7 @@ fn tab_strip_ends_the_results_title_and_marks_the_active_tab() {
         assert_eq!(buffer[(x + dx, y)].bg, theme.current_directory);
     }
     assert_ne!(buffer[(x - 3, y)].bg, theme.current_directory);
-    app.no_dir = true;
+    app.set_program(crate::keymap::Program::Seek);
     let (screen, _) = draw(&mut app, 120, 26);
     assert!(!screen.contains(" 1  2  3 "), "{screen}");
 }

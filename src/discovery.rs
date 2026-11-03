@@ -448,7 +448,7 @@ impl Discovery {
             && self.options.enabled
             && self.options.prefetch
             && app.depth == 1
-            && !app.no_dir
+            && app.program.navigates()
             && !app.scanning;
         // Do not clone roots/rules on every idle tick in recursive views or
         // choosers, where no speculative work can be admitted.

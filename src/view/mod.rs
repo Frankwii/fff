@@ -420,7 +420,7 @@ fn pill(text: impl Into<String>, fg: Color, bg: Color) -> Span<'static> {
 /// top border of `area`: a space, three-column numbers, a space, the corner.
 fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
     let width = 3 * crate::TABS as u16 + 2;
-    if app.no_dir || area.width < width + 2 {
+    if !app.program.navigates() || area.width < width + 2 {
         return Vec::new();
     }
     let start = area.x + area.width - 1 - width + 1;
@@ -433,7 +433,7 @@ fn tab_areas(app: &App, area: Rect) -> Vec<(Rect, usize)> {
 /// in `fff seek`, which cannot change directory.
 fn tab_strip(app: &App) -> Line<'static> {
     let theme = app.palette;
-    if app.no_dir {
+    if !app.program.navigates() {
         return Line::default();
     }
     let active = Style::default()

@@ -84,7 +84,7 @@ pub(super) fn results_pane(
                 "Discovering files…",
                 "You can keep typing while the scan runs.".to_string(),
             )
-        } else if app.no_dir && app.query.is_empty() {
+        } else if !app.program.navigates() && app.query.is_empty() {
             (
                 "No files here",
                 [
@@ -188,7 +188,7 @@ pub(super) fn results_pane(
             } else {
                 String::new()
             };
-            let mut name = if app.no_dir || app.short_labels {
+            let mut name = if app.short_labels {
                 short_label(app, &c.path)
             } else {
                 display_path(&c.path, &app.cwd)

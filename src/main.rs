@@ -444,18 +444,37 @@ fn main() -> ExitCode {
     }
 }
 /// What kind of session a command asks for, from its arguments.
-#[derive(Default)]
 struct Mode {
+    /// The program it starts as; a file dialog's is set once its dialog is
+    /// known, and the session may end as another (`switch_program`).
+    program: keymap::Program,
     roots: Vec<PathBuf>,
     browse: bool,
     resume: bool,
-    window: bool,
-    output_paths: bool,
     relative: bool,
     null: bool,
-    no_dir: bool,
-    grep: bool,
     explorer: Option<ExplorerArgs>,
+}
+impl Default for Mode {
+    fn default() -> Self {
+        Self {
+            program: keymap::Program::Roam,
+            roots: Vec::new(),
+            browse: false,
+            resume: false,
+            relative: false,
+            null: false,
+            explorer: None,
+        }
+    }
+}
+/// The program `fff roam` runs as: with `--window`, a window of its own.
+fn roaming(window: bool) -> keymap::Program {
+    if window {
+        keymap::Program::Window
+    } else {
+        keymap::Program::Roam
+    }
 }
 /// Exits with a usage error (status 2) for arguments that cannot go together.
 fn conflict(message: &str) -> ! {
@@ -489,7 +508,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             roots: roam.roots,
             browse: roam.browse,
             resume: roam.resume,
-            window: roam.window,
+            program: roaming(roam.window),
             ..Mode::default()
         },
         Some(Command::Roam(mut more)) => {
@@ -499,34 +518,33 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
                 roots,
                 browse: roam.browse || more.browse,
                 resume: roam.resume || more.resume,
-                window: roam.window || more.window,
+                program: roaming(roam.window || more.window),
                 ..Mode::default()
             }
         }
         Some(Command::Pick(pick)) => Mode {
             roots: pick.roots,
             browse: pick.browse,
-            output_paths: true,
+            program: keymap::Program::Pick,
             relative: pick.output.relative,
             null: pick.output.null,
             ..Mode::default()
         },
         Some(Command::Seek(seek)) => Mode {
             roots: seek.roots,
-            no_dir: true,
+            program: keymap::Program::Seek,
             ..Mode::default()
         },
         // fff pick with a contents query: it navigates, with tabs, and prints.
         Some(Command::Grep(grep)) => Mode {
             roots: grep.roots,
-            grep: true,
-            output_paths: true,
+            program: keymap::Program::Grep,
             relative: grep.output.relative,
             null: grep.output.null,
             ..Mode::default()
         },
         Some(Command::Explorer(explorer)) => Mode {
-            output_paths: true,
+            program: keymap::Program::ExplorerOpen,
             explorer: Some(explorer),
             ..Mode::default()
         },
@@ -568,27 +586,17 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let state = fuzzy_file_finder::state::path()
         .map(|p| fuzzy_file_finder::state::load(&p))
         .unwrap_or_default();
-    // fff roam sessions are saved for --resume; the other commands never are.
-    let roaming = !mode.output_paths && !mode.no_dir;
+    if let Some(dialog) = &dialog {
+        mode.program = dialog.program();
+    }
     let session = mode
         .resume
         .then(fuzzy_file_finder::state::session_path)
         .flatten()
         .and_then(|p| fuzzy_file_finder::state::load_session(&p));
-    let program = if mode.explorer.is_some() {
-        keymap::Program::ExplorerOpen
-    } else if mode.grep {
-        keymap::Program::Grep
-    } else if mode.no_dir {
-        keymap::Program::Seek
-    } else if mode.output_paths {
-        keymap::Program::Pick
-    } else {
-        keymap::Program::Roam
-    };
     let depth = args
         .depth
-        .map_or(program.default_depth(), |depth| depth as usize);
+        .map_or(mode.program.default_depth(), |depth| depth as usize);
     let mut app = if let Some((start, _)) = &browse_from {
         App::browse(start.clone(), depth, policy)
     } else if roots.is_empty() {
@@ -596,11 +604,14 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     } else {
         App::new(roots, depth, policy)
     };
-    app.records_session = roaming;
+    // fff roam sessions are saved for --resume; the other commands never are.
+    app.records_session = mode.program.records_session();
     app.openers = settings.open.clone();
-    app.output_paths = mode.output_paths;
-    app.dialog = dialog.clone();
-    app.window = mode.window;
+    match &dialog {
+        Some(dialog) => app.open_dialog(dialog.clone()),
+        // Choosing paths shows names; the footer has the highlighted one's path.
+        None => app.set_program(mode.program),
+    }
     app.positions = state.positions;
     // The highlight starts on the first row, unless a remembered one is listed.
     app.highlight_top = true;
@@ -622,10 +633,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             Err(error) => app.keys_broken = Some(error),
         }
     }
-    app.no_dir = mode.no_dir;
-    app.grep = mode.grep.then(fuzzy_file_finder::grep::Grep::new);
-    // Choosing paths shows names; the footer has the highlighted one's path.
-    app.short_labels = mode.no_dir || (mode.output_paths && dialog.is_none());
     app.status_timeout = settings.message_timeout;
     app.columns = settings.columns;
     app.mouse = settings.mouse;
@@ -677,9 +684,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let (finish, program) = ui::run(app, settings.cache, watcher, settings.performance)?;
     // A session switched to another program leaves as that one does: fff
     // pick and grep print paths, roam and seek change directory.
-    if dialog.is_none() {
-        mode.output_paths = matches!(program, keymap::Program::Pick | keymap::Program::Grep);
-    }
+    mode.program = program;
     report(finish, &mode, dialog, args.cd_file.as_deref(), &invocation)
 }
 /// --browse and fff explorer: the folder to start in and the file to
@@ -749,7 +754,7 @@ fn report(
     // confirmed entry (a directory itself for directories).
     let change_to = |target: Option<&PathBuf>| -> io::Result<()> {
         // A window of its own has no shell to change.
-        let Some(target) = target.filter(|_| !mode.window) else {
+        let Some(target) = target.filter(|_| mode.program != keymap::Program::Window) else {
             return Ok(());
         };
         let dir = if target.is_dir() {
@@ -788,7 +793,7 @@ fn report(
     }
     match finish {
         ui::Finish::Cancelled => Ok(false),
-        ui::Finish::Paths(paths) if mode.output_paths => {
+        ui::Finish::Paths(paths) if mode.program.prints_paths() => {
             write_paths(
                 io::stdout().lock(),
                 &paths,
@@ -798,7 +803,7 @@ fn report(
             )?;
             Ok(true)
         }
-        ui::Finish::Folder(folder) if mode.output_paths => {
+        ui::Finish::Folder(folder) if mode.program.prints_paths() => {
             write_paths(
                 io::stdout().lock(),
                 &[folder],
@@ -818,12 +823,12 @@ fn report(
         }
         ui::Finish::Exec(plan) => {
             // The wrapper changes to the browsing directory once the program ends.
-            if !mode.output_paths {
+            if !mode.program.prints_paths() {
                 change_to(Some(&plan.cwd))?;
             }
             let error = plan.exec();
             // It never started, so the shell stays where it was.
-            if let Some(file) = cd_file.filter(|_| !mode.output_paths) {
+            if let Some(file) = cd_file.filter(|_| !mode.program.prints_paths()) {
                 let _ = std::fs::write(file, b"");
             }
             Err(format!("Could not run {}: {error}", plan.name).into())

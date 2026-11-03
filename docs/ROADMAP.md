@@ -4,15 +4,6 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content search beyond `fff grep` (below).
-- A refactor that prunes the code now that the programs share one
-  interface. Roam, pick, seek, explorer and grep grew as separate modes
-  with flags (`no_dir`, `output_paths`, `dialog`, `window`, `grep`) checked
-  across the code; with `switch_program` and the keymap's programs they are
-  one session in different programs. Their differences would live in one
-  place (what Enter finishes with, what is listed, what is printed), the
-  focus handlers' default keys that functions still run through
-  (`Exec::Key`) would become the functions' own code, and code that no path
-  reaches any more would go.
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
   them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other

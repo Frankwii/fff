@@ -945,7 +945,7 @@ pub(super) fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
 }
 pub(super) fn program_choice(frame: &mut Frame, main: Rect, app: &App) {
     use crate::keymap::{Dimension, Program};
-    let current = app.program();
+    let current = app.program;
     let others: Vec<_> = Program::SWITCHABLE
         .iter()
         .filter(|(p, _)| *p != current)

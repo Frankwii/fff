@@ -70,7 +70,7 @@ impl Session {
         // browsing (Normal mode), existing paths are copied here after
         // confirmation; while typing, a paste is only text.
         if matches!(self.focus, Focus::Results)
-            && !app.no_dir
+            && app.program.navigates()
             && app.edit_view.as_ref().is_some_and(|v| v.normal())
             && let Some(paths) = dropped_paths(text, app.home.as_deref())
         {
@@ -133,7 +133,7 @@ impl Session {
                 key: enter,
                 on_row: false,
             },
-            ListMouse::Open(_) if app.dialog.is_some() => Click::Key {
+            ListMouse::Open(_) if app.program.dialog() => Click::Key {
                 key: enter,
                 on_row: false,
             },
@@ -281,7 +281,7 @@ impl Session {
                     None => keymap::Highlight::None,
                 };
                 let cell = keymap::Cell {
-                    program: app.program(),
+                    program: app.program,
                     place: keymap::Place::Marks,
                     highlight,
                 };
@@ -290,22 +290,96 @@ impl Session {
             _ => (app.mode(), app.cell()),
         }
     }
+    /// What `function` does, from a key, `:` or the Keys screen: the
+    /// results' and the marked list's functions each run their own code
+    /// here, where the scopes in `keymap` let them.
     fn run_function(
         &mut self,
         app: &mut App,
         function: Function,
         digit: Option<u8>,
     ) -> io::Result<Option<Finish>> {
-        use keymap::Exec;
-        match function.exec() {
-            Exec::Key(key) => return self.act(app, key, false),
-            Exec::Digit(modifiers) => {
-                let digit = (b'0' + digit.unwrap_or(0)) as char;
-                return self.act(app, KeyEvent::new(K::Char(digit), modifiers), false);
+        use Function::*;
+        let page = self.drawn.page;
+        match function {
+            HighlightPrevious | HighlightNext => {
+                let forward = function == HighlightNext;
+                match &mut self.focus {
+                    Focus::Marks { rows, index } => *index = cycle(*index, rows.len(), forward),
+                    _ => app.step(forward),
+                }
             }
-            Exec::Operation(letter) => self.operation(app, letter)?,
-            Exec::Quit(current) => return Ok(self.quit(app, current)),
-            Exec::Run(exit) => {
+            HighlightPreviousPage => {
+                app.move_by(-(page as isize));
+                app.offset = app.offset.saturating_sub(page);
+            }
+            HighlightNextPage => {
+                app.move_by(page as isize);
+                app.offset = app
+                    .offset
+                    .saturating_add(page)
+                    .min(app.shown().len().saturating_sub(page));
+            }
+            HighlightFirst | HighlightLast => {
+                jump_to_end(app, &mut self.focus, function == HighlightLast)
+            }
+            GoToParent => {
+                if app.can_navigate()
+                    && let Some(parent) = app.cwd.parent().map(PathBuf::from)
+                {
+                    self.discovery.checkpoint(app);
+                    app.navigate(parent, true);
+                    self.discovery.start(app, true);
+                }
+            }
+            GoToHighlighted => self.go_into_folder(app),
+            GoToPath => {
+                if app.can_navigate() {
+                    self.open_location(app);
+                }
+            }
+            GoToTrash => {
+                if app.can_navigate() {
+                    self.open_trash(app);
+                }
+            }
+            GoBack | GoForward => {
+                if !app.can_navigate() {
+                } else if app.jump(function == GoBack) {
+                    self.discovery.start(app, true);
+                } else {
+                    app.status = if function == GoBack {
+                        "No earlier directory to go back to"
+                    } else {
+                        "No later directory to go forward to"
+                    }
+                    .into();
+                }
+            }
+            // Tabs keep their own directory and history; marks are shared.
+            GoToNextTab | GoToPreviousTab => {
+                if app.can_navigate() && app.switch_tab(function == GoToNextTab) {
+                    self.discovery.start(app, true);
+                }
+            }
+            OpenInBackground => {
+                self.discovery.checkpoint(app);
+                activate_highlighted(app, &mut self.discovery);
+            }
+            OpenRow => self.open_numbered(app, u32::from(digit.unwrap_or(0))),
+            ConfirmRow => return Ok(self.confirm_row(app, u32::from(digit.unwrap_or(0)))),
+            // Enter's meanings: where each applies, the program, the place
+            // and the highlighted entry say which one it is.
+            SaveOver
+            | PrintHighlighted
+            | PrintHighlightedAndMarks
+            | QuitIntoHighlighted
+            | OpenAndQuit => return Ok(self.confirm(app, Row::default())),
+            SaveHere => return Ok(save_here(app, &mut self.focus)),
+            OpenInTerminal | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
+            | Rename | Extract | Create | Undo | Restore => self.operation(app, function)?,
+            Run | RunAndQuit => {
+                let exit = function == RunAndQuit;
                 self.focus = match scope(&app.marks, self.current(app)) {
                     Scope::Ready(paths) => start_run(&mut self.editor, paths, exit),
                     Scope::Ask(current, selected) => Focus::ScopeChoice {
@@ -317,8 +391,93 @@ impl Session {
                     Scope::Nothing => start_run(&mut self.editor, vec![], exit),
                 };
             }
-            Exec::EditConfig => self.edit_config(app)?,
-            Exec::WrapPreview => {
+            ToggleMark => match &self.focus {
+                Focus::Marks { rows, index } => {
+                    if let Some(path) = rows.get(*index) {
+                        app.toggle(path.clone());
+                    }
+                }
+                _ => {
+                    if let Some(path) = app.highlight.clone() {
+                        app.toggle(path);
+                        app.move_by(1);
+                    }
+                }
+            },
+            MarkAll | InvertMarks => {
+                let rows: Vec<PathBuf> = match &self.focus {
+                    Focus::Marks { rows, .. } => rows.clone(),
+                    _ => app.shown_paths(),
+                };
+                app.mark_rows(&rows, function == InvertMarks);
+            }
+            ToggleMarkedList => {
+                self.focus = match self.focus {
+                    Focus::Marks { .. } => Focus::Results,
+                    _ => Focus::Marks {
+                        rows: app.marks.to_vec(),
+                        index: 0,
+                    },
+                }
+            }
+            PrintMarks => return Ok(leave_with_marks(app)),
+            ClearQuery => self.clear_query(app),
+            SwitchQuery => {
+                if let Some(grep) = &mut app.grep {
+                    grep.editing = !grep.editing;
+                }
+            }
+            SearchShallower | SearchDeeper => {
+                app.depth = if function == SearchDeeper {
+                    app.depth.saturating_add(1)
+                } else {
+                    app.depth.saturating_sub(1).max(1)
+                };
+                self.discovery.start(app, false);
+            }
+            SearchToDepth => {
+                let depth = digit.unwrap_or(1) as usize;
+                if app.depth != depth {
+                    app.depth = depth;
+                    self.discovery.start(app, false);
+                }
+            }
+            ToggleHidden => {
+                app.policy.hidden = !app.policy.hidden;
+                self.discovery.start(app, false);
+            }
+            ToggleDirectories | ToggleFiles => {
+                let only = if function == ToggleDirectories {
+                    crate::Kinds::Files
+                } else {
+                    crate::Kinds::Directories
+                };
+                app.kinds = app.kinds.toggled(only);
+                app.offset = 0;
+                app.refresh();
+            }
+            EditExclusions => self.focus = Focus::Exclusions(app.policy.rules.join("\n")),
+            ToggleExclusions => {
+                app.policy.ignore = !app.policy.ignore;
+                self.discovery.start(app, false);
+            }
+            EditFilters => self.focus = Focus::Filters(app.policy.filters.join("\n")),
+            // Filters only choose among discovered files: no rescan.
+            ToggleFilters => {
+                if app.policy.filters.is_empty() {
+                    app.status = match app.bound(Function::EditFilters) {
+                        Some(key) => format!("No file filters to turn on; {key} adds some"),
+                        None => "No file filters to turn on".into(),
+                    };
+                } else {
+                    app.policy.filters_off = !app.policy.filters_off;
+                    app.offset = 0;
+                    app.refresh();
+                }
+            }
+            Rescan => self.discovery.force_refresh(app),
+            TogglePreview => app.preview.shown = !app.preview.shown,
+            TogglePreviewWrap => {
                 app.preview.wrap = !app.preview.wrap;
                 app.status = if app.preview.wrap {
                     "The preview wraps long lines".into()
@@ -326,47 +485,28 @@ impl Session {
                     "The preview cuts long lines".into()
                 };
             }
-            Exec::Depth => {
-                let depth = digit.unwrap_or(1) as usize;
-                if app.depth != depth {
-                    app.depth = depth;
-                    self.discovery.start(app, false);
-                }
+            ScrollPreviewDown | ScrollPreviewUp => {
+                scroll_preview(app, function == ScrollPreviewDown)
             }
-            Exec::MarkRows(invert) => {
-                let rows: Vec<PathBuf> = match &self.focus {
-                    Focus::Marks { rows, .. } => rows.clone(),
-                    _ => app.shown_paths(),
-                };
-                app.mark_rows(&rows, invert);
-            }
-            Exec::JumpEnd(last) => jump_to_end(app, &mut self.focus, last),
-            Exec::Overlay(true) => {
+            ShowPalettes => self.open_palettes(app),
+            ReloadPalette => reload_palette(app, &self.palettes),
+            ShowKeys => {
                 let (_, here) = self.here(app);
                 self.open_keys(here);
             }
-            Exec::Overlay(false) => self.focus = Focus::Info { offset: 0 },
-            Exec::GoIntoFolder => {
-                if let Some(path) = self.current(app) {
-                    self.discovery.checkpoint(app);
-                    if path.is_dir() {
-                        if app.ready_path(&path) && app.can_navigate() {
-                            // Arriving, the cursor left there comes back.
-                            app.navigate(path, false);
-                            self.discovery.start(app, true);
-                        }
-                    } else if app.reveal(path) {
-                        self.discovery.start(app, true);
-                    } else {
-                        // The query was cleared here, not by moving: keep
-                        // its mode, as after a move.
-                        self.editor.reset_preserving_mode(Field::Query);
+            ShowSession => self.focus = Focus::Info { offset: 0 },
+            ShowBookmarks => {
+                if app.can_navigate() {
+                    self.focus = Focus::Bookmarks {
+                        query: String::new(),
+                        index: 0,
                     }
-                    self.focus = Focus::Results;
                 }
             }
-            Exec::SwitchProgram => self.focus = Focus::ProgramChoice,
-            Exec::Cancel => return Ok(Some(Finish::Cancelled)),
+            EditConfig => self.edit_config(app)?,
+            SwitchProgram => self.focus = Focus::ProgramChoice,
+            Quit | QuitHere => return Ok(self.quit(app, function == QuitHere)),
+            Cancel => return Ok(Some(Finish::Cancelled)),
         }
         Ok(None)
     }
@@ -466,7 +606,7 @@ impl Session {
                     format!(
                         "{name} ({}) does not work in fff {}",
                         function.name(),
-                        program_title(cell.program)
+                        cell.program.title()
                     )
                 };
                 return;
@@ -485,16 +625,10 @@ impl Session {
         }
         deliver(app, &mut self.focus, &mut self.editor, key);
     }
-    /// A key as the focus's handlers take it: the default key of a function
-    /// that resolved, a fixed key, or the mouse's. `on_row`: Enter on a
-    /// row pointed at (a double click, Ctrl+number), rather than the Enter
-    /// key itself.
-    fn act(
-        &mut self,
-        app: &mut App,
-        key: KeyEvent,
-        mut on_row: bool,
-    ) -> io::Result<Option<Finish>> {
+    /// A key as the focus's handlers take it: a fixed key, or the mouse's.
+    /// `on_row`: Enter on a row pointed at (a double click), rather than the
+    /// Enter key itself.
+    fn act(&mut self, app: &mut App, key: KeyEvent, on_row: bool) -> io::Result<Option<Finish>> {
         let capture = app.edit_view.as_ref().is_some_and(|v| {
             (key.code == K::Esc && !v.normal())
                 || (v.command() && !key.modifiers.intersects(M::ALT | M::CONTROL))
@@ -503,72 +637,44 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
             return Ok(None);
         }
-        // Ctrl+number: Enter on that row, as if it were highlighted first
-        // (with no visible rows, Enter with nothing highlighted).
-        let mut unnumbered = false;
-        let key = if matches!(self.focus, Focus::Results)
-            && let Some(digit) = numbered_key(key)
-        {
-            if !app.rendered.is_empty() {
-                app.highlight_numbered(digit);
-                app.highlight_top = false;
-                app.wanted = None;
-                on_row = true;
-            } else if app.no_dir {
-                // Static (fff seek) sessions never fall back to the current
-                // directory.
-                app.nothing_to_enter();
-                return Ok(None);
-            } else {
-                unnumbered = true;
-            }
-            KeyEvent::new(K::Enter, M::NONE)
-        } else {
-            key
-        };
         let alt = key.modifiers.contains(M::ALT);
-        if let Some(digit) = alt_numbered_key(key) {
-            match self.focus {
-                Focus::Results => {
-                    self.open_numbered(app, digit);
-                    return Ok(None);
-                }
-                Focus::Bookmarks { .. } => {
-                    self.open_numbered_bookmark(app, digit);
-                    return Ok(None);
-                }
-                _ => {}
+        if matches!(self.focus, Focus::Bookmarks { .. }) {
+            if let Some(digit) = alt_numbered_key(key) {
+                self.open_numbered_bookmark(app, digit);
+                return Ok(None);
             }
-        }
-        if matches!(self.focus, Focus::Bookmarks { .. }) && self.bookmark_command(app, key, alt) {
-            return Ok(None);
+            if self.bookmark_command(app, key, alt) {
+                return Ok(None);
+            }
         }
         let navigation =
             key.code == K::Enter || (alt && matches!(key.code, K::Char('h' | 'l' | '0'..='9')));
-        if navigation
-            && matches!(
-                self.focus,
-                Focus::Results | Focus::Bookmarks { .. } | Focus::Location(_)
-            )
-        {
+        if navigation && matches!(self.focus, Focus::Bookmarks { .. } | Focus::Location(_)) {
             self.discovery.checkpoint(app);
         }
-        self.focus_key(app, key, Row { on_row, unnumbered })
+        self.focus_key(
+            app,
+            key,
+            Row {
+                on_row,
+                unnumbered: false,
+            },
+        )
     }
     /// q, Q and ! in Normal mode; `current` leaves in the browsing directory.
     pub(super) fn quit(&mut self, app: &mut App, current: bool) -> Option<Finish> {
-        if app.dialog.is_some() && !current {
+        if app.program.dialog() && !current {
             return Some(Finish::Cancelled);
         }
-        if app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
+        if app.program == Program::ExplorerSave {
             return save_here(app, &mut self.focus);
         }
         // fff seek, and q in fff pick, leave without choosing anything.
-        if app.no_dir || (app.output_paths && !current) {
+        if !app.program.navigates() || (app.program.prints_paths() && !current) {
             return Some(Finish::Paths(Vec::new()));
         }
         // With a window of its own, ! leaves into a shell there.
-        if app.window && current {
+        if app.program == Program::Window && current {
             return match crate::run::shell_plan(&app.cwd) {
                 Ok(plan) => Some(Finish::Exec(plan)),
                 Err(error) => {
@@ -583,21 +689,21 @@ impl Session {
             self.invocation.clone()
         }]))
     }
-    /// A file operation's default letter, from Normal mode in the results or
-    /// the marked list.
-    fn operation(&mut self, app: &mut App, letter: char) -> io::Result<()> {
+    /// A file operation, from Normal mode in the results or the marked list.
+    fn operation(&mut self, app: &mut App, function: Function) -> io::Result<()> {
+        use Function::*;
         let current = self.current(app);
-        match letter {
-            'v' | 'p' | 's' => {
+        match function {
+            MoveMarked | CopyMarked | LinkMarked => {
                 let sources = app.marks.to_vec();
                 if sources.is_empty() {
                     app.status = "No files selected".into();
                 } else {
                     use crate::operations::Transfer;
                     // v/p/s are common Vim keys: every transfer is confirmed.
-                    let kind = match letter {
-                        'v' => Transfer::Move,
-                        'p' => Transfer::Copy,
+                    let kind = match function {
+                        MoveMarked => Transfer::Move,
+                        CopyMarked => Transfer::Copy,
                         _ => Transfer::Link,
                     };
                     transfer(
@@ -610,26 +716,26 @@ impl Session {
                     );
                 }
             }
-            'x' | 'X' => match scope(&app.marks, current) {
+            Trash | Delete => match scope(&app.marks, current) {
                 Scope::Ready(paths) => delete(
                     app,
                     &mut self.discovery,
                     &mut self.focus,
                     paths,
-                    letter == 'X',
+                    function == Delete,
                 ),
                 Scope::Ask(current, selected) => {
                     self.focus = Focus::ScopeChoice {
                         current,
                         selected,
-                        action: ScopedAction::Delete(letter == 'X'),
+                        action: ScopedAction::Delete(function == Delete),
                     }
                 }
                 Scope::Nothing => app.status = "Nothing to delete".into(),
             },
-            'u' => undo(app, &mut self.discovery, &mut self.focus),
+            Undo => undo(app, &mut self.discovery, &mut self.focus),
             // Only in the trash: elsewhere, nothing has a place to go back to.
-            'R' if !app.in_trash() => {
+            Restore if !app.in_trash() => {
                 let restore = app.bound_or_none(Function::Restore);
                 app.status = match app.bound(Function::GoToTrash) {
                     Some(trash) => {
@@ -638,7 +744,7 @@ impl Session {
                     None => format!("{restore} restores entries in the trash"),
                 };
             }
-            'R' => match scope(&app.marks, current) {
+            Restore => match scope(&app.marks, current) {
                 Scope::Ready(paths) => restore(app, &mut self.discovery, &mut self.focus, paths),
                 Scope::Ask(current, selected) => {
                     self.focus = Focus::ScopeChoice {
@@ -649,9 +755,9 @@ impl Session {
                 }
                 Scope::Nothing => app.status = "Nothing to restore".into(),
             },
-            'n' => self.focus = Focus::NewChoice,
+            Create => self.focus = Focus::NewChoice,
             // $EDITOR on the current or marked paths: no review, it only edits.
-            'E' => match scope(&app.marks, current) {
+            EditFiles => match scope(&app.marks, current) {
                 Scope::Ask(current, selected) => {
                     self.focus = Focus::ScopeChoice {
                         current,
@@ -663,7 +769,7 @@ impl Session {
                 Scope::Nothing => app.status = "Nothing to edit".into(),
             },
             // The opener takes over this terminal until it ends.
-            'o' => match scope(&app.marks, current) {
+            OpenInTerminal => match scope(&app.marks, current) {
                 Scope::Ask(current, selected) => {
                     self.focus = Focus::ScopeChoice {
                         current,
@@ -674,7 +780,7 @@ impl Session {
                 Scope::Ready(paths) => self.open_here(app, paths)?,
                 Scope::Nothing => app.status = "Nothing to open".into(),
             },
-            'r' => {
+            Rename => {
                 let sources = app.shown_paths();
                 if sources.is_empty() {
                     app.status = "No files to rename".into();
@@ -697,7 +803,7 @@ impl Session {
                     }
                 }
             }
-            'e' => match scope(&app.marks, current) {
+            Extract => match scope(&app.marks, current) {
                 Scope::Ready(paths) => self.focus = start_extract(app, &mut self.editor, paths),
                 Scope::Ask(current, selected) => {
                     self.focus = Focus::ScopeChoice {
@@ -872,19 +978,4 @@ pub(super) fn cancels(app: &App, key: KeyEvent) -> bool {
     keymap::Mode::ALL
         .into_iter()
         .any(|mode| app.keymap.cancels(mode, key))
-}
-/// `fff roam`, `fff explorer --save`: the program as its command says it.
-pub(super) fn program_title(program: keymap::Program) -> &'static str {
-    use keymap::Program::*;
-    match program {
-        Roam => "roam",
-        Window => "roam --window",
-        Pick => "pick",
-        Seek => "seek",
-        Grep => "grep",
-        ExplorerOpen => "explorer",
-        ExplorerMultiple => "explorer --multiple",
-        ExplorerFolder => "explorer --directory",
-        ExplorerSave => "explorer --save",
-    }
 }

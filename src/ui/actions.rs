@@ -132,37 +132,34 @@ pub(super) fn finish_with(
     discovery: &mut Discovery,
     target: Option<&crate::Candidate>,
 ) -> Option<Finish> {
-    match target {
-        Some(entry) if !app.ready_path(&entry.path) => None,
-        Some(dir) if app.window && dir.directory => {
+    use Program::*;
+    match (target, app.program) {
+        (Some(entry), _) if !app.ready_path(&entry.path) => None,
+        (Some(dir), Window) if dir.directory => {
             if app.enter(Some(crate::Candidate::clone(dir))) == EnterOutcome::Navigated {
                 discovery.start(app, true);
             }
             None
         }
-        None if app.window || app.no_dir => {
+        (None, Window | Seek) => {
             app.nothing_to_enter();
             None
         }
-        Some(file) if !file.directory => {
-            if app.output_paths {
-                return Some(Finish::Paths(vec![file.path.clone()]));
-            }
-            if !app.no_dir {
-                return match open_and_leave(app, std::slice::from_ref(&file.path)) {
-                    Ok(finish) => Some(finish),
-                    Err(error) => {
-                        app.status = error;
-                        None
-                    }
-                };
-            }
-            Some(Finish::Folder(
+        (Some(file), program) if !file.directory => match program {
+            Roam | Window => match open_and_leave(app, std::slice::from_ref(&file.path)) {
+                Ok(finish) => Some(finish),
+                Err(error) => {
+                    app.status = error;
+                    None
+                }
+            },
+            Seek => Some(Finish::Folder(
                 file.path.parent().unwrap_or(&app.cwd).to_owned(),
-            ))
-        }
-        Some(dir) => Some(Finish::Folder(dir.path.clone())),
-        None => Some(Finish::Folder(app.cwd.clone())),
+            )),
+            _ => Some(Finish::Paths(vec![file.path.clone()])),
+        },
+        (Some(dir), _) => Some(Finish::Folder(dir.path.clone())),
+        (None, _) => Some(Finish::Folder(app.cwd.clone())),
     }
 }
 /// Select returns the marks, like Ctrl+w, when there are some to return.

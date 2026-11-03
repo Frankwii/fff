@@ -79,6 +79,60 @@ impl Program {
             | Self::ExplorerSave => 1,
         }
     }
+    /// The current directory can change and folders are listed: all but
+    /// `fff seek`, a static choice among the files below its roots.
+    pub fn navigates(self) -> bool {
+        self != Self::Seek
+    }
+    /// It answers with paths: chosen files, or the folder it leaves in
+    /// (`fff pick` and `fff grep`, file dialogs). Roam and seek change the
+    /// shell's directory instead, and a window of its own answers nothing.
+    pub fn prints_paths(self) -> bool {
+        matches!(self, Self::Pick | Self::Grep) || self.dialog()
+    }
+    /// A file dialog (`fff explorer`), answering the program that asked.
+    pub fn dialog(self) -> bool {
+        matches!(
+            self,
+            Self::ExplorerOpen | Self::ExplorerMultiple | Self::ExplorerFolder | Self::ExplorerSave
+        )
+    }
+    /// It starts ready to type: a choice of files, or a save dialog's name.
+    pub fn starts_typing(self) -> bool {
+        matches!(
+            self,
+            Self::Pick | Self::Seek | Self::Grep | Self::ExplorerSave
+        )
+    }
+    /// It chooses files from deep below, so the best match comes first
+    /// whatever its depth.
+    pub fn by_score(self) -> bool {
+        matches!(self, Self::Pick | Self::Seek | Self::Grep)
+    }
+    /// Flat lists start labelled by name, with only the parents that tell
+    /// same-named entries apart; elsewhere by their path below the folder
+    /// searched (`toggle_labels` switches).
+    pub fn short_labels(self) -> bool {
+        matches!(self, Self::Pick | Self::Grep)
+    }
+    /// Its sessions are saved for `--resume`.
+    pub fn records_session(self) -> bool {
+        matches!(self, Self::Roam | Self::Window)
+    }
+    /// The program as its command line says it: `roam`, `explorer --save`.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Roam => "roam",
+            Self::Window => "roam --window",
+            Self::Pick => "pick",
+            Self::Seek => "seek",
+            Self::Grep => "grep",
+            Self::ExplorerOpen => "explorer",
+            Self::ExplorerMultiple => "explorer --multiple",
+            Self::ExplorerFolder => "explorer --directory",
+            Self::ExplorerSave => "explorer --save",
+        }
+    }
 }
 /// The list a key acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -577,37 +631,6 @@ pub fn named(name: &str) -> String {
     parse(&format!("<{modifiers}{rest}>")).map_or_else(|_| name.to_string(), |keys| display(&keys))
 }
 
-/// What a function does when its key is pressed: the default key the
-/// view's own handlers take, or an action of the session's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Exec {
-    Key(KeyEvent),
-    /// The pressed digit with these modifiers.
-    Digit(M),
-    /// A file operation, by its default letter.
-    Operation(char),
-    /// `true` leaves into the current folder.
-    Quit(bool),
-    /// `true` replaces fff with the program.
-    Run(bool),
-    EditConfig,
-    /// Search to the pressed digit's depth.
-    Depth,
-    /// Mark every listed row; `true` inverts their marks.
-    MarkRows(bool),
-    /// The F1/F2 overlay: the Keys screen, or with `false` the Session tab.
-    Overlay(bool),
-    /// The highlighted directory, or the highlighted file's folder.
-    GoIntoFolder,
-    /// The first row, or the last with `true`.
-    JumpEnd(bool),
-    /// Wrap the preview's long lines, or cut them.
-    WrapPreview,
-    /// Choose another program to go on as.
-    SwitchProgram,
-    Cancel,
-}
-
 /// Groups for the Keys screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
@@ -764,14 +787,6 @@ const NAVIGATE: [Program; 8] = [
 fn scope(programs: &[Program], places: &[Place], highlights: &[Highlight]) -> Scope {
     Scope::of(programs, places, highlights)
 }
-fn key(code: KeyCode, modifiers: M) -> Exec {
-    Exec::Key(KeyEvent::new(code, modifiers))
-}
-fn alt(c: char) -> Exec {
-    let shift = if c.is_uppercase() { M::SHIFT } else { M::NONE };
-    key(KeyCode::Char(c), M::ALT | shift)
-}
-
 impl Function {
     /// Where it works in `mode`, as boxes; none where it does not. This is
     /// a design choice, not configuration.
@@ -866,82 +881,6 @@ impl Function {
     /// Whether it works in `cell` in `mode`.
     pub fn works(self, mode: Mode, cell: Cell) -> bool {
         self.available(mode).iter().any(|s| s.contains(cell))
-    }
-    /// What pressing its key does.
-    pub fn exec(self) -> Exec {
-        use Function::*;
-        use KeyCode as K;
-        match self {
-            HighlightPrevious => key(K::Up, M::NONE),
-            HighlightNext => key(K::Down, M::NONE),
-            HighlightPreviousPage => key(K::PageUp, M::NONE),
-            HighlightNextPage => key(K::PageDown, M::NONE),
-            HighlightFirst => Exec::JumpEnd(false),
-            HighlightLast => Exec::JumpEnd(true),
-            GoToParent => alt('h'),
-            OpenInBackground => alt('l'),
-            GoToHighlighted => Exec::GoIntoFolder,
-            GoToPath => alt('g'),
-            ShowBookmarks => alt('b'),
-            GoToTrash => alt('t'),
-            GoBack => key(K::Char('o'), M::CONTROL),
-            GoForward => key(K::Char('i'), M::CONTROL),
-            GoToNextTab => key(K::Up, M::ALT),
-            GoToPreviousTab => key(K::Down, M::ALT),
-            SaveHere => key(K::Char('s'), M::CONTROL),
-            SaveOver
-            | PrintHighlighted
-            | PrintHighlightedAndMarks
-            | QuitIntoHighlighted
-            | OpenAndQuit => key(K::Enter, M::NONE),
-            OpenInTerminal => Exec::Operation('o'),
-            OpenRow => Exec::Digit(M::ALT),
-            ConfirmRow => Exec::Digit(M::CONTROL),
-            Run => Exec::Run(false),
-            RunAndQuit => Exec::Run(true),
-            EditFiles => Exec::Operation('E'),
-            ToggleMark => key(K::Char(' '), M::SHIFT),
-            MarkAll => Exec::MarkRows(false),
-            InvertMarks => Exec::MarkRows(true),
-            ToggleMarkedList => key(K::Char(' '), M::ALT),
-            PrintMarks => key(K::Char('w'), M::CONTROL),
-            ClearQuery => key(K::Esc, M::NONE),
-            SwitchQuery => alt('/'),
-            SearchShallower => key(K::Left, M::ALT),
-            SearchDeeper => key(K::Right, M::ALT),
-            SearchToDepth => Exec::Depth,
-            ToggleHidden => alt('.'),
-            ToggleDirectories => alt('d'),
-            ToggleFiles => alt('D'),
-            TogglePreview => alt('v'),
-            TogglePreviewWrap => Exec::WrapPreview,
-            ScrollPreviewDown => key(K::Char('j'), M::CONTROL),
-            ScrollPreviewUp => key(K::Char('k'), M::CONTROL),
-            EditExclusions => alt('e'),
-            ToggleExclusions => alt('H'),
-            EditFilters => alt('f'),
-            ToggleFilters => alt('F'),
-            Rescan => key(K::F(5), M::NONE),
-            MoveMarked => Exec::Operation('v'),
-            CopyMarked => Exec::Operation('p'),
-            LinkMarked => Exec::Operation('s'),
-            Trash => Exec::Operation('x'),
-            Delete => Exec::Operation('X'),
-            Rename => Exec::Operation('r'),
-            Extract => Exec::Operation('e'),
-            Create => Exec::Operation('n'),
-            Undo => Exec::Operation('u'),
-            Restore => Exec::Operation('R'),
-            Quit => Exec::Quit(false),
-            QuitHere => Exec::Quit(true),
-            Cancel => Exec::Cancel,
-            ShowKeys => Exec::Overlay(true),
-            ShowSession => Exec::Overlay(false),
-            ShowPalettes => alt('p'),
-            ReloadPalette => alt('P'),
-            EditConfig => Exec::EditConfig,
-            SwitchProgram => Exec::SwitchProgram,
-        }
     }
     pub fn named(name: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|f| f.name() == name)

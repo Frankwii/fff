@@ -473,7 +473,7 @@ fn buttons_do_what_their_keys_do() {
     ));
     assert_eq!(app.marks, [root.join("file")]);
     // With marks, Select returns them like Ctrl+w when picking paths.
-    app.output_paths = true;
+    app.set_program(Program::Pick);
     app.highlight = Some(root.join("dir"));
     assert!(matches!(
         press(&mut app, &mut discovery, Button::Select),
@@ -487,7 +487,7 @@ fn buttons_do_what_their_keys_do() {
     ));
     // In a file dialog Select is Enter on the row, so saving over a file
     // asks first and a folder is entered; marks to return are returned.
-    app.dialog = Some(crate::explorer::Dialog {
+    app.open_dialog(crate::explorer::Dialog {
         multiple: true,
         directory: false,
         save: None,
@@ -498,6 +498,7 @@ fn buttons_do_what_their_keys_do() {
     assert_eq!(Button::Select.key(&app), None);
     app.marks.clear();
     app.dialog = None;
+    app.set_program(Program::Pick);
     assert_eq!(Button::Select.key(&app), None);
     assert!(matches!(
         press(&mut app, &mut discovery, Button::Cancel),
@@ -515,16 +516,14 @@ fn buttons_do_what_their_keys_do() {
     press(&mut app, &mut discovery, Button::Back);
     assert_eq!(app.cwd, root.join("dir"));
     // With a window of its own, Select enters a directory and stays.
-    app.window = true;
-    app.output_paths = false;
+    app.set_program(Program::Window);
     app.refresh();
     app.highlight = Some(root.join("dir"));
     assert!(press(&mut app, &mut discovery, Button::Select).is_none());
     assert_eq!(app.cwd, root.join("dir"));
     app.navigate(root.clone(), false);
-    app.window = false;
     // fff seek cannot change directory.
-    app.no_dir = true;
+    app.set_program(Program::Seek);
     assert!(!Button::Up.available(&app) && !Button::Back.available(&app));
     std::fs::remove_dir_all(&root).unwrap();
 }
@@ -676,9 +675,9 @@ fn normal_enter_on_a_cached_entry_that_is_gone_stays() {
         depth: 1,
         root: 0,
     };
-    for output_paths in [true, false] {
+    for program in [Program::Pick, Program::Roam] {
         let mut app = App::browse(root.clone(), 1, crate::Policy::default());
-        app.output_paths = output_paths;
+        app.set_program(program);
         // Rows replayed from the cache, not yet confirmed by a scan.
         app.cache_pending = true;
         for directory in [false, true] {
@@ -688,7 +687,7 @@ fn normal_enter_on_a_cached_entry_that_is_gone_stays() {
     }
     // fff seek never leaves into its folder for want of a row.
     let mut app = App::browse(root.clone(), 1, crate::Policy::default());
-    app.no_dir = true;
+    app.set_program(Program::Seek);
     app.scanning = false;
     assert!(finish_with(&mut app, &mut discovery, None).is_none());
     assert_eq!(app.status, "Nothing listed here");

@@ -3,7 +3,7 @@ use crate::{
     bookmarks::{Change as BookmarkChange, Draft as BookmarkDraft, EditField as BookmarkField},
     discovery::Discovery,
     editor::{Field, Nvim},
-    keymap::{self, Function, Step},
+    keymap::{self, Function, Program, Step},
 };
 use crossterm::{
     cursor::{Hide, SetCursorStyle, Show},
@@ -35,9 +35,9 @@ mod screen;
 mod tests;
 pub use actions::ScopedAction;
 use actions::*;
-use focus::Row;
+use focus::{Row, scroll_preview};
 use input::*;
-pub use input::{StatusTimer, alt_numbered_key, numbered_key, start_editor};
+pub use input::{StatusTimer, alt_numbered_key, start_editor};
 pub(crate) use jobs::Job;
 use jobs::*;
 pub(crate) use keys::{EditStep, Editor, KeysScreen, Listed};
@@ -228,7 +228,7 @@ pub fn run(
         let _ = crate::state::save(&path, &state);
     }
     // What the session ends as decides what it outputs (`switch_program`).
-    Ok((finish?, app.program()))
+    Ok((finish?, app.program))
 }
 /// The session loop: each pass catches up with background work, draws when
 /// something changed, then waits for and handles one event.
@@ -364,8 +364,7 @@ impl Session {
         let mut editor = start_editor("nvim")?;
         // fff pick and fff seek are file choices, and a save dialog asks for
         // a name: start ready to type the query.
-        let pick = app.output_paths && app.dialog.is_none();
-        if pick || app.no_dir || app.dialog.as_ref().is_some_and(|d| d.save.is_some()) {
+        if app.program.starts_typing() {
             editor.reset_insert(Field::Query);
         }
         // fff grep starts in its contents query, also ready to type.

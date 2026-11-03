@@ -21,8 +21,8 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. |
-| `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`, `run_function`), and other focuses' fixed keys (`act`). |
-| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (`results_key`, `marks_key`, the sheets and choosers). |
+| `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`), what each function does (`run_function`), and other focuses' fixed keys (`act`). |
+| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (the sheets and choosers); Enter in the lists (`confirm`, `results_enter`, `enter_mark`) and the larger functions' code. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | The choosers' fixed Normal-mode keys; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |
@@ -51,7 +51,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
-| `src/keymap.rs` | Functions, where they work, their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
+| `src/keymap.rs` | Programs and how they differ (`Program`: what each lists, prints and starts in), functions, where they work, their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
 | `src/ui/keys.rs` | The Keys screen's state and keys: the picker (your own list keys through the keymap), key searches, and the editor's staged changes, scopes and saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
@@ -136,10 +136,9 @@ Where a change usually has to touch, so that none is missed:
 
 - **Something a key does in the results or the marked list:** a `Function`
   in `src/keymap.rs` (name, group, description in `functions!`), where it
-  works (`available`, a design choice per mode), what it runs (`exec`: the
-  default key the focus's handlers take, such as an arm in `results_key`
-  in `src/ui/focus.rs`, or a session action in `run_function` in
-  `src/ui/dispatch.rs`) and its default keys (`defaults`). The tests check
+  works (`available`, a design choice per mode), what it does (its arm in
+  `run_function` in `src/ui/dispatch.rs`, which may call a method in
+  `src/ui/focus.rs` or on `App`) and its default keys (`defaults`). The tests check
   that defaults never clash and each applies somewhere. Then the README key
   table, [EDITING.md](EDITING.md) and a PTY test.
 - **A key named on screen** (hints, messages): never as a literal. Name a
@@ -157,6 +156,11 @@ Where a change usually has to touch, so that none is missed:
   (`src/operations.rs`), undo steps (`src/undo.rs`), a plan or confirmation
   started as a job from `src/ui/actions.rs`, and the
   [OPERATIONS.md](OPERATIONS.md) guarantees it keeps.
+- **Something that differs between programs** (roam, pick, seek, grep, a
+  window, the file dialogs): a method on `Program` in `src/keymap.rs`
+  (`navigates`, `prints_paths`, `dialog`, `short_labels`, ...) read as
+  `app.program`, rather than a flag of its own; where keys apply is the
+  scopes' business (`available`, `defaults`).
 - **A setting:** the struct, default and validation in `src/config.rs`, how
   `gc` applies it to a running session (`apply_settings` in
   `src/ui/configure.rs`),

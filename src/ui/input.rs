@@ -44,14 +44,6 @@ impl StatusTimer {
     }
 }
 
-pub fn numbered_key(key: KeyEvent) -> Option<u32> {
-    if key.modifiers == M::CONTROL
-        && let K::Char(c) = key.code
-    {
-        return c.to_digit(10);
-    }
-    None
-}
 pub fn alt_numbered_key(key: KeyEvent) -> Option<u32> {
     if key.modifiers == M::ALT
         && let K::Char(c) = key.code

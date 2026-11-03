@@ -89,7 +89,7 @@ pub(super) fn mouse_results(
             app.wanted = None;
             if double {
                 mouse.anchor = None;
-                if app.dialog.is_some() {
+                if app.program.dialog() {
                     return true;
                 }
                 discovery.checkpoint(app);
@@ -383,7 +383,7 @@ impl Button {
         match self {
             Self::Dismiss => Some(KeyEvent::new(K::Esc, M::NONE)),
             Self::Confirm => Some(KeyEvent::new(K::Enter, M::NONE)),
-            Self::Select if app.dialog.is_some() && !select_returns_marks(app) => {
+            Self::Select if app.program.dialog() && !select_returns_marks(app) => {
                 Some(KeyEvent::new(K::Enter, M::NONE))
             }
             _ => None,
@@ -408,8 +408,8 @@ impl Button {
     /// Unavailable buttons are drawn dimmed and ignore clicks.
     pub(crate) fn available(self, app: &App) -> bool {
         match self {
-            Self::Back => !app.no_dir && !app.back.is_empty(),
-            Self::Up => !app.no_dir && app.cwd.parent().is_some(),
+            Self::Back => app.program.navigates() && !app.back.is_empty(),
+            Self::Up => app.program.navigates() && app.cwd.parent().is_some(),
             Self::Open | Self::Mark => app.highlight.is_some(),
             Self::Select => !app.marks.is_empty() || app.highlight.is_some(),
             Self::Hidden | Self::Cancel | Self::Dismiss | Self::Confirm => true,
