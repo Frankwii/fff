@@ -62,6 +62,37 @@ fn copy_tree_preserves_hidden_contents_permissions_and_links_without_following()
     assert!(dir.exists());
 }
 #[test]
+fn copies_and_moves_reach_folders_below_ones_that_cannot_be_listed() {
+    let f = Fixture::new();
+    // Like a home folder of mode 0711: entered, never listed.
+    let closed = f.root.join("closed");
+    let inside = closed.join("inside");
+    fs::create_dir_all(&inside).unwrap();
+    fs::set_permissions(&closed, fs::Permissions::from_mode(0o300)).unwrap();
+    let a = f.file("a", b"a");
+    let b = f.file("b", b"b");
+    let copied = f.engine().execute(Request::Copy {
+        sources: vec![a.clone()],
+        directory: inside.clone(),
+        replace: vec![],
+        confirmed: vec![],
+        into: None,
+    });
+    let moved = f.engine().execute(Request::Move {
+        sources: vec![b.clone()],
+        directory: inside.clone(),
+        replace: vec![],
+        confirmed: vec![],
+        into: None,
+    });
+    fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).unwrap();
+    copied.unwrap();
+    moved.unwrap();
+    assert_eq!(fs::read(inside.join("a")).unwrap(), b"a");
+    assert_eq!(fs::read(inside.join("b")).unwrap(), b"b");
+    assert!(a.exists() && !b.exists());
+}
+#[test]
 fn move_renames_file_and_directory() {
     let f = Fixture::new();
     let a = f.file("a", b"a");

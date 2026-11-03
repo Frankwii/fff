@@ -186,7 +186,10 @@ fn suggestion<'a>(word: &str, names: &'a [String]) -> Option<&'a str> {
 /// cannot take over the screen or hang fff.
 pub fn flags(program: &Path, name: &str, cwd: &Path) -> Vec<String> {
     let mut found = vec![];
-    if let Ok(man) = resolve("man", cwd) {
+    // man reads a name with a slash as a page file: only commands have pages.
+    if !name.contains('/')
+        && let Ok(man) = resolve("man", cwd)
+    {
         let mut command = Command::new(man);
         command
             .arg("--")
@@ -803,6 +806,15 @@ some prose mentioning --not-a-flag
             flags(&quick, "definitely-no-man-page-xyz", &dir),
             ["-q", "--quiet"]
         );
+        // A path is never handed to man, which would format the file itself.
+        let page = dir.join("page");
+        fs::write(
+            &page,
+            "#!/bin/sh\necho '  --from-help  yes'\nexit\n.TH PAGE 1\n.SH OPTIONS\n.TP\n\\-\\-from\\-man\nno\n",
+        )
+        .unwrap();
+        fs::set_permissions(&page, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(flags(&page, page.to_str().unwrap(), &dir), ["--from-help"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

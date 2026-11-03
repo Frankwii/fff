@@ -93,6 +93,13 @@ history.
   lines, `[[open.rules]]` commands and `$EDITOR`, as they already were outside
   quotes: a shell would expand them, and fff passed them on literally. Write
   `\$` or `'$'` for a literal one.
+- **Copies and moves into a folder below one you can enter but not list**
+  (such as another user's home of mode 0711) work; they failed with
+  "Permission denied" while checking the destination was not inside a
+  source.
+- **Tab completes the options of a program typed as a path** (`./script`)
+  from its `--help`; it asked `man`, which formatted the file itself as a
+  manual page.
 - **`[[open.rules]]` extensions with several parts match**: `"tar.gz"` never
   matched anything, since only the part after the last dot was compared.
   An empty extension is now refused when the configuration loads.

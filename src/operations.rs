@@ -225,6 +225,7 @@ fn identity(parent: &File, name: &OsStr) -> Option<(u64, u64)> {
 }
 /// Every directory from `dir` up to the filesystem root, by identity, so
 /// aliases (bind mounts, case-insensitive names) cannot hide an ancestor.
+/// Parents are only stat'ed, so one that cannot be listed (mode 0711) counts.
 fn ancestors(dir: &File) -> Result<HashSet<(u64, u64)>> {
     let mut seen = HashSet::new();
     let mut current = dir.try_clone().map_err(err)?;
@@ -233,7 +234,14 @@ fn ancestors(dir: &File) -> Result<HashSet<(u64, u64)>> {
         if !seen.insert((m.dev(), m.ino())) {
             break;
         }
-        current = child_dir(&current, OsStr::new(".."))?;
+        current = sys::openat(
+            &current,
+            "..",
+            OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map(File::from)
+        .map_err(err)?;
     }
     Ok(seen)
 }
