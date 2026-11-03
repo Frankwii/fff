@@ -59,6 +59,14 @@ pub(crate) enum Focus {
     },
     /// F1: the Keys screen, a picker over every function and its keys.
     Keys(Box<KeysScreen>),
+    /// `:`: the functions that work where it was pressed, to run one by
+    /// name; `back` is that focus, for the function and for going back.
+    Commands {
+        query: String,
+        index: usize,
+        here: keymap::Cell,
+        back: Box<Focus>,
+    },
     Exclusions(String),
     /// Alt+f: the file filters (`--glob`), one per line.
     Filters(String),
@@ -312,6 +320,11 @@ struct Session {
     /// Where fff was started: `q` leaves there.
     invocation: PathBuf,
     palettes: crate::reload::PaletteWatcher,
+    /// `fff grep`: the highlighted match's file being read as lines.
+    match_lines: Option<(
+        PathBuf,
+        std::sync::mpsc::Receiver<Option<crate::grep::Lines>>,
+    )>,
 }
 impl Session {
     fn start(
@@ -389,6 +402,7 @@ impl Session {
             terminal,
             invocation,
             palettes,
+            match_lines: None,
         })
     }
     /// Catches up with what happened meanwhile: a finished job, notices,
@@ -501,7 +515,7 @@ impl Session {
     }
     /// Keeps Neovim on the focused text field: applies a buffer it closed,
     /// and loads the field the focus now edits.
-    fn sync_editor(&mut self, app: &mut App) -> io::Result<()> {
+    pub(super) fn sync_editor(&mut self, app: &mut App) -> io::Result<()> {
         if self.editor_directory != app.cwd {
             self.editor_directory = app.cwd.clone();
             warn_stranded(app);
@@ -590,6 +604,41 @@ impl Session {
             None => app.preview.followed().cloned(),
         };
         self.dirty |= app.preview.tick(followed, std::time::Instant::now());
+        // fff grep's match: scrolling starts from it again on another one.
+        let showing = matches!(self.focus, Focus::Results)
+            .then(|| app.highlighted_hit())
+            .flatten()
+            .map(|hit| {
+                use std::hash::{Hash, Hasher};
+                let mut id = std::collections::hash_map::DefaultHasher::new();
+                (&app.highlight, hit.line, hit.page, &hit.matched).hash(&mut id);
+                id.finish()
+            });
+        app.preview.follow_match(showing);
+        // Its file's lines, read on another thread, let it scroll past the
+        // match's context.
+        let path = showing.and(app.highlight.clone());
+        if let Some((reading, lines)) = &self.match_lines
+            && let Ok(lines) = lines.try_recv()
+        {
+            app.match_text = lines.map(|l| (reading.clone(), std::sync::Arc::new(l)));
+            app.preview.more_match_lines();
+            self.match_lines = None;
+            self.dirty = true;
+        }
+        if let Some(path) = path
+            && app.match_text.as_ref().is_none_or(|(p, _)| *p != path)
+            && self.match_lines.as_ref().is_none_or(|(p, _)| *p != path)
+        {
+            let (send, lines) = std::sync::mpsc::channel();
+            let wake = self.wake.clone();
+            let reading = path.clone();
+            std::thread::spawn(move || {
+                let _ = send.send(crate::grep::lines(&reading));
+                let _ = wake.try_send(());
+            });
+            self.match_lines = Some((path, lines));
+        }
     }
     /// A bar while typing, a block in Neovim's other modes.
     fn set_cursor_shape(&mut self, app: &App) -> io::Result<()> {
@@ -710,4 +759,39 @@ impl Session {
             _ => app.highlight.clone(),
         }
     }
+}
+
+/// The command picker's functions: those that work in Normal mode where `:`
+/// was pressed, but for those a digit goes with, best match of `query`
+/// first (by name, else by every word in the description).
+pub(crate) fn commands(here: keymap::Cell, query: &str) -> Vec<Function> {
+    let query = query.trim();
+    let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
+    let mut found: Vec<(i64, usize, Function)> = Function::ALL
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| {
+            f.works(keymap::Mode::Normal, here)
+                && !matches!(
+                    f,
+                    Function::SearchToDepth | Function::OpenRow | Function::ConfirmRow
+                )
+        })
+        .filter_map(|(i, &f)| {
+            if query.is_empty() {
+                return Some((0, i, f));
+            }
+            let named = crate::score(f.name(), &query.replace(' ', "_"));
+            let described = || {
+                let text = f.description().to_lowercase();
+                words
+                    .iter()
+                    .all(|w| text.contains(w.as_str()))
+                    .then_some(i64::MIN / 2)
+            };
+            named.or_else(described).map(|score| (score, i, f))
+        })
+        .collect();
+    found.sort_by_key(|(score, i, _)| (std::cmp::Reverse(*score), *i));
+    found.into_iter().map(|(_, _, f)| f).collect()
 }

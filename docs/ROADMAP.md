@@ -3,7 +3,6 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
-- An incoming fix to `fff grep`'s match preview (below).
 - Content search beyond `fff grep` (below).
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
@@ -15,7 +14,6 @@ not implemented features or commitments:
   results.
 - Follow-ups to the Keys screen (below): programs as commands, the
   `keys.toml` layout, and keys inside choosers.
-- Resizing the font from fff (below).
 - Opening folders from other applications. `--window` exists so that fff,
   set up as the desktop's file manager, can be opened from programs such as
   Telegram (opening a download's folder), but Telegram does not open fff yet.
@@ -25,23 +23,6 @@ not implemented features or commitments:
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
-
-## Incoming fix: navigating grep's match preview
-
-`fff grep`'s preview of a match shows the lines around it, the match a
-third of the way down, and ignores the preview's scroll: Ctrl+j and Ctrl+k
-(`scroll_preview_down`, `scroll_preview_up`) do nothing there, so lines
-past the context cannot be read. They should scroll it as they do any
-other preview, starting from the match, with the scroll reset when the
-highlight moves to another match.
-
-To investigate alongside: whether Ctrl+h and Ctrl+l make sense there.
-With wrapping turned off (`toggle_preview_wrap`), the match's line is cut
-to keep the match in view; they could pan cut lines left and right. They
-might instead step to the file's previous and next match, though the
-highlight already does that (one row per match). Ctrl+h is Backspace on
-many terminals, and both would need to stay clear of Neovim's keys in the
-query.
 
 ## The Keys screen, continued
 
@@ -85,21 +66,14 @@ every file on every search (1.85 s and about 25 CPU-seconds a search over
   opened by a key, could follow the highlighted match, going to its page and
   highlighting it as the highlight moves, the way `at_grep_match` opens a file
   there once.
+- **Panning a cut match line.** With `toggle_preview_wrap` off, the match's
+  line is cut to keep the match in view; keys of their own could pan it left
+  and right. Ctrl+h and Ctrl+l are out (Ctrl+h is Backspace on many
+  terminals), and stepping between a file's matches needs no keys of its
+  own, since each match is a row.
 - **OCR stays out.** A scanned document without a text layer cannot match;
   OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text
   layer to the file once, for every program.
-
-## Resizing the font
-
-Shift with `+` and `-` would make the terminal's font larger or smaller, for
-reading from a distance or on a large screen. A terminal program cannot set
-the font itself; it asks the terminal, and only some terminals listen: kitty
-through its remote control (`kitty @ set-font-size`, when allowed), xterm and
-a few others through the OSC 50 font sequence, others not at all. fff would
-use what the terminal supports and otherwise say that it cannot. `+` and `-`
-change the search depth in Normal mode, and on many layouts Shift+`-` is `_`,
-so the chords need checking against what terminals report (the kitty keyboard
-protocol tells them apart).
 
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
@@ -155,5 +129,5 @@ shows the highlighted entry's `user:group`; this would make them a quick
 toggle for every row rather than a configuration change, with owner and
 group as columns of their own, and could show octal modes too.
 
-The current release is 0.14.0. Version 1.0 is planned once the roadmap before
+The current release is 0.15.0. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.

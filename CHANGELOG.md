@@ -4,9 +4,21 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.15.0 — 2026-11-03
+
+`fff grep` searches what files contain, `:` runs a function by name, and fff
+can ask the terminal for a larger or smaller font.
 
 ### Added
+
+- **`:` in Normal mode picks a function by name**: a small fuzzy picker
+  of the functions that work where you are, each with its key there; Enter
+  runs the highlighted one as its key would, Escape goes back. In the
+  results' query it replaces Neovim's command line.
+- **`enlarge_font` and `shrink_font`** (Alt+= or Alt++, and Alt+-) ask the
+  terminal for a font a step larger or smaller: kitty does when remote
+  control is allowed, xterm does through its font menu; elsewhere, and in
+  tmux or screen, the status line says it cannot.
 
 - **`fff grep` chooses files by what they contain.** A contents query beside
   the names query (Tab switches) lists one row per match, with its page or
@@ -49,6 +61,13 @@ history.
   the highlight to the first row, instead of following the entry that was
   highlighted before however far it fell. Rows a scan adds under the same
   query still keep the highlighted entry.
+
+### Fixed
+
+- **`fff grep`'s match preview scrolls**: Ctrl+j and Ctrl+k
+  (`scroll_preview_down`, `scroll_preview_up`) move it from the match, past
+  the lines kept around it, up to 500 lines either side; another match
+  starts at its own match again.
 
 ## 0.14.0 — 2026-11-03
 

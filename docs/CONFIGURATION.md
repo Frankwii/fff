@@ -926,8 +926,8 @@ sheet stays open: something must open the Keys screen (`show_keys`) and
 something must leave fff (`cancel`, or `quit` in Normal mode) everywhere in
 the results, something must leave the marked list (`toggle_marked_list`),
 Insert-mode keys cannot start with a key typed as text, nor be Escape, and
-Normal-mode keys cannot start with `i`, `a`, `I`, `A` or `:`, which reach
-Insert mode and Neovim's command line. Space, Enter, Tab, `r` and Ctrl+a on
+Normal-mode keys cannot start with `i`, `a`, `I` or `A`, which reach
+Insert mode, or `:`, which opens the command picker. Space, Enter, Tab, `r` and Ctrl+a on
 the screen, and the sheets' own keys, are fixed.
 
 ### `keys.toml`

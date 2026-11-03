@@ -599,6 +599,8 @@ pub enum Exec {
     Overlay(bool),
     /// The highlighted directory, or the highlighted file's folder.
     GoIntoFolder,
+    /// Ask the terminal for a larger (`true`) or smaller font.
+    Font(bool),
     /// The first row, or the last with `true`.
     JumpEnd(bool),
     /// Wrap the preview's long lines, or cut them.
@@ -716,6 +718,8 @@ functions! {
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, leaving the highlight where it is.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, leaving the highlight where it is.";
     ShowPalettes "show_palettes" View "Show the palettes: the highlighted one is previewed after a moment, and Enter keeps it for the session.";
+    EnlargeFont "enlarge_font" View "Enlarge the terminal's font a step, by asking the terminal: kitty does when remote control is allowed, xterm does, others cannot.";
+    ShrinkFont "shrink_font" View "Shrink the terminal's font a step, by asking the terminal, as enlarge_font does.";
     ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen for the session.";
     MoveMarked "move_marked" Files "Move the marked paths into the current directory. Asks first when that would overwrite anything.";
     CopyMarked "copy_marked" Files "Copy the marked paths into the current directory. Asks first when that would overwrite anything.";
@@ -786,6 +790,7 @@ impl Function {
         let lists_or_results = if normal { lists } else { results };
         let file = [H::File];
         match self {
+            EnlargeFont | ShrinkFont => both(lists_or_results),
             HighlightPrevious | HighlightNext | ToggleMark | ToggleMarkedList | ShowKeys
             | ShowSession | Cancel | PrintMarks => both(lists_or_results),
             HighlightPreviousPage
@@ -938,6 +943,8 @@ impl Function {
             ShowKeys => Exec::Overlay(true),
             ShowSession => Exec::Overlay(false),
             ShowPalettes => alt('p'),
+            EnlargeFont => Exec::Font(true),
+            ShrinkFont => Exec::Font(false),
             ReloadPalette => alt('P'),
             EditConfig => Exec::EditConfig,
             SwitchProgram => Exec::SwitchProgram,
@@ -989,6 +996,8 @@ impl Function {
             ShowKeys => &[("<F1>", all)],
             ShowSession => &[("<F2>", all)],
             ShowPalettes => &[("<M-p>", all)],
+            EnlargeFont => &[("<M-+>", all), ("<M-=>", all)],
+            ShrinkFont => &[("<M-->", all)],
             ReloadPalette => &[("<M-P>", all)],
             _ => &[],
         };
@@ -1116,6 +1125,8 @@ impl Function {
             ShowKeys => &[("<F1>", all)],
             ShowSession => &[("<F2>", all)],
             ShowPalettes => &[("gp", all)],
+            EnlargeFont => &[("<M-+>", all), ("<M-=>", all)],
+            ShrinkFont => &[("<M-->", all)],
             ReloadPalette => &[("gP", all)],
             EditConfig => &[("gc", all)],
             SwitchProgram => &[("gm", all)],
@@ -1144,7 +1155,7 @@ pub const FIXED: &[(&str, &str, &str)] = &[
     (
         ":",
         "Normal",
-        "Neovim's command line; :u undoes query edits.",
+        "Show the functions that work here, to run one by name (Enter) or go back (Esc).",
     ),
     (
         "ZZ  ZQ",

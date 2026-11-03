@@ -206,6 +206,7 @@ impl Session {
                 return Ok(None);
             }
             Focus::Keys(_) => return self.keys_key(app, key),
+            Focus::Commands { .. } => return self.commands_key(app, key),
             _ => {}
         }
         match chooser_key(app, &mut self.focus, &mut self.editor, key) {
@@ -218,6 +219,23 @@ impl Session {
     /// function it is here.
     fn list_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
         let (mode, cell) = self.here(app);
+        // `:` in Normal mode: the functions that work here, by name.
+        if mode == keymap::Mode::Normal
+            && app.pending.is_empty()
+            && key.code == K::Char(':')
+            && !key.modifiers.intersects(M::ALT | M::CONTROL)
+        {
+            self.escape_armed = false;
+            self.editor.reset_insert(Field::Commands);
+            let back = Box::new(std::mem::take(&mut self.focus));
+            self.focus = Focus::Commands {
+                query: String::new(),
+                index: 0,
+                here: cell,
+                back,
+            };
+            return Ok(None);
+        }
         // Leaving Insert mode and Neovim's command line are Neovim's.
         if cell.place == keymap::Place::Results
             && app.pending.is_empty()
@@ -349,8 +367,69 @@ impl Session {
             }
             Exec::SwitchProgram => self.focus = Focus::ProgramChoice,
             Exec::Cancel => return Ok(Some(Finish::Cancelled)),
+            Exec::Font(larger) => self.resize_font(app, larger)?,
         }
         Ok(None)
+    }
+    /// A key in the command picker: Enter runs the highlighted function
+    /// where `:` was pressed, Escape goes back there; the arrows, Alt+j and
+    /// Alt+k move (and j and k in Normal mode); other keys type.
+    fn commands_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
+        let page = self.drawn.page.max(1);
+        let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
+        let Focus::Commands {
+            query, index, here, ..
+        } = &mut self.focus
+        else {
+            return Ok(None);
+        };
+        let found = crate::ui::commands(*here, query);
+        let last = found.len().saturating_sub(1);
+        let alt = key.modifiers == M::ALT;
+        let plain = key.modifiers.is_empty();
+        match key.code {
+            K::Esc => {
+                if let Focus::Commands { back, .. } = std::mem::take(&mut self.focus) {
+                    self.focus = *back;
+                }
+            }
+            K::Enter => {
+                let Some(&function) = found.get(*index) else {
+                    return Ok(None);
+                };
+                if let Focus::Commands { back, .. } = std::mem::take(&mut self.focus) {
+                    self.focus = *back;
+                }
+                // Back in Normal mode where `:` was pressed, as its key would
+                // have run it.
+                self.sync_editor(app)?;
+                return self.run_function(app, function, None);
+            }
+            K::Down => *index = (*index + 1).min(last),
+            K::Up => *index = index.saturating_sub(1),
+            K::Char('j') if alt || (plain && normal) => *index = (*index + 1).min(last),
+            K::Char('k') if alt || (plain && normal) => *index = index.saturating_sub(1),
+            K::Char('n') if key.modifiers == M::CONTROL => *index = (*index + 1).min(last),
+            K::Char('p') if key.modifiers == M::CONTROL => *index = index.saturating_sub(1),
+            K::PageDown => *index = (*index + page).min(last),
+            K::PageUp => *index = index.saturating_sub(page),
+            _ => deliver(app, &mut self.focus, &mut self.editor, key),
+        }
+        Ok(None)
+    }
+    /// Asks the terminal for a font a step larger or smaller.
+    fn resize_font(&mut self, app: &mut App, larger: bool) -> io::Result<()> {
+        use std::io::Write;
+        match crate::font::Terminal::detect(|name| std::env::var(name).ok()) {
+            Ok(terminal) => {
+                let out = self.terminal.0.backend_mut();
+                out.write_all(terminal.request(larger).as_bytes())?;
+                out.flush()?;
+                app.status = terminal.sent(larger);
+            }
+            Err(why) => app.status = why,
+        }
+        Ok(())
     }
     /// A key no binding has here. One that some binding has elsewhere says
     /// where it works; Enter, bound somewhere in this mode, says why it did

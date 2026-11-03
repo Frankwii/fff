@@ -51,6 +51,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
+| `src/font.rs` | Asking the terminal for a larger or smaller font: kitty's remote-control sequence, xterm's OSC 50. |
 | `src/keymap.rs` | Functions, where they work, their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
 | `src/ui/keys.rs` | The Keys screen's state and keys: the picker (your own list keys through the keymap), key searches, and the editor's staged changes, scopes and saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |

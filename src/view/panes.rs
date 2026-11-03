@@ -231,6 +231,30 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
     let wrap = app.preview.wrap;
     let mut rows = Vec::new();
     let mut start = 0;
+    // The file's lines around the context, once read: up to `AROUND`
+    // lines either side of the match, so the preview scrolls past it.
+    const AROUND: usize = 500;
+    let file = app
+        .match_text
+        .as_ref()
+        .filter(|(path, _)| Some(path) == app.highlight.as_ref())
+        .and_then(|(_, lines)| {
+            let own = lines.starts.binary_search(&hit.start).ok()?;
+            let first = own.checked_sub(hit.at)?;
+            Some((lines, first))
+        });
+    let push_plain = |rows: &mut Vec<Line<'static>>, line: &str| {
+        let spans = vec![styled(safe(line), theme.muted)];
+        for mut row in fit(spans, width.saturating_sub(2), wrap) {
+            row.spans.insert(0, Span::raw("  "));
+            rows.push(row);
+        }
+    };
+    if let Some((lines, first)) = file {
+        for line in &lines.text[first.saturating_sub(AROUND)..first] {
+            push_plain(&mut rows, line);
+        }
+    }
     for (i, line) in hit.context.iter().enumerate() {
         let parts = hit.parts(i);
         if i == hit.at {
@@ -257,10 +281,24 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
             rows.push(row);
         }
     }
-    // The match a third of the way down, its lines around it.
-    let first = start
-        .saturating_sub(room / 3)
-        .min(rows.len().saturating_sub(room));
+    if let Some((lines, first)) = file {
+        let after = first + hit.context.len();
+        let end = (after + AROUND).min(lines.text.len());
+        for line in lines.text.get(after..end).unwrap_or_default() {
+            push_plain(&mut rows, line);
+        }
+    }
+    // The match a third of the way down, its lines around it, until the
+    // preview is scrolled from there.
+    let most = rows.len().saturating_sub(room);
+    let first = app
+        .preview
+        .match_top
+        .get()
+        .unwrap_or_else(|| start.saturating_sub(room / 3))
+        .min(most);
+    app.preview.match_top.set(Some(first));
+    app.preview.room.set((room, most));
     let lines: Vec<Line> = rows.into_iter().skip(first).take(room).collect();
     frame.render_widget(Paragraph::new(lines), inner);
 }

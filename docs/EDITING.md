@@ -52,8 +52,10 @@ The table lists Neovim's own keys, as they work in fields without fff
 bindings (exclusions, filters, rename lists, prompts). In the results' query,
 Normal-mode keys bound to [list actions](#normal-mode-list-keys) act on the
 results instead: `b`, `d`, `p`, `P`, `u`, `v` and `x`, for example, are not
-editing commands there, while `c` operators (`cw`, `ciw`, `C`), `0`, `$`, `w`,
-`:u` and Ctrl+r still edit the query.
+editing commands there, while `c` operators (`cw`, `ciw`, `C`), `0`, `$`, `w`
+and Ctrl+r still edit the query. `:` there opens the command picker instead
+of Neovim's command line: the functions that work where you are, to run one
+by name (Enter) or go back (Escape).
 
 | Action | Keys in Normal mode |
 | --- | --- |
@@ -155,12 +157,11 @@ editing behavior. Alt bindings remain available in every mode.
 
 Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
 unmatched continuation sends both keys to Neovim, preserving commands such as
-`gU`, `ge`, `gu` and `g~` (`gc`, Neovim's comment operator, edits the
+`gU`, `ge` and `g~` (not `gu`: the `u` after the `g` undoes a file operation) (`gc`, Neovim's comment operator, edits the
 configuration instead). Escape after a lone `g` cancels it without
 clearing the query. The default `d`, `D` and `P` replace Neovim's delete and
 put commands in the results, which have little use in a one-line query, and
-`u` undoes file operations there instead of query edits (`:u` still undoes
-those). Every key is rebound on the [Keys screen](CONFIGURATION.md#keys) (F1).
+`u` undoes file operations there instead of query edits. Every key is rebound on the [Keys screen](CONFIGURATION.md#keys) (F1).
 
 ## Isolation and terminal behavior
 

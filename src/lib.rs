@@ -9,6 +9,7 @@ pub mod details;
 pub mod discovery;
 pub mod editor;
 pub mod explorer;
+pub mod font;
 pub mod grep;
 pub mod highlight;
 pub mod icons;
@@ -237,6 +238,9 @@ pub struct App {
     /// Active palette name and the palettes offered by the Alt+p chooser.
     pub palette_name: String,
     pub palettes: Vec<(String, config::Palette)>,
+    /// `fff grep`: the highlighted match's file as lines, once read, for its
+    /// preview to scroll past the match's context.
+    pub match_text: Option<(PathBuf, std::sync::Arc<grep::Lines>)>,
     /// Every key binding: the defaults with `keys.toml` applied.
     pub keymap: keymap::Keymap,
     /// The keys of a sequence begun and not finished yet.
@@ -385,6 +389,7 @@ impl App {
                 .map(|n| (n.to_string(), config::Palette::named(n).unwrap()))
                 .collect(),
             keymap: keymap::Keymap::default(),
+            match_text: None,
             pending: Vec::new(),
             keys_path: None,
             keys_broken: None,

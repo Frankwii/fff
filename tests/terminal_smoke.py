@@ -340,6 +340,27 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual((status, out), (0, str(self.root / "notes.txt").encode() + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_grep_match_preview_scrolls_past_its_context_from_the_match(self):
+        lines = [f"line {n}" for n in range(1, 61)]
+        lines[29] = "line 30 canard"
+        lines[49] = "line 50 canard"
+        (self.root / "notes.txt").write_text("\n".join(lines) + "\n")
+        s = self.start("grep", implicit_root=True, typing=True)
+        s.send(b"canard", "❯ canard")
+        s.wait_ui("Preview · l. 30 · match 1 of 2")
+        s.send(b"\x1b[27u", "NORMAL")
+        self.assertNotIn("line 45", s.screen.text)
+        # Ctrl+j scrolls on from the match, past the lines kept around it.
+        for _ in range(4):
+            s.send(b"\x1b[106;5u")  # CSI-u Ctrl+j
+        s.wait_ui("line 45")
+        # Another match starts at its own match again.
+        s.send(b"j", "Preview · l. 50 · match 2 of 2")
+        s.wait_ui("line 50 canard")
+        s.send(b"\x03")
+        s.finish()
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_switch_program_goes_on_as_pick_at_its_depth_and_prints_the_file(self):
         (self.root / "sub").mkdir()
         (self.root / "sub" / "deep.txt").touch()
@@ -882,6 +903,43 @@ class TerminalTests(unittest.TestCase):
         s.send(b"gd", ("cwd", self.root / "sub" / "deep"))
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_colon_picks_a_function_that_works_here_by_name(self):
+        (self.root / "file").touch()
+        (self.root / ".secret").touch()
+        s = self.start(implicit_root=True, output_paths=False)
+        s.send(b":", "Esc cancels · INSERT")
+        # Only what works here: fff roam answers no dialog.
+        self.assertNotIn("save_here", s.screen.text)
+        s.send(b"toggle_hid", "toggle_hidden")
+        s.send(b"\r", "hidden shown")
+        self.assertNotIn("Commands ·", s.screen.text)
+        self.assertIn("Query · NORMAL", s.screen.text)
+        # Escape goes back without running anything.
+        s.send(b":", "Esc cancels · INSERT")
+        s.send(b"rescan")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Commands ·")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_alt_minus_asks_xterm_for_a_smaller_font_and_says_so_elsewhere(self):
+        (self.root / "file").touch()
+        s = self.start("--no-config", implicit_root=True, output_paths=False,
+                       environment={"XTERM_VERSION": "XTerm(390)"})
+        mark = len(s.ui)
+        s.send(b"\x1b-", "Asked xterm for a smaller font")
+        self.assertIn(b"\x1b]50;#-1\x07", s.ui[mark:])
+        s.send(b"\x03")
+        s.finish()
+        s.close()
+        s = self.session = Session(self.root, "--no-config", implicit_root=True, output_paths=False,
+                                   environment={"TERM": "xterm-256color"})
+        s.send(b"\x1b=", "cannot change its font from fff")
+        s.send(b"\x03")
+        s.finish()
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_keys_screen_saves_keys_and_refuses_a_lockout(self):
@@ -1581,10 +1639,13 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ihello world", "❯ hello world")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"0ctw\x1b[27u", "❯ world")  # d hides folders in Normal mode
-        # u undoes file operations; :u undoes the query's edits.
+        # u undoes file operations; : opens the command picker, not
+        # Neovim's command line.
         s.send(b"u", "Nothing to undo")
-        s.send(b":u\r", "❯ hello world")
-        s.send(b"\x12", "❯ world")
+        s.send(b":", "Esc cancels · INSERT")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Commands ·")
+        self.assertIn("❯ world", s.screen.text)
         s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
@@ -1696,9 +1757,9 @@ class TerminalTests(unittest.TestCase):
         s = self.session = Session(self.root, "--no-config")
         s.send(b"igamma", "❯ gamma")
         s.send(b"\x1b[27u", "NORMAL")
-        # Unbound continuations reach Neovim intact: gU, ge.
+        # Unbound continuations reach Neovim intact: gU, g~, ge.
         s.send(b"0gUiw", "❯ GAMMA")
-        s.send(b":u\r", "❯ gamma")
+        s.send(b"0g~iw", "❯ gamma")
         s.send(b"$g0", "NORMAL")  # g0 reaches Neovim: the line's first column
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")

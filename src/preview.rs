@@ -108,6 +108,13 @@ pub struct Pane {
     /// Content lines the last frame had room for, and the most it could
     /// scroll: set while drawing.
     pub(crate) room: std::cell::Cell<(usize, usize)>,
+    /// `fff grep`: the match the pane shows, and the line its view starts
+    /// at once drawn: the match a third of the way down at first, then
+    /// wherever scrolling took it.
+    showing_match: Option<u64>,
+    pub(crate) match_top: std::cell::Cell<Option<usize>>,
+    /// The match's view was scrolled since it was shown.
+    match_scrolled: bool,
     /// Long lines wrap onto the next rows (the default) instead of being cut.
     pub wrap: bool,
     sender: Sender<(Key, Preview)>,
@@ -130,6 +137,9 @@ impl Default for Pane {
             cache: VecDeque::new(),
             scroll: 0,
             room: Default::default(),
+            showing_match: None,
+            match_top: Default::default(),
+            match_scrolled: false,
             wrap: true,
             sender,
             results,
@@ -249,11 +259,40 @@ impl Pane {
         self.requested = true;
         self.current = Some(Arc::new(preview));
     }
+    /// Follows `fff grep`'s highlighted match (by an identity of it), or
+    /// none: another match starts its view at the match again.
+    pub fn follow_match(&mut self, id: Option<u64>) {
+        if id != self.showing_match {
+            self.showing_match = id;
+            self.match_top.set(None);
+            self.match_scrolled = false;
+        }
+    }
+    /// The match's file arrived, with more lines than its context: its
+    /// view starts at the match again, unless already scrolled.
+    pub fn more_match_lines(&mut self) {
+        if !self.match_scrolled {
+            self.match_top.set(None);
+        }
+    }
     /// Scrolls the content by half the room the last frame had; false when
     /// it was already at that end.
     pub fn scroll(&mut self, down: bool) -> bool {
         let (room, most) = self.room.get();
         let step = (room / 2).max(1);
+        // A match's lines scroll from where the match put them.
+        if self.showing_match.is_some()
+            && let Some(top) = self.match_top.get()
+        {
+            let moved = if down {
+                (top + step).min(most)
+            } else {
+                top.saturating_sub(step)
+            };
+            self.match_top.set(Some(moved));
+            self.match_scrolled = true;
+            return moved != top;
+        }
         let scroll = self.scroll.min(most);
         self.scroll = if down {
             (scroll + step).min(most)

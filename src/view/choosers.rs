@@ -645,3 +645,123 @@ fn available(app: &App, path: &Path) -> bool {
         None => true,
     }
 }
+/// `:`: the functions that work where it was pressed, with the key each has
+/// there in Normal mode, best match first.
+pub(super) fn commands(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    query: &str,
+    index: usize,
+    here: crate::keymap::Cell,
+) -> (usize, Vec<(Rect, usize)>) {
+    use crate::keymap::Mode;
+    let theme = app.palette;
+    let width = area.width.saturating_sub(4).min(110);
+    let height = area.height.saturating_sub(4).min(24);
+    let dialog = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    let block = panel(
+        theme,
+        mode_title(
+            app,
+            Field::Commands,
+            &format!(
+                "Commands · {} runs · {} cancels",
+                app.key_or_none("enter"),
+                app.key_or_none("esc")
+            ),
+        ),
+        true,
+        theme.accent,
+    )
+    .padding(Padding::horizontal(1));
+    let inner = block.inner(dialog);
+    frame.render_widget(Clear, dialog);
+    frame.render_widget(block, dialog);
+    let (mut line, cursor) = editable_line(
+        app,
+        Field::Commands,
+        query,
+        0,
+        inner.width.saturating_sub(2) as usize,
+    );
+    if query.is_empty() {
+        line = Line::from(styled(
+            "type a function's name or words of what it does…",
+            theme.muted,
+        ));
+    }
+    line.spans.insert(0, bold(":", theme.accent));
+    line.spans.insert(1, Span::raw(" "));
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    if inner.width > 2 {
+        frame.set_cursor_position((inner.x + 2 + cursor, inner.y));
+    }
+    command_line(
+        frame,
+        app,
+        Field::Commands,
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+    );
+    let list = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
+    let found = crate::ui::commands(here, query);
+    if found.is_empty() {
+        frame.render_widget(
+            Paragraph::new(styled("Nothing that works here matches.", theme.muted)),
+            list,
+        );
+        return (list.height as usize, Vec::new());
+    }
+    let room = (list.width as usize).saturating_sub(2);
+    let items: Vec<ListItem> = found
+        .iter()
+        .map(|&f| {
+            let key = app
+                .keymap
+                .of(f, Mode::Normal)
+                .into_iter()
+                .find(|b| b.applies(here))
+                .map(|b| b.display())
+                .unwrap_or_default();
+            ListItem::new(Line::from(vec![
+                bold(format!("{:<28}", f.name()), theme.text),
+                bold(format!("{:<12}", truncate(&key, 11)), theme.accent),
+                styled(
+                    truncate(f.description(), room.saturating_sub(40)),
+                    theme.muted,
+                ),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default().with_selected(Some(index.min(found.len() - 1)));
+    frame.render_stateful_widget(
+        List::new(items)
+            .highlight_style(Style::default().bg(theme.selection))
+            .highlight_symbol("› "),
+        list,
+        &mut state,
+    );
+    let shown = state.offset();
+    let choices = item_areas(
+        list,
+        shown,
+        std::iter::repeat_n(
+            1,
+            found.len().saturating_sub(shown).min(list.height as usize),
+        ),
+    );
+    (list.height as usize, choices)
+}

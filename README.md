@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.14.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.15.0**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -266,7 +266,8 @@ It has two queries side by side. **Contents**, typed into first, keeps the
 files that contain it, with **one row per match**: the file, the match's page
 (`p. 12`), how far into an EPUB it is (`42%`) or its line (`l. 40`), and
 the line it is on, the match highlighted. The
-preview pane shows the lines around the highlighted match. **Names** filters
+preview pane shows the lines around the highlighted match, which Ctrl+j and
+Ctrl+k scroll from there, up to 500 lines either side. **Names** filters
 the files by name as in `fff seek`, so it chooses which files are read.
 Tab switches between them, in either mode (Shift+Space marks there);
 Escape clears the one being typed into (the
@@ -413,6 +414,8 @@ key says which one.
 | E in Normal | Extract the current or marked archives (asks when ambiguous) |
 | n in Normal | Choose a new file or directory, then enter its name |
 | F1 / F2 | Keys screen / Session details; the same key closes each |
+| `:` in Normal | Pick a function that works here by name and run it (Enter), or go back (Esc) |
+| Alt+= or Alt++ / Alt+- | Ask the terminal for a larger / smaller font (kitty with remote control allowed, xterm) |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | e in Normal | Open the current or marked paths in `$EDITOR`, then come back |

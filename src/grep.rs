@@ -72,6 +72,35 @@ pub struct Hit {
     /// The rest of a match that goes on over line breaks: its bytes within
     /// each following context line.
     pub continued: Vec<(usize, Range<usize>)>,
+    /// Where the match's line starts in the file's text, to find it among
+    /// [`Lines`].
+    pub start: usize,
+}
+/// A file's text as lines, for a preview that scrolls past a match's
+/// context: each line as shown, and where it starts in the text.
+pub struct Lines {
+    pub text: Vec<String>,
+    pub starts: Vec<usize>,
+}
+/// The lines of `path`'s text, read as the search reads it (a document's
+/// from the cache); `None` when it has none.
+pub fn lines(path: &Path) -> Option<Lines> {
+    let text = text_of(path, cache_dir().as_deref()).ok()?.bytes;
+    let mut lines = Lines {
+        text: Vec::new(),
+        starts: Vec::new(),
+    };
+    let mut at = 0;
+    loop {
+        let end = line_end(&text, at);
+        lines.starts.push(at);
+        lines.text.push(shown_line(&text[at..end]));
+        if end >= text.len() {
+            break;
+        }
+        at = end + 1;
+    }
+    Some(lines)
 }
 impl Hit {
     /// The match's line with those it goes on to, joined by a space and
@@ -760,6 +789,7 @@ fn hit(text: &[u8], range: Range<usize>, page: Option<u32>, line: u32) -> Hit {
         at: index,
         matched,
         continued,
+        start,
     }
 }
 fn cut(line: &str) -> String {

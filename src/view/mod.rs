@@ -351,6 +351,9 @@ pub(crate) fn render(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Ren
             result.choices = palettes(frame, area, app, query, *index)
         }
         Focus::Location(location) => result.choices = location_sheet(frame, main, app, location),
+        Focus::Commands {
+            query, index, here, ..
+        } => (result.page, result.choices) = commands(frame, area, app, query, *index, *here),
         _ => {}
     }
     notices(frame, main, app);

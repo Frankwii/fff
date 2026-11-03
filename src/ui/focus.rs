@@ -37,7 +37,7 @@ impl Session {
             Focus::BookmarkEdit(_) => self.bookmark_edit_key(app, key),
             Focus::BookmarkIcons { .. } => self.bookmark_icons_key(app, key),
             Focus::BookmarkDelete { .. } => self.bookmark_delete_key(app, key),
-            Focus::Info { .. } | Focus::Keys(_) => {}
+            Focus::Info { .. } | Focus::Keys(_) | Focus::Commands { .. } => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
             // Keys never reach here while an operation runs, and the glob
@@ -920,7 +920,7 @@ fn scroll_preview(app: &mut App, down: bool) {
             Some(key) => format!("No preview pane to scroll; {key} opens it"),
             None => "No preview pane to scroll".into(),
         };
-    } else if app.preview.current().is_some() {
+    } else if app.preview.current().is_some() || app.highlighted_hit().is_some() {
         app.preview.scroll(down);
     }
 }
