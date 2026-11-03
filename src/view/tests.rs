@@ -1535,13 +1535,19 @@ fn pinned_roots_that_do_not_fit_are_counted() {
         |spans: Vec<Span<'static>>| spans.iter().map(|s| s.content.as_ref()).collect::<String>();
     let roots = ["notes", "papers", "books"];
     assert_eq!(
-        text(fit_spans(spans(&roots), 28)),
+        text(fit_spans(spans(&roots), 28, Some("F1"))),
         "pinned  notes  papers  books"
     );
-    assert_eq!(text(fit_spans(spans(&roots), 27)), "pinned  notes  +2 (F1)");
-    assert_eq!(text(fit_spans(spans(&roots), 15)), "pinned  +3 (F1)");
+    assert_eq!(
+        text(fit_spans(spans(&roots), 27, Some("F1"))),
+        "pinned  notes  +2 (F1)"
+    );
+    assert_eq!(
+        text(fit_spans(spans(&roots), 15, Some("F1"))),
+        "pinned  +3 (F1)"
+    );
     // Too narrow even for the count: it is elided, never wider.
-    assert!(text(fit_spans(spans(&roots), 10)).width() <= 10);
+    assert!(text(fit_spans(spans(&roots), 10, Some("F1"))).width() <= 10);
 }
 #[test]
 fn status_items_drop_from_the_end_before_the_label_shortens() {
@@ -1701,4 +1707,65 @@ fn a_taken_place_offers_to_overwrite_keep_both_or_cancel() {
         screen.contains("╭ Replace") && screen.contains("Esc: Back"),
         "{screen}"
     );
+}
+#[test]
+fn remapped_keys_are_shown_by_the_key_that_now_does_their_work() {
+    let mut app = fixture();
+    app.key_map = crate::keys::KeyMap::parse(&[
+        "ctrl+g=f1".into(),
+        "f1=none".into(),
+        "ctrl+e=esc".into(),
+        "esc=none".into(),
+        "ctrl+t=alt+t".into(),
+        "alt+t=none".into(),
+        "alt+v=none".into(),
+    ])
+    .unwrap();
+    app.normal_keys = toml::from_str::<crate::normal_keys::NormalKeysConfig>("quit='Q'")
+        .unwrap()
+        .build()
+        .unwrap();
+    // The footer points to the guide and says how to leave, as remapped.
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("Ctrl+g keys  Q quit"), "{screen}");
+    // Sheets name their keys in the border and the prose alike.
+    let plan = crate::operations::DeletePlan::shown(vec![(app.cwd.join("todo.txt"), 9)], vec![]);
+    let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut Focus::DeleteConfirm(plan)))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(
+        screen.contains("Ctrl+e: Cancel") && !screen.contains("Esc"),
+        "{screen}"
+    );
+    assert!(screen.contains("Press Ctrl+e to keep it"), "{screen}");
+    // The guide follows too, and leaves out what no key does.
+    let mut focus = Focus::Info {
+        offset: 0,
+        keys: true,
+    };
+    let mut terminal = Terminal::new(TestBackend::new(120, 60)).unwrap();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    let line = |what: &str| {
+        screen
+            .lines()
+            .find(|l| l.contains(what))
+            .unwrap_or_else(|| panic!("{what}: {screen}"))
+            .to_string()
+    };
+    assert!(line("open the trash; again").contains("Ctrl+t"), "{screen}");
+    assert!(
+        screen.contains("—                show / hide the preview pane"),
+        "{screen}"
+    );
+    assert!(line("this guide").contains("Ctrl+g"), "{screen}");
+    assert!(
+        line("open the trash, like").contains("like Ctrl+t"),
+        "{screen}"
+    );
+    assert!(screen.contains("Ctrl+e closes"), "{screen}");
 }

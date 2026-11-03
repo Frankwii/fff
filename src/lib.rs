@@ -289,6 +289,8 @@ pub struct App {
     pub window: bool,
     /// `[trash]`: where `x` sends entries; `None` deletes them permanently.
     pub trash: Option<trash::Trash>,
+    /// `[keys.map]` and `--map-key`, to name keys as remapped.
+    pub key_map: keys::KeyMap,
     /// The trash's `files/` folders, home bin first, as last read
     /// (`refresh_trash`): where R restores.
     pub trash_folders: Vec<PathBuf>,
@@ -386,6 +388,7 @@ impl App {
             window: false,
             trash: None,
             trash_folders: Vec::new(),
+            key_map: keys::KeyMap::default(),
             undo: Vec::new(),
             dialog: None,
         }
@@ -478,6 +481,30 @@ impl App {
         self.wanted = session.highlight;
     }
     /// Changes directory, recording the old one for Ctrl+o.
+    /// What the interface calls the key doing what the default chord
+    /// `default` (`"alt+v"`) does: its own name, or the chord remapped to it;
+    /// `None` when no key does it.
+    pub fn key(&self, default: &str) -> Option<String> {
+        self.key_map.name(default)
+    }
+    /// Whether `modifier`+digit (`"alt"`, `"ctrl"`) still picks rows by
+    /// number: no digit's chord is remapped.
+    pub fn digits_pick(&self, modifier: &str) -> bool {
+        (0..=9).all(|d| self.key_map.keeps(&format!("{modifier}+{d}")))
+    }
+    /// `key`, or `—` when no key does it, for prose that names one.
+    pub fn key_or_none(&self, default: &str) -> String {
+        self.key(default).unwrap_or_else(|| "—".into())
+    }
+    /// The Normal-mode sequences bound to `action`, when it has any.
+    pub fn sequence(&self, action: normal_keys::ListAction) -> Option<String> {
+        Some(self.normal_keys.describe(action)).filter(|s| !s.is_empty())
+    }
+    /// A key for what both a chord and a Normal-mode action do: the chord
+    /// while a key does it, else the action's sequence.
+    pub fn either(&self, default: &str, action: normal_keys::ListAction) -> Option<String> {
+        self.key(default).or_else(|| self.sequence(action))
+    }
     /// Reads which folders the trash shows again: a bin on another
     /// filesystem appears with its first entry.
     pub fn refresh_trash(&mut self) {
@@ -1308,7 +1335,10 @@ impl App {
         self.status = if self.scanning {
             "Nothing listed yet; still searching".into()
         } else if !self.filter().is_empty() {
-            format!("Nothing matches {:?}; Esc clears the query", self.query)
+            match self.key("esc") {
+                Some(esc) => format!("Nothing matches {:?}; {esc} clears the query", self.query),
+                None => format!("Nothing matches {:?}", self.query),
+            }
         } else {
             "Nothing listed here".into()
         };

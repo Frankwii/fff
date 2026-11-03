@@ -21,6 +21,13 @@ history.
 - **Ctrl+j / Ctrl+k scroll the preview pane** by half its height without
   moving the highlight. With the pane hidden, they say how to open it.
 
+### Changed
+
+- **The screen names keys as you configured them.** The F1 guide, sheet
+  borders, footers, hints and messages show a chord remapped in `[keys.map]`
+  or `--map-key` by the key that now does its work, and `[keys.normal]`
+  actions by their sequences; keys that no longer do anything are left out.
+
 ### Fixed
 
 - **The purge follows entries renamed in the trash** instead of keeping them

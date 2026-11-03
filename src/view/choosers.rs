@@ -21,7 +21,18 @@ pub(super) fn bookmarks(
         mode_title(
             app,
             Field::Bookmarks,
-            "Bookmarks · Enter / Alt+digit opens · Esc returns",
+            &format!(
+                "Bookmarks · {} opens · {} returns",
+                [
+                    app.key("enter"),
+                    app.digits_pick("alt").then(|| "Alt+digit".to_string())
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" / "),
+                app.key_or_none("esc")
+            ),
         ),
         true,
         theme.marked,
@@ -59,10 +70,13 @@ pub(super) fn bookmarks(
     );
     let matches = app.matching_bookmarks(query);
     // Plain letters work while the filter is in Normal mode; otherwise Alt.
-    let alt = if app.edit_view.as_ref().is_some_and(|v| v.normal()) {
-        ""
-    } else {
-        "Alt+"
+    let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
+    let command = |c: char| {
+        if normal {
+            Some(c.to_string())
+        } else {
+            app.key(&format!("alt+{c}"))
+        }
     };
     // Each bookmark occupies three lines; only fully visible entries get labels.
     let page = list.height as usize / 3;
@@ -71,7 +85,10 @@ pub(super) fn bookmarks(
     let mut choices = Vec::new();
     if matches.is_empty() {
         let text = if app.bookmarks.is_empty() {
-            format!("No bookmarks yet. {alt}n adds the current directory.")
+            match command('n') {
+                Some(key) => format!("No bookmarks yet. {key} adds the current directory."),
+                None => "No bookmarks yet.".into(),
+            }
         } else {
             "No matching bookmarks".into()
         };
@@ -150,7 +167,17 @@ pub(super) fn bookmarks(
         );
     }
     let hint = if app.status.is_empty() {
-        format!("{alt}n new · {alt}e edit · {alt}d delete · {alt}r reload · ↑↓ reorder")
+        [
+            does(command('n'), "new"),
+            does(command('e'), "edit"),
+            does(command('d'), "delete"),
+            does(command('r'), "reload"),
+            does(keys_named(app, "up down"), "reorder"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ")
     } else {
         app.status.clone()
     };
@@ -228,7 +255,7 @@ pub(super) fn bookmark_form(
         Sheet {
             title,
             accent: theme.marked,
-            keys: &[("Enter", "Save"), ("Esc", "Cancel"), ("Tab", "Next field")],
+            keys: &[("enter", "Save"), ("esc", "Cancel"), ("tab", "Next field")],
             summary: Some(summary),
         },
     );
@@ -342,7 +369,11 @@ pub(super) fn bookmark_icons(
         mode_title(
             app,
             Field::BookmarkIcons,
-            "Bookmark icons · Enter chooses · Esc returns",
+            &format!(
+                "Bookmark icons · {} chooses · {} returns",
+                app.key_or_none("enter"),
+                app.key_or_none("esc")
+            ),
         ),
         22,
     );
@@ -422,8 +453,12 @@ pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: u
     let body = prose(
         theme,
         theme.error,
-        "Press *Enter* to remove this bookmark, or *Esc* to keep it. \
-         The directory itself is not touched.",
+        &format!(
+            "Press *{}* to remove this bookmark, or *{}* to keep it. \
+             The directory itself is not touched.",
+            app.key_or_none("enter"),
+            app.key_or_none("esc")
+        ),
         main.width.saturating_sub(4) as usize,
     );
     let summary = match &app.bookmark_store.path {
@@ -439,7 +474,7 @@ pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: u
         Sheet {
             title: " Delete bookmark ".into(),
             accent: theme.error,
-            keys: &[("Enter", "Delete"), ("Esc", "Cancel")],
+            keys: &[("enter", "Delete"), ("esc", "Cancel")],
             summary: Some(summary),
         },
     );
@@ -506,7 +541,11 @@ pub(super) fn palettes(
         mode_title(
             app,
             Field::Palettes,
-            "Palettes · Enter applies · Esc reverts",
+            &format!(
+                "Palettes · {} applies · {} reverts",
+                app.key_or_none("enter"),
+                app.key_or_none("esc")
+            ),
         ),
         true,
         theme.accent,

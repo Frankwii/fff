@@ -317,6 +317,7 @@ impl Session {
         performance: crate::config::PerformanceConfig,
     ) -> io::Result<Self> {
         let invocation = std::env::current_dir()?.canonicalize()?;
+        app.key_map = keys.clone();
         // Entries that waited in the trash long enough go, without delaying startup.
         if let Some(trash) = &app.trash {
             trash.purge_in_background();

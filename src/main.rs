@@ -584,6 +584,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.bookmarks = settings.bookmarks;
     app.icons = settings.icons && !args.no_icons;
     app.normal_keys = settings.normal_keys;
+    app.key_map = keys.clone();
     app.no_dir = mode.no_dir;
     // Choosing paths shows names; the footer has the highlighted one's path.
     app.short_labels = mode.no_dir || (mode.output_paths && dialog.is_none());
@@ -608,7 +609,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         match session {
             Some(session) => {
                 app.restore(session);
-                app.status = "Resumed the last session; q returns to where you started".into();
+                app.status = match app.sequence(fuzzy_file_finder::normal_keys::ListAction::Quit) {
+                    Some(quit) => {
+                        format!("Resumed the last session; {quit} returns to where you started")
+                    }
+                    None => "Resumed the last session".into(),
+                };
                 app.status_success = app.status.clone();
             }
             None => app.status = "No earlier session to resume; starting here".into(),

@@ -52,38 +52,59 @@ impl Dialog {
         (dialog, start, highlight)
     }
     /// How to choose, shown in the empty query line; `typing` in Insert mode,
-    /// where `!` is text.
-    pub fn hint(&self, typing: bool) -> String {
+    /// where `!` is text. Keys are named as `app` binds them.
+    pub fn hint(&self, typing: bool, app: &crate::App) -> String {
+        use crate::normal_keys::ListAction;
+        let enter = app.key_or_none("enter");
+        let save = app.key_or_none("ctrl+s");
+        // In Normal mode the quit-current sequence (!) saves too.
+        let either = match app.sequence(ListAction::QuitCurrent) {
+            Some(quit) => format!("{quit} or {save}"),
+            None => save.clone(),
+        };
         match (&self.save, self.directory, self.multiple) {
-            (Some(_), _, _) if typing => "Type a custom name, then press Enter or Ctrl+s to save \
-                 it here. Press Esc to browse folders."
-                .into(),
-            (Some(name), _, _) => format!(
-                "Press ! or Ctrl+s to save {name} here. Press i to type a custom name. \
-                 Press Enter on a file to replace it."
+            (Some(_), _, _) if typing => format!(
+                "Type a custom name, then press {enter} or {save} to save it here. Press {} \
+                 to browse folders.",
+                app.key_or_none("esc")
             ),
-            (None, true, _) if typing => "Press Ctrl+s to choose the folder you are in.".into(),
-            (None, true, _) => "Press ! or Ctrl+s to choose the folder you are in.".into(),
-            (None, false, true) => "Press Enter on a file to choose it. Press Space to mark \
-                 several, then Ctrl+w to choose them."
-                .into(),
-            (None, false, false) => "Press Enter on a file to choose it.".into(),
+            (Some(name), _, _) => format!(
+                "Press {either} to save {name} here. Press i to type a custom name. \
+                 Press {enter} on a file to replace it."
+            ),
+            (None, true, _) if typing => format!("Press {save} to choose the folder you are in."),
+            (None, true, _) => format!("Press {either} to choose the folder you are in."),
+            (None, false, true) => format!(
+                "Press {enter} on a file to choose it. Press {} to mark several, then {} to \
+                 choose them.",
+                app.sequence(ListAction::Mark)
+                    .unwrap_or_else(|| app.key_or_none("shift+space")),
+                app.key_or_none("ctrl+w")
+            ),
+            (None, false, false) => format!("Press {enter} on a file to choose it."),
         }
     }
     /// Why `l` (or Alt+number) on a file does not open it in a dialog that
     /// chooses files or where to save, and what to do instead. `None` for
     /// folder dialogs, where files open as in a normal session.
-    pub fn file_hint(&self) -> Option<&'static str> {
+    pub fn file_hint(&self, app: &crate::App) -> Option<String> {
+        let how = format!(
+            "press {} on it{}",
+            app.key_or_none("enter"),
+            if app.digits_pick("ctrl") {
+                " or Ctrl+number on its row"
+            } else {
+                ""
+            }
+        );
         match (&self.save, self.directory) {
-            (Some(_), _) => Some(
-                "Files do not open here. To save over this one, press Enter on it \
-                 or Ctrl+number on its row.",
-            ),
+            (Some(_), _) => Some(format!(
+                "Files do not open here. To save over this one, {how}."
+            )),
             (None, true) => None,
-            (None, false) => Some(
-                "Files do not open here. To choose this one, press Enter on it or \
-                 Ctrl+number on its row.",
-            ),
+            (None, false) => Some(format!(
+                "Files do not open here. To choose this one, {how}."
+            )),
         }
     }
     /// The name a save takes: the query, else the suggestion.
@@ -212,12 +233,28 @@ mod tests {
         assert_eq!(dialog.title("x"), "Save as x");
         assert_eq!(Dialog::default().save_name("x"), None);
         assert_eq!(Dialog::default().title("x"), "Query");
+        let mut app = crate::App::browse(std::env::temp_dir(), 1, Default::default());
         assert!(
             dialog
-                .hint(false)
+                .hint(false, &app)
                 .starts_with("Press ! or Ctrl+s to save page.html here.")
         );
-        assert!(dialog.hint(true).starts_with("Type a custom name"));
+        assert!(dialog.hint(true, &app).starts_with("Type a custom name"));
+        // Keys are named as configured.
+        app.key_map =
+            crate::keys::KeyMap::parse(&["ctrl+t=ctrl+s".into(), "ctrl+s=none".into()]).unwrap();
+        app.normal_keys =
+            toml::from_str::<crate::normal_keys::NormalKeysConfig>("quit_current='none'")
+                .unwrap()
+                .build()
+                .unwrap();
+        assert!(
+            dialog
+                .hint(false, &app)
+                .starts_with("Press Ctrl+t to save page.html here."),
+            "{}",
+            dialog.hint(false, &app)
+        );
         for bad in ["a/b", ".", "..", "a\nb"] {
             assert!(check_name(bad).is_err(), "{bad}");
         }

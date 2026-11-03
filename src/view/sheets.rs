@@ -6,6 +6,8 @@ use super::*;
 pub(super) struct Sheet<'a> {
     pub(super) title: String,
     pub(super) accent: Color,
+    /// Each key by its default name (`"enter"`, `"ctrl+s"`, `"up down"` for
+    /// a pair), shown as the configuration names it, with its label.
     pub(super) keys: &'a [(&'a str, &'a str)],
     pub(super) summary: Option<String>,
 }
@@ -27,6 +29,11 @@ pub(super) fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet
     // Hints must fit inside the corners: tighten separators, then leave out
     // Esc (the prose explains it), then labels, rather than clip a key.
     let rule = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+    // A key that no longer does anything is not offered.
+    let keys = keys
+        .iter()
+        .filter_map(|&(key, label)| Some((keys_named(app, key)?, label, key == "esc")))
+        .collect::<Vec<_>>();
     let room = (main.width as usize).saturating_sub(4);
     let fitting = [
         ("───", true, true),
@@ -37,7 +44,7 @@ pub(super) fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet
     .into_iter()
     .map(|(separator, escape, labels)| {
         let mut hints = vec![];
-        for (key, label) in keys.iter().filter(|(k, _)| escape || *k != "Esc") {
+        for (key, label, _) in keys.iter().filter(|(_, _, esc)| escape || !esc) {
             if !hints.is_empty() {
                 hints.push(Span::styled(separator, rule));
             }
@@ -66,6 +73,16 @@ pub(super) fn sheet(frame: &mut Frame, main: Rect, app: &App, height: u16, sheet
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
     inner
+}
+/// Keys by their default names, separated by spaces (`"up down"`), as the
+/// configuration names them: `↑↓`; `None` when one of them does nothing.
+pub(super) fn keys_named(app: &App, keys: &str) -> Option<String> {
+    let names = keys
+        .split(' ')
+        .map(|k| app.key(k))
+        .collect::<Option<Vec<_>>>()?;
+    let short = names.iter().all(|n| n.chars().count() == 1);
+    Some(names.join(if short { "" } else { " " }))
 }
 /// Word-wraps styled prose; `*key*` segments are drawn as bold keys.
 pub(super) fn prose(theme: Palette, accent: Color, text: &str, width: usize) -> Vec<Line<'static>> {
@@ -211,6 +228,7 @@ pub(super) fn delete_confirmation(
     app: &App,
     rows: &[(PathBuf, u64)],
 ) {
+    let (enter, esc) = (app.key_or_none("enter"), app.key_or_none("esc"));
     let (what, them) = if rows.len() == 1 {
         ("this entry", "it")
     } else {
@@ -223,10 +241,10 @@ pub(super) fn delete_confirmation(
         "Delete permanently",
         app.palette.error,
         &format!(
-            "Press *Enter* to permanently delete {what}, including everything inside \
-             directories. Press *Esc* to keep {them}."
+            "Press *{enter}* to permanently delete {what}, including everything inside \
+             directories. Press *{esc}* to keep {them}."
         ),
-        &[("Enter", "Delete"), ("Esc", "Cancel")],
+        &[("enter", "Delete"), ("esc", "Cancel")],
         rows,
     );
 }
@@ -238,6 +256,7 @@ pub(super) fn trash_confirmation(
     app: &App,
     plan: &crate::operations::DeletePlan,
 ) {
+    let esc = app.key_or_none("esc");
     use crate::operations::Fate;
     let rows = plan.asking();
     let one = rows.len() == 1;
@@ -258,7 +277,7 @@ pub(super) fn trash_confirmation(
         format!(
             "{} larger than {limit}; in the trash {} would keep taking up disk space for \
              {days} days. Press *d* to delete {it} permanently, *t* to move {it} to the \
-             trash anyway, or *Esc* to cancel.",
+             trash anyway, or *{esc}* to cancel.",
             if one {
                 "This entry is"
             } else {
@@ -269,7 +288,7 @@ pub(super) fn trash_confirmation(
     } else {
         format!(
             "{} cannot go to the trash ({}){}. Press *d* to delete {it} permanently, \
-             including everything inside directories, or *Esc* to cancel.",
+             including everything inside directories, or *{esc}* to cancel.",
             if one {
                 "This entry"
             } else if large {
@@ -300,10 +319,10 @@ pub(super) fn trash_confirmation(
         &[
             ("d", "Delete permanently"),
             ("t", "Trash"),
-            ("Esc", "Cancel"),
+            ("esc", "Cancel"),
         ]
     } else {
-        &[("d", "Delete permanently"), ("Esc", "Cancel")]
+        &[("d", "Delete permanently"), ("esc", "Cancel")]
     };
     listing(
         frame,
@@ -391,7 +410,7 @@ pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui
             title: format!(" {} ", job.title),
             accent: theme.marked,
             keys: if stoppable {
-                &[("Ctrl+c", "Stop")]
+                &[("ctrl+c", "Stop")]
             } else {
                 &[]
             },
@@ -412,6 +431,7 @@ pub(super) fn transfer_confirmation(
     app: &App,
     plan: &crate::operations::TransferPlan,
 ) {
+    let (enter, esc) = (app.key_or_none("enter"), app.key_or_none("esc"));
     use crate::operations::Transfer;
     let (verb, noun, label) = match plan.kind {
         Transfer::Move => ("Moving", "move", "Move"),
@@ -436,8 +456,12 @@ pub(super) fn transfer_confirmation(
             app,
             &format!("{label} here"),
             app.palette.marked,
-            &format!("Press *Enter* to {action}, or *Esc* to cancel."),
-            &[("Enter", label), ("Esc", "Cancel")],
+            &format!(
+                "Press *{}* to {action}, or *{}* to cancel.",
+                app.key_or_none("enter"),
+                app.key_or_none("esc")
+            ),
+            &[("enter", label), ("esc", "Cancel")],
             &plan.sources,
         );
         return;
@@ -450,13 +474,13 @@ pub(super) fn transfer_confirmation(
         &format!("Overwrite on {noun}"),
         app.palette.error,
         &format!(
-            "{verb} {} into {here} would overwrite {}. Press *Enter* to {noun} everything \
-             and overwrite {}, or *Esc* to cancel the whole {noun}.",
+            "{verb} {} into {here} would overwrite {}. Press *{enter}* to {noun} everything \
+             and overwrite {}, or *{esc}* to cancel the whole {noun}.",
             count(selected),
             if one { "this entry" } else { "these entries" },
             if one { "it" } else { "them" },
         ),
-        &[("Enter", "Overwrite"), ("Esc", "Cancel")],
+        &[("enter", "Overwrite"), ("esc", "Cancel")],
         &plan.overwrites,
     );
 }
@@ -479,9 +503,10 @@ pub(super) fn run_prompt(frame: &mut Frame, main: Rect, app: &App, prompt: &crat
     };
     let text = format!(
         "Type a program to run on {} in {here}; the paths are added after what you \
-         type, and {then}. *Tab* completes commands and paths. There is no shell: \
+         type, and {then}. *{}* completes commands and paths. There is no shell: \
          quote shell symbols such as | > & ; ? $ to pass them literally.",
-        these(&prompt.paths, app)
+        these(&prompt.paths, app),
+        app.key_or_none("tab"),
     );
     let width = main.width.saturating_sub(4) as usize;
     let body = prose(theme, theme.marked, &text, width);
@@ -497,7 +522,7 @@ pub(super) fn run_prompt(frame: &mut Frame, main: Rect, app: &App, prompt: &crat
         Sheet {
             title: mode_title(app, Field::Command, title),
             accent: theme.marked,
-            keys: &[("Enter", "Review"), ("Tab", "Complete"), ("Esc", "Cancel")],
+            keys: &[("enter", "Review"), ("tab", "Complete"), ("esc", "Cancel")],
             summary: Some(count(prompt.paths.len())),
         },
     );
@@ -575,8 +600,13 @@ pub(super) fn location_sheet(
     let body = prose(
         theme,
         theme.marked,
-        "Type a path, or words from a folder's path to pick one of your bookmarks or \
-         zoxide's frequent folders. *↑* *↓* choose, *Tab* completes a path, *Enter* goes.",
+        &format!(
+            "Type a path, or words from a folder's path to pick one of your bookmarks or \
+             zoxide's frequent folders. *{}* choose, *{}* completes a path, *{}* goes.",
+            keys_named(app, "up down").unwrap_or_else(|| "—".into()),
+            app.key_or_none("tab"),
+            app.key_or_none("enter"),
+        ),
         width,
     );
     let matches = location.matches();
@@ -592,10 +622,10 @@ pub(super) fn location_sheet(
             title: mode_title(app, Field::Location, "Go to directory"),
             accent: theme.marked,
             keys: &[
-                ("Enter", "Go"),
-                ("↑↓", "Choose"),
-                ("Tab", "Complete"),
-                ("Esc", "Cancel"),
+                ("enter", "Go"),
+                ("up down", "Choose"),
+                ("tab", "Complete"),
+                ("esc", "Cancel"),
             ],
             summary: (!location.places.is_empty()).then(|| count(matches.len())),
         },
@@ -711,6 +741,7 @@ pub(super) fn path_lines(
     lines
 }
 pub(super) fn run_confirmation(frame: &mut Frame, main: Rect, app: &App, plan: &crate::run::Plan) {
+    let (enter, esc) = (app.key_or_none("enter"), app.key_or_none("esc"));
     let theme = app.palette;
     let here = tilde(&plan.cwd, app.home.as_deref());
     let then = if plan.exit {
@@ -719,7 +750,7 @@ pub(super) fn run_confirmation(frame: &mut Frame, main: Rect, app: &App, plan: &
         "fff comes back when it ends"
     };
     let text = format!(
-        "Press *Enter* to run {} on {} in {here}; {then}. Press *Esc* to cancel.",
+        "Press *{enter}* to run {} on {} in {here}; {then}. Press *{esc}* to cancel.",
         plan.line,
         these(&plan.paths, app)
     );
@@ -747,7 +778,7 @@ pub(super) fn run_confirmation(frame: &mut Frame, main: Rect, app: &App, plan: &
         Sheet {
             title: format!(" {title} "),
             accent: theme.marked,
-            keys: &[("Enter", "Run"), ("Esc", "Cancel")],
+            keys: &[("enter", "Run"), ("esc", "Cancel")],
             summary: Some(count(plan.paths.len())),
         },
     );
@@ -825,7 +856,7 @@ pub(super) fn scope_choice(
             ("c", "Current"),
             ("s", "Selection"),
             ("a", "All"),
-            ("Esc", "Cancel"),
+            ("esc", "Cancel"),
         ],
     );
 }
@@ -837,6 +868,7 @@ pub(super) fn replace_choice(
     app: &App,
     replace: &crate::ui::Replace,
 ) {
+    let (enter, esc) = (app.key_or_none("enter"), app.key_or_none("esc"));
     let name = |p: &Path| safe(p.file_name().unwrap_or_default().to_string_lossy());
     let restoring = matches!(replace.then, crate::ui::Replacing::Restore(_));
     let text = match &replace.taken[..] {
@@ -852,17 +884,17 @@ pub(super) fn replace_choice(
                 ("replace it", "saving as", "go back and choose another name")
             };
             format!(
-                "*{}* already exists in {}. Press *Enter* to {replacing}, *k* to keep \
-                 both ({keeping} *{}*), or *Esc* to {back}.",
+                "*{}* already exists in {}. Press *{enter}* to {replacing}, *k* to keep \
+                 both ({keeping} *{}*), or *{esc}* to {back}.",
                 name(target),
                 tilde(folder, app.home.as_deref()),
                 name(both),
             )
         }
         taken => format!(
-            "{} entries have their places taken: {}. Press *Enter* to overwrite them \
+            "{} entries have their places taken: {}. Press *{enter}* to overwrite them \
              (they go to the trash), *k* to keep both (restoring beside them, \
-             numbered like *{}*), or *Esc* to cancel.",
+             numbered like *{}*), or *{esc}* to cancel.",
             taken.len(),
             taken
                 .iter()
@@ -883,7 +915,7 @@ pub(super) fn replace_choice(
         app,
         title,
         &text,
-        &[("Enter", replacing), ("k", "Keep both"), ("Esc", back)],
+        &[("enter", replacing), ("k", "Keep both"), ("esc", back)],
     );
 }
 pub(super) fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
@@ -897,7 +929,7 @@ pub(super) fn new_choice(frame: &mut Frame, main: Rect, app: &App) {
              You will name it next.",
             tilde(&app.cwd, app.home.as_deref()),
         ),
-        &[("f", "File"), ("d", "Directory"), ("Esc", "Cancel")],
+        &[("f", "File"), ("d", "Directory"), ("esc", "Cancel")],
     );
 }
 /// Rename, extraction and creation buffers. Rename fills the pane area; the
@@ -946,9 +978,9 @@ pub(super) fn operation_prompt(
     };
     let keys: &[(&str, &str)] = match &draft.kind {
         EditKind::Rename(_) if app.edit_view.is_some() => &[("ZZ", "Apply"), ("ZQ", "Discard")],
-        EditKind::Rename(_) => &[("Ctrl+s", "Apply"), ("Esc", "Discard")],
-        EditKind::Extract(_) => &[("Enter", "Extract"), ("Esc", "Cancel")],
-        EditKind::New(_) => &[("Enter", "Create"), ("Esc", "Cancel")],
+        EditKind::Rename(_) => &[("ctrl+s", "Apply"), ("esc", "Discard")],
+        EditKind::Extract(_) => &[("enter", "Extract"), ("esc", "Cancel")],
+        EditKind::New(_) => &[("enter", "Create"), ("esc", "Cancel")],
     };
     let body = prose(
         theme,

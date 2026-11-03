@@ -203,12 +203,15 @@ impl Default for NormalKeys {
 }
 impl NormalKeys {
     /// The sequences bound to an action, e.g. `"gg"`, joined with " / ";
-    /// arrow names are shown as arrows.
+    /// arrow names are shown as arrows, and a lone `<space>` as `Space`.
     pub fn describe(&self, action: ListAction) -> String {
         self.names
             .iter()
             .filter(|(a, _)| *a == action)
             .map(|(_, name)| {
+                if name.eq_ignore_ascii_case("<space>") {
+                    return "Space".into();
+                }
                 name.replace("<left>", "←")
                     .replace("<right>", "→")
                     .replace("<up>", "↑")

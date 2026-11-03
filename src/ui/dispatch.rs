@@ -368,7 +368,13 @@ impl Session {
             'u' => undo(app, &mut self.discovery, &mut self.focus),
             // Only in the trash: elsewhere, nothing has a place to go back to.
             'R' if !app.in_trash() => {
-                app.status = "R restores entries in the trash; Alt+t opens it".into()
+                let restore = app.sequence(ListAction::Restore).unwrap_or_default();
+                app.status = match app.either("alt+t", ListAction::Trash) {
+                    Some(trash) => {
+                        format!("{restore} restores entries in the trash; {trash} opens it")
+                    }
+                    None => format!("{restore} restores entries in the trash"),
+                };
             }
             'R' => match scope(&app.marks, current) {
                 Scope::Ready(paths) => restore(app, &mut self.discovery, &mut self.focus, paths),
@@ -429,7 +435,7 @@ impl Session {
                                 text,
                             });
                         }
-                        Err(error) => app.status = error,
+                        Err(error) => app.status = bookmark_error(app, error),
                     }
                 }
             }

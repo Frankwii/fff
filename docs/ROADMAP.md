@@ -10,34 +10,28 @@ not implemented features or commitments:
   operations usable would need rules for what a second operation may touch and
   how live-update rescans interact. Archive validation before the extraction
   prompt still runs on the interface thread.
-- Bringing back trashed entries from earlier sessions inside fff (a trash
-  view with restore), since undo lasts for the session.
-- Preview pane follow-ups: scrolling it without moving the highlight
-  (Ctrl+j scrolls down and Ctrl+k up by default), and previewing the marked
-  list's rows from the results.
-- Keys shown from the configuration (below), then live-reloaded configuration,
-  then an interactive key guide, in that order.
+- Preview pane follow-up: previewing the marked list's rows from the
+  results.
+- Live-reloaded configuration, then an interactive key guide (below), in
+  that order; keys are already shown from the configuration.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
 
-## Keys from the configuration, live reload and an interactive guide
+## Live reload and an interactive guide
 
-Three steps, each building on the one before:
+Two steps, building on keys being [shown from the
+configuration](CONFIGURATION.md#keys-on-screen) (done in 0.13.0: every hint
+and the F1 guide name keys through the active key map and `[keys.normal]`):
 
-1. **No hardcoded key names.** Hints in the interface (footers, sheet
-   borders, empty-pane hints, status messages, query-line hints) and the F1
-   guide name keys as written in the source today, so a remapped key
-   (`[keys.map]`, `[keys.normal]`, `--map-key`) is still shown by its default
-   name. Every displayed key should come from the active configuration, so
-   what the screen says is what works.
-2. **Live-reloadable configuration.** Today only the palette reloads. Once
-   keys are displayed from the configuration, the whole configuration file
-   should reload while fff runs, keymaps included, with the interface and
-   guide following at once; an invalid file keeps the previous settings and
-   says why.
-3. **An interactive F1 guide.** The key list becomes searchable: a fuzzy
+1. **Live-reloadable configuration.** Today only the palette reloads. The
+   whole configuration file should reload while fff runs, keymaps included;
+   since the screen names keys from `App`'s key map and `[keys.normal]`,
+   replacing them (and the session's copy used to translate keys) is enough
+   for the interface and guide to follow at once. An invalid file keeps the
+   previous settings and says why.
+2. **An interactive F1 guide.** The key list becomes searchable: a fuzzy
    query over both the descriptions and the mappings. Choosing an entry and
    pressing a key rebinds it, saved to the configuration file the way
    bookmarks are (preserving comments and unrelated settings), and applied

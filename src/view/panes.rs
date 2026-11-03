@@ -26,13 +26,18 @@ pub(super) fn marks_pane(
             Paragraph::new(vec![
                 Line::from(""),
                 Line::from(styled("Collect paths as you browse.", theme.muted)),
-                Line::from(styled("Space marks the highlighted entry.", theme.muted)),
+                Line::from(styled(
+                    app.sequence(crate::normal_keys::ListAction::Mark)
+                        .or_else(|| app.key("shift+space"))
+                        .map(|key| format!("{key} marks the highlighted entry."))
+                        .unwrap_or_default(),
+                    theme.muted,
+                )),
                 Line::from(""),
                 Line::from(styled(
-                    if app.returns_marks() {
-                        "Ctrl+w returns your marks."
-                    } else {
-                        "File operations act on them."
+                    match app.key("ctrl+w") {
+                        Some(key) if app.returns_marks() => format!("{key} returns your marks."),
+                        _ => "File operations act on them.".into(),
                     },
                     theme.muted,
                 )),

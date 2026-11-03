@@ -801,3 +801,14 @@ they are typed into fields; rebind Normal-mode letters in `[keys.normal]`.
 Translation applies everywhere, including choosers and prompts. Letters inside
 confirmation sheets (such as `c`/`s`/`a` in a scope choice) are fixed.
 `fff setup --check-config` reports invalid chords.
+
+### Keys on screen
+
+What the screen says is what works: the F1 guide, sheet borders, footers,
+empty-pane hints, query-line hints and status messages name every key as the
+configuration binds it. A chord mapped away is shown by the chord now mapped
+to it (`"ctrl+g" = "alt+g"` with `"alt+g" = "none"` shows `Ctrl+g` wherever
+`Alt+g` was), a `[keys.normal]` action by its configured sequence, and a key
+that no longer does anything is left out of hints (`—` in the guide). Where a
+chord and a Normal-mode action both do something, hints name the chord, or
+the sequence when the chord is unbound.

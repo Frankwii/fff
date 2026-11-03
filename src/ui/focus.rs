@@ -402,7 +402,7 @@ impl Session {
                         index: target.min(app.bookmarks.len().saturating_sub(1)),
                     };
                 }
-                Err(error) => app.status = error,
+                Err(error) => app.status = bookmark_error(app, error),
             }
         }
     }
@@ -846,7 +846,10 @@ impl Session {
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.
 fn scroll_preview(app: &mut App, down: bool) {
     if !app.preview.shown {
-        app.status = "No preview pane to scroll; Alt+v opens it".into();
+        app.status = match app.either("alt+v", crate::normal_keys::ListAction::Preview) {
+            Some(key) => format!("No preview pane to scroll; {key} opens it"),
+            None => "No preview pane to scroll".into(),
+        };
     } else if app.preview.current().is_some() {
         app.preview.scroll(down);
     }

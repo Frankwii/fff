@@ -371,6 +371,20 @@ fn notices(frame: &mut Frame, main: Rect, app: &App) {
     }
 }
 
+/// "`key` does this" for the key that does it now; nothing when none does.
+fn does(key: Option<String>, what: &str) -> Option<String> {
+    key.map(|key| format!("{key} {what}"))
+}
+/// Clauses that name keys, joined into one sentence; those of keys that do
+/// nothing are left out.
+fn sentence(start: &str, clauses: impl IntoIterator<Item = Option<String>>) -> String {
+    let clauses = clauses.into_iter().flatten().collect::<Vec<_>>();
+    match (start.is_empty(), clauses.is_empty()) {
+        (_, true) => format!("{start}."),
+        (true, false) => format!("{}.", clauses.join(", ")),
+        (false, false) => format!("{start}: {}.", clauses.join(", ")),
+    }
+}
 /// `~` for the home directory, presentation only.
 fn tilde(path: &Path, home: Option<&Path>) -> String {
     match home.and_then(|h| path.strip_prefix(h).ok()) {
@@ -482,7 +496,11 @@ fn location_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     }
     // Leading spaces align the pinned list with the path rather than "@".
     let mut second = vec![Span::raw("    ")];
-    second.extend(fit_spans(pinned, width.saturating_sub(4)));
+    second.extend(fit_spans(
+        pinned,
+        width.saturating_sub(4),
+        app.key("f1").as_deref(),
+    ));
     vec![Line::from(first), Line::from(second)]
 }
 
@@ -517,8 +535,13 @@ fn root_name(root: &Path) -> String {
         .unwrap_or_else(|| safe(root.display().to_string()))
 }
 
-/// Keep whole root names that fit, then summarize the rest as `  +N (F1)`.
-fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
+/// Keep whole root names that fit, then summarize the rest as `  +N (F1)`,
+/// naming `guide`, the key that shows them all.
+fn fit_spans(spans: Vec<Span<'static>>, width: usize, guide: Option<&str>) -> Vec<Span<'static>> {
+    let summary = |n: usize| match guide {
+        Some(key) => format!("  +{n} ({key})"),
+        None => format!("  +{n}"),
+    };
     let total = spans.iter().map(|s| s.width()).sum::<usize>();
     if total <= width {
         return spans;
@@ -528,9 +551,9 @@ fn fit_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
     let mut kept = vec![spans[0].clone()];
     let mut used = spans[0].width();
     for (shown, pair) in spans[1..].chunks(2).enumerate() {
-        let more = format!("  +{} (F1)", roots - shown);
+        let more = summary(roots - shown);
         let pair_width = pair.iter().map(|s| s.width()).sum::<usize>();
-        if used + pair_width + format!("  +{} (F1)", roots - shown - 1).width() > width {
+        if used + pair_width + summary(roots - shown - 1).width() > width {
             kept.push(Span::styled(
                 elide(&more, width.saturating_sub(used)),
                 spans[0].style,
@@ -627,7 +650,7 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let (mut line, cursor) = editable_line(app, Field::Query, &app.query, 0, available);
     if app.query.is_empty() {
         let hint = match &app.dialog {
-            Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal())),
+            Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal()), app),
             None => "type to filter names…".into(),
         };
         line = Line::from(styled(hint, theme.muted));

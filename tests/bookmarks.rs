@@ -256,7 +256,7 @@ fn unrelated_disk_edits_merge_but_changed_bookmarks_require_reload() {
     let external = "[[bookmarks]]\nname='external'\npath='/external'\n";
     fs::write(f.path(), external).unwrap();
     let error = store.commit(&next, &Change::Remove(0)).unwrap_err();
-    assert!(error.contains("Alt+r"));
+    assert_eq!(error, fuzzy_file_finder::bookmarks::CHANGED);
     assert_eq!(fs::read_to_string(f.path()).unwrap(), external);
     let refreshed = store.reload().unwrap();
     assert_eq!(refreshed[0].name, "external");

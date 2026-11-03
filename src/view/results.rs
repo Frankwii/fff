@@ -57,35 +57,75 @@ pub(super) fn results_pane(
         area,
     );
     if visible.is_empty() {
+        use crate::normal_keys::ListAction;
+        let deeper = || {
+            does(
+                app.either("alt+right", ListAction::Deeper),
+                "searches deeper",
+            )
+        };
         let (title, hint) = if app.scanning {
             (
                 "Discovering files…",
-                "You can keep typing while the scan runs.",
+                "You can keep typing while the scan runs.".to_string(),
             )
         } else if app.no_dir && app.query.is_empty() {
             (
                 "No files here",
-                "Alt+→ searches deeper. Ctrl+c leaves without a selection.",
+                [
+                    deeper(),
+                    does(app.key("ctrl+c"), "leaves without a selection"),
+                ]
+                .into_iter()
+                .flatten()
+                .map(|clause| format!("{clause}. "))
+                .collect::<String>()
+                .trim_end()
+                .to_string(),
             )
         } else if app.kinds == crate::Kinds::Files && app.query.is_empty() {
             (
                 "No files here",
-                "Directories are hidden: Alt+d shows them, Alt+→ searches deeper.",
+                sentence(
+                    "Directories are hidden",
+                    [
+                        does(app.either("alt+d", ListAction::Directories), "shows them"),
+                        deeper(),
+                    ],
+                ),
             )
         } else if app.kinds == crate::Kinds::Directories && app.query.is_empty() {
             (
                 "No folders here",
-                "Files are hidden: Alt+D shows them, Alt+→ searches deeper.",
+                sentence(
+                    "Files are hidden",
+                    [
+                        does(app.either("alt+D", ListAction::Files), "shows them"),
+                        deeper(),
+                    ],
+                ),
             )
         } else if app.physical_empty {
             (
                 "Empty directory",
-                "Enter returns this directory. Alt+h goes up.",
+                [
+                    does(app.key("enter"), "returns this directory"),
+                    does(app.either("alt+h", ListAction::Left), "goes up"),
+                ]
+                .into_iter()
+                .flatten()
+                .map(|clause| format!("{clause}. "))
+                .collect::<String>()
+                .trim_end()
+                .to_string(),
             )
         } else {
             (
                 "No matching results",
-                "Change the query, or press Esc to clear it.",
+                match app.key("esc") {
+                    Some(esc) => format!("Change the query, or press {esc} to clear it."),
+                    None => "Change the query.".into(),
+                },
             )
         };
         frame.render_widget(

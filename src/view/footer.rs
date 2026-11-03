@@ -12,14 +12,22 @@ pub(super) fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
     };
     // How to leave; q is text while typing.
     let typing = app.edit_view.as_ref().is_some_and(|v| !v.normal());
-    let quit = if typing { "Ctrl+c" } else { "q" };
-    let help = vec![
-        bold("F1", theme.accent),
-        styled(" keys ", theme.muted),
-        Span::raw(" "),
-        bold(quit, theme.accent),
-        styled(" quit ", theme.muted),
-    ];
+    let quit = if typing {
+        app.key("ctrl+c")
+    } else {
+        app.sequence(crate::normal_keys::ListAction::Quit)
+            .or_else(|| app.key("ctrl+c"))
+    };
+    let mut help = vec![];
+    for (key, what) in [(app.key("f1"), " keys "), (quit, " quit ")] {
+        if let Some(key) = key {
+            if !help.is_empty() {
+                help.push(Span::raw(" "));
+            }
+            help.push(bold(key, theme.accent));
+            help.push(styled(what, theme.muted));
+        }
+    }
     let help_width = help.iter().map(|s| s.width()).sum::<usize>();
     let available = (area.width as usize).saturating_sub(help_width + 2);
     let mut spans = if app.status.is_empty() {

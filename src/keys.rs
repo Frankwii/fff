@@ -1,7 +1,9 @@
 //! Invocation-time key remapping. Targets use the documented default key names.
+//! The interface names keys through `name`, so that a remapped chord is
+//! shown as the key that now does its work.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct KeyMap(Vec<(KeyEvent, Option<KeyEvent>)>);
 impl KeyMap {
     pub fn parse(rules: &[String]) -> Result<Self, String> {
@@ -40,6 +42,73 @@ impl KeyMap {
             })
             .unwrap_or(Some(key))
     }
+    /// The key doing what the default chord `default` (named as a target,
+    /// such as `"alt+v"`) does: itself while it is not remapped, else the
+    /// first chord mapped to it; `None` when no key does.
+    pub fn chord(&self, default: &str) -> Option<KeyEvent> {
+        let target = parse_key(default).ok()?;
+        if self.keeps(default) {
+            return Some(target);
+        }
+        let does = |key: KeyEvent| self.translate(key).is_some_and(|k| same_chord(k, target));
+        self.0
+            .iter()
+            .map(|(from, _)| *from)
+            .find(|&from| does(from))
+    }
+    /// Whether the default chord `default` still does its own work.
+    pub fn keeps(&self, default: &str) -> bool {
+        parse_key(default).is_ok_and(|target| {
+            self.translate(target)
+                .is_some_and(|k| same_chord(k, target))
+        })
+    }
+    /// `chord`, as the interface names it: `Alt+v`, `Ctrl+j`, `Enter`.
+    /// What is not a chord (Neovim's `ZZ`) is named as written: no key map
+    /// changes it.
+    pub fn name(&self, default: &str) -> Option<String> {
+        match parse_key(default) {
+            Ok(_) => self.chord(default).map(display),
+            Err(_) => Some(default.into()),
+        }
+    }
+}
+/// A chord as the interface names it: `Ctrl+`, `Alt+` and `Shift+` (not for
+/// an uppercase letter, which says it), then the key: `Space`, `Enter`,
+/// `Esc`, `Tab`, arrows as `←` `→` `↑` `↓`, `PgUp`, `PgDn`, `F1`.
+pub fn display(key: KeyEvent) -> String {
+    let mut name = String::new();
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        name += "Ctrl+";
+    }
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        name += "Alt+";
+    }
+    let letter = matches!(key.code, KeyCode::Char(c) if c.is_alphabetic());
+    if key.modifiers.contains(KeyModifiers::SHIFT) && !letter {
+        name += "Shift+";
+    }
+    match key.code {
+        KeyCode::Char(' ') => name += "Space",
+        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            name.extend(c.to_uppercase())
+        }
+        KeyCode::Char(c) => name.push(c),
+        KeyCode::Enter => name += "Enter",
+        KeyCode::Esc => name += "Esc",
+        KeyCode::Tab => name += "Tab",
+        KeyCode::BackTab => name += "Shift+Tab",
+        KeyCode::Backspace => name += "Backspace",
+        KeyCode::Left => name += "←",
+        KeyCode::Right => name += "→",
+        KeyCode::Up => name += "↑",
+        KeyCode::Down => name += "↓",
+        KeyCode::PageUp => name += "PgUp",
+        KeyCode::PageDown => name += "PgDn",
+        KeyCode::F(n) => name += &format!("F{n}"),
+        code => name += &format!("{code:?}"),
+    }
+    name
 }
 /// Kitty-protocol terminals report Alt+Shift+p as `p` with SHIFT, legacy ones as
 /// `P`; both spellings name the same chord.
@@ -98,4 +167,37 @@ fn parse_key(name: &str) -> Result<KeyEvent, String> {
         modifiers |= KeyModifiers::SHIFT;
     }
     Ok(KeyEvent::new(code, modifiers))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn keys_are_named_as_what_now_does_their_work() {
+        let map = KeyMap::default();
+        assert_eq!(map.name("alt+v").as_deref(), Some("Alt+v"));
+        assert_eq!(map.name("alt+P").as_deref(), Some("Alt+P"));
+        assert_eq!(map.name("shift+space").as_deref(), Some("Shift+Space"));
+        assert_eq!(map.name("alt+right").as_deref(), Some("Alt+→"));
+        assert_eq!(map.name("pagedown").as_deref(), Some("PgDn"));
+        assert_eq!(map.name("ctrl+j").as_deref(), Some("Ctrl+j"));
+        // A chord mapped elsewhere is named by the chord now mapped to it.
+        let map = KeyMap::parse(&["ctrl+t=alt+v".into(), "alt+v=none".into()]).unwrap();
+        assert_eq!(map.name("alt+v").as_deref(), Some("Ctrl+t"));
+        // Still working itself, it keeps its own name.
+        let map = KeyMap::parse(&["ctrl+t=alt+v".into()]).unwrap();
+        assert_eq!(map.name("alt+v").as_deref(), Some("Alt+v"));
+        // Nothing does it any more.
+        let map = KeyMap::parse(&["alt+v=alt+b".into()]).unwrap();
+        assert_eq!(map.name("alt+v"), None);
+        assert_eq!(map.name("alt+b").as_deref(), Some("Alt+b"));
+        // The last rule for a chord wins, as when translating.
+        let map = KeyMap::parse(&[
+            "ctrl+t=alt+v".into(),
+            "ctrl+t=none".into(),
+            "alt+v=none".into(),
+        ])
+        .unwrap();
+        assert_eq!(map.name("alt+v"), None);
+    }
 }

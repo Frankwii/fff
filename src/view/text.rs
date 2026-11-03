@@ -180,12 +180,24 @@ pub(super) fn prompt(
         if modal {
             format!("{what}; write saves; close discards")
         } else {
-            format!("{what}; Ctrl+s saves; Esc discards")
+            format!(
+                "{what}; {} saves; {} discards",
+                app.key_or_none("ctrl+s"),
+                app.key_or_none("esc")
+            )
         }
     } else if modal {
-        "Location · Enter navigates · Esc normal / cancel".into()
+        format!(
+            "Location · {} navigates · {} normal / cancel",
+            app.key_or_none("enter"),
+            app.key_or_none("esc")
+        )
     } else {
-        "Location (Enter navigates, Esc cancels)".into()
+        format!(
+            "Location ({} navigates, {} cancels)",
+            app.key_or_none("enter"),
+            app.key_or_none("esc")
+        )
     };
     frame.render_widget(
         Paragraph::new(styled(hint, theme.muted)).wrap(Wrap { trim: false }),

@@ -127,6 +127,11 @@ Where a change usually has to touch, so that none is missed:
 - **A key in the results** (Alt, Ctrl or a named key): its arm in
   `results_key` (`src/ui/focus.rs`), the F1 guide (`src/view/guide.rs`), the
   README key table, and a PTY test.
+- **A key named on screen** (hints, sheets, messages, the guide): never as a
+  literal. Name a chord by its default name through `App::key("alt+v")` (the
+  key map may have moved it; `None` when no key does it), a Normal-mode
+  action through `App::sequence`, or both through `App::either`; sheet hints
+  take default names (`("enter", "Delete")`) and `sheet` names them.
 - **A Normal-mode action** (plain letters, configurable): a `ListAction`
   variant with its default sequence and `[keys.normal]` name in
   `src/normal_keys.rs`; the focuses offering it in `list_actions`

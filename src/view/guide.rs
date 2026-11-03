@@ -19,14 +19,21 @@ pub(super) fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize,
             Span::raw(" "),
         ]))
         .title_bottom(
-            Line::from(vec![
-                bold(" Tab", theme.accent),
-                styled(" switches  ", theme.muted),
-                bold("↑↓", theme.accent),
-                styled(" scroll  ", theme.muted),
-                bold("Esc", theme.accent),
-                styled(" closes ", theme.muted),
-            ])
+            Line::from(
+                [
+                    (app.key("tab"), " switches  "),
+                    (keys_named(app, "up down"), " scroll  "),
+                    (app.key("esc"), " closes "),
+                ]
+                .into_iter()
+                .filter_map(|(key, what)| {
+                    Some([bold(key?, theme.accent), styled(what, theme.muted)])
+                })
+                .fold(vec![Span::raw(" ")], |mut spans, pair| {
+                    spans.extend(pair);
+                    spans
+                }),
+            )
             .right_aligned(),
         )
         .padding(Padding::new(2, 2, 1, 0));
@@ -46,25 +53,51 @@ pub(super) fn info(frame: &mut Frame, area: Rect, app: &App, offset: &mut usize,
 }
 
 /// A titled group of (keys, description, needs navigation) rows in the F1 guide.
-pub(super) type GuideSection = (&'static str, Vec<(String, &'static str, bool)>);
-/// Every binding, grouped. Navigation keys are dimmed in `fff seek`, and the
-/// Normal-mode section shows the configured `[keys.normal]` sequences.
+pub(super) type GuideSection = (&'static str, Vec<(String, String, bool)>);
+/// Every binding, grouped, each key named as the configuration binds it:
+/// `[keys.map]` chords by the key that now does their work, `[keys.normal]`
+/// sequences as configured. Navigation keys are dimmed in `fff seek`.
 pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
     use crate::normal_keys::ListAction::*;
     let theme = app.palette;
-    let normal = |action| {
-        let keys = app.normal_keys.describe(action);
-        if keys.is_empty() { "—".into() } else { keys }
+    let normal = |action| app.sequence(action).unwrap_or_else(|| "—".into());
+    // Chords by their default names ("up down" for a pair drawn together);
+    // those no key does are left out.
+    let keys = |names: &[&str]| {
+        let named = names
+            .iter()
+            .filter_map(|n| keys_named(app, n))
+            .collect::<Vec<_>>();
+        if named.is_empty() {
+            "—".to_string()
+        } else {
+            named.join("  ")
+        }
     };
-    // (keys, description, needs navigation)
+    let key = |name: &str| app.key_or_none(name);
+    let digits = |modifier: &str, name: &str| {
+        if app.digits_pick(modifier) {
+            format!("{name}+1…9 {name}+0")
+        } else {
+            "—".into()
+        }
+    };
+    let row = |keys: String, description: &str, navigation: bool| {
+        (keys, description.to_string(), navigation)
+    };
+    let note = |description: &str| (String::new(), description.to_string(), false);
     let sections: Vec<GuideSection> = vec![
         (
             "Navigate",
             vec![
-                ("↑↓  Alt+k Alt+j".into(), "move the highlight", false),
-                ("PgUp PgDn".into(), "previous / next page", false),
-                (
-                    "Enter".into(),
+                row(
+                    keys(&["up down", "alt+k", "alt+j"]),
+                    "move the highlight",
+                    false,
+                ),
+                row(keys(&["pageup", "pagedown"]), "previous / next page", false),
+                row(
+                    key("enter"),
                     if app.window {
                         "Normal: open file and leave; enter dir"
                     } else {
@@ -72,31 +105,27 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     },
                     false,
                 ),
-                (
-                    String::new(),
-                    "typing: open dir, reveal / return file",
-                    false,
-                ),
-                (
-                    "Alt+l".into(),
+                note("typing: open dir, reveal / return file"),
+                row(
+                    key("alt+l"),
                     "enter directory, or open file in background",
                     true,
                 ),
-                ("Alt+h".into(), "parent directory, keeping query", true),
-                (
-                    "Alt+g".into(),
+                row(key("alt+h"), "parent directory, keeping query", true),
+                row(
+                    key("alt+g"),
                     "go to a path, bookmark or zoxide folder",
                     true,
                 ),
-                (
-                    "Ctrl+o  Ctrl+i".into(),
+                row(
+                    keys(&["ctrl+o", "ctrl+i"]),
                     "back / forward through visited folders",
                     true,
                 ),
-                ("Alt+b".into(), "open a bookmark", true),
-                ("Alt+t".into(), "open the trash; again, the next one", true),
-                (
-                    "Alt+↑  Alt+↓".into(),
+                row(key("alt+b"), "open a bookmark", true),
+                row(key("alt+t"), "open the trash; again, the next one", true),
+                row(
+                    keys(&["alt+up", "alt+down"]),
                     "next / previous of 3 tabs; marks shared",
                     true,
                 ),
@@ -105,95 +134,116 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
         (
             "Select and return",
             vec![
-                ("Shift+Space".into(), "mark / unmark, then move down", false),
-                ("Alt+Space".into(), "focus the marked list", false),
-                ("Ctrl+w".into(), "return the marked paths (fff pick)", false),
-                ("Alt+1…9 Alt+0".into(), "like Alt+l on row n", false),
-                ("Ctrl+1…9 Ctrl+0".into(), "like Enter on row n", false),
-                (String::new(), "0 is the last visible row", false),
-                ("Ctrl+c".into(), "quit without returning anything", false),
+                row(key("shift+space"), "mark / unmark, then move down", false),
+                row(key("alt+space"), "focus the marked list", false),
+                row(key("ctrl+w"), "return the marked paths (fff pick)", false),
+                row(
+                    digits("alt", "Alt"),
+                    &format!("like {} on row n", key("alt+l")),
+                    false,
+                ),
+                row(
+                    digits("ctrl", "Ctrl"),
+                    &format!("like {} on row n", key("enter")),
+                    false,
+                ),
+                note("0 is the last visible row"),
+                row(key("ctrl+c"), "quit without returning anything", false),
             ],
         ),
         (
             "Search",
             vec![
-                ("type".into(), "fuzzy-filter names; with /, paths", false),
-                ("Esc".into(), "leave Insert, then clear query", false),
-                ("Esc Esc".into(), "with no query: clear the marks", false),
-                ("Alt+← Alt+→".into(), "search shallower / deeper", false),
-                ("Alt+.".into(), "show / hide hidden entries", false),
-                ("Alt+d".into(), "hide / show directories", true),
-                ("Alt+D".into(), "hide / show files", true),
-                ("Alt+v".into(), "show / hide the preview pane", false),
-                (
-                    "Ctrl+j  Ctrl+k".into(),
+                row("type".into(), "fuzzy-filter names; with /, paths", false),
+                row(key("esc"), "leave Insert, then clear query", false),
+                row(
+                    app.key("esc")
+                        .map_or_else(|| "—".into(), |esc| format!("{esc} {esc}")),
+                    "with no query: clear the marks",
+                    false,
+                ),
+                row(
+                    keys(&["alt+left", "alt+right"]),
+                    "search shallower / deeper",
+                    false,
+                ),
+                row(key("alt+."), "show / hide hidden entries", false),
+                row(key("alt+d"), "hide / show directories", true),
+                row(key("alt+D"), "hide / show files", true),
+                row(key("alt+v"), "show / hide the preview pane", false),
+                row(
+                    keys(&["ctrl+j", "ctrl+k"]),
                     "scroll the preview down / up",
                     false,
                 ),
-                (
+                row(
                     [Move, Copy, Link].map(normal).join(" / "),
                     "move / copy / symlink selected (Normal)",
                     false,
                 ),
-                (
+                row(
                     [Delete, Rename, Extract, New].map(normal).join(" / "),
                     "trash, rename, extract, new (Normal)",
                     false,
                 ),
-                ("F5".into(), "rescan, bypassing the cache", false),
+                row(key("f5"), "rescan, bypassing the cache", false),
             ],
         ),
         (
             "Exclusions and filters",
             vec![
-                ("Alt+e".into(), "edit exclusions, one glob per line", false),
-                (String::new(), "matching entries and subtrees hidden", false),
-                (String::new(), "by name or scope-relative path", false),
-                ("Alt+H".into(), "enforce exclusions on / off", false),
-                (
-                    "Alt+f".into(),
-                    "edit file filters, one glob per line",
-                    false,
-                ),
-                (String::new(), "only files whose name matches one", false),
-                (String::new(), "are listed; empty lists every file", false),
-                ("ZZ".into(), "apply", false),
-                ("ZQ".into(), "discard", false),
-                (String::new(), "ZZ/ZQ also apply/discard renames", false),
+                row(key("alt+e"), "edit exclusions, one glob per line", false),
+                note("matching entries and subtrees hidden"),
+                note("by name or scope-relative path"),
+                row(key("alt+H"), "enforce exclusions on / off", false),
+                row(key("alt+f"), "edit file filters, one glob per line", false),
+                note("only files whose name matches one"),
+                note("are listed; empty lists every file"),
+                row("ZZ".into(), "apply", false),
+                row("ZQ".into(), "discard", false),
+                note("ZZ/ZQ also apply/discard renames"),
             ],
         ),
         (
             "Normal mode in lists",
             vec![
-                (normal(Down) + "  " + &normal(Up), "move down / up", false),
-                (normal(Left), "parent directory, like Alt+h", true),
-                (
-                    normal(Right),
-                    "enter directory / open file, like Alt+l",
+                row(normal(Down) + "  " + &normal(Up), "move down / up", false),
+                row(
+                    normal(Left),
+                    &format!("parent directory, like {}", key("alt+h")),
                     true,
                 ),
-                (
+                row(
+                    normal(Right),
+                    &format!("enter directory / open file, like {}", key("alt+l")),
+                    true,
+                ),
+                row(
                     normal(Open),
                     "open current / marked files here, come back",
                     false,
                 ),
-                (
+                row(
                     normal(First) + "  " + &normal(Last),
                     "first / last row",
                     false,
                 ),
-                (normal(Mark), "mark / unmark, like Shift+Space", false),
-                (
+                row(
+                    normal(Mark),
+                    &format!("mark / unmark, like {}", key("shift+space")),
+                    false,
+                ),
+                row(
                     normal(MarkAll) + "  " + &normal(InvertMarks),
                     "mark all listed / invert their marks",
                     false,
                 ),
-                (
+                row(
                     normal(Shallower) + "  " + &normal(Deeper),
                     "search shallower / deeper",
                     false,
                 ),
-                (
+                row(
                     if app.normal_keys.depth_digits {
                         "1…9".into()
                     } else {
@@ -202,19 +252,19 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     "search to depth n (results)",
                     false,
                 ),
-                (normal(Hidden), "show / hide hidden entries", false),
-                (normal(Directories), "hide / show directories", true),
-                (normal(Files), "hide / show files", true),
-                (normal(Preview), "show / hide the preview pane", false),
-                (normal(GoTo), "go to a path, bookmark or zoxide", true),
-                (normal(Bookmarks), "open a bookmark", true),
-                (
+                row(normal(Hidden), "show / hide hidden entries", false),
+                row(normal(Directories), "hide / show directories", true),
+                row(normal(Files), "hide / show files", true),
+                row(normal(Preview), "show / hide the preview pane", false),
+                row(normal(GoTo), "go to a path, bookmark or zoxide", true),
+                row(normal(Bookmarks), "open a bookmark", true),
+                row(
                     normal(NextTab) + "  " + &normal(PrevTab),
                     "next / previous tab",
                     true,
                 ),
-                (normal(Quit), "exit, choosing nothing", true),
-                (
+                row(normal(Quit), "exit, choosing nothing", true),
+                row(
                     normal(QuitCurrent),
                     if app.window {
                         "exit into a shell in this directory"
@@ -223,72 +273,99 @@ pub(super) fn key_guide(app: &App, width: usize) -> Vec<Line<'static>> {
                     },
                     true,
                 ),
-                (
+                row(
                     normal(Run),
                     "run a program on current / marked, come back",
                     true,
                 ),
-                (
+                row(
                     normal(RunExit),
                     "run a program on current / marked, exit",
                     true,
                 ),
-                (
+                row(
                     normal(Edit),
                     "open current / marked in $EDITOR, come back",
                     true,
                 ),
-                (
+                row(
                     normal(DeletePermanently),
                     "delete current / marked permanently",
                     false,
                 ),
-                (normal(Undo), "undo the last file operation", false),
-                (normal(Trash), "open the trash, like Alt+t", true),
-                (
+                row(normal(Undo), "undo the last file operation", false),
+                row(
+                    normal(Trash),
+                    &format!("open the trash, like {}", key("alt+t")),
+                    true,
+                ),
+                row(
                     normal(Restore),
                     "in the trash: restore current / marked",
                     false,
                 ),
-                ("i  a".into(), "enter Insert mode", false),
+                row("i  a".into(), "enter Insert mode", false),
             ],
         ),
         (
             "Look",
             vec![
-                ("Alt+p".into(), "choose palette (100 ms preview)", false),
-                ("Alt+P".into(), "reload palette from config", false),
-                ("F1".into(), "this guide · Tab: session", false),
+                row(key("alt+p"), "choose palette (100 ms preview)", false),
+                row(key("alt+P"), "reload palette from config", false),
+                row(
+                    key("f1"),
+                    &format!("this guide · {}: session", key("tab")),
+                    false,
+                ),
             ],
         ),
         (
             "Bookmarks",
             vec![
-                ("Alt+1…9 Alt+0".into(), "open visible bookmark / last", true),
-                (
+                row(digits("alt", "Alt"), "open visible bookmark / last", true),
+                row(
                     "n / e / d / r".into(),
-                    "new / edit / delete / reload (Normal, else Alt+)",
+                    if ["alt+n", "alt+e", "alt+d", "alt+r"]
+                        .iter()
+                        .all(|k| app.key_map.keeps(k))
+                    {
+                        "new / edit / delete / reload (Normal, else Alt+)"
+                    } else {
+                        "new / edit / delete / reload (Normal)"
+                    },
                     true,
                 ),
-                ("↑ / ↓".into(), "move highlighted bookmark", true),
-                (
-                    "Tab / Shift+Tab".into(),
+                row(
+                    [key("up"), key("down")].join(" / "),
+                    "move highlighted bookmark",
+                    true,
+                ),
+                row(
+                    format!("{} / Shift+Tab", key("tab")),
                     "switch bookmark form fields",
                     true,
                 ),
-                ("Space".into(), "choose icon on the icon row", true),
-                ("Enter / Esc".into(), "save / cancel bookmark form", true),
+                row("Space".into(), "choose icon on the icon row", true),
+                row(
+                    [key("enter"), key("esc")].join(" / "),
+                    "save / cancel bookmark form",
+                    true,
+                ),
             ],
         ),
         (
             "Mouse",
             vec![
-                ("click".into(), "highlight, clearing marks", false),
-                ("double click".into(), "like Alt+l", true),
-                ("drag".into(), "mark the rows it spans", false),
-                ("wheel".into(), "scroll the results", false),
-                ("click 1 2 3".into(), "switch to that tab", true),
-                ("drop files".into(), "copy them here (Normal)", true),
+                row("click".into(), "highlight, clearing marks", false),
+                row(
+                    "double click".into(),
+                    &format!("like {}", key("alt+l")),
+                    true,
+                ),
+                row("drag".into(), "mark the rows it spans", false),
+                row("wheel".into(), "scroll the results", false),
+                row("click 1 2 3".into(), "switch to that tab", true),
+                row("drop files".into(), "copy them here (Normal)", true),
             ],
         ),
     ];

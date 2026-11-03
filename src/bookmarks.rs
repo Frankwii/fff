@@ -10,6 +10,10 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item, Table, TableLike, Value};
 
+/// A write refused because the file's bookmarks changed meanwhile; the
+/// session adds how to reload them.
+pub const CHANGED: &str = "Bookmarks changed on disk; cancel this edit and reload them";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditField {
     Name,
@@ -183,9 +187,7 @@ impl Store {
             self.home.as_deref(),
         )?;
         if on_disk != self.expected || current != self.expected {
-            return Err(
-                "Bookmarks changed on disk; cancel this edit and use Alt+r to reload".into(),
-            );
+            return Err(CHANGED.into());
         }
         let mut document: DocumentMut = text
             .parse()

@@ -26,8 +26,8 @@ pub enum ScopedAction {
 /// terminal opener in a new terminal window), while fff keeps the keyboard.
 pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
     // Open and save dialogs choose files rather than opening them.
-    if let Some(hint) = app.dialog.as_ref().and_then(|d| d.file_hint()) {
-        app.status = hint.into();
+    if let Some(hint) = app.dialog.as_ref().and_then(|d| d.file_hint(app)) {
+        app.status = hint;
         return;
     }
     let name = path
@@ -150,9 +150,10 @@ pub(super) fn select_returns_marks(app: &App) -> bool {
 /// why. `None` when fff stays.
 pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
     if !app.returns_marks() {
-        app.status = "Ctrl+w returns the marks only where several paths can be chosen, as in \
-                      fff pick"
-            .into();
+        app.status = format!(
+            "{} returns the marks only where several paths can be chosen, as in fff pick",
+            app.key_or_none("ctrl+w")
+        );
         return None;
     }
     app.confirm(None).map(Finish::Paths)
@@ -175,8 +176,9 @@ pub(super) fn save_as(app: &mut App, focus: &mut Focus, target: PathBuf) -> Opti
         Err(_) => Some(Finish::Paths(vec![target])),
         Ok(meta) if meta.is_dir() => {
             app.status = format!(
-                "{} is a folder; Enter goes into it",
-                target.file_name().unwrap_or_default().to_string_lossy()
+                "{} is a folder; {} goes into it",
+                target.file_name().unwrap_or_default().to_string_lossy(),
+                app.key_or_none("enter")
             );
             None
         }
@@ -202,10 +204,19 @@ pub(super) fn open_here(
     paths: Vec<PathBuf>,
 ) -> io::Result<()> {
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
-        app.status = format!(
-            "o opens files, not directories like {}; l enters it",
-            dir.file_name().unwrap_or_default().to_string_lossy()
-        );
+        use crate::normal_keys::ListAction;
+        let name = dir.file_name().unwrap_or_default().to_string_lossy();
+        app.status = match (
+            app.sequence(ListAction::Open),
+            app.either("alt+l", ListAction::Right),
+        ) {
+            (Some(open), Some(enter)) => {
+                format!("{open} opens files, not directories like {name}; {enter} enters it")
+            }
+            (Some(open), None) => format!("{open} opens files, not directories like {name}"),
+            (None, Some(enter)) => format!("{name} is a directory; {enter} enters it"),
+            (None, None) => format!("{name} is a directory"),
+        };
         return Ok(());
     }
     let mut groups: Vec<(String, Vec<PathBuf>)> = vec![];
@@ -386,7 +397,18 @@ pub(super) fn save_bookmark(app: &mut App, focus: &mut Focus) {
                 index,
             };
         }
-        Err(error) => app.status = error,
+        Err(error) => app.status = bookmark_error(app, error),
+    }
+}
+/// A refused bookmark write's message; when the file changed meanwhile, it
+/// names the chooser's reload key (r in Normal mode, else its Alt chord).
+pub(super) fn bookmark_error(app: &App, error: String) -> String {
+    if error != crate::bookmarks::CHANGED {
+        return error;
+    }
+    match app.key("alt+r") {
+        Some(alt) => format!("{error} (r, or {alt} while typing)"),
+        None => format!("{error} (r in Normal mode)"),
     }
 }
 /// Apply the exclusion (Alt+e) or file filter (Alt+f) editor: one glob per line.
