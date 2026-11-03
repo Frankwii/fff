@@ -119,7 +119,7 @@ fn documented_keys_example_is_valid() {
     use fuzzy_file_finder::keymap::{Function, Keymap, Mode};
     let keymap = Keymap::parse(include_str!("../docs/keys.example.toml")).unwrap();
     assert_eq!(keymap.of(Function::Quit, Mode::Normal)[0].display(), "Q");
-    assert_eq!(keymap.of(Function::GoToDirectory, Mode::Normal).len(), 3);
+    assert_eq!(keymap.of(Function::GoToHighlighted, Mode::Normal).len(), 4);
 }
 #[test]
 fn documented_example_is_valid() {

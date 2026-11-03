@@ -781,13 +781,14 @@ class TerminalTests(unittest.TestCase):
         # Typing searches, and your own keys move: Alt+j while typing.
         s.send(b"mark", "❯ mark")
         s.send(b"\x1bj", "mark_all")
-        # Tab records keys instead of typing them.
-        s.send(b"\t", "RECORDING")
-        s.send(b"\x1b ", "marked_list")  # Alt+Space
-        s.send(b"\x1b[27u", "Keys · INSERT")
         # Escape leaves Insert, then clears the query; it never closes.
         s.send(b"\x1b[27u", "Keys · NORMAL")
-        s.send(b"\x1b[27u", "type to find a function")
+        s.send(b"\x1b[27u", "type a function's name")
+        # In Normal mode, r and a key writes the key's name: what it does.
+        s.send(b"r", "press the key to search")
+        s.send(b"\x1b ", "What Alt+Space does")  # Alt+Space
+        self.assertIn("toggle_marked_list", s.screen.text)
+        s.send(b"\x1b[27u", "type a function's name")
         s.send(b"\x1bOQ", "CURRENT DIRECTORY")  # F2
         s.send(b"\x1bOP", "showing what works")
         s.send(b"\x1bOP", "F1 keys")  # F1 again closes
@@ -822,16 +823,17 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1bOP", "showing what works")
             s.send(b"hidden", "❯ hidden")
             s.send(b"\r", "Keys of toggle_hidden")
-            # a, then Normal mode below Insert mode; q is quit's, so where
-            # it applies opens.
-            s.send(b"aj q\r", "is already quit's key")
+            # n and a key: where it applies opens, Normal mode only for a
+            # letter; q is quit's there, so saying where it applies clashes.
+            s.send(b"nq\r", "Where q applies")
+            self.assertIn("is already quit's key", s.screen.text)
             s.send(b"t", "taken from the others")
             self.assertFalse(keys.exists())  # staged until Enter
             s.send(b"\r", "Keys saved to")
             self.assertIn('toggle_hidden = [".", "q"]', keys.read_text())
             # Removing every key of guide would leave nothing to open this.
             s.send(b"\x1b[27u", "Keys · NORMAL")
-            s.send(b"\x1b[27u", "type to find a function")
+            s.send(b"\x1b[27u", "type a function's name")
             s.send(b"ishow_keys", "❯ show_keys")
             s.send(b"\r", "Keys of show_keys")
             s.send(b"dd")

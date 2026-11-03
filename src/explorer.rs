@@ -85,7 +85,7 @@ impl Dialog {
         let here = if self.save.is_some() {
             Function::SaveHere
         } else {
-            Function::PrintCurrent
+            Function::QuitHere
         };
         match (&self.save, self.directory, self.multiple) {
             (Some(_), _, _) if typing => format!(

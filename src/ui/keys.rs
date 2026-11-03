@@ -1,31 +1,30 @@
 //! The Keys screen (F1): a picker like the results, over every function and
-//! its keys. Its query is a Neovim field and its list moves with your own
-//! keys (`up`, `down`, `first`, `clear_query`...); Tab searches by pressing
-//! keys instead. Enter opens a function's editor, a sheet like the bookmark
-//! form, where changes are staged: Enter saves them (refused when they would
-//! clash or lock you in), Escape drops them. The `guide` key closes the
-//! screen from anywhere in it, dropping what was not saved.
+//! its keys. Its query is a Neovim field that searches names, descriptions
+//! and key names (a query that is exactly a key's name lists what that key
+//! does), and its list moves with your own keys. In Normal mode, `r` and a
+//! key writes that key's name into the query.
+//!
+//! Space goes a level deeper everywhere, Enter is done and Escape goes back:
+//! Space opens a function's keys, a sheet like the bookmark form, and Space
+//! on one of its keys opens where that key applies: a checklist for each of
+//! the mode, the program, the list and the highlight. Changes are staged
+//! until Enter saves them (refused when they would clash or lock you in).
+//! The `show_keys` key closes the screen from anywhere in it, dropping what
+//! was not saved.
 use super::*;
 use crate::keymap::{Binding, Cell, Dimension, Function, Key, Keymap, Mode, Scope};
 
-/// How the picker searches.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Search {
-    /// The query filters names, descriptions and key names.
-    Text,
-    /// Keys pressed are recorded, not typed.
-    Capturing(Vec<KeyEvent>),
-    /// Recording stopped: the keys filter, the list moves.
-    Captured(Vec<KeyEvent>),
-}
 pub(crate) struct KeysScreen {
     /// Where F1 was pressed.
     pub here: Cell,
     /// Every function, not only those that work where F1 was pressed.
     pub everywhere: bool,
     pub query: String,
-    pub search: Search,
+    /// `r` was pressed: the next key's name goes into the query.
+    pub recording: bool,
     pub index: usize,
+    /// How far the details pane is scrolled.
+    pub details: usize,
     pub editor: Option<Editor>,
 }
 /// A row of the picker.
@@ -34,15 +33,40 @@ pub(crate) enum Listed {
     Function(Function),
     /// An entry of [`crate::keymap::FIXED`].
     Fixed(usize),
-    /// A key search's match.
-    Binding(Binding),
+    /// One place of a key the query names.
+    Key(Place),
+}
+/// Where one key of a function applies: the modes and the box of the
+/// other three dimensions, made of a binding per mode. A key that applies
+/// in places one box cannot hold has several.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Place {
+    pub function: Function,
+    pub keys: Vec<Key>,
+    pub modes: u16,
+    pub scope: Scope,
+    pub bindings: Vec<Binding>,
+}
+impl Place {
+    pub fn display(&self) -> String {
+        crate::keymap::display(&self.keys)
+    }
+}
+/// The bits ticked in `column`: mode, program, list or highlight.
+pub(crate) fn ticks(modes: u16, scope: Scope, column: usize) -> u16 {
+    match column {
+        0 => modes,
+        1 => scope.programs,
+        2 => scope.places,
+        _ => scope.highlights,
+    }
 }
 /// One function's keys being edited. Changes are staged in `custom` until
 /// Enter saves them.
 pub(crate) struct Editor {
     pub function: Function,
     pub custom: Vec<((Function, Mode), Vec<Binding>)>,
-    /// The highlighted key, by its row.
+    /// The highlighted place, by its row.
     pub index: usize,
     pub step: EditStep,
     /// What the last action came to; `true` for an error.
@@ -50,32 +74,37 @@ pub(crate) struct Editor {
 }
 pub(crate) enum EditStep {
     Browse,
-    /// `a`: which mode the new key is for, Insert (0) or Normal (1).
-    ChooseMode {
-        index: usize,
-    },
-    /// The keys of a new binding, as pressed.
+    /// `n`: the keys of a new place, as pressed.
     Capture {
-        mode: Mode,
         keys: Vec<Key>,
     },
     /// Where a key applies: a column per dimension, a row per value; the
-    /// cursor is on value `row` of dimension `column`.
-    Scope {
-        draft: Binding,
-        /// The binding it replaces.
-        replaces: Option<Binding>,
-        row: usize,
+    /// cursor is on value `row` of column `column`.
+    Where {
+        keys: Vec<Key>,
+        modes: u16,
+        scope: Scope,
+        /// The place it replaces.
+        replaces: Option<Place>,
         column: usize,
+        row: usize,
     },
 }
-/// The scope editor's rows: each dimension's label and values (name, bit).
-pub(crate) fn dimensions() -> [(&'static str, Vec<(&'static str, u16)>); 3] {
+/// The columns of where a key applies: each dimension's heading and its
+/// values (name, bit).
+pub(crate) fn dimensions() -> [(&'static str, Vec<(&'static str, u16)>); 4] {
     fn values<D: Dimension>(name: impl Fn(D) -> &'static str) -> Vec<(&'static str, u16)> {
         D::ALL.iter().map(|&v| (name(v), v.bit())).collect()
     }
     use crate::keymap::{Highlight, Place};
     [
+        (
+            "Mode",
+            values::<Mode>(|m| match m {
+                Mode::Insert => "Insert",
+                Mode::Normal => "Normal",
+            }),
+        ),
         ("Program", values::<crate::keymap::Program>(|p| p.name())),
         (
             "List",
@@ -94,13 +123,98 @@ pub(crate) fn dimensions() -> [(&'static str, Vec<(&'static str, u16)>); 3] {
         ),
     ]
 }
-/// The bits of dimension `row` in `scope`.
-pub(crate) fn bits(scope: &mut Scope, row: usize) -> &mut u16 {
-    match row {
-        0 => &mut scope.programs,
-        1 => &mut scope.places,
-        _ => &mut scope.highlights,
+/// `ticks` with `column` set to `bits`.
+pub(crate) fn with_column(modes: u16, scope: Scope, column: usize, bits: u16) -> (u16, Scope) {
+    let mut scope = scope;
+    let modes = match column {
+        0 => bits,
+        1 => {
+            scope.programs = bits;
+            modes
+        }
+        2 => {
+            scope.places = bits;
+            modes
+        }
+        _ => {
+            scope.highlights = bits;
+            modes
+        }
+    };
+    (modes, scope)
+}
+/// Whether value `bit` of `column` can apply anywhere with the others
+/// columns' ticks: some mode ticked there takes `keys` and `function` works
+/// there. Without keys, only where the function works counts.
+pub(crate) fn workable(
+    function: Function,
+    keys: Option<&[Key]>,
+    modes: u16,
+    scope: Scope,
+    column: usize,
+    bit: u16,
+) -> bool {
+    let (modes, scope) = with_column(modes, scope, column, bit);
+    Mode::ALL.into_iter().any(|mode| {
+        modes & mode.bit() != 0
+            && keys.is_none_or(|keys| crate::keymap::problem(mode, keys).is_none())
+            && function
+                .available(mode)
+                .iter()
+                .any(|a| a.meet(scope).is_some())
+    })
+}
+/// The bindings a place's ticks make: one per mode that takes the keys.
+pub(crate) fn bindings_of(
+    function: Function,
+    keys: &[Key],
+    modes: u16,
+    scope: Scope,
+) -> Vec<Binding> {
+    Mode::ALL
+        .into_iter()
+        .filter(|m| modes & m.bit() != 0 && crate::keymap::problem(*m, keys).is_none())
+        .map(|mode| Binding {
+            function,
+            mode,
+            keys: keys.to_vec(),
+            scope,
+        })
+        .filter(|b| !b.reach().is_empty())
+        .collect()
+}
+/// A function's keys as places: bindings of the same keys and box in both
+/// modes are one place, and a key's places are next to each other.
+pub(crate) fn places(keymap: &Keymap, function: Function) -> Vec<Place> {
+    let mut places: Vec<Place> = Vec::new();
+    for mode in Mode::ALL {
+        for b in keymap.of(function, mode) {
+            match places
+                .iter_mut()
+                .find(|p| p.keys == b.keys && p.scope == b.scope)
+            {
+                Some(place) => {
+                    place.modes |= mode.bit();
+                    place.bindings.push(b.clone());
+                }
+                None => places.push(Place {
+                    function,
+                    keys: b.keys.clone(),
+                    modes: mode.bit(),
+                    scope: b.scope,
+                    bindings: vec![b.clone()],
+                }),
+            }
+        }
     }
+    let order: Vec<Vec<Key>> = places.iter().fold(Vec::new(), |mut order, p| {
+        if !order.contains(&p.keys) {
+            order.push(p.keys.clone());
+        }
+        order
+    });
+    places.sort_by_key(|p| order.iter().position(|k| *k == p.keys));
+    places
 }
 
 impl KeysScreen {
@@ -109,8 +223,9 @@ impl KeysScreen {
             here,
             everywhere: false,
             query: String::new(),
-            search: Search::Text,
+            recording: false,
             index: 0,
+            details: 0,
             editor: None,
         }
     }
@@ -123,31 +238,30 @@ impl KeysScreen {
             .into_iter()
             .any(|m| function.available(m).into_iter().any(|s| self.reaches(s)))
     }
-    pub fn applies_here(&self, binding: &Binding) -> bool {
-        binding.reach().into_iter().any(|s| self.reaches(s))
+    pub fn applies_here(&self, place: &Place) -> bool {
+        place
+            .bindings
+            .iter()
+            .any(|b| b.reach().into_iter().any(|s| self.reaches(s)))
     }
-    /// The picker's rows: functions (and fixed keys) matching the query, or
-    /// the bindings whose keys start with those pressed.
+    /// The picker's rows: the places of the key the query names, or the
+    /// functions (and fixed keys) matching it.
     pub fn listed(&self, keymap: &Keymap) -> Vec<Listed> {
-        if let Search::Capturing(keys) | Search::Captured(keys) = &self.search {
-            let pressed: Vec<Key> = keys.iter().map(|k| Key::press(*k)).collect();
-            let mut found: Vec<&Binding> = keymap
-                .bindings()
+        let query = self.query.trim();
+        let named = |p: &Place| p.display() == query || crate::keymap::notation(&p.keys) == query;
+        if !query.is_empty() {
+            let mut keys: Vec<Place> = Function::ALL
                 .iter()
-                .filter(|b| {
-                    b.keys.len() >= pressed.len()
-                        && b.keys.iter().zip(&pressed).all(|(k, p)| k.takes(*p))
-                })
+                .flat_map(|&f| places(keymap, f))
+                .filter(named)
                 .collect();
-            // Those that apply here first.
-            found.sort_by_key(|b| (!self.applies_here(b), b.mode, b.display(), b.function));
-            return found.into_iter().cloned().map(Listed::Binding).collect();
+            if !keys.is_empty() {
+                // Those that apply here first.
+                keys.sort_by_key(|p| !self.applies_here(p));
+                return keys.into_iter().map(Listed::Key).collect();
+            }
         }
-        let words: Vec<String> = self
-            .query
-            .split_whitespace()
-            .map(|w| w.to_lowercase())
-            .collect();
+        let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
         let labels = |f: Function| {
             keymap
                 .bindings()
@@ -169,7 +283,7 @@ impl KeysScreen {
             // Names first, then descriptions and keys holding every word.
             let name = f
                 .name()
-                .contains(&self.query.trim().replace(' ', "_").to_lowercase())
+                .contains(&query.replace(' ', "_").to_lowercase())
                 .then_some(100_000 - i as i64);
             let text = format!(
                 "{} {} {}",
@@ -212,9 +326,9 @@ impl Editor {
     pub fn keymap(&self) -> Keymap {
         Keymap::assemble(self.custom.clone())
     }
-    /// The function's keys as edited, Insert mode first.
-    pub fn rows(&self) -> Vec<Binding> {
-        binding_rows(&self.keymap(), self.function)
+    /// The function's places as edited.
+    pub fn rows(&self) -> Vec<Place> {
+        places(&self.keymap(), self.function)
     }
     /// Whether anything changed since the editor opened.
     pub fn changed(&self, keymap: &Keymap) -> bool {
@@ -237,54 +351,36 @@ impl Editor {
             self.custom.push(((function, mode), unique));
         }
     }
-    /// Stages `with` in place of `replaces` (or beside the others).
-    fn replace(&mut self, replaces: Option<&Binding>, with: Vec<Binding>, mode: Mode) {
-        if let Some(old) = replaces {
-            let rest = self
-                .keymap()
-                .of(old.function, old.mode)
+    /// Stages `with` in place of the bindings `replaces`.
+    fn replace(&mut self, replaces: &[Binding], with: Vec<Binding>) {
+        for mode in Mode::ALL {
+            let keymap = self.keymap();
+            let mut list: Vec<Binding> = keymap
+                .of(self.function, mode)
                 .into_iter()
-                .filter(|b| *b != old)
+                .filter(|b| !replaces.contains(b))
                 .cloned()
                 .collect();
-            self.set(old.function, old.mode, rest);
+            list.extend(with.iter().filter(|b| b.mode == mode).cloned());
+            self.set(self.function, mode, list);
         }
-        let mut list: Vec<Binding> = self
-            .keymap()
-            .of(self.function, mode)
-            .into_iter()
-            .cloned()
-            .collect();
-        list.extend(with);
-        self.set(self.function, mode, list);
     }
-    /// Other functions' keys that `draft` clashes with, and where.
-    pub fn clashes(&self, draft: &Binding, replaces: Option<&Binding>) -> Vec<(Binding, Scope)> {
-        self.keymap()
-            .bindings()
-            .iter()
-            .filter(|b| b.function != draft.function && Some(*b) != replaces)
-            .filter_map(|b| draft.clashes(b).first().map(|at| (b.clone(), *at)))
-            .collect()
-    }
-}
-/// A function's keys, Insert mode first, each key's places together.
-pub(crate) fn binding_rows(keymap: &Keymap, function: Function) -> Vec<Binding> {
-    Mode::ALL
-        .into_iter()
-        .flat_map(|m| {
-            let mut rows: Vec<Binding> = keymap.of(function, m).into_iter().cloned().collect();
-            // Stable: a key keeps its first place's position.
-            let order: Vec<Vec<Key>> = rows.iter().fold(Vec::new(), |mut order, b| {
-                if !order.contains(&b.keys) {
-                    order.push(b.keys.clone());
+    /// Other functions' keys that `drafts` clash with, and where.
+    pub fn clashes(&self, drafts: &[Binding], replaces: &[Binding]) -> Vec<(Binding, Scope)> {
+        let keymap = self.keymap();
+        let mut found = Vec::new();
+        for b in keymap.bindings() {
+            if b.function == self.function || replaces.contains(b) {
+                continue;
+            }
+            for draft in drafts {
+                if let Some(at) = draft.clashes(b).first() {
+                    found.push((b.clone(), *at));
                 }
-                order
-            });
-            rows.sort_by_key(|b| order.iter().position(|k| *k == b.keys));
-            rows
-        })
-        .collect()
+            }
+        }
+        found
+    }
 }
 /// Functions whose key is a digit family: a digit pressed for them stands
 /// for all digits.
@@ -306,21 +402,39 @@ impl Session {
         let Focus::Keys(screen) = &mut self.focus else {
             return Ok(None);
         };
+        // `r` was pressed: this key's name goes into the query.
+        if screen.recording {
+            screen.recording = false;
+            let name = Key::press(key).display();
+            let joined = screen.query.chars().last().is_none_or(char::is_whitespace)
+                || (name.chars().count() == 1
+                    && screen
+                        .query
+                        .split_whitespace()
+                        .last()
+                        .is_some_and(|w| w.chars().count() == 1));
+            if !joined {
+                screen.query.push(' ');
+            }
+            screen.query += &name;
+            screen.index = 0;
+            screen.details = 0;
+            return Ok(None);
+        }
         let press = Key::press(key);
-        let guide = Mode::ALL.into_iter().any(|m| {
+        let close = Mode::ALL.into_iter().any(|m| {
             app.keymap
                 .of(Function::ShowKeys, m)
                 .iter()
                 .any(|b| b.keys.len() == 1 && b.keys[0] == press)
         });
-        // The guide key closes the screen from anywhere in it, dropping
+        // The show_keys key closes the screen from anywhere in it, dropping
         // what was not saved; while keys are recorded, they are recorded.
-        let recording = matches!(screen.search, Search::Capturing(_))
-            || screen
-                .editor
-                .as_ref()
-                .is_some_and(|e| matches!(e.step, EditStep::Capture { .. }));
-        if guide && !recording {
+        let capturing = screen
+            .editor
+            .as_ref()
+            .is_some_and(|e| matches!(e.step, EditStep::Capture { .. }));
+        if close && !capturing {
             let dropped = screen
                 .editor
                 .as_ref()
@@ -337,30 +451,10 @@ impl Session {
             }
             return Ok(None);
         }
-        match &mut screen.search {
-            Search::Capturing(keys) => {
-                match key.code {
-                    K::Tab => screen.search = Search::Captured(std::mem::take(keys)),
-                    K::Esc => screen.search = Search::Text,
-                    K::Backspace => {
-                        keys.pop();
-                    }
-                    _ => keys.push(key),
-                }
-                screen.index = 0;
-                return Ok(None);
-            }
-            Search::Captured(_) if matches!(key.code, K::Tab | K::Esc) => {
-                screen.search = Search::Text;
-                screen.index = 0;
-                return Ok(None);
-            }
-            Search::Text if key.code == K::Tab => {
-                screen.search = Search::Capturing(Vec::new());
-                screen.index = 0;
-                return Ok(None);
-            }
-            _ => {}
+        let normal = app.mode() == Mode::Normal && app.pending.is_empty();
+        if normal && key.code == K::Char('r') && key.modifiers.is_empty() {
+            screen.recording = true;
+            return Ok(None);
         }
         if key.code == K::Char('a') && key.modifiers == M::CONTROL {
             screen.everywhere = !screen.everywhere;
@@ -368,18 +462,16 @@ impl Session {
             return Ok(None);
         }
         // Enter, or Space where it is not typed, goes a level deeper.
-        let space = key.code == K::Char(' ')
-            && key.modifiers.is_empty()
-            && (app.mode() == Mode::Normal || !matches!(screen.search, Search::Text));
+        let space = key.code == K::Char(' ') && key.modifiers.is_empty() && normal;
         if key.code == K::Enter || space {
             let rows = screen.listed(&app.keymap);
             let (function, row) = match rows.get(screen.index) {
                 Some(Listed::Function(f)) => (*f, 0),
-                Some(Listed::Binding(b)) => (
-                    b.function,
-                    binding_rows(&app.keymap, b.function)
+                Some(Listed::Key(place)) => (
+                    place.function,
+                    places(&app.keymap, place.function)
                         .iter()
-                        .position(|r| r == b)
+                        .position(|p| p == place)
                         .unwrap_or(0),
                 ),
                 _ => return Ok(None),
@@ -388,9 +480,7 @@ impl Session {
             return Ok(None);
         }
         // Leaving Insert mode and Neovim's command line are Neovim's.
-        let typing = matches!(screen.search, Search::Text);
-        if typing
-            && app.pending.is_empty()
+        if app.pending.is_empty()
             && let Some(view) = &app.edit_view
             && ((key.code == K::Esc && !view.normal())
                 || (view.command() && !key.modifiers.intersects(M::ALT | M::CONTROL)))
@@ -398,8 +488,8 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
             return Ok(None);
         }
-        // Otherwise your own keys: those that move through a list, clear a
-        // query or leave do so here too.
+        // Otherwise your own keys: those that move through a list, scroll
+        // the preview, clear a query or quit do so here too.
         let mode = app.mode();
         let cell = Cell {
             highlight: crate::keymap::Highlight::None,
@@ -410,16 +500,12 @@ impl Session {
             match app.keymap.feed(&mut app.pending, mode, cell, key) {
                 Step::Pending => return Ok(None),
                 Step::Flush(keys) => {
-                    if typing {
-                        for pending in keys {
-                            deliver(app, &mut self.focus, &mut self.editor, pending);
-                        }
+                    for pending in keys {
+                        deliver(app, &mut self.focus, &mut self.editor, pending);
                     }
                 }
                 Step::Pass => {
-                    if typing {
-                        deliver(app, &mut self.focus, &mut self.editor, key);
-                    }
+                    deliver(app, &mut self.focus, &mut self.editor, key);
                     return Ok(None);
                 }
                 Step::Run(function, _) => return Ok(self.keys_function(app, function, key)),
@@ -438,6 +524,7 @@ impl Session {
             return None;
         };
         let last = screen.listed(&app.keymap).len().saturating_sub(1);
+        let before = screen.index;
         let index = &mut screen.index;
         match function {
             Function::HighlightPrevious => *index = index.saturating_sub(1),
@@ -446,9 +533,10 @@ impl Session {
             Function::HighlightNextPage => *index = (*index + page).min(last),
             Function::HighlightFirst => *index = 0,
             Function::HighlightLast => *index = last,
+            Function::ScrollPreviewDown => screen.details += 5,
+            Function::ScrollPreviewUp => screen.details = screen.details.saturating_sub(5),
             Function::ClearQuery => {
                 screen.query.clear();
-                screen.search = Search::Text;
                 *index = 0;
             }
             Function::ShowSession => self.focus = Focus::Info { offset: 0 },
@@ -462,6 +550,11 @@ impl Session {
                     other.name()
                 );
             }
+        }
+        if let Focus::Keys(screen) = &mut self.focus
+            && screen.index != before
+        {
+            screen.details = 0;
         }
         None
     }
@@ -484,38 +577,30 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
             K::Enter => return !editor.changed(&app.keymap) || save(app, editor),
             _ if up => editor.index = editor.index.saturating_sub(1),
             _ if down => editor.index = (editor.index + 1).min(rows.len().saturating_sub(1)),
-            K::Char('a') => {
-                editor.message = None;
-                let modes: Vec<Mode> = Mode::ALL
-                    .into_iter()
-                    .filter(|m| !function.available(*m).is_empty())
-                    .collect();
-                editor.step = match modes[..] {
-                    [mode] => EditStep::Capture {
-                        mode,
-                        keys: Vec::new(),
-                    },
-                    _ => EditStep::ChooseMode { index: 0 },
-                };
-            }
             // Space goes a level deeper: where the key applies.
             K::Char(' ') => {
-                if let Some(binding) = rows.get(editor.index) {
+                if let Some(place) = rows.get(editor.index) {
                     editor.message = None;
-                    editor.step = EditStep::Scope {
-                        draft: binding.clone(),
-                        replaces: Some(binding.clone()),
-                        row: 0,
+                    editor.step = EditStep::Where {
+                        keys: place.keys.clone(),
+                        modes: place.modes,
+                        scope: place.scope,
+                        replaces: Some(place.clone()),
                         column: 0,
+                        row: 0,
                     };
                 }
             }
+            K::Char('n') => {
+                editor.message = None;
+                editor.step = EditStep::Capture { keys: Vec::new() };
+            }
             K::Char('d') => {
-                if let Some(binding) = rows.get(editor.index).cloned() {
-                    editor.replace(Some(&binding), Vec::new(), binding.mode);
+                if let Some(place) = rows.get(editor.index).cloned() {
+                    editor.replace(&place.bindings, Vec::new());
                     editor.index = editor.index.min(editor.rows().len().saturating_sub(1));
                     editor.message =
-                        Some((format!("{} removed; Enter saves", binding.display()), false));
+                        Some((format!("{} removed; Enter saves", place.display()), false));
                 }
             }
             K::Char('R') => {
@@ -525,21 +610,9 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
             }
             _ => {}
         },
-        EditStep::ChooseMode { index } => match key.code {
-            K::Esc => editor.step = EditStep::Browse,
-            _ if up => *index = 0,
-            _ if down => *index = 1,
-            K::Char(' ') | K::Enter => {
-                editor.step = EditStep::Capture {
-                    mode: Mode::ALL[*index],
-                    keys: Vec::new(),
-                }
-            }
-            _ => {}
-        },
-        // The first key may be any key; after it, Enter finishes,
-        // Backspace takes the last back and Escape gives up.
-        EditStep::Capture { mode, keys } => {
+        // The first key may be any key; after it, Enter goes on to where
+        // the key applies, Backspace takes the last back and Escape gives up.
+        EditStep::Capture { keys } => {
             if keys.is_empty() {
                 let mut pressed = Key::press(key);
                 if takes_digits(function)
@@ -557,13 +630,35 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                     keys.pop();
                 }
                 K::Enter => {
-                    let draft = Binding {
-                        function,
-                        mode: *mode,
-                        keys: std::mem::take(keys),
+                    let keys = std::mem::take(keys);
+                    // Every mode that takes the keys, everywhere.
+                    let modes = Mode::ALL
+                        .into_iter()
+                        .filter(|m| {
+                            crate::keymap::problem(*m, &keys).is_none()
+                                && !function.available(*m).is_empty()
+                        })
+                        .fold(0, |bits, m| bits | m.bit());
+                    if modes == 0 {
+                        editor.message = Some((
+                            format!(
+                                "{} cannot be bound for {} in either mode",
+                                crate::keymap::display(&keys),
+                                function.name()
+                            ),
+                            true,
+                        ));
+                        editor.step = EditStep::Browse;
+                        return false;
+                    }
+                    editor.step = EditStep::Where {
+                        keys,
+                        modes,
                         scope: Scope::ALL,
+                        replaces: None,
+                        column: 0,
+                        row: 0,
                     };
-                    stage(editor, draft, None);
                 }
                 _ if matches!(keys[0], Key::Digits(_)) => {
                     editor.message =
@@ -572,15 +667,22 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                 _ => keys.push(Key::press(key)),
             }
         }
-        EditStep::Scope {
-            draft,
+        EditStep::Where {
+            keys,
+            modes,
+            scope,
             replaces,
-            row,
             column,
+            row,
         } => {
             let dims = dimensions();
             let left = key.code == K::Left || (plain && key.code == K::Char('h'));
             let right = key.code == K::Right || (plain && key.code == K::Char('l'));
+            let replaced = replaces
+                .as_ref()
+                .map(|p| p.bindings.clone())
+                .unwrap_or_default();
+            let drafts = bindings_of(function, keys, *modes, *scope);
             match key.code {
                 K::Esc => editor.step = EditStep::Browse,
                 _ if up => *row = row.saturating_sub(1),
@@ -595,137 +697,101 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                 }
                 K::Char(' ') => {
                     let bit = dims[*column].1[*row].1;
-                    let set = bits(&mut draft.scope, *column);
-                    // A dimension keeps at least one value.
-                    if *set & !bit != 0 || *set & bit == 0 {
-                        *set ^= bit;
+                    let set = ticks(*modes, *scope, *column);
+                    // A column keeps at least one tick.
+                    if set & !bit != 0 || set & bit == 0 {
+                        (*modes, *scope) = with_column(*modes, *scope, *column, set ^ bit);
                     }
                 }
                 K::Enter => {
-                    let (draft, replaces) = (draft.clone(), replaces.clone());
-                    stage(editor, draft, replaces);
+                    let shown = crate::keymap::display(keys);
+                    if drafts.is_empty() {
+                        editor.message =
+                            Some((format!("{shown} applies nowhere with these ticks"), true));
+                    } else if editor.clashes(&drafts, &replaced).is_empty() {
+                        editor.replace(&replaced, drafts);
+                        editor.step = EditStep::Browse;
+                        editor.message = Some((format!("{shown} staged; Enter saves"), false));
+                    } else {
+                        editor.message = Some(("It clashes: untick, or press u or t".into(), true));
+                    }
                 }
-                // Narrow this key to where nothing else has it.
+                // Keep it only where nothing else has these keys.
                 K::Char('u') => {
-                    let (draft, replaces) = (draft.clone(), replaces.clone());
-                    narrow(editor, draft, replaces);
+                    let shown = crate::keymap::display(keys);
+                    let mut kept = Vec::new();
+                    for draft in drafts.iter() {
+                        let mut pieces = vec![draft.scope];
+                        for (other, _) in editor.clashes(std::slice::from_ref(draft), &replaced) {
+                            for taken in other.reach() {
+                                pieces = pieces.into_iter().flat_map(|p| p.minus(taken)).collect();
+                            }
+                        }
+                        kept.extend(
+                            pieces
+                                .into_iter()
+                                .map(|scope| Binding {
+                                    scope,
+                                    ..draft.clone()
+                                })
+                                .filter(|b| !b.reach().is_empty()),
+                        );
+                    }
+                    if kept.is_empty() {
+                        editor.message = Some((
+                            format!("Nowhere is left for {shown}: change it, or take it"),
+                            true,
+                        ));
+                    } else {
+                        editor.replace(&replaced, kept);
+                        editor.step = EditStep::Browse;
+                        editor.message = Some((
+                            format!("{shown} kept only where nothing else has it; Enter saves"),
+                            false,
+                        ));
+                    }
                 }
-                // Take this key from the others where it applies.
+                // Take these keys from the others where this applies.
                 K::Char('t') => {
-                    let (draft, replaces) = (draft.clone(), replaces.clone());
-                    take(editor, draft, replaces);
+                    let shown = crate::keymap::display(keys);
+                    let clashes = editor.clashes(&drafts, &replaced);
+                    editor.replace(&replaced, drafts.clone());
+                    for (other, _) in clashes {
+                        let mut pieces = vec![other.scope];
+                        for draft in &drafts {
+                            for taken in draft.reach() {
+                                pieces = pieces.into_iter().flat_map(|p| p.minus(taken)).collect();
+                            }
+                        }
+                        let mut list: Vec<Binding> = editor
+                            .keymap()
+                            .of(other.function, other.mode)
+                            .into_iter()
+                            .filter(|b| **b != other)
+                            .cloned()
+                            .collect();
+                        list.extend(
+                            pieces
+                                .into_iter()
+                                .map(|scope| Binding {
+                                    scope,
+                                    ..other.clone()
+                                })
+                                .filter(|b| !b.reach().is_empty()),
+                        );
+                        editor.set(other.function, other.mode, list);
+                    }
+                    editor.step = EditStep::Browse;
+                    editor.message = Some((
+                        format!("{shown} taken from the others where it applies; Enter saves"),
+                        false,
+                    ));
                 }
                 _ => {}
             }
         }
     }
     false
-}
-/// Stages `draft` in place of `replaces`; where its keys clash with
-/// another function's, the scope editor opens to settle that first.
-fn stage(editor: &mut Editor, draft: Binding, replaces: Option<Binding>) {
-    if draft.reach().is_empty() {
-        editor.message = Some((
-            format!("{} works nowhere in this scope", draft.function.name()),
-            true,
-        ));
-        return;
-    }
-    if !editor.clashes(&draft, replaces.as_ref()).is_empty() {
-        editor.message = None;
-        let (row, column) = match &editor.step {
-            EditStep::Scope { row, column, .. } => (*row, *column),
-            _ => (0, 0),
-        };
-        editor.step = EditStep::Scope {
-            draft,
-            replaces,
-            row,
-            column,
-        };
-        return;
-    }
-    let shown = draft.display();
-    let mode = draft.mode;
-    let added = replaces.is_none();
-    editor.replace(replaces.as_ref(), vec![draft], mode);
-    editor.step = EditStep::Browse;
-    editor.message = Some((
-        format!(
-            "{shown} {}; Enter saves",
-            if added { "added" } else { "changed" }
-        ),
-        false,
-    ));
-}
-/// Stages `draft` only where no other function has its keys.
-fn narrow(editor: &mut Editor, draft: Binding, replaces: Option<Binding>) {
-    let mut pieces = vec![draft.scope];
-    for (other, _) in editor.clashes(&draft, replaces.as_ref()) {
-        for taken in other.reach() {
-            pieces = pieces.into_iter().flat_map(|p| p.minus(taken)).collect();
-        }
-    }
-    let narrowed: Vec<Binding> = pieces
-        .into_iter()
-        .map(|scope| Binding {
-            scope,
-            ..draft.clone()
-        })
-        .filter(|b| !b.reach().is_empty())
-        .collect();
-    if narrowed.is_empty() {
-        editor.message = Some((
-            "Nowhere is left for this key: change it, or take it".into(),
-            true,
-        ));
-        return;
-    }
-    editor.replace(replaces.as_ref(), narrowed, draft.mode);
-    editor.step = EditStep::Browse;
-    editor.message = Some((
-        format!(
-            "{} only where nothing else has it; Enter saves",
-            draft.display()
-        ),
-        false,
-    ));
-}
-/// Stages `draft`, taking its keys from the others where it applies.
-fn take(editor: &mut Editor, draft: Binding, replaces: Option<Binding>) {
-    let clashes = editor.clashes(&draft, replaces.as_ref());
-    editor.replace(replaces.as_ref(), vec![draft.clone()], draft.mode);
-    for (other, _) in clashes {
-        let mut pieces = vec![other.scope];
-        for taken in draft.reach() {
-            pieces = pieces.into_iter().flat_map(|p| p.minus(taken)).collect();
-        }
-        let mut list: Vec<Binding> = editor
-            .keymap()
-            .of(other.function, other.mode)
-            .into_iter()
-            .filter(|b| **b != other)
-            .cloned()
-            .collect();
-        list.extend(
-            pieces
-                .into_iter()
-                .map(|scope| Binding {
-                    scope,
-                    ..other.clone()
-                })
-                .filter(|b| !b.reach().is_empty()),
-        );
-        editor.set(other.function, other.mode, list);
-    }
-    editor.step = EditStep::Browse;
-    editor.message = Some((
-        format!(
-            "{} taken from the others where it applies; Enter saves",
-            draft.display()
-        ),
-        false,
-    ));
 }
 /// Saves the staged keys: applied to the session and written to
 /// `keys.toml`. A keymap that clashes or locks you in is refused and the
