@@ -4,6 +4,15 @@ The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
 - Content search beyond `fff grep` (below).
+- A refactor that prunes the code now that the programs share one
+  interface. Roam, pick, seek, explorer and grep grew as separate modes
+  with flags (`no_dir`, `output_paths`, `dialog`, `window`, `grep`) checked
+  across the code; with `switch_program` and the keymap's programs they are
+  one session in different programs. Their differences would live in one
+  place (what Enter finishes with, what is listed, what is printed), the
+  focus handlers' default keys that functions still run through
+  (`Exec::Key`) would become the functions' own code, and code that no path
+  reaches any more would go.
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
   them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
@@ -46,9 +55,19 @@ searched on its threads, not by running rga, which starts a preprocessor for
 every file on every search (1.85 s and about 25 CPU-seconds a search over
 2,400 cached PDFs, against 0.02 s here). What remains:
 
-- **In the other programs.** A contents query in `fff roam` and `fff pick`
-  too, toggled on, so that browsing can narrow a folder by what its files
-  hold.
+- **In the other programs?** To decide: a contents query in `fff roam`,
+  `fff pick` and `fff seek` too, since it sits well in the current
+  interface. A row per match would appear only while the contents query is
+  not empty; with it empty, the results stay one row per entry, as now. The
+  query bars would swap sides, the names query on the left where it is
+  today and the contents query on the right, and long queries need a rule:
+  which bar gives way, and how a cut query shows that it goes on.
+- **An index of the content cache.** Each search reads every cached text
+  again; an index built beside the cache (by word, or by trigram so that
+  literal substrings still match) would find the candidate files first, so
+  that searches over large trees read only those. It must follow the cache:
+  a changed file is a new entry, and pruning would drop its index entries
+  too.
 - **More formats.** Office documents and archives could fill the same cache
   through `rga-preproc`, one run per file.
 - **A `/regex/` form** of the contents query.
