@@ -127,8 +127,14 @@ fn result_names_are_colored_by_file_kind() {
         let start = line.find(&format!(" {label}")).unwrap() + 1 + label.rfind(name).unwrap();
         buffer[(line[..start].chars().count() as u16, row)].fg
     };
-    assert_eq!(name_color(".fff-stage-1-2-3/copied/", "copied"), theme.staged_folder);
-    assert_eq!(name_color(".fff-stage-1-2-3/copied/half", "half"), theme.marked);
+    assert_eq!(
+        name_color(".fff-stage-1-2-3/copied/", "copied"),
+        theme.staged_folder
+    );
+    assert_eq!(
+        name_color(".fff-stage-1-2-3/copied/half", "half"),
+        theme.marked
+    );
     assert_ne!(theme.staged_folder, theme.marked);
     let shown = text(buffer);
     assert!(shown.contains("link → plain"), "{shown}");
@@ -1103,10 +1109,11 @@ fn running_operations_take_the_lower_half_of_the_marks_pane() {
     let mut app = fixture();
     let draw = |app: &mut App, mut focus: Focus| {
         let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
-        terminal.draw(|f| {
-            render(f, app, &mut focus);
-        })
-        .unwrap();
+        terminal
+            .draw(|f| {
+                render(f, app, &mut focus);
+            })
+            .unwrap();
         text(terminal.backend().buffer())
     };
     assert!(!draw(&mut app, Focus::Results).contains("Jobs"));
@@ -1114,10 +1121,17 @@ fn running_operations_take_the_lower_half_of_the_marks_pane() {
     copying.progress.total.store(4 << 20, Relaxed);
     copying.progress.done.store(1 << 20, Relaxed);
     app.jobs.push(copying);
-    app.jobs.push(crate::ui::Job::running("Deleting old", &[], true));
+    app.jobs
+        .push(crate::ui::Job::running("Deleting old", &[], true));
     let screen = draw(&mut app, Focus::Results);
-    assert!(screen.contains("Marks (2)") && screen.contains("Jobs (2)"), "{screen}");
-    assert!(screen.contains("Copying photos") && screen.contains("25%"), "{screen}");
+    assert!(
+        screen.contains("Marks (2)") && screen.contains("Jobs (2)"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("Copying photos") && screen.contains("25%"),
+        "{screen}"
+    );
     assert!(screen.contains("1.0 MiB of 4.0 MiB"), "{screen}");
     assert!(!screen.contains("x: Stop and undo"), "{screen}");
     // Focused, it highlights a job and names its keys.
@@ -1125,8 +1139,14 @@ fn running_operations_take_the_lower_half_of_the_marks_pane() {
     assert!(screen.contains("› Deleting old"), "{screen}");
     assert!(screen.contains("x: Stop and undo"), "{screen}");
     // Leaving asks first, naming what would stop.
-    let screen = draw(&mut app, Focus::QuitConfirm(Box::new(crate::ui::Finish::Cancelled)));
-    assert!(screen.contains("Quit stops 2 running operations"), "{screen}");
+    let screen = draw(
+        &mut app,
+        Focus::QuitConfirm(Box::new(crate::ui::Finish::Cancelled)),
+    );
+    assert!(
+        screen.contains("Quit stops 2 running operations"),
+        "{screen}"
+    );
     assert!(screen.contains("• Copying photos"), "{screen}");
     assert!(screen.contains("Enter: Stop them and quit"), "{screen}");
 }

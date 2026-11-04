@@ -1283,7 +1283,11 @@ mod tests {
     #[test]
     fn kernel_files_show_their_first_bytes_without_waiting() {
         let mounts = crate::mounts::current();
-        if mounts.of(Path::new("/proc/self")).map(|m| m.fstype.as_str()) != Some("proc") {
+        if mounts
+            .of(Path::new("/proc/self"))
+            .map(|m| m.fstype.as_str())
+            != Some("proc")
+        {
             return;
         }
         let p = preview(Path::new("/proc/self/status"));

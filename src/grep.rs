@@ -1404,7 +1404,10 @@ mod tests {
     fn epub_documents_are_found_from_the_package_folder() {
         assert_eq!(joined("OEBPS", "one.xhtml"), "OEBPS/one.xhtml");
         assert_eq!(joined("", "one.xhtml"), "one.xhtml");
-        assert_eq!(joined("OPS/package", "../Text/two.xhtml#ch2"), "OPS/Text/two.xhtml");
+        assert_eq!(
+            joined("OPS/package", "../Text/two.xhtml#ch2"),
+            "OPS/Text/two.xhtml"
+        );
         assert_eq!(joined("OEBPS", "./a/./b.xhtml"), "OEBPS/a/b.xhtml");
     }
     #[test]

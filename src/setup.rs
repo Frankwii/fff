@@ -224,15 +224,26 @@ pub fn check(
     ];
     let chooser = [(wrapper, wrapper_script(fff, terminal))];
     for (files, setup, title) in [
-        (&desktop[..], "--desktop", "Opening folders (fff setup --desktop)"),
-        (&chooser[..], "--browser", "File dialogs (fff setup --browser)"),
+        (
+            &desktop[..],
+            "--desktop",
+            "Opening folders (fff setup --desktop)",
+        ),
+        (
+            &chooser[..],
+            "--browser",
+            "File dialogs (fff setup --browser)",
+        ),
     ] {
         // Only what fff wrote counts: another program's file is not fff's to judge.
         let written: Vec<_> = files
             .iter()
             .map(|(path, want)| (path, want, fs::read_to_string(path).ok()))
             .collect();
-        if !written.iter().any(|(_, _, has)| has.as_ref().is_some_and(|t| t.contains(MARKER))) {
+        if !written
+            .iter()
+            .any(|(_, _, has)| has.as_ref().is_some_and(|t| t.contains(MARKER)))
+        {
             continue;
         }
         let mut findings = vec![];
@@ -257,7 +268,10 @@ pub fn check(
             Finding::Fine("the files it wrote are up to date".into())
         } else {
             Finding::Problem(
-                format!("files it wrote differ from what it writes now: {}", stale.join(", ")),
+                format!(
+                    "files it wrote differ from what it writes now: {}",
+                    stale.join(", ")
+                ),
                 Some(format!("fff setup {setup}")),
             )
         });
@@ -727,23 +741,35 @@ mod tests {
         let ours = || Some(DESKTOP_ID.to_string());
         // The problems found, each with its fix.
         let problems = |fff: &str, var: &dyn Fn(&str) -> Option<String>, folders: Option<&str>| {
-            check(&dirs, Path::new(fff), &terminal, var, || folders.map(String::from))
-                .into_iter()
-                .flat_map(|s| s.findings)
-                .filter_map(|f| match f {
-                    Finding::Problem(text, fix) => Some(format!("{text} | {fix:?}")),
-                    Finding::Fine(_) => None,
-                })
-                .collect::<Vec<_>>()
+            check(&dirs, Path::new(fff), &terminal, var, || {
+                folders.map(String::from)
+            })
+            .into_iter()
+            .flat_map(|s| s.findings)
+            .filter_map(|f| match f {
+                Finding::Problem(text, fix) => Some(format!("{text} | {fix:?}")),
+                Finding::Fine(_) => None,
+            })
+            .collect::<Vec<_>>()
         };
         // Nothing set up: nothing to say.
         assert!(check(&dirs, Path::new("/bin/fff"), &terminal, none, ours).is_empty());
-        run(Target::FileChooser, &dirs, Path::new("/bin/fff"), &terminal, &mut Report::new(&mut vec![], false, None)).unwrap();
+        run(
+            Target::FileChooser,
+            &dirs,
+            Path::new("/bin/fff"),
+            &terminal,
+            &mut Report::new(&mut vec![], false, None),
+        )
+        .unwrap();
         let qt = |name: &str| (name == "QT_QPA_PLATFORMTHEME").then(|| "xdgdesktopportal".into());
         let sections = check(&dirs, Path::new("/bin/fff"), &terminal, qt, ours);
         assert!(
             sections.len() == 1
-                && sections[0].findings.iter().all(|f| matches!(f, Finding::Fine(_))),
+                && sections[0]
+                    .findings
+                    .iter()
+                    .all(|f| matches!(f, Finding::Fine(_))),
             "{sections:?}"
         );
         let found = problems("/bin/fff", &none, None);
@@ -781,7 +807,10 @@ mod tests {
             "{found:?}"
         );
         let found = problems("/bin/fff", &qt, Some(""));
-        assert!(found.len() == 2 && found[1].contains("no application opens folders"), "{found:?}");
+        assert!(
+            found.len() == 2 && found[1].contains("no application opens folders"),
+            "{found:?}"
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

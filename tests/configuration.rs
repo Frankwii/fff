@@ -313,7 +313,11 @@ fn official_palette_variants_and_aliases() {
 fn removed_tables_and_options_are_errors() {
     // Neovim is the only engine, keys live in keys.toml, and sessions resume
     // only with --resume: none of these has a setting.
-    for text in ["[editor]\nbackend='nvim'", "[keys.normal]\nquit='Q'", "[ui]\nresume=true"] {
+    for text in [
+        "[editor]\nbackend='nvim'",
+        "[keys.normal]\nquit='Q'",
+        "[ui]\nresume=true",
+    ] {
         assert!(parse(text).is_err(), "accepted {text}");
     }
 }

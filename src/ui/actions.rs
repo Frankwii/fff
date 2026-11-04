@@ -99,7 +99,10 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
 /// last file's folder.
 pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, String> {
     let last = paths.last().ok_or("Nothing to open")?;
-    if let Some((path, job)) = paths.iter().find_map(|p| app.changing(p).map(|job| (p, job))) {
+    if let Some((path, job)) = paths
+        .iter()
+        .find_map(|p| app.changing(p).map(|job| (p, job)))
+    {
         return Err(in_use_message(path, job));
     }
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {

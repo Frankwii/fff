@@ -170,8 +170,7 @@ pub fn refresh() {
 pub fn kernel_file(path: &Path) -> bool {
     let mounts = current();
     mounts.kernel(path)
-        || (path.is_symlink()
-            && std::fs::canonicalize(path).is_ok_and(|real| mounts.kernel(&real)))
+        || (path.is_symlink() && std::fs::canonicalize(path).is_ok_and(|real| mounts.kernel(&real)))
 }
 
 #[cfg(test)]
@@ -209,7 +208,13 @@ mod tests {
     #[test]
     fn kernel_filesystems_are_known_by_type_not_path() {
         let mounts = Mounts::parse(TABLE);
-        for path in ["/proc", "/proc/1/fd", "/sys/class", "/sys/fs/cgroup/a", "/dev/null"] {
+        for path in [
+            "/proc",
+            "/proc/1/fd",
+            "/sys/class",
+            "/sys/fs/cgroup/a",
+            "/dev/null",
+        ] {
             assert!(mounts.kernel(Path::new(path)), "{path}");
         }
         for path in ["/", "/home", "/procfile", "/mnt/my disk\\x"] {

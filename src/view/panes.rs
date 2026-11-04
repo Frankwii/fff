@@ -16,10 +16,7 @@ pub(super) fn jobs_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus)
         theme.accent,
     );
     if index.is_some() {
-        let keys = format!(
-            " x: Stop and undo · {}: Back ",
-            app.key_or_none("esc")
-        );
+        let keys = format!(" x: Stop and undo · {}: Back ", app.key_or_none("esc"));
         block = block.title_bottom(Line::from(styled(keys, theme.muted)));
     }
     let inner = block.inner(area);
@@ -411,10 +408,7 @@ pub(super) fn lead_window(
     // The parts lie past `cut`, which may be nearer the start than the
     // ellipsis is long.
     let moved = |at: usize| at.saturating_sub(cut) + '…'.len_utf8();
-    let moved = parts
-        .iter()
-        .map(|p| moved(p.start)..moved(p.end))
-        .collect();
+    let moved = parts.iter().map(|p| moved(p.start)..moved(p.end)).collect();
     (format!("…{}", &text[cut..]), moved)
 }
 /// Spans laid out in `width` columns: word-wrapped over as many lines as

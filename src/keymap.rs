@@ -1708,7 +1708,12 @@ mod tests {
         let mut codes: Vec<KeyCode> = "aZ0<>-|\" é"
             .chars()
             .map(KeyCode::Char)
-            .chain([KeyCode::Insert, KeyCode::F(5), KeyCode::F(13), KeyCode::BackTab])
+            .chain([
+                KeyCode::Insert,
+                KeyCode::F(5),
+                KeyCode::F(13),
+                KeyCode::BackTab,
+            ])
             .collect();
         codes.extend([KeyCode::Enter, KeyCode::Esc, KeyCode::Tab, KeyCode::Delete]);
         let all = [M::NONE, M::SHIFT, M::CONTROL, M::ALT, M::CONTROL | M::SHIFT];
@@ -1721,14 +1726,23 @@ mod tests {
             }
         }
         // As in Vim, `>` after the modifiers is the key: `<M->>` is Alt+>.
-        assert_eq!(parse("<M->>").unwrap(), [Key::Press(KeyCode::Char('>'), M::ALT)]);
+        assert_eq!(
+            parse("<M->>").unwrap(),
+            [Key::Press(KeyCode::Char('>'), M::ALT)]
+        );
         assert_eq!(parse("<C-M->>x").unwrap().len(), 2);
         // Alt or Ctrl with `#` reads as any digit: it cannot be written.
         let alt_hash = Key::press(KeyEvent::new(KeyCode::Char('#'), M::ALT));
         assert!(!writable(&[alt_hash]));
-        assert_eq!(parse("<C-S-A>").unwrap(), [Key::Press(KeyCode::Char('A'), M::CONTROL)]);
+        assert_eq!(
+            parse("<C-S-A>").unwrap(),
+            [Key::Press(KeyCode::Char('A'), M::CONTROL)]
+        );
         // A sequence spelling "none" would read back as no key.
-        let none: Vec<Key> = "none".chars().map(|c| parse(&c.to_string()).unwrap()[0]).collect();
+        let none: Vec<Key> = "none"
+            .chars()
+            .map(|c| parse(&c.to_string()).unwrap()[0])
+            .collect();
         assert!(!writable(&none));
         // A key without a name in the notation is refused.
         assert!(!writable(&[Key::Press(KeyCode::CapsLock, M::NONE)]));
@@ -1895,7 +1909,11 @@ mod tests {
             "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-open-multiple'], list = ['marks'] }]\n",
         )
         .unwrap();
-        let quit: Vec<Binding> = keymap.of(Function::Quit, Mode::Normal).into_iter().cloned().collect();
+        let quit: Vec<Binding> = keymap
+            .of(Function::Quit, Mode::Normal)
+            .into_iter()
+            .cloned()
+            .collect();
         let saved = write_bindings(&quit).to_string();
         assert!(saved.contains("list = [\"marks\"]"), "{saved}");
         assert!(saved.contains("explorer-open-multiple"), "{saved}");

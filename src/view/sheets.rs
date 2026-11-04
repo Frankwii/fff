@@ -454,7 +454,10 @@ pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui
             summary: None,
         },
     );
-    frame.render_widget(Paragraph::new(progress_lines(app, job, width).to_vec()), inner);
+    frame.render_widget(
+        Paragraph::new(progress_lines(app, job, width).to_vec()),
+        inner,
+    );
 }
 /// Leaving while operations run: stop them first, or stay.
 pub(super) fn quit_confirmation(frame: &mut Frame, main: Rect, app: &App) {
@@ -465,10 +468,18 @@ pub(super) fn quit_confirmation(frame: &mut Frame, main: Rect, app: &App) {
         .jobs
         .iter()
         .take(3)
-        .map(|job| Line::from(styled(truncate(&format!("• {}", job.title), width), theme.text)))
+        .map(|job| {
+            Line::from(styled(
+                truncate(&format!("• {}", job.title), width),
+                theme.text,
+            ))
+        })
         .collect();
     if count > 3 {
-        lines.push(Line::from(styled(format!("  and {} more", count - 3), theme.muted)));
+        lines.push(Line::from(styled(
+            format!("  and {} more", count - 3),
+            theme.muted,
+        )));
     }
     lines.push(Line::from(styled(
         truncate(
@@ -820,10 +831,7 @@ pub(super) fn path_lines(
             Line::from(vec![
                 styled(glyph, icon_color(theme, group)),
                 styled(name[..split].to_string(), theme.muted),
-                styled(
-                    name[split..].to_string(),
-                    path_color(app, path, directory),
-                ),
+                styled(name[split..].to_string(), path_color(app, path, directory)),
             ])
         })
         .collect::<Vec<_>>();

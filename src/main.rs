@@ -1068,7 +1068,10 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         assert_eq!(candidates(&["fff", "do"], Some(root)), ["docs/"]);
         assert_eq!(
-            candidates(&["fff", "explorer", "save", "--no-config", "do"], Some(root)),
+            candidates(
+                &["fff", "explorer", "save", "--no-config", "do"],
+                Some(root)
+            ),
             ["docs/"]
         );
         assert_eq!(candidates(&["fff", "window", "do"], Some(root)), ["docs/"]);
@@ -1089,9 +1092,13 @@ mod tests {
 
     #[test]
     fn man_pages_go_to_a_directory_man_searches_in_home_first() {
-        let search: Vec<PathBuf> = ["/usr/local/man", "/usr/share/man", "/home/u/.local/share/man"]
-            .map(PathBuf::from)
-            .to_vec();
+        let search: Vec<PathBuf> = [
+            "/usr/local/man",
+            "/usr/share/man",
+            "/home/u/.local/share/man",
+        ]
+        .map(PathBuf::from)
+        .to_vec();
         let all = |_: &Path| true;
         let home = Some(Path::new("/home/u"));
         assert_eq!(

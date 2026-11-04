@@ -170,7 +170,9 @@ impl Session {
                 let dropped = plan.dropped;
                 self.focus = Focus::Results;
                 match request {
-                    Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, dropped),
+                    Ok(r) => {
+                        perform_operation(app, &mut self.discovery, &mut self.focus, r, dropped)
+                    }
                     Err(e) => app.status = e,
                 }
             }
@@ -653,8 +655,7 @@ impl Session {
     /// `clear_query`: the query; pressed again with none, the marks. With
     /// a contents query, the query being typed into, else the other one.
     pub(super) fn clear_query(&mut self, app: &mut App) {
-        if !app.grep.text.is_empty() && (app.grep.editing || app.query.is_empty())
-        {
+        if !app.grep.text.is_empty() && (app.grep.editing || app.query.is_empty()) {
             app.set_contents(String::new());
         } else if !app.query.is_empty() {
             app.query.clear();
@@ -732,7 +733,11 @@ pub(super) fn chosen(
             };
             let unmark = app
                 .keymap
-                .first(Function::ToggleMark, crate::keymap::Mode::Normal, Some(cell))
+                .first(
+                    Function::ToggleMark,
+                    crate::keymap::Mode::Normal,
+                    Some(cell),
+                )
                 .filter(|b| b.applies(cell))
                 .map(|b| b.display());
             app.status = match unmark {

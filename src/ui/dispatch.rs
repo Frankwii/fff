@@ -862,9 +862,7 @@ impl Session {
         paths: Vec<PathBuf>,
     ) -> io::Result<()> {
         match action {
-            ScopedAction::Extract => {
-                self.focus = start_extract(app, &mut self.discovery, paths)
-            }
+            ScopedAction::Extract => self.focus = start_extract(app, &mut self.discovery, paths),
             ScopedAction::Delete(permanently) => delete(
                 app,
                 &mut self.discovery,

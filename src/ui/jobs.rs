@@ -155,20 +155,29 @@ fn moves_cwd(app: &App, paths: impl IntoIterator<Item = impl AsRef<std::path::Pa
     let dirs: Vec<PathBuf> = app
         .tab_dirs()
         .into_iter()
-        .flat_map(|d| [d.to_path_buf(), d.canonicalize().unwrap_or_else(|_| d.to_path_buf())])
+        .flat_map(|d| {
+            [
+                d.to_path_buf(),
+                d.canonicalize().unwrap_or_else(|_| d.to_path_buf()),
+            ]
+        })
         .collect();
     paths.into_iter().any(|p| {
         let p = p.as_ref();
         let resolved = resolved(p);
-        dirs.iter()
-            .any(|dir| dir.starts_with(p) || resolved.as_ref().is_some_and(|path| dir.starts_with(path)))
+        dirs.iter().any(|dir| {
+            dir.starts_with(p) || resolved.as_ref().is_some_and(|path| dir.starts_with(path))
+        })
     })
 }
 /// `path` with the symlinks in its folders resolved, the entry itself not
 /// followed.
 fn resolved(path: &std::path::Path) -> Option<PathBuf> {
     let parent = path.parent()?.canonicalize().ok()?;
-    Some(path.file_name().map_or(parent.clone(), |name| parent.join(name)))
+    Some(
+        path.file_name()
+            .map_or(parent.clone(), |name| parent.join(name)),
+    )
 }
 /// Each path as given and, when it differs, resolved.
 fn resolving(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -242,7 +251,12 @@ impl Claim {
                 ..
             } => (
                 vec![],
-                sources.iter().chain(targets).chain(replace).cloned().collect(),
+                sources
+                    .iter()
+                    .chain(targets)
+                    .chain(replace)
+                    .cloned()
+                    .collect(),
                 sources.iter().chain(replace).cloned().collect(),
             ),
             // Beside each archive, its contents land in its folder itself.
@@ -311,10 +325,16 @@ impl App {
     /// Says so, and true, when `path` is (in) an entry a running job moves
     /// away or deletes: it cannot be gone into.
     pub(crate) fn leaving(&mut self, path: &std::path::Path) -> bool {
-        let Some(title) = self.leaving_job(path).map(|job| lowercase_first(&job.title)) else {
+        let Some(title) = self
+            .leaving_job(path)
+            .map(|job| lowercase_first(&job.title))
+        else {
             return false;
         };
-        self.status = format!("{} is being moved or deleted ({title}); wait for it to finish", name(path));
+        self.status = format!(
+            "{} is being moved or deleted ({title}); wait for it to finish",
+            name(path)
+        );
         true
     }
     /// Says so, and true, when a running job changes one of `paths`: they
@@ -354,10 +374,7 @@ fn refused(app: &mut App, claim: &Claim) -> bool {
     }) else {
         return false;
     };
-    app.status = format!(
-        "{title} uses {}; wait for it to finish",
-        name(&path)
-    );
+    app.status = format!("{title} uses {}; wait for it to finish", name(&path));
     true
 }
 /// How long an operation may take before its progress is shown instead of
@@ -835,23 +852,21 @@ fn ended(
                     let done = summary.unwrap_or_else(|| {
                         format!("Renamed {}", entries(outcome.moved.iter().map(|(p, _)| p)))
                     });
-                    let record = (!outcome.undo.is_empty()).then(|| {
-                        crate::operations::undo::Record {
+                    let record =
+                        (!outcome.undo.is_empty()).then(|| crate::operations::undo::Record {
                             summary: done.clone(),
                             steps: outcome.undo,
                             lost: outcome.lost,
                             order: job.order,
                             marked,
-                        }
-                    });
+                        });
                     if let Some(remark) = job.undoing {
                         // It finished before it could stop: undo it now.
                         match record {
                             Some(record) => start_undo(app, discovery, record, remark),
                             None => {
-                                app.status = format!(
-                                    "{done} before it could stop; that cannot be undone"
-                                )
+                                app.status =
+                                    format!("{done} before it could stop; that cannot be undone")
                             }
                         }
                     } else {
@@ -881,7 +896,10 @@ fn ended(
                         }
                     }
                 }
-                Then::Undone { record, remark: again } => {
+                Then::Undone {
+                    record,
+                    remark: again,
+                } => {
                     app.status = format!("Undid: {}", record.summary);
                     if record.lost > 0 {
                         app.status += &format!(
@@ -1064,10 +1082,22 @@ mod tests {
     fn operations_collide_when_one_changes_what_the_other_uses() {
         let (a, b) = (Path::new("/w/a"), Path::new("/w/b"));
         // Reading the same tree twice is fine; so are separate trees.
-        assert!(claim(&[a], &[b]).collides(&claim(&[a], &[Path::new("/w/c")])).is_none());
+        assert!(
+            claim(&[a], &[b])
+                .collides(&claim(&[a], &[Path::new("/w/c")]))
+                .is_none()
+        );
         // Writing into, above or over what the other reads or writes is not.
-        assert!(claim(&[], &[Path::new("/w/a/x")]).collides(&claim(&[a], &[])).is_some());
-        assert!(claim(&[a], &[]).collides(&claim(&[], &[Path::new("/w")])).is_some());
+        assert!(
+            claim(&[], &[Path::new("/w/a/x")])
+                .collides(&claim(&[a], &[]))
+                .is_some()
+        );
+        assert!(
+            claim(&[a], &[])
+                .collides(&claim(&[], &[Path::new("/w")]))
+                .is_some()
+        );
         assert!(claim(&[], &[b]).collides(&claim(&[], &[b])).is_some());
         // A copy reads its sources and writes their names in the destination.
         let copy = Claim::of(&crate::operations::Request::Copy {
@@ -1088,22 +1118,47 @@ mod tests {
         let mut app = App::browse(dir.clone(), 1, crate::Policy::default());
         let mut discovery = Discovery::new(Default::default());
         let mut focus = Focus::Results;
-        app.jobs.push(Job::running("Copying photos", &[dir.join("b/photos")], false));
-        delete(&mut app, &mut discovery, &mut focus, vec![dir.join("b")], true);
+        app.jobs.push(Job::running(
+            "Copying photos",
+            &[dir.join("b/photos")],
+            false,
+        ));
+        delete(
+            &mut app,
+            &mut discovery,
+            &mut focus,
+            vec![dir.join("b")],
+            true,
+        );
         assert_eq!(app.status, "Copying photos uses b; wait for it to finish");
         assert!(matches!(focus, Focus::Results));
         // Reading from it waits too; elsewhere goes on.
         app.status.clear();
         let copy = crate::operations::Transfer::Copy;
-        transfer(&mut app, &mut discovery, &mut focus, copy, vec![dir.join("b/photos/1.jpg")], false);
-        assert!(app.status.ends_with("wait for it to finish"), "{}", app.status);
+        transfer(
+            &mut app,
+            &mut discovery,
+            &mut focus,
+            copy,
+            vec![dir.join("b/photos/1.jpg")],
+            false,
+        );
+        assert!(
+            app.status.ends_with("wait for it to finish"),
+            "{}",
+            app.status
+        );
         app.status.clear();
         let request = crate::operations::Request::Create {
             path: dir.join("b/photos"),
             directory: true,
         };
         perform_operation(&mut app, &mut discovery, &mut focus, request, false);
-        assert!(app.status.ends_with("wait for it to finish"), "{}", app.status);
+        assert!(
+            app.status.ends_with("wait for it to finish"),
+            "{}",
+            app.status
+        );
         assert!(!dir.join("b").exists());
         let request = crate::operations::Request::Create {
             path: dir.join("notes"),
@@ -1113,7 +1168,11 @@ mod tests {
         assert!(dir.join("notes").is_dir(), "{}", app.status);
         // Files it changes are not opened or given to programs.
         assert!(app.in_use(&[dir.join("b/photos/1.jpg")]));
-        assert!(app.status.starts_with("1.jpg is in use (copying photos)"), "{}", app.status);
+        assert!(
+            app.status.starts_with("1.jpg is in use (copying photos)"),
+            "{}",
+            app.status
+        );
         assert!(!app.in_use(&[dir.join("notes")]));
         app.jobs.clear();
         std::fs::remove_dir_all(dir).unwrap();
@@ -1125,10 +1184,14 @@ mod tests {
         std::fs::create_dir_all(dir.join("old/sub")).unwrap();
         std::fs::create_dir_all(dir.join("new")).unwrap();
         let mut app = App::browse(dir.clone(), 1, crate::Policy::default());
-        app.jobs.push(Job::running("Deleting old", &[dir.join("old")], true));
+        app.jobs
+            .push(Job::running("Deleting old", &[dir.join("old")], true));
         assert!(!app.navigate(dir.join("old/sub"), false));
         assert_eq!(app.cwd, dir);
-        assert!(app.status.starts_with("sub is being moved or deleted (deleting old)"));
+        assert!(
+            app.status
+                .starts_with("sub is being moved or deleted (deleting old)")
+        );
         assert!(app.navigate(dir.join("new"), false));
         // Going back skips it.
         app.back.push(dir.join("old"));
@@ -1159,7 +1222,10 @@ mod tests {
         perform_operation(&mut app, &mut discovery, &mut focus, request, false);
         assert!(dir.join("into/a").exists(), "{}", app.status);
         assert_eq!(app.marks.to_vec(), [dir.join("into")]);
-        assert_eq!(app.undo.last().map(|r| r.marked.clone()), Some(vec![dir.join("a")]));
+        assert_eq!(
+            app.undo.last().map(|r| r.marked.clone()),
+            Some(vec![dir.join("a")])
+        );
         undo(&mut app, &mut discovery);
         while let Some(job) = app.jobs.first() {
             let result = job.poll(Duration::from_secs(5)).unwrap();

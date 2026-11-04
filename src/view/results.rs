@@ -332,7 +332,12 @@ pub(super) fn info_color(
 /// A listed path's color, from the details read in the background: drawing
 /// never waits for the filesystem.
 pub(super) fn path_color(app: &App, path: &Path, directory: bool) -> Color {
-    name_color(app.palette, path, app.details.info(path).as_ref(), directory)
+    name_color(
+        app.palette,
+        path,
+        app.details.info(path).as_ref(),
+        directory,
+    )
 }
 /// A listed name's color: what a copy or extraction is still writing (not
 /// yet in place) stands out, folders and files apart; otherwise its kind.

@@ -86,8 +86,13 @@ impl World {
             let path = world.w.join(format!("loose{i}"));
             world.file(&path, rng.below(10_000));
         }
-        tar(&world.w.join("bundle.tar"), &[("x/one", b"tar one"), ("x/two", b"tar two")]);
-        world.originals.push(fs::read(world.w.join("bundle.tar")).unwrap());
+        tar(
+            &world.w.join("bundle.tar"),
+            &[("x/one", b"tar one"), ("x/two", b"tar two")],
+        );
+        world
+            .originals
+            .push(fs::read(world.w.join("bundle.tar")).unwrap());
         world
     }
     fn file(&mut self, path: &Path, size: usize) {
@@ -98,7 +103,11 @@ impl World {
     }
     fn app(&self) -> App {
         let mut app = App::browse(self.root.join("here"), 1, crate::Policy::default());
-        app.trash = Some(crate::trash::Trash::new(&self.root.join("data"), 30, u64::MAX));
+        app.trash = Some(crate::trash::Trash::new(
+            &self.root.join("data"),
+            30,
+            u64::MAX,
+        ));
         app.refresh_trash();
         app
     }
@@ -164,7 +173,10 @@ fn staged(dir: &Path) -> Vec<PathBuf> {
 fn settle(app: &mut App, discovery: &mut Discovery) {
     let deadline = std::time::Instant::now() + Duration::from_secs(120);
     while !app.jobs.is_empty() {
-        assert!(std::time::Instant::now() < deadline, "operations never ended");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "operations never ended"
+        );
         poll_jobs(app, discovery);
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -201,7 +213,11 @@ fn candidates(w: &Path, rng: &mut Rng) -> Vec<PathBuf> {
 fn request(w: &Path, rng: &mut Rng, n: usize) -> Option<crate::operations::Request> {
     use crate::operations::Request;
     let all = candidates(w, rng);
-    let top: Vec<PathBuf> = all.iter().filter(|p| p.parent() == Some(w)).cloned().collect();
+    let top: Vec<PathBuf> = all
+        .iter()
+        .filter(|p| p.parent() == Some(w))
+        .cloned()
+        .collect();
     let folders: Vec<PathBuf> = all.iter().filter(|p| p.is_dir()).cloned().collect();
     let pick = |rng: &mut Rng, from: &[PathBuf]| from.get(rng.below(from.len())).cloned();
     // Whole trees mostly, so that long operations run side by side.
@@ -313,7 +329,9 @@ fn a_stopped_operation_puts_everything_back() {
             stop_job(&mut app, 0, rng.percent(50));
         }
         settle(&mut app, &mut discovery);
-        check(app.undo.is_empty(), seed, || format!("{described}: left on the undo list"));
+        check(app.undo.is_empty(), seed, || {
+            format!("{described}: left on the undo list")
+        });
         let after = snapshot(&world.w);
         check(after == before, seed, || {
             let changed: Vec<_> = before
@@ -323,7 +341,10 @@ fn a_stopped_operation_puts_everything_back() {
                 .chain(after.keys().filter(|p| !before.contains_key(*p)))
                 .take(5)
                 .collect();
-            format!("{described} then stopped: not put back ({}): {changed:?}", app.status)
+            format!(
+                "{described} then stopped: not put back ({}): {changed:?}",
+                app.status
+            )
         });
         check(staged(&world.root).is_empty(), seed, || {
             format!("{described}: left {:?}", staged(&world.root))
@@ -386,21 +407,24 @@ fn operations_side_by_side_lose_nothing_and_undo_in_order() {
         // Nothing lost or half written: every file is whole, and every
         // original is somewhere, in place or in the trash.
         let everywhere = snapshot(&world.root);
-        let contents: std::collections::HashSet<&Vec<u8>> =
-            everywhere.values().flatten().collect();
+        let contents: std::collections::HashSet<&Vec<u8>> = everywhere.values().flatten().collect();
         for (path, data) in &everywhere {
             // New files (`n`) are empty.
             if let Some(data) = data
                 && !path.starts_with("data")
                 && !data.is_empty()
             {
-                check(world.originals.contains(data) || world.extracted.contains(data), seed, || {
-                    format!("{} is not a whole original\n{log}", path.display())
-                });
+                check(
+                    world.originals.contains(data) || world.extracted.contains(data),
+                    seed,
+                    || format!("{} is not a whole original\n{log}", path.display()),
+                );
             }
         }
         for (i, original) in world.originals.iter().enumerate() {
-            check(contents.contains(original), seed, || format!("file {i} was lost\n{log}"));
+            check(contents.contains(original), seed, || {
+                format!("file {i} was lost\n{log}")
+            });
         }
         // Undone last to first, everything comes back as it was.
         let mut undone = vec![];

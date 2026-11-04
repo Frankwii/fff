@@ -268,8 +268,7 @@ fn session(
         }
         // Leaving once nothing runs, also when the last operation ended
         // while the question was asked.
-        if matches!(session.focus, Focus::Leaving(_) | Focus::QuitConfirm(_))
-            && app.jobs.is_empty()
+        if matches!(session.focus, Focus::Leaving(_) | Focus::QuitConfirm(_)) && app.jobs.is_empty()
         {
             let (Focus::Leaving(finish) | Focus::QuitConfirm(finish)) =
                 std::mem::take(&mut session.focus)

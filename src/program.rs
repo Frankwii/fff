@@ -23,11 +23,8 @@ impl Program {
     /// What `switch_program` offers, by their letters in its chooser: the
     /// programs started from a shell. A file dialog answers its caller and
     /// a window of its own has no shell to leave into, so neither switches.
-    pub const SWITCHABLE: [(Self, char); 3] = [
-        (Self::Roam, 'r'),
-        (Self::Pick, 'p'),
-        (Self::Seek, 's'),
-    ];
+    pub const SWITCHABLE: [(Self, char); 3] =
+        [(Self::Roam, 'r'), (Self::Pick, 'p'), (Self::Seek, 's')];
     /// The depth it searches to without `--depth`: browsing shows a
     /// folder's own entries, picking looks a little deeper, and seeking
     /// deeper still.
