@@ -8,19 +8,35 @@ pub(super) fn cycle(index: usize, len: usize, forward: bool) -> usize {
         (_, false) => index.checked_sub(1).unwrap_or(len - 1).min(len - 1),
     }
 }
+/// A function that acts on the current entry or the marks (see [`scope`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScopedAction {
+    /// E: the extraction prompt.
     Extract,
     /// x (false) or X (true): delete permanently.
     Delete(bool),
     /// gx (false) or gX (true).
     Run(bool),
-    /// E: $EDITOR.
+    /// e: $EDITOR.
     Edit,
     /// o: each file's opener, in this terminal.
     Open,
     /// R: back from the trash.
     Restore,
+}
+impl ScopedAction {
+    /// What the status says when there is nothing to act on; `None` for
+    /// gx/gX, whose program may run on no files, in the browsing directory.
+    pub(super) fn nothing(self) -> Option<&'static str> {
+        match self {
+            Self::Extract => Some("Select an extractable archive first"),
+            Self::Delete(_) => Some("Nothing to delete"),
+            Self::Run(_) => None,
+            Self::Edit => Some("Nothing to edit"),
+            Self::Open => Some("Nothing to open"),
+            Self::Restore => Some("Nothing to restore"),
+        }
+    }
 }
 /// l, Alt+l and Alt+number on a file: its opener in the background (a
 /// terminal opener in a new terminal window), while fff keeps the keyboard.

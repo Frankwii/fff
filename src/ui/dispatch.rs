@@ -387,19 +387,7 @@ impl Session {
             SaveHere => return Ok(save_here(app, &mut self.focus)),
             OpenInTerminal | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
             | Rename | Extract | Create | Undo | Restore => self.operation(app, function)?,
-            Run | RunAndQuit => {
-                let exit = function == RunAndQuit;
-                self.focus = match scope(&app.marks, self.current(app)) {
-                    Scope::Ready(paths) => start_run(&mut self.editor, paths, exit),
-                    Scope::Ask(current, selected) => Focus::ScopeChoice {
-                        current,
-                        selected,
-                        action: ScopedAction::Run(exit),
-                    },
-                    // A program may run on no files, in the browsing directory.
-                    Scope::Nothing => start_run(&mut self.editor, vec![], exit),
-                };
-            }
+            Run | RunAndQuit => self.scoped(app, ScopedAction::Run(function == RunAndQuit))?,
             ToggleMark => match &self.focus {
                 Focus::Marks { rows, index } => {
                     if let Some(path) = rows.get(*index) {
@@ -702,7 +690,6 @@ impl Session {
     /// A file operation, from Normal mode in the results or the marked list.
     fn operation(&mut self, app: &mut App, function: Function) -> io::Result<()> {
         use Function::*;
-        let current = self.current(app);
         match function {
             MoveMarked | CopyMarked | LinkMarked => {
                 let sources = app.marks.to_vec();
@@ -726,23 +713,7 @@ impl Session {
                     );
                 }
             }
-            Trash | Delete => match scope(&app.marks, current) {
-                Scope::Ready(paths) => delete(
-                    app,
-                    &mut self.discovery,
-                    &mut self.focus,
-                    paths,
-                    function == Delete,
-                ),
-                Scope::Ask(current, selected) => {
-                    self.focus = Focus::ScopeChoice {
-                        current,
-                        selected,
-                        action: ScopedAction::Delete(function == Delete),
-                    }
-                }
-                Scope::Nothing => app.status = "Nothing to delete".into(),
-            },
+            Trash | Delete => self.scoped(app, ScopedAction::Delete(function == Delete))?,
             Undo => undo(app, &mut self.discovery, &mut self.focus),
             // Only in the trash: elsewhere, nothing has a place to go back to.
             Restore if !app.in_trash() => {
@@ -754,42 +725,12 @@ impl Session {
                     None => format!("{restore} restores entries in the trash"),
                 };
             }
-            Restore => match scope(&app.marks, current) {
-                Scope::Ready(paths) => restore(app, &mut self.discovery, &mut self.focus, paths),
-                Scope::Ask(current, selected) => {
-                    self.focus = Focus::ScopeChoice {
-                        current,
-                        selected,
-                        action: ScopedAction::Restore,
-                    }
-                }
-                Scope::Nothing => app.status = "Nothing to restore".into(),
-            },
+            Restore => self.scoped(app, ScopedAction::Restore)?,
             Create => self.focus = Focus::NewChoice,
             // $EDITOR on the current or marked paths: no review, it only edits.
-            EditFiles => match scope(&app.marks, current) {
-                Scope::Ask(current, selected) => {
-                    self.focus = Focus::ScopeChoice {
-                        current,
-                        selected,
-                        action: ScopedAction::Edit,
-                    }
-                }
-                Scope::Ready(paths) => self.edit_files(app, paths)?,
-                Scope::Nothing => app.status = "Nothing to edit".into(),
-            },
+            EditFiles => self.scoped(app, ScopedAction::Edit)?,
             // The opener takes over this terminal until it ends.
-            OpenInTerminal => match scope(&app.marks, current) {
-                Scope::Ask(current, selected) => {
-                    self.focus = Focus::ScopeChoice {
-                        current,
-                        selected,
-                        action: ScopedAction::Open,
-                    }
-                }
-                Scope::Ready(paths) => self.open_here(app, paths)?,
-                Scope::Nothing => app.status = "Nothing to open".into(),
-            },
+            OpenInTerminal => self.scoped(app, ScopedAction::Open)?,
             Rename => {
                 let sources = app.shown_paths();
                 if sources.is_empty() {
@@ -813,18 +754,59 @@ impl Session {
                     }
                 }
             }
-            Extract => match scope(&app.marks, current) {
-                Scope::Ready(paths) => self.focus = start_extract(app, &mut self.editor, paths),
-                Scope::Ask(current, selected) => {
-                    self.focus = Focus::ScopeChoice {
-                        current,
-                        selected,
-                        action: ScopedAction::Extract,
-                    }
-                }
-                Scope::Nothing => app.status = "Select an extractable archive first".into(),
-            },
+            Extract => self.scoped(app, ScopedAction::Extract)?,
             _ => {}
+        }
+        Ok(())
+    }
+    /// `action` on the current entry or the marks, asking which when the
+    /// current entry is not marked.
+    fn scoped(&mut self, app: &mut App, action: ScopedAction) -> io::Result<()> {
+        match scope(&app.marks, self.current(app)) {
+            Scope::Ready(paths) => self.act_on(app, action, paths)?,
+            Scope::Ask(current, selected) => {
+                self.focus = Focus::ScopeChoice {
+                    current,
+                    selected,
+                    action,
+                }
+            }
+            Scope::Nothing => match action.nothing() {
+                Some(message) => app.status = message.into(),
+                None => self.act_on(app, action, vec![])?,
+            },
+        }
+        Ok(())
+    }
+    /// `action` on `paths`, chosen directly or on the scope sheet.
+    pub(super) fn act_on(
+        &mut self,
+        app: &mut App,
+        action: ScopedAction,
+        paths: Vec<PathBuf>,
+    ) -> io::Result<()> {
+        match action {
+            ScopedAction::Extract => self.focus = start_extract(app, &mut self.editor, paths),
+            ScopedAction::Delete(permanently) => delete(
+                app,
+                &mut self.discovery,
+                &mut self.focus,
+                paths,
+                permanently,
+            ),
+            ScopedAction::Run(exit) => self.focus = start_run(&mut self.editor, paths, exit),
+            ScopedAction::Edit | ScopedAction::Open => {
+                // Leave the scope sheet before the program takes the terminal.
+                if matches!(self.focus, Focus::ScopeChoice { .. }) {
+                    self.focus = Focus::Results;
+                }
+                if action == ScopedAction::Edit {
+                    self.edit_files(app, paths)?;
+                } else {
+                    self.open_here(app, paths)?;
+                }
+            }
+            ScopedAction::Restore => restore(app, &mut self.discovery, &mut self.focus, paths),
         }
         Ok(())
     }

@@ -168,12 +168,7 @@ pub(super) fn prompt(
         7
     }
     .min(area.height);
-    let dialog = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
+    let dialog = centered(area, width, height);
     let block = panel(theme, mode_title(app, field, title), true, theme.marked)
         .padding(Padding::horizontal(1));
     let inner = block.inner(dialog);

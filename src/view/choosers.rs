@@ -10,12 +10,7 @@ pub(super) fn bookmarks(
     let theme = app.palette;
     let width = area.width.saturating_sub(4).min(90);
     let height = area.height.saturating_sub(4).min(22);
-    let dialog = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
+    let dialog = centered(area, width, height);
     let block = panel(
         theme,
         mode_title(
@@ -201,12 +196,7 @@ pub(super) fn bookmark_dialog(
 ) -> Rect {
     let width = area.width.saturating_sub(2).min(90);
     let height = area.height.saturating_sub(2).min(height);
-    let dialog = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
+    let dialog = centered(area, width, height);
     let block = panel(app.palette, title, true, app.palette.marked).padding(Padding::horizontal(1));
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
@@ -527,12 +517,7 @@ pub(super) fn palettes(
     let theme = app.palette;
     let width = area.width.saturating_sub(4).min(64);
     let height = area.height.saturating_sub(4).min(22);
-    let dialog = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
+    let dialog = centered(area, width, height);
     let block = panel(
         theme,
         mode_title(
@@ -659,12 +644,7 @@ pub(super) fn commands(
     let theme = app.palette;
     let width = area.width.saturating_sub(4).min(110);
     let height = area.height.saturating_sub(4).min(24);
-    let dialog = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
+    let dialog = centered(area, width, height);
     let block = panel(
         theme,
         mode_title(

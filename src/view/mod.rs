@@ -152,6 +152,15 @@ fn truncate(text: &str, width: usize) -> String {
     }
     if width == 0 { kept } else { kept + "…" }
 }
+/// A `width` × `height` rectangle in the middle of `area`, which holds it.
+fn centered(area: Rect, width: u16, height: u16) -> Rect {
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    )
+}
 fn panel(theme: Palette, title: impl Into<String>, focused: bool, accent: Color) -> Block<'static> {
     panel_with(theme, title, Vec::new(), focused, accent)
 }

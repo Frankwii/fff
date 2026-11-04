@@ -150,27 +150,8 @@ impl Session {
             }
             _ => return Ok(()),
         };
-        match *action {
-            ScopedAction::Extract => self.focus = start_extract(app, &mut self.editor, paths),
-            ScopedAction::Delete(permanently) => delete(
-                app,
-                &mut self.discovery,
-                &mut self.focus,
-                paths,
-                permanently,
-            ),
-            ScopedAction::Run(exit) => self.focus = start_run(&mut self.editor, paths, exit),
-            ScopedAction::Edit => {
-                self.focus = Focus::Results;
-                self.edit_files(app, paths)?;
-            }
-            ScopedAction::Open => {
-                self.focus = Focus::Results;
-                self.open_here(app, paths)?;
-            }
-            ScopedAction::Restore => restore(app, &mut self.discovery, &mut self.focus, paths),
-        }
-        Ok(())
+        let action = *action;
+        self.act_on(app, action, paths)
     }
     fn transfer_confirm_key(&mut self, app: &mut App, key: KeyEvent) {
         let Focus::TransferConfirm(plan) = &self.focus else {
