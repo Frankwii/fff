@@ -21,11 +21,10 @@ history.
   with "Permission denied".
 - **Keys bound on the Keys screen always load again.** Alt+`>`, Insert,
   F13 and up and Ctrl+Shift+letter were saved in a form keys.toml could
-  not read, which dropped every key of yours at the next start (Alt+`>` is
-  now written `<M-gt>`, Ctrl+Shift+a `<C-S-A>`); keys.toml also takes
-  `<gt>`, `<hash>`, `<Insert>` and `<F13>` up. A key that still cannot be
-  written is refused when you bind it, and keys.toml is written whole or
-  not at all.
+  not read, which dropped every key of yours at the next start. keys.toml
+  now reads `<M->>`, `<C-S-A>`, `<Insert>` and `<F13>` up as Vim does; a
+  key it cannot hold (Ctrl or Alt with `#`, which reads as any digit) is
+  refused when you bind it, and keys.toml is written whole or not at all.
 - **A marked link to a missing target can be the answer** of `fff pick`
   and file dialogs, as Enter in the marked list already allowed, rather
   than blocking it as a missing path.

@@ -384,9 +384,6 @@ impl Key {
             Some(KeyCode::Char(' ')) => "Space".into(),
             Some(KeyCode::Char('<')) => "lt".into(),
             Some(KeyCode::Char(c)) if m.is_empty() => return c.to_string(),
-            // Inside `<...>`, these would end the name or stand for digits.
-            Some(KeyCode::Char('>')) => "gt".into(),
-            Some(KeyCode::Char('#')) => "hash".into(),
             Some(KeyCode::Char(c)) => c.to_string(),
             Some(KeyCode::Enter) => "CR".into(),
             Some(KeyCode::Esc) => "Esc".into(),
@@ -449,9 +446,9 @@ pub fn writable(keys: &[Key]) -> bool {
 /// Vim's key notation: printable characters stand for themselves; `<...>`
 /// names a key with optional `C-`, `M-` (or `A-`) and `S-` modifiers:
 /// `<CR>`, `<Esc>`, `<Tab>`, `<BS>`, `<Del>`, `<Insert>`, `<Space>`,
-/// `<lt>`, `<gt>`, `<hash>`, arrows (`<Up>`), `<PageUp>`, `<PageDown>`,
-/// `<Home>`, `<End>`, `<F1>` and up, one character (`<M-h>`; Ctrl keeps a
-/// capital only with `S-`), or `#` for a digit family (`<C-#>`).
+/// `<lt>`, arrows (`<Up>`), `<PageUp>`, `<PageDown>`, `<Home>`, `<End>`,
+/// `<F1>` and up, one character (`<M-h>`, `<M->>`; Ctrl keeps a capital
+/// only with `S-`), or `#` for a digit family (`<C-#>`).
 pub fn parse(text: &str) -> Result<Vec<Key>, String> {
     let mut keys = Vec::new();
     let mut rest = text;
@@ -460,6 +457,12 @@ pub fn parse(text: &str) -> Result<Vec<Key>, String> {
             && let Some(end) = rest.find('>')
             && end > 1
         {
+            // `<M->>`: after the modifiers, `>` is the key itself.
+            let end = if modifiers_only(&rest[1..end]) && rest[end + 1..].starts_with('>') {
+                end + 1
+            } else {
+                end
+            };
             keys.push(parse_named(&rest[1..end]).map_err(|e| format!("{e} in {text:?}"))?);
             rest = &rest[end + 1..];
             continue;
@@ -479,6 +482,16 @@ pub fn parse(text: &str) -> Result<Vec<Key>, String> {
         ));
     }
     Ok(keys)
+}
+/// Whether `text` is modifiers alone (`M-`, `C-S-`), each with its dash.
+fn modifiers_only(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.len() >= 2
+        && lower.len().is_multiple_of(2)
+        && lower
+            .as_bytes()
+            .chunks(2)
+            .all(|m| matches!(m, [b'c' | b'm' | b'a' | b's', b'-']))
 }
 fn parse_named(inner: &str) -> Result<Key, String> {
     let mut modifiers = M::NONE;
@@ -521,8 +534,6 @@ fn parse_named(inner: &str) -> Result<Key, String> {
         "del" | "delete" => KeyCode::Delete,
         "space" => KeyCode::Char(' '),
         "lt" => KeyCode::Char('<'),
-        "gt" => KeyCode::Char('>'),
-        "hash" => KeyCode::Char('#'),
         "bar" => KeyCode::Char('|'),
         "insert" | "ins" => KeyCode::Insert,
         "up" => KeyCode::Up,
@@ -1674,7 +1685,7 @@ mod tests {
     #[test]
     fn every_key_pressed_is_written_as_it_reads_back() {
         // What the Keys screen may capture is saved in keys.toml.
-        let mut codes: Vec<KeyCode> = "aZ0#<>-|\" é"
+        let mut codes: Vec<KeyCode> = "aZ0<>-|\" é"
             .chars()
             .map(KeyCode::Char)
             .chain([KeyCode::Insert, KeyCode::F(5), KeyCode::F(13), KeyCode::BackTab])
@@ -1689,9 +1700,12 @@ mod tests {
                 assert!(writable(&[key]), "{text}");
             }
         }
-        // `>` inside `<...>` ends the name: Alt+> is written `<M-gt>`.
-        assert!(parse("<M->>").is_err());
-        assert_eq!(parse("<M-gt>").unwrap(), [Key::Press(KeyCode::Char('>'), M::ALT)]);
+        // As in Vim, `>` after the modifiers is the key: `<M->>` is Alt+>.
+        assert_eq!(parse("<M->>").unwrap(), [Key::Press(KeyCode::Char('>'), M::ALT)]);
+        assert_eq!(parse("<C-M->>x").unwrap().len(), 2);
+        // Alt or Ctrl with `#` reads as any digit: it cannot be written.
+        let alt_hash = Key::press(KeyEvent::new(KeyCode::Char('#'), M::ALT));
+        assert!(!writable(&[alt_hash]));
         assert_eq!(parse("<C-S-A>").unwrap(), [Key::Press(KeyCode::Char('A'), M::CONTROL)]);
         // A sequence spelling "none" would read back as no key.
         let none: Vec<Key> = "none".chars().map(|c| parse(&c.to_string()).unwrap()[0]).collect();
