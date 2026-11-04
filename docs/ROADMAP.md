@@ -315,5 +315,5 @@ to the model's input.
   offline, `ort` is faster but needs ONNX Runtime. Model weights live outside
   the binary, at a path in the configuration.
 
-The current release is 0.16.2. Version 1.0 is planned once the roadmap before
+The current release is 0.16.3. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.
