@@ -310,18 +310,12 @@ fn official_palette_variants_and_aliases() {
 }
 
 #[test]
-fn editor_config_defaults_to_unspecified_nvim_and_is_validated() {
-    use fuzzy_file_finder::config::EditorBackend;
-    assert_eq!(parse("").unwrap().editor.backend, None);
-    assert_eq!(EditorBackend::default(), EditorBackend::Nvim);
-    assert_eq!(
-        parse("[editor]\nbackend='nvim'").unwrap().editor.backend,
-        Some(EditorBackend::Nvim)
-    );
-    // The basic editor was removed; Neovim is the only engine.
-    assert!(parse("[editor]\nbackend='basic'").is_err());
-    assert!(parse("[editor]\nbackend='unknown'").is_err());
-    assert!(parse("[editor]\nbacked='nvim'").is_err());
+fn removed_tables_and_options_are_errors() {
+    // Neovim is the only engine, keys live in keys.toml, and sessions resume
+    // only with --resume: none of these has a setting.
+    for text in ["[editor]\nbackend='nvim'", "[keys.normal]\nquit='Q'", "[ui]\nresume=true"] {
+        assert!(parse(text).is_err(), "accepted {text}");
+    }
 }
 #[test]
 fn ui_icons_default_on_can_be_disabled_and_reject_non_booleans() {
@@ -331,12 +325,6 @@ fn ui_icons_default_on_can_be_disabled_and_reject_non_booleans() {
     for text in ["[ui]\nicons='no'", "[ui]\nicons=0", "[ui]\nicon=false"] {
         assert!(parse(text).is_err(), "accepted {text}");
     }
-}
-#[test]
-fn keys_moved_to_keys_toml() {
-    // Still read, with the table left alone and sessions told so.
-    assert!(parse("[keys.normal]\nquit='Q'\n").unwrap().old_keys);
-    assert!(!parse("").unwrap().old_keys);
 }
 #[test]
 fn message_seconds_defaults_to_four_and_zero_keeps_messages() {

@@ -195,9 +195,6 @@ struct Args {
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath,
         help_heading = "Shell integration")]
     cd_file: Option<PathBuf>,
-    /// Options that became commands, kept only to say so.
-    #[command(flatten)]
-    moved: Moved,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -225,56 +222,10 @@ struct RoamArgs {
     #[arg(long, help_heading = "Search",
         conflicts_with_all = ["roots", "browse", "depth", "glob", "exclusions", "hidden", "no_exclusions"])]
     resume: bool,
-    /// Became fff window, kept only to say so.
-    #[arg(long, hide = true)]
-    window: bool,
-    /// Accepted for compatibility: fff always starts here unless --resume.
-    #[arg(long, hide = true)]
-    here: bool,
 }
 impl RoamArgs {
     fn is_empty(&self) -> bool {
         self.roots.is_empty() && !self.browse && !self.resume
-    }
-}
-/// Options of earlier versions, each now part of a command.
-#[derive(clap::Args)]
-struct Moved {
-    #[arg(long, hide = true)]
-    no_dir: bool,
-    #[arg(long, hide = true)]
-    output_paths: bool,
-    #[arg(long, hide = true, value_name = "SHELL")]
-    init: Option<String>,
-    #[arg(long, hide = true, value_name = "SHELL")]
-    completions: Option<String>,
-    #[arg(long, hide = true, value_name = "TARGET")]
-    setup: Option<String>,
-    #[arg(long, hide = true)]
-    check_config: bool,
-}
-impl Moved {
-    /// Where the option given went, if one was.
-    fn instead(&self) -> Option<String> {
-        let shell = |s: &Option<String>| s.clone().unwrap_or_default();
-        Some(if self.no_dir {
-            "--no-dir is now a command of its own: fff seek [ROOTS]".into()
-        } else if self.output_paths {
-            "--output-paths is now a command of its own: fff pick [ROOTS]".into()
-        } else if self.init.is_some() {
-            format!("--init is now fff setup --init {}", shell(&self.init))
-        } else if self.completions.is_some() {
-            format!(
-                "--completions is now fff setup --completions {}",
-                shell(&self.completions)
-            )
-        } else if self.setup.is_some() {
-            format!("--setup is now fff setup --{}", shell(&self.setup))
-        } else if self.check_config {
-            "--check-config is now fff setup --check-config".into()
-        } else {
-            return None;
-        })
     }
 }
 #[derive(clap::Subcommand)]
@@ -317,7 +268,6 @@ enum Command {
     /// folder enters it, in either mode; ! takes the folder you are in, and
     /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
     /// how to choose.
-    #[command(args_conflicts_with_subcommands = true)]
     Explorer(ExplorerArgs),
     /// Set fff up: the desktop, file dialogs, your shell, the configuration
     ///
@@ -376,16 +326,7 @@ struct WindowArgs {
 #[derive(clap::Args)]
 struct ExplorerArgs {
     #[command(subcommand)]
-    dialog: Option<DialogCommand>,
-    /// The options of earlier versions, kept only to say where they went.
-    #[arg(long, hide = true)]
-    multiple: bool,
-    #[arg(long, hide = true)]
-    directory: bool,
-    #[arg(long, hide = true)]
-    save: bool,
-    #[arg(hide = true)]
-    path: Option<PathBuf>,
+    dialog: DialogCommand,
 }
 /// The kinds of file dialog, named as the Keys screen names their programs.
 #[derive(clap::Subcommand)]
@@ -429,39 +370,20 @@ struct Asked {
     directory: bool,
     save: bool,
 }
-impl ExplorerArgs {
-    /// The dialog asked for, or where the old option given went.
-    fn asked(self) -> Result<Asked, String> {
-        let asked = |path, multiple, directory, save| Asked {
+impl From<DialogCommand> for Asked {
+    fn from(dialog: DialogCommand) -> Self {
+        let asked = |path, multiple, directory, save| Self {
             path,
             multiple,
             directory,
             save,
         };
-        Ok(match self.dialog {
-            Some(DialogCommand::Open(d)) => asked(d.path, false, false, false),
-            Some(DialogCommand::OpenMultiple(d)) => asked(d.path, true, false, false),
-            Some(DialogCommand::Folder(d)) => asked(d.path, d.multiple, true, false),
-            Some(DialogCommand::Save(d)) => asked(d.path, false, false, true),
-            None => {
-                let (old, new) = if self.save {
-                    ("--save", "save")
-                } else if self.directory {
-                    (
-                        "--directory",
-                        if self.multiple { "folder --multiple" } else { "folder" },
-                    )
-                } else if self.multiple {
-                    ("--multiple", "open-multiple")
-                } else {
-                    return Err(
-                        "fff explorer needs the kind of dialog: open, open-multiple, folder or save [PATH]"
-                            .into(),
-                    );
-                };
-                return Err(format!("fff explorer {old} is now fff explorer {new} [PATH]"));
-            }
-        })
+        match dialog {
+            DialogCommand::Open(d) => asked(d.path, false, false, false),
+            DialogCommand::OpenMultiple(d) => asked(d.path, true, false, false),
+            DialogCommand::Folder(d) => asked(d.path, d.multiple, true, false),
+            DialogCommand::Save(d) => asked(d.path, false, false, true),
+        }
     }
 }
 #[derive(clap::Args)]
@@ -561,21 +483,8 @@ fn usage(flag: &str, error: &dyn std::fmt::Display) -> ! {
 }
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let mut args = Args::parse();
-    if let Some(instead) = args.moved.instead() {
-        Args::command()
-            .error(clap::error::ErrorKind::UnknownArgument, instead)
-            .exit()
-    }
     // fff roam's options before another command would be ignored.
     let roam = std::mem::take(&mut args.roam);
-    if roam.window || matches!(&args.command, Some(Command::Roam(r)) if r.window) {
-        Args::command()
-            .error(
-                clap::error::ErrorKind::UnknownArgument,
-                "--window is now a command of its own: fff window [PATH]",
-            )
-            .exit()
-    }
     if !matches!(args.command, None | Some(Command::Roam(_))) && !roam.is_empty() {
         conflict("roots, --browse and --resume belong to fff roam");
     }
@@ -618,11 +527,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         },
         Some(Command::Explorer(explorer)) => Mode {
             program: fuzzy_file_finder::program::Program::ExplorerOpen,
-            explorer: Some(explorer.asked().unwrap_or_else(|instead| {
-                Args::command()
-                    .error(clap::error::ErrorKind::MissingSubcommand, instead)
-                    .exit()
-            })),
+            explorer: Some(explorer.dialog.into()),
             ..Mode::default()
         },
         Some(Command::Setup(setup)) => return run_setup(setup, args),
@@ -757,9 +662,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         }
     }
     app.config_broken = settings.broken;
-    if settings.old_keys && app.status.is_empty() {
-        app.status = OLD_KEYS.into();
-    }
     if let Some(status) = app.config_errors_status() {
         app.status = status;
     }
@@ -925,9 +827,6 @@ fn report(
     }
 }
 
-/// What a configuration that still has `[keys]` is told.
-const OLD_KEYS: &str = "[keys] in the configuration is no longer read: keys live in keys.toml beside it, which F1 edits";
-
 /// fff setup: one integration, printed script or check, then exit.
 fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::Error>> {
     if let Some(shell) = setup.init {
@@ -945,9 +844,6 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         args.palette.as_deref(),
     )?;
     if setup.check_config {
-        if settings.old_keys {
-            return Err(OLD_KEYS.into());
-        }
         if let Some(path) = settings.bookmark_path.as_deref().map(keymap::path_beside) {
             keymap::Keymap::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         }

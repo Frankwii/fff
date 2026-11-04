@@ -512,8 +512,7 @@ Highlights are kept in `$XDG_STATE_HOME/fff/state` (`~/.local/state/fff/state`
 when unset): up to 500 directories' highlights, least recently used dropped
 first, as exact path bytes. The last session is in `fff/session` beside it.
 Both files are readable only by you and replaced atomically when a session
-ends; a missing or damaged file is ignored. Delete them to forget everything. `[ui] resume`, which
-resumed automatically in 0.8, is still accepted and does nothing.
+ends; a missing or damaged file is ignored. Delete them to forget everything.
 
 ## Bookmarks
 
@@ -895,8 +894,7 @@ not checked).
 
 A clean headless Neovim instance edits every field, initially in Normal mode
 (prompts made for typing start in Insert); press `i` or `a` to type. Neovim is
-required: fff exits with an error when `nvim` is missing or cannot start.
-`[editor] backend = "nvim"` remains accepted and is the only choice. See the
+required: fff exits with an error when `nvim` is missing or cannot start. See the
 [editing guide](EDITING.md) for Insert/Normal/Visual modes, Escape semantics and
 reserved fff shortcuts.
 
@@ -1045,10 +1043,7 @@ Each entry replaces one function's keys in one mode; functions not named
 keep their defaults. A value is keys, `"none"` (or `""`, `[]`) for no keys,
 or a list of keys and tables with `keys` and any of `program`, `list` and
 `highlight`, each a list of the values [above](#where-keys-apply), named as the
-Keys screen's columns name them. This layout is settled: files written since
-0.14.0 keep working, and the two names that changed in 0.16.4 (`place`, now
-`list`, and the program `explorer-multiple`, now `explorer-open-multiple`) are
-still read, and written anew when the Keys screen next saves. Keys use Vim's notation: printable keys stand for themselves
+Keys screen's columns name them. Keys use Vim's notation: printable keys stand for themselves
 (`gg`, `g/`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),
 `M-` (Alt) and `S-` (Shift) before them: `<CR>`, `<Esc>`, `<Tab>`, `<BS>`,
 `<Del>`, `<Insert>`, `<Space>`, `<lt>` (`<`), `<Up>`, `<Down>`, `<Left>`,

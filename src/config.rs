@@ -110,19 +110,6 @@ impl Palette {
     }
 }
 
-/// Neovim is the only text engine; `[editor] backend = "nvim"` is still accepted.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EditorBackend {
-    #[default]
-    Nvim,
-}
-#[derive(Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct EditorConfig {
-    pub backend: Option<EditorBackend>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CacheConfig {
@@ -254,14 +241,11 @@ pub struct Bookmark {
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawConfig {
-    editor: EditorConfig,
     ui: UiConfig,
     palettes: BTreeMap<String, BTreeMap<String, String>>,
     bookmarks: Vec<RawBookmark>,
     cache: CacheConfig,
     performance: PerformanceConfig,
-    /// Keys moved to keys.toml; here only to say so.
-    keys: Option<toml::Value>,
     open: crate::open::OpenConfig,
     trash: RawTrash,
     exclusions: RawExclusions,
@@ -278,10 +262,6 @@ struct UiConfig {
     palette: String,
     icons: bool,
     message_seconds: u64,
-    /// Accepted for configuration compatibility: sessions resume only with
-    /// `fff --resume`.
-    #[allow(dead_code)]
-    resume: bool,
     columns: Vec<crate::details::Column>,
     mouse: bool,
     buttons: Buttons,
@@ -307,7 +287,6 @@ impl Default for UiConfig {
             palette: "midnight".into(),
             icons: true,
             message_seconds: 4,
-            resume: true,
             columns: crate::details::DEFAULT_COLUMNS.to_vec(),
             mouse: true,
             buttons: Buttons::Off,
@@ -327,7 +306,6 @@ struct RawBookmark {
 }
 #[derive(Default)]
 pub struct Settings {
-    pub editor: EditorConfig,
     pub palette: Palette,
     /// Name of the active palette (the CLI pin when given, else `[ui] palette`).
     pub palette_name: String,
@@ -367,9 +345,6 @@ pub struct Settings {
     /// The configuration file's errors, when these settings come from the
     /// backup beside it (`load_or_backup`).
     pub broken: Option<String>,
-    /// The file still has a `[keys]` table, which keys.toml replaced: it is
-    /// not read, and sessions say so.
-    pub old_keys: bool,
 }
 impl Settings {
     pub fn parse(
@@ -447,7 +422,6 @@ impl Settings {
             .chain(palettes.iter().map(|(name, p)| (name.to_string(), *p)))
             .collect();
         Ok(Self {
-            editor: raw.editor,
             palette,
             palette_name: chosen.to_string(),
             palettes: available,
@@ -471,7 +445,6 @@ impl Settings {
             source: None,
             bookmark_path: None,
             broken: None,
-            old_keys: raw.keys.is_some(),
         })
     }
     pub fn load(

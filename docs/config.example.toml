@@ -104,7 +104,4 @@ command = "nvim"
 patterns = ["Makefile"]
 terminal = true
 
-[editor]
-# backend = "nvim"
-
 # Keys live in keys.toml beside this file; F1 edits it. See keys.example.toml.

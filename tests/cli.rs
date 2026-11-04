@@ -57,7 +57,7 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
 }
 
 #[test]
-fn seek_is_a_command_and_no_dir_points_to_it() {
+fn seek_is_a_command_and_options_belong_to_their_commands() {
     let help = stdout(&fff(&["seek", "--help"], None));
     assert!(
         help.contains("Usage: fff seek [OPTIONS] [ROOTS]..."),
@@ -66,32 +66,8 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
     for text in ["--glob", "--depth"] {
         assert!(help.contains(text), "missing {text:?}");
     }
-    // Options that became commands say where they went.
-    for (old, new) in [
-        (&["--no-dir"][..], "fff seek [ROOTS]"),
-        (&["--output-paths"], "fff pick [ROOTS]"),
-        (&["--init", "zsh"], "fff setup --init zsh"),
-        (&["--completions", "bash"], "fff setup --completions bash"),
-        (&["--setup", "desktop"], "fff setup --desktop"),
-        (&["--check-config"], "fff setup --check-config"),
-        (&["--window"], "fff window [PATH]"),
-        (&["roam", "--window"], "fff window [PATH]"),
-        (&["explorer", "--save", "x.pdf"], "fff explorer save [PATH]"),
-        (&["explorer", "--multiple"], "fff explorer open-multiple [PATH]"),
-        (
-            &["explorer", "--directory", "--multiple"],
-            "fff explorer folder --multiple [PATH]",
-        ),
-        (&["explorer"], "open, open-multiple, folder or save"),
-    ] {
-        let output = fff(&[&["--no-config"], old].concat(), None);
-        assert_eq!(output.status.code(), Some(2), "{old:?}");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(new),
-            "{old:?}"
-        );
-    }
-    // Seeking does not browse, and only the picker modes print paths.
+    // Seeking does not browse, only the picker modes print paths, and the
+    // options of earlier versions are gone.
     for bad in [
         &["seek", "--window"][..],
         &["--resume", "seek"],
@@ -100,6 +76,11 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
         &["seek", "--relative"],
         &["seek", "--output-paths"],
         &["explorer", "--output-paths"],
+        &["explorer"],
+        &["explorer", "--save"],
+        &["--no-dir"],
+        &["--check-config"],
+        &["--here"],
         &["--resume", "src"],
         &["setup"],
         &["setup", "--desktop", "--check-config"],

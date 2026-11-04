@@ -12,9 +12,6 @@ use std::{
 /// Directories remembered at most; the least recently left are dropped.
 pub const CAPACITY: usize = 500;
 const HEADER: &[u8] = b"fff-state 3\0";
-/// Earlier versions led with the last directory (1), or where the last
-/// session started and ended (2); their positions are still read.
-const HEADERS: [(&[u8], usize); 2] = [(b"fff-state 1\0", 1), (b"fff-state 2\0", 2)];
 const SESSION_HEADER: &[u8] = b"fff-session 1\0";
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -49,19 +46,11 @@ pub fn load(path: &Path) -> State {
     let Ok(bytes) = fs::read(path) else {
         return State::default();
     };
-    let (body, skip) = match bytes.strip_prefix(HEADER) {
-        Some(body) => (body, 0),
-        None => match HEADERS
-            .iter()
-            .find_map(|(header, skip)| Some((bytes.strip_prefix(*header)?, *skip)))
-        {
-            Some(found) => found,
-            None => return State::default(),
-        },
+    let Some(body) = bytes.strip_prefix(HEADER) else {
+        return State::default();
     };
     let mut fields = body
         .split(|b| *b == 0)
-        .skip(skip)
         .map(|f| PathBuf::from(std::ffi::OsString::from_vec(f.to_vec())));
     let mut positions = vec![];
     while let (Some(dir), Some(entry)) = (fields.next(), fields.next()) {
@@ -266,14 +255,6 @@ mod tests {
             loaded.positions.last().unwrap().0,
             PathBuf::from(format!("/d{}", CAPACITY + 6))
         );
-        // Earlier versions keep their positions.
-        let expected = State {
-            positions: vec![(PathBuf::from("/a"), PathBuf::from("/a/b"))],
-        };
-        fs::write(&file, b"fff-state 1\0/last\0/a\0/a/b\0").unwrap();
-        assert_eq!(load(&file), expected);
-        fs::write(&file, b"fff-state 2\0/from\0/last\0/a\0/a/b\0").unwrap();
-        assert_eq!(load(&file), expected);
         fs::remove_dir_all(&dir).unwrap();
     }
 

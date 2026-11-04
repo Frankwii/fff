@@ -60,6 +60,8 @@ class Session:
             os.environ["XDG_DATA_HOME"] = str(root) + "-data"
             # And the contents query's extracted texts.
             os.environ["XDG_CACHE_HOME"] = str(root) + "-cache"
+            # Nor is the tester's own configuration read.
+            os.environ["XDG_CONFIG_HOME"] = str(root) + "-config"
             # A stray l on a file must not open the tester's editor in a new
             # terminal window; tests that open files name their own programs.
             os.environ["EDITOR"] = "fff-test-no-editor"
@@ -1752,7 +1754,7 @@ class TerminalTests(unittest.TestCase):
             target.mkdir()
             (target / "note").touch()
             config = Path(folder) / "config.toml"
-            config.write_text("[editor]\nbackend='nvim'\n[[bookmarks]]\nname='Notes'\npath='notes'\n")
+            config.write_text("[[bookmarks]]\nname='Notes'\npath='notes'\n")
             s = self.start("--config", str(config), implicit_root=True)
             # The go-to prompt starts in Insert mode, ready for typing.
             s.send(b"g/", "Go to directory · INSERT")
@@ -2964,7 +2966,7 @@ class TerminalTests(unittest.TestCase):
             "texted", f'{{ pwd; printf "%s\\n" "$@"; }} > "{edited}"; exit 7\n')}
         def enter(query):
             cd_file.write_bytes(b"")
-            s = self.start("--depth", "3", "--here", "--cd-file", str(cd_file), "--config",
+            s = self.start("--depth", "3", "--cd-file", str(cd_file), "--config",
                            str(config), implicit_root=True, output_paths=False, environment=env)
             s.send(b"i" + query, "❯ " + query.decode())
             s.send(b"\x1b[27u", "Query · NORMAL")
@@ -3061,7 +3063,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_insert_enter_reveals_a_file_in_default_mode(self):
         more = self.deep_tree()
-        s = self.start("--depth", "3", "--here", implicit_root=True, output_paths=False)
+        s = self.start("--depth", "3", implicit_root=True, output_paths=False)
         s.send(b"ia.pdf", "❯ a.pdf")
         s.send(b"\r", ("cwd", more))
         # The query is cleared and the file highlighted; fff keeps running.

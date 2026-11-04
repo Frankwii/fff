@@ -3,8 +3,7 @@
 Every text field is a clean embedded Neovim (no user configuration or
 plugins); `nvim` must be on PATH. When it cannot start, fff exits with an error
 naming the problem, and if it fails during a session, the session ends with that
-error. `[editor] backend = "nvim"` is still accepted in configuration files; it
-is the only engine.
+error.
 
 ## Fields and modes
 

@@ -93,15 +93,6 @@ impl Dimension for Program {
             Self::ExplorerSave => "explorer-save",
         }
     }
-    /// Also the name before 0.16.4, when the command was `explorer --multiple`.
-    fn named(name: &str) -> Option<Self> {
-        let name = if name == "explorer-multiple" {
-            "explorer-open-multiple"
-        } else {
-            name
-        };
-        Self::ALL.iter().copied().find(|v| v.name() == name)
-    }
 }
 impl Dimension for Place {
     const ALL: &'static [Self] = &[Self::Results, Self::Marks];
@@ -1530,8 +1521,7 @@ pub fn clash(a: &Binding, b: &Binding, at: Scope) -> String {
     )
 }
 /// One entry of `keys.toml`: keys, `"none"`, or a list of keys and tables
-/// `{ keys = "<CR>", program = [...], list = [...], highlight = [...] }`
-/// (`list` was `place` before 0.16.4, which is still read).
+/// `{ keys = "<CR>", program = [...], list = [...], highlight = [...] }`.
 fn read_bindings(
     function: Function,
     mode: Mode,
@@ -1552,15 +1542,11 @@ fn read_bindings(
                     .ok_or("a table needs keys = \"...\"")?
                     .to_string();
                 for name in table.keys() {
-                    if !["keys", "program", "list", "place", "highlight"].contains(&name.as_str())
-                    {
+                    if !["keys", "program", "list", "highlight"].contains(&name.as_str()) {
                         return Err(format!(
                             "unknown field {name:?}; use keys, program, list or highlight"
                         ));
                     }
-                }
-                if table.contains_key("list") && table.contains_key("place") {
-                    return Err("list and place are the same field; keep list".into());
                 }
                 fn set<D: Dimension>(table: &toml::Table, field: &str) -> Result<u16, String> {
                     let Some(value) = table.get(field) else {
@@ -1591,11 +1577,7 @@ fn read_bindings(
                 }
                 let scope = Scope {
                     programs: set::<Program>(table, "program")?,
-                    places: if table.contains_key("place") {
-                        set::<Place>(table, "place")?
-                    } else {
-                        set::<Place>(table, "list")?
-                    },
+                    places: set::<Place>(table, "list")?,
                     highlights: set::<Highlight>(table, "highlight")?,
                 };
                 (text, scope)
@@ -1897,24 +1879,20 @@ mod tests {
         );
     }
     #[test]
-    fn keys_toml_reads_names_from_before_0_16_4() {
-        let new = Keymap::parse(
+    fn keys_toml_names_lists_and_programs_as_the_keys_screen_does() {
+        let keymap = Keymap::parse(
             "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-open-multiple'], list = ['marks'] }]\n",
         )
         .unwrap();
-        let old = Keymap::parse(
-            "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-multiple'], place = ['marks'] }]\n",
-        )
-        .unwrap();
-        assert_eq!(new.bindings(), old.bindings());
-        assert!(
-            Keymap::parse("[normal]\nquit = { keys = 'Q', list = ['marks'], place = ['marks'] }\n")
-                .is_err()
-        );
-        let quit: Vec<Binding> = new.of(Function::Quit, Mode::Normal).into_iter().cloned().collect();
+        let quit: Vec<Binding> = keymap.of(Function::Quit, Mode::Normal).into_iter().cloned().collect();
         let saved = write_bindings(&quit).to_string();
         assert!(saved.contains("list = [\"marks\"]"), "{saved}");
         assert!(saved.contains("explorer-open-multiple"), "{saved}");
+        assert!(Keymap::parse("[normal]\nquit = { keys = 'Q', place = ['marks'] }\n").is_err());
+        assert!(
+            Keymap::parse("[normal]\nquit = { keys = 'Q', program = ['explorer-multiple'] }\n")
+                .is_err()
+        );
     }
     #[test]
     fn saving_writes_only_what_differs() {

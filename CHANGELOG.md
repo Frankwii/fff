@@ -4,6 +4,28 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **`fff setup --file-chooser` says what Qt applications need.** Telegram and
+  other Qt applications use the portal's file dialog, and so fff, only with
+  `QT_QPA_PLATFORMTHEME=xdgdesktopportal` in their environment; outside a
+  desktop environment they draw Qt's own dialog instead. Setup and the
+  [desktop guide](docs/DESKTOP.md#qt-applications-telegram-) say so.
+
+### Removed
+
+- **What earlier versions accepted only to say where it went, or to ignore
+  it.** Options that became commands (`--no-dir`, `--output-paths`,
+  `--init`, `--completions`, `--setup`, `--check-config` before a command,
+  `--window`, `fff explorer --multiple`, `--directory`, `--save`) and `--here`
+  are unknown options now. In the configuration, `[editor]`, `[keys]` and
+  `[ui] resume` are errors; in `keys.toml`, `place` and the program
+  `explorer-multiple`. Highlights remembered by versions before 0.9 are
+  forgotten, and setup no longer replaces files written by `fff --setup`
+  (0.8).
+
 ## 0.16.4 — 2026-11-04
 
 Folder sizes are kept between sessions and added up faster, a window of its
