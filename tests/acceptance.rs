@@ -1170,7 +1170,7 @@ fn either_sigma_matches_a_word_final_capital_sigma() {
     }
 }
 #[test]
-fn grep_shows_one_row_per_match_in_the_files_names_choose() {
+fn a_contents_query_shows_one_row_per_match_in_the_files_names_choose() {
     let root = std::env::temp_dir().join(format!("fff-grep-rows-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
@@ -1228,6 +1228,13 @@ fn grep_shows_one_row_per_match_in_the_files_names_choose() {
     assert_eq!(app.highlighted_hit().unwrap().line, 3);
     // Marking every row marks each file once.
     assert_eq!(app.shown_paths().len(), 2);
+    // Moving past a file goes to the next file's first match, as marking
+    // does, so that marking on down never unmarks the file just marked.
+    app.move_by(-1);
+    app.move_past(&root.join("canard.txt"));
+    assert_eq!(app.highlighted(), Some(2));
+    app.move_past(&root.join("notes.md"));
+    assert_eq!(app.highlighted(), Some(2));
     // An uppercase letter makes it case-sensitive; the names query narrows
     // the files read.
     app.set_contents("Canard".into());
@@ -1269,22 +1276,15 @@ fn switching_program_keeps_the_session_and_follows_default_depths() {
     assert!(!app.switch_program(Program::Seek));
     assert_eq!((app.program(), app.depth), (Program::Seek, 4));
     assert_eq!(app.highlight, Some(PathBuf::from("/fixture/c.txt")));
-    // fff grep types into its contents query, shown even while empty;
-    // elsewhere the bar shows while it is typed into or set.
-    app.switch_program(Program::Grep);
-    assert!(app.typing_contents() && app.contents_shown());
-    app.switch_program(Program::Pick);
+    // The contents query's bar shows while it is typed into or set, and
+    // the query stays in every program.
     assert!(!app.typing_contents() && !app.contents_shown());
-    // The contents query stays in every program.
-    app.switch_program(Program::Grep);
     app.grep.text = "canard".into();
     app.switch_program(Program::Roam);
     assert!(app.program().navigates() && !app.program().prints_paths());
     assert!(app.contents_shown() && app.contents().is_some_and(|g| g.active()));
-    app.switch_program(Program::Grep);
+    app.switch_program(Program::Seek);
     assert_eq!(app.grep.text, "canard");
-    // fff grep browses, like fff pick.
-    assert!(app.program().navigates() && app.program().prints_paths());
     // The query, marks and policies were never touched.
     assert_eq!(app.query, "t");
     assert!(app.policy.filters_off);

@@ -9,8 +9,8 @@ history.
 ### Added
 
 - **A contents query in every program.** `fff roam`, `fff pick` and
-  `fff seek` search what files contain as `fff grep` does: Alt+/ (or Tab in
-  Normal mode) opens the contents query beside the names query, and while
+  `fff seek` search what files contain, PDFs included: Tab (or Alt+/), in
+  either mode, opens the contents query beside the names query, and while
   it is set the rows are its matches, one per match. It stays when `gm`
   changes program.
 - **An index of what files contain** makes contents searches over large
@@ -21,7 +21,6 @@ history.
 - **The text cache and the index prune themselves**, once a day: entries
   unused for 90 to 135 days go, each on a day of its own, and the least
   recently used while the text cache passes 2 GiB or the index 512 MiB.
-
 - **`gd` switches how rows are labelled** (`toggle_labels`): by name, with
   only the parent folders that tell same-named entries apart
   (`folder1/main.pdf`), or by their path below the folder searched. The
@@ -41,14 +40,17 @@ history.
 - **Contents searches with many matches stay quick**: the rows are rebuilt
   at most every 50 ms while matches stream in, and files past the 20,000th
   match are no longer read, only counted.
-- **`fff grep`'s names query is on the left**, its contents query on the
-  right, as in the other programs. The bar typed into widens for a long
+- **Tab switches between the names and contents queries**, in either mode,
+  and no longer marks while typing: Shift+Space marks, and Space in Normal
+  mode. `m` marks every listed row and `M` inverts their marks, as before.
+- **The names query is on the left** and the contents query on the right
+  while both show. The bar typed into widens for a long
   query and the other gives way; a query cut at the end shows an ellipsis.
 - **The footer is colored like `eza -l`**: the highlighted entry's name in
   its row's color, its size, date, owner and each permission letter in the
   palette's green, blue, yellow and red, so it follows the colorscheme.
 - **`fff seek` labels rows by their path** below the folder searched, as
-  `fff roam` does; `fff pick` and `fff grep` keep names. `gd` switches.
+  `fff roam` does; `fff pick` keeps names. `gd` switches.
 - **Putting a function's default keys back is `D`** (was `R`), and asks
   first.
 - **Clashes read as a table** where a key applies: the keys it clashes with,
@@ -66,11 +68,22 @@ history.
   being cut, as fff does below 36 × 12; a function's keys first leave out
   the checklists that repeat the highlighted row.
 
+### Removed
+
+- **`fff grep`**: the contents query it had is in `fff roam`, `fff pick`
+  and `fff seek` now (Tab). For a printed choice of files by what they
+  contain, use `fff pick` and Tab; `gm` offers roam, pick and seek. A
+  `keys.toml` key that names `grep` among its programs must drop it.
+
 ### Fixed
 
+- **Space on a contents match no longer unmarks its file the next time**:
+  marking moves on past the file's other matches, to the next file.
+- **`gd` with a contents query no longer flickers**: rows labelled by path
+  were cut to the width of their names, and in large listings rows showed
+  bare names for a moment before their labels came back.
 - **Descriptions that had fallen behind**: `extract` on the Keys screen
-  says it asks where to extract (it always does), `print_marks` names
-  `fff grep` among the programs that return marks, and `fff seek --help`
+  says it asks where to extract (it always does), and `fff seek --help`
   says rows show their paths.
 - **A longer contents query no longer misses matches** in files that the
   shorter one, having reached its 20,000 matches, had only counted.

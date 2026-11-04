@@ -108,7 +108,7 @@ pub struct Pane {
     /// Content lines the last frame had room for, and the most it could
     /// scroll: set while drawing.
     pub(crate) room: std::cell::Cell<(usize, usize)>,
-    /// `fff grep`: the match the pane shows, and the line its view starts
+    /// A contents query: the match the pane shows, and the line its view starts
     /// at once drawn: the match a third of the way down at first, then
     /// wherever scrolling took it.
     showing_match: Option<u64>,
@@ -259,7 +259,7 @@ impl Pane {
         self.requested = true;
         self.current = Some(Arc::new(preview));
     }
-    /// Follows `fff grep`'s highlighted match (by an identity of it), or
+    /// Follows the contents query's highlighted match (by an identity of it), or
     /// none: another match starts its view at the match again.
     pub fn follow_match(&mut self, id: Option<u64>) {
         if id != self.showing_match {

@@ -76,7 +76,6 @@ impl Dimension for Program {
         Self::Window,
         Self::Pick,
         Self::Seek,
-        Self::Grep,
         Self::ExplorerOpen,
         Self::ExplorerMultiple,
         Self::ExplorerFolder,
@@ -88,7 +87,6 @@ impl Dimension for Program {
             Self::Window => "window",
             Self::Pick => "pick",
             Self::Seek => "seek",
-            Self::Grep => "grep",
             Self::ExplorerOpen => "explorer-open",
             Self::ExplorerMultiple => "explorer-multiple",
             Self::ExplorerFolder => "explorer-folder",
@@ -618,19 +616,19 @@ functions! {
     RunAndQuit "run_and_quit" Open "Run a program on the current or marked paths in place of fff, which quits; the program's exit status becomes fff's.";
     PrintHighlighted "print_highlighted" Finish "Print the highlighted path and quit, ignoring the marks: the answer of fff pick, or of a file dialog (fff explorer).";
     PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted file, then quit: the answer where you may choose several paths.";
-    PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer can be several paths (fff pick, fff grep, and dialogs for several files). Elsewhere it says why it does nothing.";
+    PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer can be several paths (fff pick, and dialogs for several files). Elsewhere it says why it does nothing.";
     SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or else the suggested one (fff explorer --save).";
     SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (fff explorer --save).";
     QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the directory holding the highlighted file; with nothing highlighted, into the current directory. Your shell follows (fff roam, with the shell integration); fff pick prints it.";
     QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks: your shell follows in fff roam, fff pick prints it, and a file dialog answers with it. In a window of its own, fff becomes a shell there.";
     Quit "quit" Finish "Quit without choosing anything: back where you started (fff roam), printing nothing (fff pick, fff seek), or cancelling the dialog (fff explorer).";
     Cancel "cancel" Finish "Cancel: quit at once, printing nothing, from anywhere in fff. While a file operation runs, stop it instead.";
-    ToggleMark "toggle_mark" Marks "Toggle the highlighted row's mark. In the results, the next row is highlighted after, so pressing it again marks on down.";
+    ToggleMark "toggle_mark" Marks "Toggle the highlighted row's mark. In the results, the next row is highlighted after (with a contents query, the next file's), so pressing it again marks on down.";
     MarkAll "mark_all" Marks "Mark every listed row.";
     InvertMarks "invert_marks" Marks "Invert the marks of the listed rows: marked ones lose their mark, the others get one.";
     ToggleMarkedList "toggle_marked_list" Marks "Toggle the focus between the results and the marked list, where keys act on the marks.";
     ClearQuery "clear_query" Search "Clear the query. With it already clear, pressing this twice in a row clears every mark instead.";
-    SwitchQuery "switch_query" Search "Type into the other query, contents or names. The contents query lists one row per match of the files the names query lists; outside fff grep its bar shows while it is typed into or set.";
+    SwitchQuery "switch_query" Search "Type into the other query, contents or names. The contents query lists one row per match of the files the names query lists; its bar shows while it is typed into or set.";
     SearchShallower "search_shallower" Search "Search one level less deep below the current directory; the least is 1, its own entries.";
     SearchDeeper "search_deeper" Search "Search one level deeper below the current directory.";
     SearchToDepth "search_to_depth" Search "Search down to depth #, a digit from 1 to 9.";
@@ -646,7 +644,7 @@ functions! {
     TogglePreviewWrap "toggle_preview_wrap" View "Toggle word wrapping in the preview: long lines wrapped onto the next rows, or cut at its edge.";
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, leaving the highlight where it is.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, leaving the highlight where it is.";
-    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with only the parent folders that tell same-named entries apart (folder1/main.pdf), or by their path below the folder searched. fff pick and fff grep start with names, the others with paths; the choice stays when switch_program changes program.";
+    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with only the parent folders that tell same-named entries apart (folder1/main.pdf), or by their path below the folder searched. fff pick starts with names, the others with paths; the choice stays when switch_program changes program.";
     ShowPalettes "show_palettes" View "Show the palettes: the highlighted one is previewed after a moment, and Enter keeps it for the session.";
     ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen for the session.";
     MoveMarked "move_marked" Files "Move the marked paths into the current directory. Asks first when that would overwrite anything.";
@@ -663,33 +661,20 @@ functions! {
     ShowSession "show_session" Session "Show the Session tab: exact paths, search scopes, policies, marks and any errors in the configuration.";
     ShowBookmarks "show_bookmarks" Session "Show the bookmarks: go to one, or add, edit, delete and reorder them.";
     EditConfig "edit_config" Session "Edit the configuration file in $EDITOR, then apply it to this session at once.";
-    SwitchProgram "switch_program" Session "Go on as fff roam, pick, seek or grep, keeping the query, highlight, marks, exclusions, filters and a depth you set.";
+    SwitchProgram "switch_program" Session "Go on as fff roam, pick or seek, keeping the query, highlight, marks, exclusions, filters and a depth you set.";
 }
 
 use Highlight as H;
 use Place::{Marks, Results};
 use Program::*;
 const EXPLORERS: [Program; 4] = [ExplorerOpen, ExplorerMultiple, ExplorerFolder, ExplorerSave];
-/// Programs where Tab marks while typing: all but fff grep, where it
-/// switches queries.
-const NOT_GREP: [Program; 8] = [
-    Roam,
-    Window,
-    Pick,
-    Seek,
-    ExplorerOpen,
-    ExplorerMultiple,
-    ExplorerFolder,
-    ExplorerSave,
-];
 /// Programs with a contents query: all but the file dialogs.
-const CONTENTS: [Program; 5] = [Roam, Window, Pick, Seek, Grep];
+const CONTENTS: [Program; 4] = [Roam, Window, Pick, Seek];
 /// Programs that navigate: all but seek.
-const NAVIGATE: [Program; 8] = [
+const NAVIGATE: [Program; 7] = [
     Roam,
     Window,
     Pick,
-    Grep,
     ExplorerOpen,
     ExplorerMultiple,
     ExplorerFolder,
@@ -749,7 +734,7 @@ impl Function {
             SaveHere => both(scope(&[ExplorerSave], &[Results], &[])),
             SaveOver => only_normal(scope(&[ExplorerSave], &[], &file)),
             PrintHighlighted if normal => vec![
-                scope(&[Pick, Grep, ExplorerOpen, ExplorerFolder], &[], &file),
+                scope(&[Pick, ExplorerOpen, ExplorerFolder], &[], &file),
                 scope(&[ExplorerMultiple], &[Marks], &file),
                 scope(&EXPLORERS, &[Marks], &[H::Dir]),
             ],
@@ -758,20 +743,20 @@ impl Function {
                 vec![scope(&[ExplorerMultiple], &[Results], &file)]
             }
             PrintHighlightedAndMarks => vec![
-                scope(&[Pick, Grep], &[Results], &file),
+                scope(&[Pick], &[Results], &file),
                 scope(&[ExplorerMultiple], &[Results], &file),
             ],
             QuitIntoHighlighted if normal => vec![
-                scope(&[Roam, Pick, Grep], &[], &[H::Dir]),
-                scope(&[Roam, Pick, Grep], &[Results], &[H::None]),
+                scope(&[Roam, Pick], &[], &[H::Dir]),
+                scope(&[Roam, Pick], &[Results], &[H::None]),
                 scope(&[Seek], &[], &file),
             ],
             QuitIntoHighlighted => vec![
-                scope(&[Roam, Pick, Grep, ExplorerFolder], &[Results], &[H::None]),
+                scope(&[Roam, Pick, ExplorerFolder], &[Results], &[H::None]),
                 scope(&[Seek], &[Results], &file),
             ],
             QuitHere if normal => vec![
-                scope(&[Roam, Window, Pick, Seek, Grep], &[], &[]),
+                scope(&[Roam, Window, Pick, Seek], &[], &[]),
                 scope(
                     &[ExplorerOpen, ExplorerMultiple, ExplorerFolder],
                     &[Results],
@@ -828,8 +813,8 @@ impl Function {
             OpenInBackground => &[("<M-l>", all)],
             OpenRow => &[("<M-#>", all)],
             ConfirmRow => &[("<C-#>", all)],
-            ToggleMark => &[("<S-Space>", all), ("<Tab>", scope(&NOT_GREP, &[], &[]))],
-            SwitchQuery => &[("<M-/>", all), ("<Tab>", scope(&[Grep], &[], &[]))],
+            ToggleMark => &[("<S-Space>", all)],
+            SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
             ToggleMarkedList => &[("<M-Space>", all)],
             PrintMarks => &[("<C-w>", all)],
             SearchShallower => &[("<M-Left>", all)],
@@ -864,7 +849,6 @@ impl Function {
                             Roam,
                             Window,
                             Pick,
-                            Grep,
                             ExplorerOpen,
                             ExplorerMultiple,
                             ExplorerFolder,
@@ -1664,6 +1648,36 @@ mod tests {
         assert_eq!(Key::press(kitty), parse("G").unwrap()[0]);
         let alt_shift = KeyEvent::new(KeyCode::Char('p'), M::ALT | M::SHIFT);
         assert_eq!(Key::press(alt_shift), parse("<M-P>").unwrap()[0]);
+    }
+    #[test]
+    fn tab_switches_queries_and_space_m_and_shift_m_mark() {
+        let keymap = Keymap::default();
+        let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
+        let shift_space = KeyEvent::new(KeyCode::Char(' '), M::SHIFT);
+        for program in CONTENTS {
+            let here = cell(program, H::File);
+            for mode in Mode::ALL {
+                assert_eq!(
+                    run(&keymap, mode, here, &[tab]),
+                    Step::Run(Function::SwitchQuery, None),
+                    "{program:?} {mode:?}"
+                );
+                assert_eq!(
+                    run(&keymap, mode, here, &[shift_space]),
+                    Step::Run(Function::ToggleMark, None)
+                );
+            }
+            let normal = |key| run(&keymap, Mode::Normal, here, &[key]);
+            assert_eq!(normal(press(' ')), Step::Run(Function::ToggleMark, None));
+            assert_eq!(normal(press('m')), Step::Run(Function::MarkAll, None));
+            let shift_m = KeyEvent::new(KeyCode::Char('M'), M::SHIFT);
+            assert_eq!(normal(shift_m), Step::Run(Function::InvertMarks, None));
+        }
+        // Tab never marks, not even in a dialog, which has no contents query.
+        for mode in Mode::ALL {
+            let dialog = cell(ExplorerMultiple, H::File);
+            assert_eq!(run(&keymap, mode, dialog, &[tab]), Step::Pass);
+        }
     }
     #[test]
     fn enter_does_one_thing_in_each_place() {

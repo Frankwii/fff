@@ -1,5 +1,5 @@
-//! `fff grep`: the files whose contents match a second query, one row per
-//! match.
+//! The contents query: the files whose contents match a second query, one
+//! row per match.
 //!
 //! Text files are read as they are. PDF, DjVu and EPUB documents are read
 //! through text extracted once into a cache (`$XDG_CACHE_HOME/fff/text/`),

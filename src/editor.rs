@@ -12,7 +12,7 @@ use std::{
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Field {
     Query,
-    /// `fff grep`'s contents query.
+    /// The contents query.
     Contents,
     Operation,
     FileName,

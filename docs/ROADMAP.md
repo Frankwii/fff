@@ -40,8 +40,8 @@ The Keys screen (F1) and `keys.toml` came in 0.14.0. What remains:
 
 ## Content search, continued
 
-A contents query beside the names query searches what files contain, in
-`fff grep` and the other programs, one row per match: documents read
+A contents query beside the names query (Tab) searches what files contain,
+in `fff roam`, `fff pick` and `fff seek`, one row per match: documents read
 through fff's own text cache and searched on its threads, through an index
 that rules out the files that cannot match, not by running rga, which
 starts a preprocessor for every file on every search (1.85 s and about 25 CPU-seconds a search over
@@ -88,8 +88,8 @@ entries with the folders leading to them.
 ### Folders as matches
 
 A query names a file today, and `/` in it matches folders on the way
-(`pde/stab`). In flat lists from deep trees (`fff pick`, `fff seek`,
-`fff grep`) a folder's name could match instead: `canard` would list the
+(`pde/stab`). In flat lists from deep trees (`fff pick`, `fff seek`, and
+contents matches) a folder's name could match instead: `canard` would list the
 files inside a folder called `canard`, ranked by how well the folder
 matched, without typing the slash, and the `/` form would go. Elsewhere,
 where results are a folder's own entries, the current behavior stays. To try
@@ -149,11 +149,20 @@ seconds before); what remains is the interface thread:
   This is memory latency, not hashing: a faster hasher and keys sharing the
   candidate's path were tried and changed nothing measurable, since each
   lookup follows pointers through a table of 620,000 entries.
-- Merging every batch into the fully sorted rows takes about 0.3 seconds. Kept as fzf keeps its input,
-  in chunks sorted on their own and merged only as far as the screen shows,
-  a batch would cost little more than appending it. Whatever needs every row
-  in order (`G`, the count, `m`, batch rename, the printed marks) would
-  finish the merge first, so nothing changes in what fff lists or does.
+- Merging every batch into the fully sorted rows takes about 0.3 seconds.
+  Kept as fzf keeps its input, in chunks sorted on their own and merged only
+  as far as the screen shows, a batch would cost little more than appending
+  it. Whatever needs every row in order (`G`, the count, `m`, batch rename,
+  the printed marks) would finish the merge first, so nothing changes in
+  what fff lists or does.
+- **Limiting redraws while a scan runs.** Each batch merged marks the screen
+  as changed, and the session loop draws on its next pass, so a large scan
+  is drawn about as often as batches arrive, on the same interface thread
+  that stores and merges them. Drawing at most every few tens of
+  milliseconds while scanning (and at once after a key, as now), or only
+  when what the screen shows changed (the rows in view, the count, the
+  progress marker), would leave that time to the merge. What those frames
+  cost over `/usr` has not been measured yet.
 
 How close this can come to fzf. Once a tree is listed, nothing in fff
 needs a slower algorithm than fzf's: each keystroke scores the same names
@@ -182,7 +191,7 @@ set its limit:
 
 None of these changes what fff can do, and none grows faster than the
 number of paths: a scan within about twice the time of `fd | fzf` looks
-reachable, where it is about eight times today. Matching fzf exactly is not
+reachable, where it is several times today. Matching fzf exactly is not
 the aim; what is lost to the features above is the price of them.
 
 The current release is 0.15.0. Version 1.0 is planned once the roadmap before

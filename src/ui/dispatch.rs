@@ -396,8 +396,9 @@ impl Session {
                 }
                 _ => {
                     if let Some(path) = app.highlight.clone() {
-                        app.toggle(path);
-                        app.move_by(1);
+                        app.toggle(path.clone());
+                        // Past the file's other matches, which share its mark.
+                        app.move_past(&path);
                     }
                 }
             },

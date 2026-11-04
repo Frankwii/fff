@@ -34,13 +34,13 @@ and exit codes.
 | `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. `--resume` continues the last session. |
 | `fff pick [ROOTS]` | Browse and print the chosen paths, for scripts and `$(...)`. |
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
-| `fff grep [ROOTS]` | Choose files by what they contain, PDFs included, and print them ([details](#searching-contents-fff-grep)). |
 | `fff explorer [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
 | `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--desktop`, `--file-chooser`, `--check-config`. |
 
 The command only chooses how a session starts: `gm` turns a running session
-into `roam`, `pick`, `seek` or `grep` without losing your place (see
-[switching programs](#switching-programs)).
+into `roam`, `pick` or `seek` without losing your place (see
+[switching programs](#switching-programs)). Each can also search what files
+contain, PDFs included: Tab opens the [contents query](#searching-contents).
 
 `fff` without a command is `fff roam`. The search, interface and
 configuration options (`--depth`, `--glob`, `--palette`, `--config`, ...) work
@@ -81,8 +81,8 @@ marks, the query, the depth, filters, exclusions, and the hidden-entry,
 directory and preview toggles. Only the last session is kept, wherever it was
 started, and `q` still returns to where you start the new one. Folders that
 are gone fall back to their nearest existing parent. A session is saved when
-it ends as `fff roam` (switched to it with `gm` too); `fff pick`, `fff seek`,
-`fff grep` and `fff explorer` sessions are not. Without `--resume`, fff starts in
+it ends as `fff roam` (switched to it with `gm` too); `fff pick`, `fff seek`
+and `fff explorer` sessions are not. Without `--resume`, fff starts in
 the current directory, on the row last highlighted there (see [remembered
 locations](docs/CONFIGURATION.md#remembered-locations)).
 
@@ -108,9 +108,9 @@ This section describes what each confirmation returns in `fff pick`; in
 Without root arguments, browsing starts in the invocation directory (or, with
 `--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
-depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek` and `fff grep`); immediate children are depth
+depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek`); immediate children are depth
 1. Shallower matches come first, followed within each depth by directories
-and fuzzy ranking; `fff pick`, `fff seek` and `fff grep` rank by fuzzy score
+and fuzzy ranking; `fff pick` and `fff seek` rank by fuzzy score
 first, then depth. The depth is shown on the results' bottom border, under the count.
 Matching is a case-insensitive ordered subsequence of the basename, scored as
 fzf does: the best alignment of the query's letters, so runs and word starts
@@ -125,8 +125,7 @@ order, and the last part matches the basename: `pde/` lists everything inside
 folders matching `pde`, and a leading `/` (`/stab`) only switches to path
 ranking. Parts naming whole components, and parts on consecutive components,
 rank higher; the matched letters are highlighted along the whole label. Depth
-and directories still sort first, except in `fff pick`, `fff seek` and
-`fff grep`.
+and directories still sort first, except in `fff pick` and `fff seek`.
 
 Enter depends on the editing mode:
 
@@ -158,7 +157,7 @@ The keys that open or finish fit together:
 | `o` | The current or marked files, opened in this terminal | fff comes back |
 | Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
 | `!` | The folder you are browsing | fff leaves into it |
-| Ctrl+w | The marks, returned (`fff pick` and `fff grep` only) | fff leaves |
+| Ctrl+w | The marks, returned (`fff pick` only) | fff leaves |
 | `q` | Nothing | fff leaves where you started |
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
@@ -169,12 +168,12 @@ opened from the desktop (`--window`) has no shell to leave into: Enter enters a
 folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
-Shift+Space toggles a mark in every mode; Space does in Normal mode and Tab
-while typing (for terminals that cannot tell Shift+Space from Space);
-marks survive navigation and filtering. Escape twice in Normal mode, with the
+Shift+Space toggles a mark in every mode, and Space in Normal mode; marks
+survive navigation and filtering. On a [contents match](#searching-contents)
+the mark is its file's, and the highlight moves on to the next file. Escape twice in Normal mode, with the
 query empty, clears every mark. Ctrl+w finishes
 with the marks only, and only where the answer can be several paths: `fff
-pick` and `fff grep` return them (as does `fff explorer --multiple`).
+pick` returns them (as does `fff explorer --multiple`).
 Elsewhere (`fff roam`,
 `fff seek`, other dialogs) it does nothing but say so; there the marks are for
 file operations, `o`, `e` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
@@ -209,7 +208,7 @@ the current directory; in `fff seek`, nothing) and Alt+number does nothing.
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
 
-Rows in `fff pick` and `fff grep` show bare names: when listed entries share
+Rows in `fff pick` show bare names: when listed entries share
 a name, each gains the fewest trailing parent directories that tell it apart
 (`folder1/main.pdf`, `folder2/main.pdf`), independently of the query, and the
 labels follow the listing as you navigate. The footer shows the highlighted
@@ -256,32 +255,33 @@ starts in Insert mode, ready to type. Result rows show their path below the
 folder searched; `gd` switches to bare file names, with only the parents
 that tell same-named files apart, as in `fff pick`.
 
-### Searching contents: `fff grep`
+### Searching contents
 
-`fff grep [ROOTS]` chooses files by what they contain. It is `fff pick`
-with a contents query: it browses the same way (tabs, back and forward,
-bookmarks, Enter into a folder), looks from every folder down to `--depth`
-(6 by default; `--glob`, `--exclude` and `--hidden` apply), and prints the
-chosen files (`--relative`, `-0`):
+`fff roam`, `fff pick` and `fff seek` search what files contain as well as
+their names. Tab (or Alt+/) opens a second query, **Contents**, beside the
+names query, which moves to the left as **Names**; Tab or Alt+/ switches
+between them, in either mode, each keeping its own. While the contents query
+is set, the rows are the files listed that contain it, with **one row per
+match**: the file, the match's page (`p. 12`), how far into an EPUB it is
+(`42%`) or its line (`l. 40`), and the line it is on, the match
+highlighted. Cleared, they are the entries again, and its bar stays while it
+is set or typed into. The preview pane shows the lines around the
+highlighted match, which Ctrl+j and Ctrl+k scroll from there, up to 500
+lines either side. **Names** filters the files by name as usual, so it
+chooses which files are read, and `--depth`, `--glob`, `--exclude` and
+`--hidden` apply as they do to names. For a printed choice of documents by
+what they contain, use `fff pick`:
 
 ```sh
-fff grep ~/papers --glob '*.pdf' --glob '*.djvu' --glob '*.epub' -0 | xargs -0 zathura
+fff pick ~/papers --depth 6 --glob '*.pdf' --glob '*.djvu' --glob '*.epub' -0 | xargs -0 zathura
 ```
 
-It has two queries side by side, **Names** on the left and **Contents** on
-the right. Contents, typed into first, keeps the files that contain it, with **one row per match**: the file, the match's page
-(`p. 12`), how far into an EPUB it is (`42%`) or its line (`l. 40`), and
-the line it is on, the match highlighted. The
-preview pane shows the lines around the highlighted match, which Ctrl+j and
-Ctrl+k scroll from there, up to 500 lines either side. **Names** filters
-the files by name as in `fff seek`, so it chooses which files are read.
-Tab or Alt+/ switches between them, in either mode (Shift+Space marks there);
-Escape clears the one being typed into (the
-other once it is empty). Enter prints the file (while typing, the marks and
-it); marking a match marks its file. `l` opens it in the background and
-keeps fff open; an [opener](docs/CONFIGURATION.md#openers) with
-`at_grep_match` opens it at the match, zathura on its page with the query
-highlighted.
+Escape clears the query being typed into (the other once it is empty).
+Enter acts on the match's file as on any row: in `fff pick` it prints it
+(while typing, the marks and it). Marking a match marks its file and moves
+on to the next file. `l` opens it in the background and keeps fff open; an
+[opener](docs/CONFIGURATION.md#openers) with `at_grep_match` opens it at
+the match, zathura on its page with the query highlighted.
 
 The contents query is a literal, not a regular expression. It is case-smart
 (an uppercase letter makes it case-sensitive), ignores Latin accents unless
@@ -309,13 +309,6 @@ and 135, so that a search's entries do not all go at once), and the least
 recently used go first while the text cache passes 2 GiB or the index
 512 MiB.
 
-The contents query is not only `fff grep`'s: `fff roam`, `fff pick` and
-`fff seek` have it too. Alt+/ (or Tab in Normal mode) opens its bar beside
-the names query, and while it is set the rows are its matches among the
-files listed, one per match, as in `fff grep`; cleared, they are the
-entries again. Its bar stays while it is set. `fff grep` differs only in
-showing it from the start, typed into first, and in its depth.
-
 The bar typed into takes three fifths of the width, or more when its query
 needs it; the other gives way down to a third and cuts its query at the
 end, an ellipsis saying it goes on (the one typed into scrolls instead, an
@@ -323,14 +316,13 @@ ellipsis at its start).
 
 ### Switching programs
 
-`fff roam`, `fff pick`, `fff seek` and `fff grep` are one program, and you
-can turn a running session into any of them: `gm` in Normal mode
-(`switch_program`), then the program's letter, `r`, `p`, `s` or `g`. From
+`fff roam`, `fff pick` and `fff seek` are one program, and you can turn a
+running session into any of them: `gm` in Normal mode (`switch_program`),
+then the program's letter, `r`, `p` or `s`. From
 then on fff behaves exactly as if it had been started as that program.
 Start with `fff`, browse to `~/papers`, press `gm` then `s`, and you are in
-`fff seek` there: only files, best match first, six levels deep. Press `gm`
-then `g` to search what they contain, and `gm` then `r` to go back to
-browsing.
+`fff seek` there: only files, best match first, six levels deep. Press Tab
+to search what they contain, and `gm` then `r` to go back to browsing.
 
 What carries over:
 
@@ -339,12 +331,11 @@ What carries over:
   hidden entries, the preview and labels chosen with `gd`. A highlighted folder that `fff seek`
   cannot list comes back once it is listed again, unless you move.
 - The depth, if you set one. Otherwise it becomes the new program's default:
-  1 for `roam`, 3 for `pick`, 6 for `seek` and `grep`.
+  1 for `roam`, 3 for `pick`, 6 for `seek`.
 - The contents query and its matches, in every program.
 
-How the session ends follows the program it ends in: `fff pick` and
-`fff grep` print the chosen files, `fff roam` and `fff seek` change
-directory.
+How the session ends follows the program it ends in: `fff pick` prints the
+chosen files, `fff roam` and `fff seek` change directory.
 
 Dialogs (`fff explorer`) and `--window` sessions do not switch: a dialog
 answers the application that opened it, and a window has no shell to change
@@ -403,9 +394,9 @@ key says which one.
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Escape twice in Normal | With the query empty: clear every mark |
-| Tab / Alt+/ | Type into the other query, contents or names; Tab does so in Normal mode and in `fff grep` (elsewhere, while typing, Tab marks) |
-| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`, `fff grep`) or exit into its folder (`fff seek`) |
-| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`, `fff grep`), exit into its folder (`fff seek`) or reveal it in its folder |
+| Tab / Alt+/ | Type into the other query, contents or names, in either mode |
+| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
+| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`), exit into its folder (`fff seek`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
 | Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs), except in `fff seek`; use j) |
 | h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
@@ -421,10 +412,10 @@ key says which one.
 | Alt+P / `gP` in Normal | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (`+` / `-` in Normal-mode results) |
 | 1 … 9 in Normal | Search results to that depth |
-| Shift+Space / Space in Normal / Tab while typing | Toggle mark; advance in results (Shift+Space needs a terminal with the kitty keyboard protocol) |
+| Shift+Space / Space in Normal | Toggle mark; advance in results, past a file's other matches (Shift+Space needs a terminal that tells it from Space) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
-| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff grep`, `fff explorer --multiple`; nothing elsewhere) |
+| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer --multiple`; nothing elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
@@ -453,7 +444,7 @@ key says which one.
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
 | e in Normal | Open the current or marked paths in `$EDITOR`, then come back |
-| gm in Normal | [Switch](#switching-programs) to `fff roam`, `pick`, `seek` or `grep`, keeping the session |
+| gm in Normal | [Switch](#switching-programs) to `fff roam`, `pick` or `seek`, keeping the session |
 | gc in Normal | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
 | q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |
 | Ctrl+c | Cancel without selected-path output |
@@ -518,7 +509,7 @@ views refresh about every 3 seconds and can prefetch a child after a 500 ms
 highlight dwell; recursive views reuse known descendants and refresh every
 60 seconds by default. F5 forces freshness. All caches of listings are
 session-local RAM (only contents searches keep a [cache on
-disk](#searching-contents-fff-grep)).
+disk](#searching-contents)).
 
 The interface shows the current directory on the `@` line and pinned roots by
 name. Marks sit to the right on wide terminals and stack on narrow ones.

@@ -11,12 +11,11 @@ is the only engine.
 The query, exclusions, file filters, bookmark and icon filters, and palette
 filter all initially start in **Normal mode**. New file/directory naming
 buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
-form's name and path, the query of `fff pick`, `fff seek` and
-`fff explorer --save`, and both queries of `fff grep` (contents and names)
-start in **Insert mode**, ready for typing; rename and extraction buffers
-start in Normal. Alt+/ (`switch_query`; also Tab in Normal mode, and in
-`fff grep` while typing) moves between the names and contents queries, in
-any program but the file dialogs; each keeps its own text, cursor, mode and undo
+form's name and path, and the query of `fff pick`, `fff seek` and
+`fff explorer --save` start in **Insert mode**, ready for typing; rename and
+extraction buffers and the contents query start in Normal. Tab or Alt+/
+(`switch_query`), in either mode, moves between the names and contents
+queries, in any program but the file dialogs; each keeps its own text, cursor, mode and undo
 history. Switching programs (`gm`) keeps the mode it was pressed in, in
 whichever query the new program types into.
 Press `i` or `a` to type in a Normal field. Directory navigation
@@ -86,8 +85,7 @@ Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
 Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
 mode. Space in Normal mode marks/unmarks like Shift+Space; in Insert mode it
 types a space. Shift+Space needs a terminal that tells it from Space (the kitty
-keyboard protocol); elsewhere it types a space, so Tab marks while typing too (in `fff grep` Tab switches queries instead).
-In Normal-mode results Tab switches between the names and contents queries
+keyboard protocol); elsewhere it types a space. Tab never marks: it switches between the names and contents queries
 (not in the file dialogs).
 The marked list always accepts Space because it has no text field. In Normal mode `m` marks every
 listed row (all filtered results, not only those on screen, or every row of the

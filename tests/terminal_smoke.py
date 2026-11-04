@@ -58,7 +58,7 @@ class Session:
             os.environ["XDG_STATE_HOME"] = str(root) + "-state"
             # So does the trash.
             os.environ["XDG_DATA_HOME"] = str(root) + "-data"
-            # And fff grep's extracted texts.
+            # And the contents query's extracted texts.
             os.environ["XDG_CACHE_HOME"] = str(root) + "-cache"
             # A stray l on a file must not open the tester's editor in a new
             # terminal window; tests that open files name their own programs.
@@ -68,7 +68,7 @@ class Session:
                 args=(*args,"--no-config")
             # A command (fff seek, fff explorer) comes before the root; the
             # picker is fff pick, the only command that prints paths.
-            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick", "grep") else []
+            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick") else []
             args = args[len(command):]
             if output_paths and not command:
                 command = ["pick"]
@@ -311,14 +311,17 @@ class TerminalTests(unittest.TestCase):
         s.finish()
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_grep_lists_a_row_per_match_previews_it_and_prints_the_file(self):
+    def test_contents_query_lists_a_row_per_match_previews_it_and_prints_the_file(self):
         (self.root / "notes.txt").write_text("intro\nfirst canard\nmiddle\nsecond canard here\n")
         (self.root / "other.txt").write_text("nothing to see\n")
-        s = self.start("grep", implicit_root=True, typing=True)
-        s.wait_ui("Contents · INSERT")
+        s = self.start(implicit_root=True, typing=True)
+        s.wait_ui("Query · INSERT")
+        self.assertNotIn("Contents", s.screen.text)
+        # Tab goes to the contents query, beside the names query, in its
+        # own mode.
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"i", "Contents · INSERT")
         self.assertIn("Names", s.screen.text)
-        # It browses like fff pick, with tabs.
-        self.assertIn(" 1  2  3 ", s.screen.text)
         s.send(b"canard", "❯ canard")
         s.wait_ui("2 matches in 1 file")
         rows = [l for l in s.screen.text.splitlines() if "notes.txt" in l and "l. " in l]
@@ -330,9 +333,9 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("Preview · l. 2 · match 1 of 2")
         self.assertIn("intro", s.screen.text)
         s.send(b"\x1b[B", "Preview · l. 4 · match 2 of 2")
-        # Tab types into the names query, which chooses the files read.
-        s.send(b"\t", "Names · INSERT")
-        s.send(b"zzz", "No matches")
+        # Tab goes back to the names query, which chooses the files read.
+        s.send(b"\t", "Names · NORMAL")
+        s.send(b"izzz", "No matches")
         s.send(b"\x7f\x7f\x7f", "Matches · 2")
         # Enter prints the file.
         s.send(b"\r")
@@ -340,13 +343,29 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual((status, out), (0, str(self.root / "notes.txt").encode() + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_grep_match_preview_scrolls_past_its_context_from_the_match(self):
+    def test_space_on_a_match_marks_its_file_and_moves_to_the_next_file(self):
+        for name in ("one", "two"):
+            (self.root / name).write_text("hello world\nhello again\n")
+        s = self.start(implicit_root=True, typing=True)
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"ihello", "4 matches in 2 files")
+        s.send(b"\x1b[27u", "Contents · NORMAL")
+        # Each file's two matches share its mark: Space goes on to the next
+        # file, so pressing it again marks that one instead of unmarking.
+        s.send(b" ", "Marks (1)")
+        s.send(b" ", "Marks (2)")
+        s.send(b"\x03")
+        self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_match_preview_scrolls_past_its_context_from_the_match(self):
         lines = [f"line {n}" for n in range(1, 61)]
         lines[29] = "line 30 canard"
         lines[49] = "line 50 canard"
         (self.root / "notes.txt").write_text("\n".join(lines) + "\n")
-        s = self.start("grep", implicit_root=True, typing=True)
-        s.send(b"canard", "❯ canard")
+        s = self.start(implicit_root=True, typing=True)
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"icanard", "❯ canard")
         s.wait_ui("Preview · l. 30 · match 1 of 2")
         s.send(b"\x1b[27u", "NORMAL")
         self.assertNotIn("line 45", s.screen.text)
@@ -402,12 +421,12 @@ class TerminalTests(unittest.TestCase):
     def test_switch_program_keeps_the_contents_query(self):
         (self.root / "notes.txt").write_text("a canard here\n")
         (self.root / "other.txt").write_text("nothing\n")
-        s = self.start("grep", implicit_root=True, typing=True)
-        s.wait_ui("Contents · INSERT")
-        s.send(b"canard", "1 match in 1 file")
+        s = self.start(implicit_root=True, typing=True)
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"icanard", "1 match in 1 file")
         s.send(b"\x1b[27u", "Contents · NORMAL")
         s.send(b"gm", "Switch program")
-        self.assertNotIn("g: grep", s.screen.text)
+        self.assertNotIn("grep", s.screen.text)
         # fff seek keeps the contents query and its matches, still in
         # Normal mode.
         s.send(b"s", "Now fff seek")
@@ -415,11 +434,9 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("1 match in 1 file")
         # Tab goes to the names query, in its own mode; Alt+/ comes back,
         # and clearing the contents query lists the files.
-        s.send(b"\t", "Names · INSERT")
+        s.send(b"\t", "Names · NORMAL")
         s.send(b"\x1b/", "Contents · NORMAL")
         s.send(b"\x1b[27u", "Files · 2")
-        s.send(b"gm", "Switch program")
-        s.send(b"g", "Contents · NORMAL")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -455,20 +472,21 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_shift_space_marks_tab_only_while_typing_and_escape_twice_clears_marks(self):
+    def test_space_marks_tab_switches_queries_and_escape_twice_clears_marks(self):
         for name in ("one", "two", "three"):
             (self.root / name).touch()
         s = self.start("--depth", "1", implicit_root=True)
         s.wait_ui("Files · 3")
-        s.send(b"\t")  # Tab does nothing in Normal mode
         s.send(b"i" + SHIFT_SPACE, "Marks (1)")  # also while typing
         s.send(b"\x1b[27u", "NORMAL")
         self.assertIn("Marks (1)", s.screen.text)
         s.send(b" ", "Marks (2)")
-        # Tab marks while typing, for terminals without Shift+Space.
-        s.send(b"i\t", "Marks (3)")
-        s.send(b"\t", "Marks (2)")
-        s.send(b"\x1b[27u", "NORMAL")
+        # Tab never marks: it switches to the contents query and back.
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"\t", "Query · NORMAL")
+        s.send(b"i\t", "Contents · NORMAL")
+        s.send(b"\t", "Query · NORMAL")
+        self.assertIn("Marks (2)", s.screen.text)
         # With a query, Escape clears it first and keeps the marks.
         s.send(b"it", "❯ t")
         s.send(b"\x1b[27u", "NORMAL")

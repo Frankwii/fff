@@ -1,5 +1,4 @@
-//! The program a session runs as. `fff roam`, `pick`, `seek` and `grep`,
-//! a window of its own and the file dialogs are one session; what differs
+//! The program a session runs as. `fff roam`, `pick` and `seek`, a window of its own and the file dialogs are one session; what differs
 //! between them is said here, by `Program`'s methods, and what only one of
 //! them keeps (a dialog's question) lives in its variant of [`Running`], so
 //! that it cannot outlast the program. The contents query is the session's,
@@ -15,7 +14,6 @@ pub enum Program {
     Window,
     Pick,
     Seek,
-    Grep,
     ExplorerOpen,
     ExplorerMultiple,
     ExplorerFolder,
@@ -25,11 +23,10 @@ impl Program {
     /// What `switch_program` offers, by their letters in its chooser: the
     /// programs started from a shell. A file dialog answers its caller and
     /// a window of its own has no shell to leave into, so neither switches.
-    pub const SWITCHABLE: [(Self, char); 4] = [
+    pub const SWITCHABLE: [(Self, char); 3] = [
         (Self::Roam, 'r'),
         (Self::Pick, 'p'),
         (Self::Seek, 's'),
-        (Self::Grep, 'g'),
     ];
     /// The depth it searches to without `--depth`: browsing shows a
     /// folder's own entries, picking looks a little deeper, and seeking
@@ -37,7 +34,7 @@ impl Program {
     pub fn default_depth(self) -> usize {
         match self {
             Self::Pick => 3,
-            Self::Seek | Self::Grep => 6,
+            Self::Seek => 6,
             Self::Roam
             | Self::Window
             | Self::ExplorerOpen
@@ -52,10 +49,10 @@ impl Program {
         self != Self::Seek
     }
     /// It answers with paths: chosen files, or the folder it leaves in
-    /// (`fff pick` and `fff grep`, file dialogs). Roam and seek change the
+    /// (`fff pick`, file dialogs). Roam and seek change the
     /// shell's directory instead, and a window of its own answers nothing.
     pub fn prints_paths(self) -> bool {
-        matches!(self, Self::Pick | Self::Grep) || self.dialog()
+        self == Self::Pick || self.dialog()
     }
     /// A file dialog (`fff explorer`), answering the program that asked.
     pub fn dialog(self) -> bool {
@@ -69,28 +66,20 @@ impl Program {
     pub fn searches_contents(self) -> bool {
         !self.dialog()
     }
-    /// The contents query is shown even while empty, and typed into first:
-    /// `fff grep`, which chooses files by it.
-    pub fn contents_first(self) -> bool {
-        self == Self::Grep
-    }
     /// It starts ready to type: a choice of files, or a save dialog's name.
     pub fn starts_typing(self) -> bool {
-        matches!(
-            self,
-            Self::Pick | Self::Seek | Self::Grep | Self::ExplorerSave
-        )
+        matches!(self, Self::Pick | Self::Seek | Self::ExplorerSave)
     }
     /// It chooses files from deep below, so the best match comes first
     /// whatever its depth.
     pub fn by_score(self) -> bool {
-        matches!(self, Self::Pick | Self::Seek | Self::Grep)
+        matches!(self, Self::Pick | Self::Seek)
     }
     /// Flat lists start labelled by name, with only the parents that tell
     /// same-named entries apart; elsewhere by their path below the folder
     /// searched (`toggle_labels` switches).
     pub fn short_labels(self) -> bool {
-        matches!(self, Self::Pick | Self::Grep)
+        self == Self::Pick
     }
     /// Its sessions are saved for `--resume`.
     pub fn records_session(self) -> bool {
@@ -103,7 +92,6 @@ impl Program {
             Self::Window => "roam --window",
             Self::Pick => "pick",
             Self::Seek => "seek",
-            Self::Grep => "grep",
             Self::ExplorerOpen => "explorer",
             Self::ExplorerMultiple => "explorer --multiple",
             Self::ExplorerFolder => "explorer --directory",
@@ -117,7 +105,6 @@ pub enum Running {
     Window,
     Pick,
     Seek,
-    Grep,
     /// The file dialog being answered: Enter chooses files in either mode
     /// and q cancels.
     Dialog(Dialog),
@@ -130,7 +117,6 @@ impl Running {
             Program::Window => Self::Window,
             Program::Pick => Self::Pick,
             Program::Seek => Self::Seek,
-            Program::Grep => Self::Grep,
             dialog => unreachable!("{dialog:?} runs with its dialog"),
         }
     }
@@ -140,7 +126,6 @@ impl Running {
             Self::Window => Program::Window,
             Self::Pick => Program::Pick,
             Self::Seek => Program::Seek,
-            Self::Grep => Program::Grep,
             Self::Dialog(dialog) => dialog.program(),
         }
     }
@@ -151,7 +136,7 @@ impl Running {
         }
     }
     /// The answer can be several paths, so the marks can be it: `fff pick`
-    /// and `fff grep`, and dialogs choosing several files or folders.
+    /// and dialogs choosing several files or folders.
     pub fn returns_marks(&self) -> bool {
         match self {
             Self::Dialog(dialog) => dialog.multiple && dialog.save.is_none(),

@@ -258,6 +258,9 @@ pub struct App {
     /// sharing one (`labels`), rather than their path below the folder
     /// searched: `Program::short_labels` to start, `toggle_labels` after.
     pub short_labels: bool,
+    /// What `short_labels` was when the rows on screen were last labelled:
+    /// while another ranking labels them again, they keep their labels.
+    shown_labels: Option<bool>,
     /// `toggle_labels` chose the labels: `switch_program` keeps them.
     pub labels_chosen: bool,
     /// Short row labels for entries whose basename another listed entry shares
@@ -386,6 +389,7 @@ impl App {
             keys_broken: None,
             kinds: Kinds::All,
             short_labels: false,
+            shown_labels: None,
             labels_chosen: false,
             labels: HashMap::new(),
             names: HashMap::new(),
@@ -524,18 +528,11 @@ impl App {
         self.wanted = session.highlight;
     }
     /// Run as `program`, with its labels (a file dialog is `open_dialog`).
-    /// `fff grep` types into the contents query; the others into the names
-    /// query, unless the contents query is set.
     pub fn set_program(&mut self, program: crate::program::Program) {
         if program == self.program() {
             return;
         }
         self.run(program::Running::new(program));
-        if program.contents_first() {
-            self.grep.editing = true;
-        } else if self.grep.text.is_empty() {
-            self.grep.editing = false;
-        }
     }
     /// Run as `running`. What the program before kept goes with it.
     fn run(&mut self, running: program::Running) {
@@ -552,11 +549,15 @@ impl App {
     pub fn contents(&self) -> Option<&grep::Grep> {
         self.program().searches_contents().then_some(&self.grep)
     }
-    /// The contents query's bar is drawn: always in `fff grep`, elsewhere
-    /// while it is typed into or set.
+    /// The contents query's bar is drawn: while it is typed into or set.
     pub fn contents_shown(&self) -> bool {
         self.contents()
-            .is_some_and(|g| self.program().contents_first() || g.editing || !g.text.is_empty())
+            .is_some_and(|g| g.editing || !g.text.is_empty())
+    }
+    /// Rows show short labels (`labels`) rather than paths: `short_labels`,
+    /// once a ranking has labelled the rows for it.
+    pub fn labels_shown(&self) -> bool {
+        self.shown_labels.unwrap_or(self.short_labels)
     }
     /// Typing goes into the contents query, not the names query.
     pub fn typing_contents(&self) -> bool {
@@ -1150,6 +1151,7 @@ impl App {
             let old = std::mem::replace(&mut self.labels, labels);
             let len = old.len();
             known::discard(old, len);
+            self.shown_labels = Some(basis.short_labels);
         }
         self.keep_highlight(&query);
         self.refreshed = Some((basis, query));
@@ -1412,6 +1414,18 @@ impl App {
         self.highlight_hint.set(i);
         self.highlight_top = false;
     }
+    /// Moves down to the next row of another path than `path`, or to the
+    /// last row: a contents query lists a file once per match.
+    pub fn move_past(&mut self, path: &Path) {
+        let rows = self.shown();
+        let i = self.highlighted().unwrap_or(0);
+        let step = rows
+            .iter()
+            .skip(i + 1)
+            .position(|c| c.path != path)
+            .map_or(rows.len().saturating_sub(i + 1), |n| n + 1);
+        self.move_by(step as isize);
+    }
     /// The highlighted row's index, when it is listed.
     pub fn highlighted(&self) -> Option<usize> {
         let path = self.highlight.as_ref()?;
@@ -1627,7 +1641,7 @@ impl App {
     /// dialog choosing files, whose answer has no room for a folder.
     fn returns_folder(&self) -> bool {
         use crate::program::Program::*;
-        matches!(self.program(), Roam | Pick | Grep | ExplorerFolder)
+        matches!(self.program(), Roam | Pick | ExplorerFolder)
     }
     /// Says why Enter (or Ctrl+number) with no row did nothing.
     pub fn nothing_to_enter(&mut self) {

@@ -322,7 +322,7 @@ struct Session {
     /// Where fff was started: `q` leaves there.
     invocation: PathBuf,
     palettes: crate::reload::PaletteWatcher,
-    /// `fff grep`: the highlighted match's file being read as lines.
+    /// A contents query: the highlighted match's file being read as lines.
     match_lines: Option<(
         PathBuf,
         std::sync::mpsc::Receiver<Option<crate::grep::Lines>>,
@@ -368,10 +368,6 @@ impl Session {
         // a name: start ready to type the query.
         if app.program().starts_typing() {
             editor.reset_insert(Field::Query);
-        }
-        // fff grep starts in its contents query, also ready to type.
-        if app.program().contents_first() {
-            editor.reset_insert(Field::Contents);
         }
         let editor_directory = app.cwd.clone();
         warn_stranded(app);
@@ -605,7 +601,7 @@ impl Session {
             None => app.preview.followed().cloned(),
         };
         self.dirty |= app.preview.tick(followed, std::time::Instant::now());
-        // fff grep's match: scrolling starts from it again on another one.
+        // A contents match: scrolling starts from it again on another one.
         let showing = matches!(self.focus, Focus::Results)
             .then(|| app.highlighted_hit())
             .flatten()

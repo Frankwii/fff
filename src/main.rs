@@ -128,7 +128,7 @@ struct Args {
     /// Change it during the session with Alt+Left / Alt+Right, or - / + in
     /// Normal mode.
     ///
-    /// [default: 1; in fff pick, 3; in fff seek and fff grep, 6]
+    /// [default: 1; in fff pick, 3; in fff seek, 6]
     #[arg(global = true, short, long, value_name = "N", help_heading = "Search",
         value_parser = clap::value_parser!(u32).range(1..))]
     depth: Option<u32>,
@@ -303,17 +303,6 @@ enum Command {
     /// file's folder. q and ! leave without choosing anything. To print files, use fff pick:
     /// with --glob it too lists only matching files.
     Seek(SeekArgs),
-    /// Choose files by what they contain, and print them
-    ///
-    /// Two queries: the contents query (typed first) keeps the files that
-    /// contain it, one row per match with its page or line, and the names
-    /// query filters by name as in fff seek; Tab switches between them.
-    /// Text files are read as they are; PDF, DjVu and EPUB documents through
-    /// their text, extracted once (pdftotext, djvutxt) into ~/.cache/fff/text.
-    /// The contents query is literal and case-smart, ignores accents unless
-    /// it has some, and matches across line breaks. Enter prints the file
-    /// (while typing, the marks and it); q prints nothing.
-    Grep(GrepArgs),
     /// Answer a file dialog: choose files or a folder, or where to save
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
@@ -365,14 +354,6 @@ struct SeekArgs {
     /// Where to look; without any, the current directory
     #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
     roots: Vec<PathBuf>,
-}
-#[derive(clap::Args)]
-struct GrepArgs {
-    /// Where to look; without any, the current directory
-    #[arg(value_hint = clap::ValueHint::DirPath, help_heading = "Search")]
-    roots: Vec<PathBuf>,
-    #[command(flatten)]
-    output: OutputArgs,
 }
 #[derive(clap::Args)]
 struct ExplorerArgs {
@@ -535,14 +516,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             program: fuzzy_file_finder::program::Program::Seek,
             ..Mode::default()
         },
-        // fff pick with a contents query: it navigates, with tabs, and prints.
-        Some(Command::Grep(grep)) => Mode {
-            roots: grep.roots,
-            program: fuzzy_file_finder::program::Program::Grep,
-            relative: grep.output.relative,
-            null: grep.output.null,
-            ..Mode::default()
-        },
         Some(Command::Explorer(explorer)) => Mode {
             program: fuzzy_file_finder::program::Program::ExplorerOpen,
             explorer: Some(explorer),
@@ -681,7 +654,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     );
     let (finish, program) = ui::run(app, settings.cache, watcher, settings.performance)?;
     // A session switched to another program leaves as that one does: fff
-    // pick and grep print paths, roam and seek change directory.
+    // pick prints paths, roam and seek change directory.
     mode.program = program;
     report(finish, &mode, dialog, args.cd_file.as_deref(), &invocation)
 }

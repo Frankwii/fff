@@ -83,7 +83,7 @@ pub(super) fn mouse_results(
                 .click
                 .take()
                 .is_some_and(|(p, at)| p == path && now.duration_since(at) < DOUBLE_CLICK);
-            // By row, as fff grep shows a file once per match.
+            // By row, as a contents query shows a file once per match.
             app.highlight_row(app.offset + usize::from(event.row - area.y));
             app.highlight_top = false;
             app.wanted = None;

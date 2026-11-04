@@ -22,7 +22,7 @@ fn stdout(output: &Output) -> String {
 fn help_describes_defaults_examples_exit_codes_and_completions() {
     let long = stdout(&fff(&["--help"], None));
     for text in [
-        "[default: 1; in fff pick, 3; in fff seek and fff grep, 6]",
+        "[default: 1; in fff pick, 3; in fff seek, 6]",
         "Examples:",
         "Exit status:",
         "130",

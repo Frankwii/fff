@@ -985,8 +985,7 @@ pub(super) fn program_choice(frame: &mut Frame, main: Rect, app: &App) {
         &format!(
             "Go on as another program than fff {}. The folders, query, highlight, \
              marks, exclusions and filters stay; a depth you set stays too, else \
-             the new program's own applies. fff grep keeps its contents query for \
-             coming back.",
+             the new program's own applies, and so does the contents query.",
             current.name(),
         ),
         &keys,

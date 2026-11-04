@@ -190,7 +190,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
   different openers run one after another. `o` refuses directories (`l` enters
   them).
 - **And leave:** Normal-mode Enter on a file in `fff roam` (not in `fff
-  pick`, `fff seek` or `fff grep`, where it returns the file or its folder). GUI openers
+  pick` or `fff seek`, where it returns the file or its folder). GUI openers
   start detached, as with `l`; a terminal opener replaces fff in this
   terminal, like `gX`, and fff's exit status becomes the program's. The
   program is found before it starts. The shell integration then leaves you in

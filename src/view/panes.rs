@@ -213,7 +213,7 @@ pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
-/// `fff grep`: the lines around the highlighted row's match, the match
+/// A contents query: the lines around the highlighted row's match, the match
 /// highlighted on each line it is on, its page or line and which of the
 /// file's matches it is in the title.
 fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &crate::grep::Hit) {

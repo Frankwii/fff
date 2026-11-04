@@ -615,7 +615,7 @@ A rough estimate of 100–150 bytes per path gives about 8 MiB at defaults; long
 paths can cost considerably more. This is a count limit, not an exact byte cap.
 The current view's index, result rows and BFS queue are separate and scale with
 the tree being browsed, up to `[performance] max_paths` (about 450 bytes per
-path, more while rows are labelled by name, as in `fff pick` and `fff grep`
+path, more while rows are labelled by name, as in `fff pick`
 (see `gd`), which keeps labels: roughly 450–550 MB
 at the default); lowering depth reduces that working set. Prefetch has its
 own small allocation budgets and cannot evict visited snapshots.
@@ -674,7 +674,7 @@ tree takes longer instead of delaying keys; it completes only after its last
 paths are merged. The index of known paths is sharded so it grows without
 rehashing everything at once, a scan marks the paths it delivers instead of
 keeping a separate reconciliation set, and large listings are freed on another
-thread. With rows labelled by name (`fff pick`, `fff grep`, or after `gd`),
+thread. With rows labelled by name (`fff pick`, or after `gd`),
 only basenames that changed are relabelled, with the time left over, so a scan completes once its labels catch up.
 
 Ranking every known path again (changing depth, hidden files, exclusions,
@@ -702,7 +702,7 @@ and an index of what files contain in `~/.cache/fff/index` (both under
 prunes the entries unused for 90 to 135 days, then the least recently used
 while the text cache passes 2 GiB or the index 512 MiB. Deleting either is
 safe; it is rebuilt as searches read the files again. See [searching
-contents](../README.md#searching-contents-fff-grep).
+contents](../README.md#searching-contents).
 
 ## Openers
 
@@ -718,7 +718,7 @@ fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup (defaul
 [[open.rules]]
 command = "zathura"
 extensions = ["pdf", "djvu", "epub"]
-at_grep_match = "--page {page} --find {query}"   # from a fff grep match: open there
+at_grep_match = "--page {page} --find {query}"   # from a contents match: open there
 
 [[open.rules]]
 command = "imv"
@@ -742,10 +742,10 @@ matches `notes.tar.gz` (as `"gz"` does) but not a file named `.tar.gz`;
 needs a command and at least one extension or pattern. Files no rule matches
 open with `$EDITOR`, as a terminal program.
 
-### Opening at a `fff grep` match
+### Opening at a contents match
 
 `at_grep_match` is optional. When `l`, Alt+l or Alt+number opens a file from
-a [`fff grep`](../README.md#searching-contents-fff-grep) match row, its words
+a [contents query](../README.md#searching-contents) match row, its words
 are added to the command, with placeholders filled in from the match; opened
 any other way (a file row, `o`, Enter), the rule's `command` runs as it is.
 The command line is the rule's `command`, then `at_grep_match`, then the file:
@@ -855,7 +855,7 @@ A place is a combination of three things, fixed by design:
 
 | Dimension | Values |
 | --- | --- |
-| program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `grep`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
+| program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
 | list (`place` in `keys.toml`) | `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 

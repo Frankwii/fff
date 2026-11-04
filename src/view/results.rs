@@ -160,17 +160,29 @@ pub(super) fn results_pane(
     } else {
         let columns = fitting_columns(&app.columns, inner.width as usize);
         let now = std::time::SystemTime::now();
-        // fff grep: names in one column, so that places and lines align;
+        let short = app.labels_shown();
+        let name_of = |c: &crate::Candidate| {
+            let mut name = if short {
+                short_label(app, &c.path)
+            } else {
+                display_path(&c.path, &app.cwd)
+            };
+            if c.directory && !name.ends_with('/') {
+                name.push('/');
+            }
+            name
+        };
+        // Matches: names in one column, so that places and lines align;
         // at most two fifths of the row, leaving the rest to the line.
         let name_column = (0..visible.len())
             .filter(|i| app.hit(app.offset + i).is_some())
-            .map(|i| short_label(app, &visible[i].path).width())
+            .map(|i| name_of(visible[i]).width())
             .max()
             .unwrap_or(0)
             .min(inner.width as usize * 2 / 5);
         for (i, c) in visible.iter().enumerate() {
             let row = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
-            // By row: fff grep shows a file once per match.
+            // By row: a contents query shows a file once per match.
             let selected = highlighted == Some(app.offset + i);
             let hit = app.hit(app.offset + i);
             let bg = if selected && focused {
@@ -188,14 +200,7 @@ pub(super) fn results_pane(
             } else {
                 String::new()
             };
-            let mut name = if app.short_labels {
-                short_label(app, &c.path)
-            } else {
-                display_path(&c.path, &app.cwd)
-            };
-            if c.directory && !name.ends_with('/') {
-                name.push('/');
-            }
+            let name = name_of(c);
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
             let info = app.details.info(&c.path);

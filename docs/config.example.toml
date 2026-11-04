@@ -87,9 +87,9 @@ fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup
 [[open.rules]]
 command = "zathura"
 extensions = ["pdf", "djvu", "epub"]
-# From a fff grep match: the match's page, the query searched and highlighted.
+# From a contents match: the match's page, the query searched and highlighted.
 # Placeholders: {page} {line} {percent} {query} {match} {nth} {count} {path};
-# see CONFIGURATION.md, "Opening at a fff grep match".
+# see CONFIGURATION.md, "Opening at a contents match".
 at_grep_match = "--page {page} --find {query}"
 
 [[open.rules]]

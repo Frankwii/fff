@@ -78,7 +78,7 @@ listed separately in the [roadmap](ROADMAP.md).
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
-  (`fff pick`, `fff grep`: `Program::prints_paths`), the chosen directory (`fff roam` and `fff seek` without
+  (`fff pick`: `Program::prints_paths`), the chosen directory (`fff roam` and `fff seek` without
   `--cd-file`) or a file dialog's answer (`fff explorer`), by the program
   the session ends as (`gm` switches; `Program::default_depth` holds each
   one's depth);
@@ -87,7 +87,7 @@ listed separately in the [roadmap](ROADMAP.md).
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes; `fff pick`, `fff seek` and `fff grep` put fuzzy score before depth (`Program::by_score`). Query edits do not restart discovery. Scans merge
+  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before depth (`Program::by_score`). Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget, in place and with the
   rows' kept scores: rows ranked before every new path are not touched, so a
   breadth-first scan's merge costs about what it inserts. The input thread never
@@ -162,7 +162,7 @@ Where a change usually has to touch, so that none is missed:
   (`src/operations.rs`), undo steps (`src/undo.rs`), a plan or confirmation
   started as a job from `src/ui/actions.rs`, and the
   [OPERATIONS.md](OPERATIONS.md) guarantees it keeps.
-- **Something that differs between programs** (roam, pick, seek, grep, a
+- **Something that differs between programs** (roam, pick, seek, a
   window, the file dialogs): a method on `Program` in `src/program.rs`
   (`navigates`, `prints_paths`, `dialog`, `short_labels`, ...) read as
   `app.program()`, rather than a flag of its own; state only one program

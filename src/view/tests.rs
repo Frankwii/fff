@@ -623,6 +623,57 @@ fn short_labels_show_names_with_only_the_parents_that_tell_them_apart() {
     assert_eq!(targets[1], Path::new("/work/folder/folder1/main.pdf"));
 }
 #[test]
+fn match_rows_fit_their_labels_and_keep_them_until_relabelled() {
+    let root = std::env::temp_dir().join(format!("fff-label-column-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("deep/folder")).unwrap();
+    std::fs::write(root.join("deep/folder/notes.txt"), "a canard\n").unwrap();
+    let mut app = App::new(vec![root.clone()], 6, crate::Policy::default());
+    app.icons = false;
+    app.grep.cache = Some(root.join("cache"));
+    app.insert(
+        0,
+        Candidate {
+            path: root.join("deep/folder/notes.txt"),
+            directory: false,
+            depth: 3,
+            root: 0,
+        },
+    );
+    app.scanning = false;
+    app.refresh();
+    app.set_contents("canard".into());
+    let start = std::time::Instant::now();
+    while app.grep.progress().is_some() || app.shown().is_empty() {
+        assert!(start.elapsed() < std::time::Duration::from_secs(10));
+        app.poll_grep();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let screen = |app: &mut App| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+        terminal
+            .draw(|f| {
+                render(f, app, &mut Focus::Results);
+            })
+            .unwrap();
+        text(terminal.backend().buffer())
+    };
+    // By path, the name column is as wide as the path, not the name.
+    assert!(!app.labels_shown());
+    let shown = screen(&mut app);
+    assert!(shown.contains("· deep/folder/notes.txt  "), "{shown}");
+    // Rows keep the labels they were ranked with until a ranking labels
+    // them again, rather than showing bare names meanwhile.
+    app.short_labels = true;
+    assert!(!app.labels_shown());
+    assert!(screen(&mut app).contains("· deep/folder/notes.txt  "));
+    app.refresh();
+    assert!(app.labels_shown());
+    let shown = screen(&mut app);
+    assert!(shown.contains("· notes.txt  "), "{shown}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+#[test]
 fn pick_rows_show_names_folders_included_and_follow_navigation() {
     let mut app = App::browse("/work".into(), 3, crate::Policy::default());
     app.short_labels = true;

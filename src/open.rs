@@ -50,7 +50,7 @@ pub struct Rule {
     /// it in a new terminal window instead of in the background.
     #[serde(default)]
     pub terminal: bool,
-    /// Arguments added before the file when it opens from a `fff grep`
+    /// Arguments added before the file when it opens from a contents
     /// match, with placeholders for where the match is (see `GrepMatch`),
     /// e.g. `--page {page} --find {query}` for zathura.
     #[serde(default)]
@@ -65,7 +65,7 @@ pub struct Opener {
     /// `at_grep_match`, empty when the rule has none.
     pub at_grep_match: String,
 }
-/// A `fff grep` match a file opens at: what `at_grep_match`'s placeholders
+/// A contents match a file opens at: what `at_grep_match`'s placeholders
 /// become.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GrepMatch {
