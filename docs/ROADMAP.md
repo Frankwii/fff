@@ -194,5 +194,42 @@ number of paths: a scan within about twice the time of `fd | fzf` looks
 reachable, where it is several times today. Matching fzf exactly is not
 the aim; what is lost to the features above is the price of them.
 
+### Semantic search
+
+A query by meaning rather than by letters: `heat equation stability` would
+find the notes and papers about it in Spanish, Catalan or English, and the
+photos and figures of it, ranked together. A small multilingual, multimodal
+embedding model would map text chunks and images into one vector space, run
+locally on the CPU; images are embedded directly, never captioned into text
+first. Candidates to compare: `jina-clip-v2` (multilingual, long texts, but
+near a billion parameters), SigLIP 2 and multilingual CLIP (smaller, but
+their text encoders take only a few dozen tokens, weak for documents). If
+no single model is good enough at both, a text model and an image model
+would each be searched and their rankings fused.
+
+- **Indexing offline.** A command (such as `fff index ROOTS`) would embed
+  overlapping chunks of each file's text, from the text cache the contents
+  query already fills, with the path, and each image whole. Entries would be
+  keyed by file identity as the contents index's are, so running it again
+  embeds only what changed, and pruned the same way. Minutes to tens of
+  minutes for a large tree the first time.
+- **Searching.** The query is embedded once, after a pause in typing or on
+  Enter (partial words embed badly), and compared with every stored vector
+  exactly: at personal scale, about 100,000 int8 vectors, that takes a few
+  milliseconds, so no approximate index (FAISS, HNSW) is needed unless the
+  store grows past a million or so. The model loads lazily on a worker
+  thread, so starting fff stays instant.
+- **Ranking.** Text-to-text similarities run systematically higher than
+  text-to-image ones even in a shared space, so scores would be fused by
+  rank per modality (reciprocal rank fusion), and with the fuzzy and
+  contents matches, rather than compared directly.
+- **In the interface.** A query of its own, beside the name and contents
+  queries, with one row per matching chunk (its lines) or image. Unlike the
+  contents query, it is a ranking of the closest, not every match.
+- **Building.** An optional Cargo feature, so the default build and its
+  dependencies stay as they are; `candle` keeps the build pure Rust and
+  offline, `ort` is faster but needs ONNX Runtime. Model weights live outside
+  the binary, at a path in the configuration.
+
 The current release is 0.16.1. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.
