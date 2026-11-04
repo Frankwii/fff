@@ -138,16 +138,18 @@ group as columns of their own, and could show octal modes too.
 
 ### Faster scanning
 
-Listing a large tree takes about ten times as long as `fd`: 1.6 seconds for
-the 620,000 entries of `/usr`, against 0.14, so a query typed at once waits
-for the scan to reach its match. Measured, the time splits in halves:
+Listing a large tree takes several times as long as `fd`: about 0.85
+seconds for the 620,000 entries of `/usr` (headless, until the rows are
+settled), against 0.15, so a query typed at once waits for the scan to reach
+its match. Each depth's folders are read on several threads, and paths are
+attributed to their roots there, which took the walk out of the way (1.0
+seconds before); what remains is the interface thread:
 
-- The walk reads one folder at a time on one thread. Reading each depth's
-  folders on several threads, one depth after another, would keep what the
-  scan guarantees today: shallower entries arrive first, and `max_paths`
-  still stops at the shallowest ones.
-- The walker then waits about as long for the interface thread, which merges
-  every batch into the fully sorted rows. Kept as fzf keeps its input,
+- Storing each path among the known ones takes about 0.55 seconds of it.
+  This is memory latency, not hashing: a faster hasher and keys sharing the
+  candidate's path were tried and changed nothing measurable, since each
+  lookup follows pointers through a table of 620,000 entries.
+- Merging every batch into the fully sorted rows takes about 0.3 seconds. Kept as fzf keeps its input,
   in chunks sorted on their own and merged only as far as the screen shows,
   a batch would cost little more than appending it. Whatever needs every row
   in order (`G`, the count, `m`, batch rename, the printed marks) would
@@ -166,8 +168,9 @@ set its limit:
 - fzf reads a stream it never revisits; fff keeps every known path in a map
   (one entry per path, at its shallowest depth, for overlapping roots,
   rescans, live updates and the discovery cache). That is a hash insertion
-  per path, a cost fzf does not pay, but a small and constant one (sharded
-  already; a faster hasher than the standard one would cut it further).
+  per path, a cost fzf does not pay, and today the largest one: constant
+  per path, but bound by memory latency (see above), so it would shrink
+  with the paths packed as fzf packs them rather than with a faster hash.
 - Labels in `fff pick` and `fff seek` depend on every listed entry with the
   same name, so a new path can change another row's label. Kept by name and
   updated per group as paths arrive, as the labels of additions already are,

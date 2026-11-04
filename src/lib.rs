@@ -894,25 +894,37 @@ impl App {
         if let Some((depth, root)) = best {
             candidate.depth = depth;
             candidate.root = root;
-            // Rescans deliver mostly what is already known: keep those rows.
-            if self
-                .known
-                .get(&candidate.path)
-                .is_some_and(|c| **c == candidate)
-            {
-                if let Some(generation) = delivered {
-                    self.known.confirm(&candidate.path, generation);
-                }
-                return;
-            }
-            let candidate = Arc::new(candidate);
-            // Replays are unconfirmed: no scan has generation 0.
-            let stamp = delivered.unwrap_or(0);
-            if let Some(old) = self.known.insert(Arc::clone(&candidate), stamp) {
-                self.outdated.push(old);
-            }
-            self.added.push(candidate);
+            self.store(candidate, delivered);
         }
+    }
+    /// A path the walker of `generation` found and attributed itself, as
+    /// `place` would: to the root it is shallowest below, within the depth
+    /// and allowed by the policy, which a new scan follows when they
+    /// change.
+    pub(crate) fn insert_attributed(&mut self, generation: u64, candidate: Candidate) {
+        if generation == self.generation {
+            self.store(candidate, Some(generation));
+        }
+    }
+    fn store(&mut self, candidate: Candidate, delivered: Option<u64>) {
+        // Rescans deliver mostly what is already known: keep those rows.
+        if self
+            .known
+            .get(&candidate.path)
+            .is_some_and(|c| **c == candidate)
+        {
+            if let Some(generation) = delivered {
+                self.known.confirm(&candidate.path, generation);
+            }
+            return;
+        }
+        let candidate = Arc::new(candidate);
+        // Replays are unconfirmed: no scan has generation 0.
+        let stamp = delivered.unwrap_or(0);
+        if let Some(old) = self.known.insert(Arc::clone(&candidate), stamp) {
+            self.outdated.push(old);
+        }
+        self.added.push(candidate);
     }
     /// The scan of `generation` completed: forget the paths it did not
     /// deliver. The next refresh drops their rows.

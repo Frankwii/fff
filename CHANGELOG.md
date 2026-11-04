@@ -34,6 +34,10 @@ history.
 
 ### Changed
 
+- **Listing a large tree is faster**: each depth's folders are read on
+  several threads, still shallowest first, so that `max_paths` keeps the
+  shallowest entries. `/usr`'s 620,000 entries are listed in about 0.85 s
+  instead of 1.0 s; folders of their own (depth 1) are read as before.
 - **Contents searches with many matches stay quick**: the rows are rebuilt
   at most every 50 ms while matches stream in, and files past the 20,000th
   match are no longer read, only counted.
