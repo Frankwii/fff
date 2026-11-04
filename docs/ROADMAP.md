@@ -132,6 +132,25 @@ shows the highlighted entry's permissions and owner; this would make them a quic
 toggle for every row rather than a configuration change, with owner and
 group as columns of their own, and could show octal modes too.
 
+### Named workspaces
+
+`fff --resume` keeps only the last session, so a recurring setup (the papers
+of one project with their roots pinned and a depth of 3, a folder of notes
+with a content search in it, a codebase with its exclusions) is rebuilt by
+hand or started from a script of its own. A workspace would be a session
+saved under a name: its roots, folders and tabs, depth, filters, exclusions,
+toggles and query, and perhaps its marks.
+
+Workspaces would live in the bookmark chooser beside bookmarks, a bookmark
+being the simplest workspace: a single folder. The form that adds a bookmark
+would offer to save the current session instead, and opening a workspace
+would replace the session as `--resume` does. `fff --workspace NAME`
+(completed from the saved names) would start in one. To decide: whether
+workspaces are kept in the configuration with bookmarks or in the state
+directory beside the session, which they resemble more; whether opening one
+saves changes back to it or leaves it as saved until saved again; and how the
+chooser tells a workspace from a bookmark.
+
 ### Faster scanning
 
 Listing a large tree takes several times as long as `fd`: about 0.85
