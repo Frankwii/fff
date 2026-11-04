@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.16.4 — 2026-11-04
+
+Folder sizes are kept between sessions and added up faster, a window of its
+own and each file dialog are commands, and zsh completion can be a file.
 
 ### Changed
 
