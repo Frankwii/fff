@@ -347,7 +347,7 @@ impl Session {
                 app.offset = app
                     .offset
                     .saturating_add(page)
-                    .min(app.shown().len().saturating_sub(page));
+                    .min(app.shown_len().saturating_sub(page));
             }
             HighlightFirst | HighlightLast => {
                 jump_to_end(app, &mut self.focus, function == HighlightLast)

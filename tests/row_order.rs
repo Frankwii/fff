@@ -174,7 +174,24 @@ fn rows_read_as_a_fresh_ranking_while_a_scan_adds_paths_and_after() {
                 app.refresh_within(Some(Duration::ZERO));
                 let merged = inserted - app.unmerged();
                 let expected = fresh(program, query, &paths[..merged]);
-                assert_eq!(names(&app), names(&expected), "{program:?} {query:?}");
+                // Read a few from the front and the middle before every row.
+                let want = names(&expected);
+                let front: Vec<_> = app
+                    .shown_from(0)
+                    .take(30)
+                    .map(|c| c.path.to_string_lossy().into_owned())
+                    .collect();
+                assert_eq!(front, want[..want.len().min(30)]);
+                let mid = want.len() / 2;
+                let row = app
+                    .shown_row(mid)
+                    .map(|c| c.path.to_string_lossy().into_owned());
+                assert_eq!(row.as_ref(), want.get(mid));
+                if let Some(name) = want.last() {
+                    let at = app.shown_position(|c| c.path.to_string_lossy() == *name);
+                    assert_eq!(at, Some(want.len() - 1));
+                }
+                assert_eq!(names(&app), want, "{program:?} {query:?}");
                 assert_eq!(app.rows.len(), expected.rows.len());
                 // The highlight stays on the first row while the scan
                 // streams in.

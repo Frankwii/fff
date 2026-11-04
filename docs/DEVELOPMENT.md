@@ -9,13 +9,14 @@ listed separately in the [roadmap](ROADMAP.md).
 | Module | Responsibility |
 | --- | --- |
 | `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
-| `src/lib.rs` | Session state (`App`): navigation, tabs, rows and their ordering, the highlight, marks and path output. |
+| `src/lib.rs` | Session state (`App`): navigation, tabs, when rows are ranked again or merged (`refresh`), the rows on screen (`shown`), the highlight, marks and path output. |
 | `src/matching.rs` | Fuzzy scoring of names (nucleo, fzf's algorithm) and of paths below their roots, and the matched characters to highlight. |
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, each depth's folders read on several threads and its paths attributed to their roots there, batches, backpressure, the path limit, freshness and scan reconciliation. |
 | `src/grep.rs` | The contents query (the `App::grep` field, in every program): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
+| `src/rows.rs` | The results' order (`Order`) and the ranked rows (`Rows`): sorted runs merged lazily, and the one way to read every row in order (`Rows::all`). |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
@@ -96,7 +97,7 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   each round is pushed as a run of its own: no row already ranked moves.
   Runs are merged pairwise as they are pushed only while the one before is
   not more than twice as large, so there are about log₂ of the rows over
-  the round size of them (a dozen for `/usr`), the largest first, and each
+  the round size of them (about ten for `/usr`), the largest first, and each
   row is moved once per doubling (a merge takes whole stretches of a run
   that rank before the other's next row, found by searching, rather than
   comparing row by row).
@@ -164,10 +165,13 @@ copies the run being merged, as it did before.
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before depth (`Program::order`). Query edits do not restart discovery. Scans merge
-  new paths into the ranked rows within a time budget, in place and with the
-  rows' kept scores: rows ranked before every new path are not touched, so a
-  breadth-first scan's merge costs about what it inserts. The input thread never
+  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before
+  depth (`Program::order`, see [how rows are kept](#how-rows-are-kept-and-ordered)).
+  Query edits do not restart discovery. Scans merge new paths into the ranked
+  rows within a time budget, as sorted runs of their own: no row already
+  ranked moves, so a scan's merge costs about sorting what it inserts. Every
+  row in order is read only through `App::shown` (`Rows::all`), which merges
+  the runs first; nothing reads a half-merged list. The input thread never
   re-sorts every known path, and discovery work yields to keys waiting to be
   read. Large re-rankings run on another thread; every key except typing into
   the query and Ctrl+c waits for a pending one, so no action uses stale rows.

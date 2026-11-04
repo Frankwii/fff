@@ -19,9 +19,9 @@ pub(super) fn results_pane(
     let block = panel_with(
         app.palette,
         if grep {
-            format!(" Matches · {} ", app.shown().len())
+            format!(" Matches · {} ", app.shown_len())
         } else {
-            format!(" Files · {} ", app.shown().len())
+            format!(" Files · {} ", app.shown_len())
         },
         kinds,
         focused,
@@ -43,15 +43,15 @@ pub(super) fn results_pane(
             app.offset = i + 1 - page;
         }
     }
-    app.offset = app.offset.min(app.shown().len().saturating_sub(1));
+    app.offset = app.offset.min(app.shown_len().saturating_sub(1));
     let highlighted = app.highlighted();
     let app = &*app;
-    let visible: Vec<_> = app.shown().iter().skip(app.offset).take(page).collect();
-    let last = (app.offset + visible.len()).min(app.shown().len());
+    let visible: Vec<_> = app.shown_from(app.offset).take(page).collect();
+    let last = (app.offset + visible.len()).min(app.shown_len());
     let range = if visible.is_empty() {
         " 0 results ".into()
     } else {
-        format!(" {}–{} of {} ", app.offset + 1, last, app.shown().len())
+        format!(" {}–{} of {} ", app.offset + 1, last, app.shown_len())
     };
     frame.render_widget(
         block
@@ -265,10 +265,15 @@ pub(super) fn results_pane(
         }
         // Folders a page below and above come next, ready when scrolled to.
         if columns.contains(&Column::Size) && !app.grep.active() {
-            let shown = app.shown();
-            let below = shown.iter().skip(app.offset + page).take(page);
-            let above = shown[..app.offset.min(shown.len())].iter().rev().take(page);
-            for c in below.chain(above).filter(|c| c.directory) {
+            let below: Vec<_> = app.shown_from(app.offset + page).take(page).collect();
+            let end = app.offset.min(app.shown_len());
+            let start = end.saturating_sub(page);
+            let above: Vec<_> = app.shown_from(start).take(end - start).collect();
+            for c in below
+                .into_iter()
+                .chain(above.into_iter().rev())
+                .filter(|c| c.directory)
+            {
                 app.details.want_size(&c.path);
             }
         }

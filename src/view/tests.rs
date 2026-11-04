@@ -2157,3 +2157,62 @@ fn long_names_keep_their_matched_letters_else_their_start_in_view() {
     assert_eq!(shown("short.txt", 0, "", 9), "short.txt");
     assert_eq!(shown("日本語の長い名前.txt", 0, "", 9), "日本語の…");
 }
+#[test]
+fn frames_drawn_while_a_scan_adds_paths_show_what_a_fresh_ranking_would() {
+    // A breadth-first scan's paths, shallow first, names shared across
+    // folders, merged in rounds that each become a run of the rows.
+    let mut seen = std::collections::HashSet::new();
+    let mut paths = Vec::new();
+    for depth in 1..=3usize {
+        for i in 0..1500u64 {
+            let n = i.wrapping_mul(2_654_435_761) % 1500;
+            let folders: String = (1..depth as u64)
+                .map(|d| format!("d{}/", (n + d) % 4))
+                .collect();
+            let path = PathBuf::from(format!("/fixture/{folders}n{:03}", n % 700));
+            if seen.insert(path.clone()) {
+                paths.push(Candidate {
+                    path,
+                    directory: n.is_multiple_of(5),
+                    depth,
+                    root: 0,
+                });
+            }
+        }
+    }
+    // Both orders; `fff pick`'s short labels catch up within budgets of
+    // their own, so they are left out.
+    for program in [crate::program::Program::Roam, crate::program::Program::Seek] {
+        let mut app = App::browse("/fixture".into(), 3, crate::Policy::default());
+        app.set_program(program);
+        app.scanning = false;
+        app.refresh();
+        let mut inserted = 0;
+        for batch in paths.chunks(700) {
+            for c in batch {
+                app.insert(0, c.clone());
+            }
+            inserted += batch.len();
+            app.refresh_within(Some(std::time::Duration::ZERO));
+            let merged = inserted - app.unmerged();
+            let mut fresh = App::browse("/fixture".into(), 3, crate::Policy::default());
+            fresh.set_program(program);
+            fresh.scanning = false;
+            for c in &paths[..merged] {
+                fresh.insert(0, c.clone());
+            }
+            fresh.refresh();
+            // Somewhere down the list, with rows above and below.
+            for (at, offset) in [(0, 0), (30, 20), (fresh.rows.len() - 1, 0)] {
+                let path = fresh.rows[at].path.clone();
+                for app in [&mut app, &mut fresh] {
+                    app.highlight = Some(path.clone());
+                    app.offset = offset;
+                    app.scrolled = None;
+                }
+                assert_eq!(draw(&mut app, 120, 30), draw(&mut fresh, 120, 30));
+                assert_eq!(app.offset, fresh.offset);
+            }
+        }
+    }
+}

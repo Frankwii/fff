@@ -3,7 +3,10 @@
 //! screen. Small ones are ranked in place, exactly the same way.
 #[cfg(test)]
 use crate::score;
-use crate::{Candidate, Listing, Matcher, disambiguate, rows::Order};
+use crate::{
+    Candidate, Listing, Matcher, disambiguate,
+    rows::{Order, Run},
+};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -14,8 +17,6 @@ use std::{
     },
 };
 
-/// Ranked rows, shared with kept queries and running rankings.
-pub type Rows = Arc<Vec<Arc<Candidate>>>;
 /// Listed entries by basename, for `fff pick` and `fff seek` labels.
 pub(crate) type Names = HashMap<OsString, Vec<Arc<Candidate>>>;
 pub(crate) type Labels = HashMap<PathBuf, PathBuf>;
@@ -26,8 +27,9 @@ pub(crate) const BACKGROUND_AT: usize = 16_384;
 const CHECK_EVERY: usize = 4096;
 
 pub(crate) struct Job {
-    /// Every known path, filtered by `listing`, or rows that are already listed.
-    pub base: Rows,
+    /// Every known path, filtered by `listing`, or rows that are already
+    /// listed: shared runs, read in no particular order.
+    pub base: Vec<Arc<Run>>,
     pub listing: Option<Listing>,
     /// The lowercased query.
     pub query: String,
@@ -37,31 +39,35 @@ pub(crate) struct Job {
     pub order: Order,
 }
 pub(crate) struct Ranked {
-    pub rows: Vec<Arc<Candidate>>,
-    /// The rows' scores, in the same order.
-    pub scores: Vec<i64>,
+    pub run: Run,
     pub labels: Option<(Names, Labels)>,
 }
 
 impl Job {
+    /// How many rows it reads.
+    pub fn len(&self) -> usize {
+        self.base.iter().map(|r| r.len()).sum()
+    }
     /// The ranked rows, or `None` once `cancel` is set.
     pub fn run(self, cancel: &AtomicBool) -> Option<Ranked> {
         let threads = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
             .clamp(1, 8)
-            .min(self.base.len() / CHECK_EVERY + 1);
-        let piece = self.base.len().div_ceil(threads).max(1);
+            .min(self.len() / CHECK_EVERY + 1);
+        let piece = self.len().div_ceil(threads).max(1);
+        let slices: Vec<&[Arc<Candidate>]> = self.base.iter().map(|r| r.rows.as_slice()).collect();
         let keep_listed = self.labels == Some(true);
         // Each piece is filtered, scored and sorted on its own thread; a
         // single piece here, as starting a thread costs more than small work.
         let pieces: Vec<_> = if threads == 1 {
-            vec![self.rank_piece(&self.base, keep_listed, cancel)]
+            vec![self.rank_piece(&slices, keep_listed, cancel)]
         } else {
+            let job = &self;
             std::thread::scope(|scope| {
-                let handles: Vec<_> = self
-                    .base
-                    .chunks(piece)
-                    .map(|chunk| scope.spawn(|| self.rank_piece(chunk, keep_listed, cancel)))
+                let handles: Vec<_> = slices
+                    .iter()
+                    .flat_map(|rows| rows.chunks(piece))
+                    .map(|chunk| scope.spawn(move || job.rank_piece(&[chunk], keep_listed, cancel)))
                     .collect();
                 handles
                     .into_iter()
@@ -83,8 +89,7 @@ impl Job {
         };
         let (scores, rows) = rows.into_iter().unzip();
         Some(Ranked {
-            rows,
-            scores,
+            run: Run { rows, scores },
             labels,
         })
     }
@@ -93,14 +98,14 @@ impl Job {
     #[allow(clippy::type_complexity)]
     fn rank_piece(
         &self,
-        chunk: &[Arc<Candidate>],
+        chunk: &[&[Arc<Candidate>]],
         keep_listed: bool,
         cancel: &AtomicBool,
     ) -> Option<(Vec<(i64, Arc<Candidate>)>, Vec<Arc<Candidate>>)> {
         let matcher = Matcher::new(&self.query);
         let mut ranked = Vec::new();
         let mut listed = Vec::new();
-        for (i, c) in chunk.iter().enumerate() {
+        for (i, c) in chunk.iter().copied().flatten().enumerate() {
             if i % CHECK_EVERY == 0 && cancel.load(Ordering::Relaxed) {
                 return None;
             }

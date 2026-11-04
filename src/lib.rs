@@ -80,11 +80,9 @@ struct Pending {
 /// How long the progress marker stays after discovery completes.
 pub const PROGRESS_SHOWN: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// Insertions merged into the rows per budgeted round, at least; rounds grow
-/// with the rows (one insertion per `MERGE_SPREAD` rows), as each moves rows
-/// after the first insertion and searching is cheap beside that.
-const MERGE_ROUND: usize = 512;
-const MERGE_SPREAD: usize = 1024;
+/// New paths filtered, scored and sorted per budgeted round; each round
+/// becomes a run of the rows.
+const MERGE_ROUND: usize = 1024;
 
 /// Everything except the query that decides which known paths become rows.
 #[derive(Clone, PartialEq)]
@@ -155,7 +153,7 @@ pub struct App {
     refreshed: Option<(RefreshBasis, String)>,
     /// Rows of shorter queries the current one extends, shortest first, kept so
     /// that deleting letters restores them; they share candidates with `rows`.
-    earlier: Vec<(String, ranking::Rows)>,
+    earlier: Vec<(String, rows::Rows)>,
     /// Rows being ranked on another thread, and what wakes the UI when done.
     ranking: Option<Pending>,
     waker: Option<mpsc::SyncSender<()>>,
@@ -163,10 +161,10 @@ pub struct App {
     input: Option<Arc<AtomicUsize>>,
     /// `[performance] cached_queries`: most entries kept in `earlier`.
     pub cached_queries: usize,
-    pub rows: ranking::Rows,
-    /// The rows' scores for the query they were ranked by, in the same order,
-    /// so that merging does not score them again; empty until needed.
-    scores: Vec<i64>,
+    /// The ranked rows with their scores, as sorted runs merged lazily
+    /// (`rows::Rows`): read every row in order through `shown` (or
+    /// `Rows::all`).
+    pub rows: rows::Rows,
     pub highlight: Option<PathBuf>,
     /// Where `highlight` was last found in `rows`. Anything may change either,
     /// so it is checked before use; moving and drawing then skip the search.
@@ -339,8 +337,7 @@ impl App {
             waker: None,
             input: None,
             cached_queries: config::PerformanceConfig::default().cached_queries,
-            rows: Arc::default(),
-            scores: Vec::new(),
+            rows: rows::Rows::default(),
             highlight: None,
             highlight_top: false,
             highlight_query: String::new(),
@@ -600,13 +597,48 @@ impl App {
     pub fn order(&self) -> rows::Order {
         self.program().order()
     }
-    /// The rows on screen: the ranked rows, or with a contents query, one
-    /// row per match in their files' order.
+    /// Every row on screen, in order: the ranked rows, or with a contents
+    /// query, one row per match in their files' order. The one way to read
+    /// them all, which merges the rows first (`Rows::all`); reading a few
+    /// (`shown_row`, `shown_from`, `shown_position`) or counting them
+    /// (`shown_len`) does not.
     pub fn shown(&self) -> &[Arc<Candidate>] {
         if self.grep.active() {
             &self.grep.shown
         } else {
-            &self.rows
+            self.rows.all()
+        }
+    }
+    /// How many rows are on screen.
+    pub fn shown_len(&self) -> usize {
+        if self.grep.active() {
+            self.grep.shown.len()
+        } else {
+            self.rows.len()
+        }
+    }
+    /// Row `i` on screen.
+    pub fn shown_row(&self, i: usize) -> Option<&Arc<Candidate>> {
+        if self.grep.active() {
+            self.grep.shown.get(i)
+        } else {
+            self.rows.row(i)
+        }
+    }
+    /// The rows on screen in order from row `from` on.
+    pub fn shown_from(&self, from: usize) -> Box<dyn Iterator<Item = &Arc<Candidate>> + '_> {
+        if self.grep.active() {
+            Box::new(self.grep.shown.iter().skip(from))
+        } else {
+            self.rows.iter_from(from)
+        }
+    }
+    /// The first row on screen `found` holds for.
+    pub fn shown_position(&self, found: impl FnMut(&Arc<Candidate>) -> bool) -> Option<usize> {
+        if self.grep.active() {
+            self.grep.shown.iter().position(found)
+        } else {
+            self.rows.position(found)
         }
     }
     /// The shown rows' paths, each once (a contents query shows a file once
@@ -640,11 +672,16 @@ impl App {
             .highlighted()
             .and_then(|i| self.grep.shown_hits.get(i))
             .map(|(hits, at)| (Arc::clone(hits), *at));
-        let rows = Arc::clone(&self.rows);
-        if !self.grep.poll(&rows, self.rows_version) {
+        // Its search queues the listed files in order: every row.
+        let rows: &[Arc<Candidate>] = if self.grep.active() {
+            self.rows.all()
+        } else {
+            &[]
+        };
+        if !self.grep.poll(rows, self.rows_version) {
             return false;
         }
-        let first = self.shown().first().map(|c| c.path.clone());
+        let first = self.shown_row(0).map(|c| c.path.clone());
         if self.highlight_top || self.highlighted().is_none() {
             self.highlight = first;
             self.highlight_hint.set(0);
@@ -1032,12 +1069,12 @@ impl App {
                     if self.cached_queries > 0
                         && self.earlier.last().is_none_or(|(q, _)| *q != query)
                     {
-                        self.earlier.push((query, Arc::clone(&self.rows)));
+                        self.earlier.push((query, self.rows.clone()));
                         if self.earlier.len() > self.cached_queries {
                             self.earlier.remove(0);
                         }
                     }
-                    Some(Arc::clone(&self.rows))
+                    Some(self.rows.clone())
                 } else {
                     while self
                         .earlier
@@ -1051,12 +1088,11 @@ impl App {
                     {
                         self.rows = self.earlier.pop().expect("checked").1;
                         self.rows_version += 1;
-                        self.scores.clear();
                         self.keep_highlight(&folded);
                         self.refreshed = Some((basis, folded));
                         return;
                     }
-                    self.earlier.last().map(|(_, rows)| Arc::clone(rows))
+                    self.earlier.last().map(|(_, rows)| rows.clone())
                 }
             }
             _ => {
@@ -1071,7 +1107,10 @@ impl App {
                 self.relabel.clear();
                 self.relabelling.clear();
                 let job = ranking::Job {
-                    base: Arc::new(self.known.values().cloned().collect()),
+                    base: vec![Arc::new(rows::Run {
+                        rows: self.known.values().cloned().collect(),
+                        scores: Vec::new(),
+                    })],
                     listing: Some(self.listing()),
                     query: folded.clone(),
                     labels: Some(self.short_labels),
@@ -1085,14 +1124,17 @@ impl App {
         };
         let job = match base {
             Some(base) => ranking::Job {
-                base,
+                base: base.runs(),
                 listing: None,
                 query: folded.clone(),
                 labels: None,
                 order: self.order(),
             },
             None => ranking::Job {
-                base: Arc::new(self.known.values().cloned().collect()),
+                base: vec![Arc::new(rows::Run {
+                    rows: self.known.values().cloned().collect(),
+                    scores: Vec::new(),
+                })],
                 listing: Some(self.listing()),
                 query: folded.clone(),
                 labels: None,
@@ -1110,7 +1152,7 @@ impl App {
         query: String,
         shown: Option<(RefreshBasis, String)>,
     ) {
-        if job.base.len() >= ranking::BACKGROUND_AT
+        if job.len() >= ranking::BACKGROUND_AT
             && let Some(waker) = self.waker.clone()
         {
             let cancel = Arc::new(AtomicBool::new(false));
@@ -1146,11 +1188,10 @@ impl App {
     }
     /// Show the rows (and labels) a ranking produced.
     fn install(&mut self, ranked: ranking::Ranked, basis: RefreshBasis, query: String) {
-        let old = std::mem::replace(&mut self.rows, Arc::new(ranked.rows));
+        let old = std::mem::replace(&mut self.rows, rows::Rows::sorted(basis.order, ranked.run));
         self.rows_version += 1;
         let len = old.len();
         known::discard(old, len);
-        self.scores = ranked.scores;
         if let Some((names, labels)) = ranked.labels {
             let old = std::mem::replace(&mut self.names, names);
             let len = old.values().map(Vec::len).sum();
@@ -1234,9 +1275,11 @@ impl App {
         self.waker.clone()
     }
     /// Bring the rows ranked for `query` up to date with the candidates
-    /// forgotten and, within `budget`, those inserted since: work in proportion
-    /// to the change plus one pass over the row pointers, rather than ranking
-    /// every known path. Insertions left over wait for the next refresh.
+    /// forgotten and, within `budget`, those inserted since: each round of
+    /// insertions is scored, sorted and pushed as a run of the rows
+    /// (`Rows::push`), so its cost is about sorting it, rather than ranking
+    /// every known path. Forgotten ones cost a pass over the rows.
+    /// Insertions left over wait for the next refresh.
     fn merge(&mut self, query: &str, budget: Option<Duration>) {
         let start = Instant::now();
         // Candidates replaced or forgotten; `outdated` keeps their addresses
@@ -1244,13 +1287,7 @@ impl App {
         let stale: HashSet<_> = self.outdated.iter().map(Arc::as_ptr).collect();
         if !stale.is_empty() {
             self.rows_version += 1;
-            let rows = Arc::make_mut(&mut self.rows);
-            if self.scores.len() == rows.len() {
-                let mut kept = rows.iter().map(|c| !stale.contains(&Arc::as_ptr(c)));
-                self.scores
-                    .retain(|_| kept.next().expect("as many scores as rows"));
-            }
-            rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
+            self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
             if self.short_labels {
                 for c in &self.outdated {
                     if let Some(name) = c.path.file_name()
@@ -1276,8 +1313,7 @@ impl App {
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {
-                let round = MERGE_ROUND.max(self.rows.len() / MERGE_SPREAD);
-                self.added.len().min(round)
+                self.added.len().min(MERGE_ROUND)
             } else {
                 self.added.len()
             };
@@ -1303,53 +1339,9 @@ impl App {
             added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
             if !added.is_empty() {
                 self.rows_version += 1;
-                let rows = Arc::make_mut(&mut self.rows);
-                let scores = &mut self.scores;
-                if scores.len() != rows.len() {
-                    // Rows all match the query; rank them by their own scores.
-                    *scores = rows
-                        .iter()
-                        .map(|r| score_of(r).unwrap_or_default())
-                        .collect();
-                }
-                // Where an insertion goes among `rows`: searched back from
-                // their end in growing steps, as each insertion lands near the
-                // one after it, then halving.
-                let before = |rows: &[Arc<Candidate>], scores: &[i64], c: &Candidate, s: i64| {
-                    let lt = |i: usize| order.cmp(&rows[i], scores[i], c, s).is_lt();
-                    let (mut lo, mut hi, mut step) = (rows.len(), rows.len(), 1);
-                    while lo > 0 && !lt(lo - 1) {
-                        hi = lo - 1;
-                        lo = lo.saturating_sub(step);
-                        step *= 2;
-                    }
-                    while lo < hi {
-                        let mid = lo + (hi - lo) / 2;
-                        if lt(mid) {
-                            lo = mid + 1;
-                        } else {
-                            hi = mid;
-                        }
-                    }
-                    lo
-                };
-                // From the last insertion back, each opens a gap where it
-                // goes by moving the rows after it up once: rows ranked before
-                // every insertion stay in place, and as scans deliver shallow
-                // paths first, insertions mostly land near the end.
-                let mut end = rows.len();
-                let k = added.len();
-                rows.resize(end + k, Arc::clone(&added[0].1));
-                scores.resize(end + k, 0);
-                for (i, (score, c)) in added.into_iter().enumerate().rev() {
-                    let at = before(&rows[..end], &scores[..end], &c, score);
-                    // Rows at..end move up by the i + 1 insertions left.
-                    rows[at..end + i + 1].rotate_right(i + 1);
-                    scores.copy_within(at..end, at + i + 1);
-                    rows[at + i] = c;
-                    scores[at + i] = score;
-                    end = at;
-                }
+                // A run of its own: rows ranked already stay where they are.
+                let (scores, rows) = added.into_iter().unzip();
+                self.rows.push(order, rows::Run { rows, scores });
             }
             if self.yield_now(budget, start) {
                 break;
@@ -1397,75 +1389,80 @@ impl App {
         // Rows share the known candidates: look for the wanted one's address.
         // A row to restore takes the highlight off the first row once listed.
         if let Some(wanted) = self.wanted.as_ref().and_then(|w| self.known.get(w))
-            && self.shown().iter().any(|c| Arc::ptr_eq(c, wanted))
+            && self.listed_row(|c| Arc::ptr_eq(c, wanted))
         {
             self.highlight = self.wanted.take();
             self.highlight_top = false;
             return;
         }
         if typed || self.highlight_top || self.highlighted().is_none() {
-            self.highlight = self.shown().first().map(|c| c.path.clone());
+            self.highlight = self.shown_row(0).map(|c| c.path.clone());
             self.highlight_hint.set(0);
+        }
+    }
+    /// Whether any row on screen, wherever it is, is one `found` holds for.
+    fn listed_row(&self, found: impl FnMut(&Arc<Candidate>) -> bool) -> bool {
+        if self.grep.active() {
+            self.grep.shown.iter().any(found)
+        } else {
+            self.rows.contains(found)
         }
     }
     pub fn move_by(&mut self, amount: isize) {
         // Moving, even before rows arrive, means the user chose a position.
         self.wanted = None;
-        let rows = self.shown();
-        if rows.is_empty() {
+        let len = self.shown_len();
+        if len == 0 {
             return;
         }
         let i = self.highlighted().unwrap_or(0);
-        let i = i.saturating_add_signed(amount).min(rows.len() - 1);
-        self.highlight = Some(rows[i].path.clone());
+        let i = i.saturating_add_signed(amount).min(len - 1);
+        self.highlight = self.shown_row(i).map(|c| c.path.clone());
         self.highlight_hint.set(i);
         self.highlight_top = false;
     }
     /// Moves down to the next row of another path than `path`, or to the
     /// last row: a contents query lists a file once per match.
     pub fn move_past(&mut self, path: &Path) {
-        let rows = self.shown();
         let i = self.highlighted().unwrap_or(0);
-        let step = rows
-            .iter()
-            .skip(i + 1)
+        let step = self
+            .shown_from(i + 1)
             .position(|c| c.path != path)
-            .map_or(rows.len().saturating_sub(i + 1), |n| n + 1);
+            .map_or(self.shown_len().saturating_sub(i + 1), |n| n + 1);
         self.move_by(step as isize);
     }
     /// The highlighted row's index, when it is listed.
     pub fn highlighted(&self) -> Option<usize> {
         let path = self.highlight.as_ref()?;
         let hint = self.highlight_hint.get();
-        let rows = self.shown();
         // A contents query shows a file once per match: the hint tells them
         // apart.
-        if rows.get(hint).is_some_and(|c| &c.path == path) {
+        if self.shown_row(hint).is_some_and(|c| &c.path == path) {
             return Some(hint);
         }
         // Comparing addresses avoids reading every row's path.
         let i = match self.known.get(path) {
-            Some(known) => rows.iter().position(|c| Arc::ptr_eq(c, known)),
+            Some(known) => self.shown_position(|c| Arc::ptr_eq(c, known)),
             None => None,
         }
-        .or_else(|| rows.iter().position(|c| &c.path == path))?;
+        .or_else(|| self.shown_position(|c| &c.path == path))?;
         self.highlight_hint.set(i);
         Some(i)
     }
     pub fn highlighted_row(&self) -> Option<&Arc<Candidate>> {
-        self.highlighted().map(|i| &self.shown()[i])
+        self.highlighted().and_then(|i| self.shown_row(i))
     }
     /// Highlight row `i` of the shown rows; a file shown once per match
     /// keeps which one.
     pub fn highlight_row(&mut self, i: usize) {
-        if let Some(c) = self.shown().get(i) {
+        if let Some(c) = self.shown_row(i) {
             self.highlight = Some(c.path.clone());
             self.highlight_hint.set(i);
         }
     }
     /// One row down or up, wrapping from the last row to the first and back.
     pub fn step(&mut self, forward: bool) {
-        let last = self.shown().len().saturating_sub(1);
+        let last = self.shown_len().saturating_sub(1);
         match self.highlighted() {
             Some(i) if forward && i == last => self.move_by(-(last as isize)),
             Some(0) if !forward => self.move_by(last as isize),

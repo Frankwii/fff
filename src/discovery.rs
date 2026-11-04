@@ -328,7 +328,7 @@ impl Discovery {
         // by App::insert; these are only a provisional prefix. Bound work on the UI.
         let reused: Vec<_> = if !force && snapshot.is_none() && self.options.enabled {
             app.rows
-                .iter()
+                .iter_from(0)
                 .chain(app.known.values())
                 .take(16_384)
                 .filter(|c| {

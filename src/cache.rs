@@ -126,7 +126,7 @@ impl Cache {
         // capacity with known paths so another query can benefit as well.
         let mut candidates: Vec<_> = app
             .rows
-            .iter()
+            .iter_from(0)
             .take(self.options.max_candidates)
             .map(|c| Candidate::clone(c))
             .collect();

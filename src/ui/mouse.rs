@@ -62,8 +62,7 @@ pub(super) fn mouse_results(
     match event.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
             let last = app
-                .shown()
-                .len()
+                .shown_len()
                 .saturating_sub(usize::from(area.height).max(1));
             app.offset = if event.kind == MouseEventKind::ScrollDown {
                 (app.offset + WHEEL_ROWS).min(last)
