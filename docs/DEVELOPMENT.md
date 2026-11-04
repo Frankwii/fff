@@ -28,7 +28,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/input.rs` | The choosers' fixed Normal-mode keys; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |
 | `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, bookmark/glob/palette saves, dropped paths. |
-| `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations, progress, results, marks, undo records and their messages. |
+| `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations (modal), running operations in the jobs list (`App::jobs`) with the paths each reads and changes (`Claim`, refusing collisions), stopping and undoing them, results, marks, undo records and their messages. |
 | `src/ui/mouse.rs` | Clicks, the wheel and drags in the results and lists; the opt-in button bar. |
 | `src/view/mod.rs` | Ratatui frame layout (`render`): the query box and its status, the location line, tab strip, notices, display paths. |
 | `src/view/results.rs` | The results pane: rows, icons, detail columns, labels and matched letters. |

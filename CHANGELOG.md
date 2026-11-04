@@ -6,7 +6,31 @@ history.
 
 ## Unreleased
 
+### Added
+
+- **fff stays usable while file operations run.** A copy, move, deletion or
+  extraction taking a while goes on in a jobs list below the marks, with its
+  progress, while you browse, search, mark and start other operations; one
+  that would collide with a running operation (changing what it reads or
+  changes) waits instead. `J` (Alt+J) focuses the list, where `x` stops an
+  operation and undoes what it had done, and `u` in the results does the same
+  to the latest one while it runs. Quitting asks before stopping them.
+  Folders being moved or deleted cannot be entered meanwhile, and files being
+  changed are not opened or given to programs.
+- **Copies and extractions being written are shown in the `marked` color**
+  (their hidden `.fff-stage-*` folders, with hidden entries shown), and
+  content searches and live updates leave them out.
+
 ### Changed
+
+- **Operations take their marks as they start.** A move, copy, link,
+  deletion or extraction unmarks the entries it acts on at once, so others
+  can be marked for the next one; the rest stay marked, where a move, copy or
+  link used to clear every mark when it ended. Undoing it with `u`, or a
+  failure, marks them again.
+- **Archives are checked for extraction in the background**, with the
+  progress sheet when that takes a while.
+- **Live updates rescan at most once a second while operations run.**
 
 - **`fff setup` reports read more easily.** Each part has a heading, every
   file a line saying whether it was written, updated or left unchanged

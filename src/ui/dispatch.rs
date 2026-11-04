@@ -37,6 +37,12 @@ impl Session {
             }
             return Ok(None);
         }
+        // Leaving waits for an answer, then for the operations to end.
+        if matches!(self.focus, Focus::QuitConfirm(_) | Focus::Leaving(_))
+            && !matches!(event, Event::Key(_))
+        {
+            return Ok(None);
+        }
         // Typing a query may run ahead of rows being ranked on another
         // thread; anything else may act on rows, so it waits for them,
         // except cancel, which leaves without them.
@@ -149,7 +155,7 @@ impl Session {
             ListMouse::Open(mark) => {
                 // Like `l` on it: a folder is entered, a file opens.
                 if mark.is_dir() {
-                    if app.can_navigate() {
+                    if app.can_navigate() && !app.leaving(&mark) {
                         self.discovery.checkpoint(app);
                         app.navigate(mark, false);
                         app.wanted = None;
@@ -188,6 +194,14 @@ impl Session {
             return Ok(None);
         }
         self.status.before_key(app);
+        match &self.focus {
+            Focus::QuitConfirm(_) => {
+                self.quit_confirm_key(app, key);
+                return Ok(None);
+            }
+            Focus::Leaving(_) => return Ok(None),
+            _ => {}
+        }
         let list = matches!(self.focus, Focus::Results | Focus::Marks { .. });
         if !list {
             self.escape_armed = false;
@@ -216,6 +230,10 @@ impl Session {
             }
             Focus::Keys(_) => return self.keys_key(app, key),
             Focus::Commands { .. } => return self.commands_key(app, key),
+            Focus::Jobs { .. } => {
+                self.jobs_key(app, key);
+                return Ok(None);
+            }
             _ => {}
         }
         match chooser_key(app, &mut self.focus, &mut self.editor, key) {
@@ -339,8 +357,9 @@ impl Session {
                     && let Some(parent) = app.cwd.parent().map(PathBuf::from)
                 {
                     self.discovery.checkpoint(app);
-                    app.navigate(parent, true);
-                    self.discovery.start(app, true);
+                    if app.navigate(parent, true) {
+                        self.discovery.start(app, true);
+                    }
                 }
             }
             GoToHighlighted => self.go_into_folder(app),
@@ -416,6 +435,14 @@ impl Session {
                         rows: app.marks.to_vec(),
                         index: 0,
                     },
+                }
+            }
+            ToggleJobList if app.jobs.is_empty() => {
+                app.status = "No file operation is running".into()
+            }
+            ToggleJobList => {
+                self.focus = Focus::Jobs {
+                    index: app.jobs.len() - 1,
                 }
             }
             PrintMarks => return Ok(leave_with_marks(app)),
@@ -660,6 +687,46 @@ impl Session {
         )
     }
     /// q, Q and ! in Normal mode; `current` leaves in the browsing directory.
+    /// The jobs list's keys, fixed: j and k (or the arrows) move, x stops
+    /// the highlighted operation and undoes what it did, u does the same and
+    /// marks its entries again, Esc (or the key that opened it) goes back.
+    fn jobs_key(&mut self, app: &mut App, key: KeyEvent) {
+        let Focus::Jobs { index } = &mut self.focus else {
+            return;
+        };
+        let count = app.jobs.len();
+        *index = (*index).min(count.saturating_sub(1));
+        let toggles = app
+            .keymap
+            .of(Function::ToggleJobList, keymap::Mode::Normal)
+            .iter()
+            .any(|b| b.keys.len() == 1 && b.keys[0].takes(keymap::Key::press(key)));
+        match key.code {
+            _ if toggles => self.focus = Focus::Results,
+            K::Esc => self.focus = Focus::Results,
+            K::Char('j') | K::Down => *index = cycle(*index, count, true),
+            K::Char('k') | K::Up => *index = cycle(*index, count, false),
+            K::Char(c @ ('x' | 'u')) if !key.modifiers.intersects(M::ALT | M::CONTROL) => {
+                stop_job(app, *index, c == 'u')
+            }
+            _ => {}
+        }
+    }
+    /// Leaving while operations run: Enter stops them and leaves once they
+    /// have ended; Esc stays.
+    fn quit_confirm_key(&mut self, app: &mut App, key: KeyEvent) {
+        match key.code {
+            K::Enter => {
+                let Focus::QuitConfirm(finish) = std::mem::take(&mut self.focus) else {
+                    return;
+                };
+                stop_all(app);
+                self.focus = Focus::Leaving(finish);
+            }
+            K::Esc => self.focus = Focus::Results,
+            _ => {}
+        }
+    }
     pub(super) fn quit(&mut self, app: &mut App, current: bool) -> Option<Finish> {
         if app.program().dialog() && !current {
             return Some(Finish::Cancelled);
@@ -714,7 +781,7 @@ impl Session {
                 }
             }
             Trash | Delete => self.scoped(app, ScopedAction::Delete(function == Delete))?,
-            Undo => undo(app, &mut self.discovery, &mut self.focus),
+            Undo => undo(app, &mut self.discovery),
             // Only in the trash: elsewhere, nothing has a place to go back to.
             Restore if !app.in_trash() => {
                 let restore = app.bound_or_none(Function::Restore);
@@ -786,7 +853,9 @@ impl Session {
         paths: Vec<PathBuf>,
     ) -> io::Result<()> {
         match action {
-            ScopedAction::Extract => self.focus = start_extract(app, &mut self.editor, paths),
+            ScopedAction::Extract => {
+                self.focus = start_extract(app, &mut self.discovery, paths)
+            }
             ScopedAction::Delete(permanently) => delete(
                 app,
                 &mut self.discovery,
@@ -794,6 +863,7 @@ impl Session {
                 paths,
                 permanently,
             ),
+            ScopedAction::Run(_) if app.in_use(&paths) => self.focus = Focus::Results,
             ScopedAction::Run(exit) => self.focus = start_run(&mut self.editor, paths, exit),
             ScopedAction::Edit | ScopedAction::Open => {
                 // Leave the scope sheet before the program takes the terminal.
@@ -848,8 +918,10 @@ impl Session {
         app.highlight_top = false;
         app.wanted = None;
         if target.directory {
-            if app.ready_path(&target.path) && app.can_navigate() {
-                app.navigate(target.path.clone(), false);
+            if app.ready_path(&target.path)
+                && app.can_navigate()
+                && app.navigate(target.path.clone(), false)
+            {
                 self.discovery.start(app, true);
             }
         } else {

@@ -332,6 +332,10 @@ pub(super) fn info_color(
 /// A listed path's color, from the details read in the background: drawing
 /// never waits for the filesystem.
 pub(super) fn path_color(app: &App, path: &Path, directory: bool) -> Color {
+    // Being written: a copy or extraction not yet in place.
+    if crate::operations::staged(path) {
+        return app.palette.marked;
+    }
     info_color(app.palette, app.details.info(path).as_ref(), directory)
 }
 /// Each column's width, so that columns line up from row to row.

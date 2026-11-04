@@ -46,9 +46,16 @@ impl Session {
             Focus::Info { .. } | Focus::Keys(_) | Focus::Commands { .. } => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
-            // Keys never reach here while an operation runs, and the glob
-            // editors' keys all went to Neovim (`buffer_input`).
-            Focus::Busy(_) | Focus::Exclusions(_) | Focus::Filters(_) => {}
+            // Keys never reach here while checks run, in the jobs list or
+            // while leaving, and the glob editors' keys all went to Neovim
+            // (`buffer_input`).
+            Focus::Busy(_)
+            | Focus::Jobs { .. }
+            | Focus::Extracting(_)
+            | Focus::QuitConfirm(_)
+            | Focus::Leaving(_)
+            | Focus::Exclusions(_)
+            | Focus::Filters(_) => {}
         }
         Ok(None)
     }
@@ -82,7 +89,7 @@ impl Session {
             }
             Replacing::Restore(plan) => {
                 let request = plan.request(taken);
-                perform_operation(app, &mut self.discovery, &mut self.focus, request, None);
+                perform_operation(app, &mut self.discovery, &mut self.focus, request, false);
                 None
             }
         }
@@ -160,10 +167,10 @@ impl Session {
         match key.code {
             K::Enter => {
                 let request = plan.request();
-                let marks = plan.dropped.then(|| app.marks.clone());
+                let dropped = plan.dropped;
                 self.focus = Focus::Results;
                 match request {
-                    Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, marks),
+                    Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, dropped),
                     Err(e) => app.status = e,
                 }
             }
@@ -188,7 +195,7 @@ impl Session {
                 let request = plan.request();
                 self.focus = Focus::Results;
                 match request {
-                    Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, None),
+                    Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, false),
                     Err(e) => app.status = e,
                 }
             }
@@ -205,7 +212,7 @@ impl Session {
             // large ones anyway; the others go to the trash either way.
             K::Char('d') => {
                 let request = plan.trash_request(false);
-                perform_operation(app, &mut self.discovery, &mut self.focus, request, None);
+                perform_operation(app, &mut self.discovery, &mut self.focus, request, false);
             }
             K::Char('t') => {
                 if plan
@@ -218,7 +225,7 @@ impl Session {
                         .into();
                 } else {
                     let request = plan.trash_request(true);
-                    perform_operation(app, &mut self.discovery, &mut self.focus, request, None);
+                    perform_operation(app, &mut self.discovery, &mut self.focus, request, false);
                 }
             }
             K::Esc => {
@@ -242,7 +249,7 @@ impl Session {
         } else if key.code == K::Enter || (ctrl && key.code == K::Char('s')) {
             // Validation errors keep the buffer open for correction.
             match draft.request() {
-                Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, None),
+                Ok(r) => perform_operation(app, &mut self.discovery, &mut self.focus, r, false),
                 Err(e) => app.status = e,
             }
         } else {
@@ -513,8 +520,9 @@ impl Session {
                 .and_then(|p| p.canonicalize().map_err(|e| e.to_string()))
             {
                 Ok(path) if path.is_dir() => {
-                    app.navigate(path, false);
-                    self.discovery.start(app, true);
+                    if app.navigate(path, false) {
+                        self.discovery.start(app, true);
+                    }
                     self.focus = Focus::Results;
                 }
                 Ok(_) => app.status = "Location must be an accessible directory".into(),
@@ -601,8 +609,9 @@ impl Session {
         if path.is_dir() {
             if app.ready_path(&path) && app.can_navigate() {
                 // Arriving, the cursor left there comes back.
-                app.navigate(path, false);
-                self.discovery.start(app, true);
+                if app.navigate(path, false) {
+                    self.discovery.start(app, true);
+                }
             }
         } else if app.reveal(path) {
             self.discovery.start(app, true);
@@ -683,8 +692,9 @@ impl Session {
             },
         };
         self.discovery.checkpoint(app);
-        app.navigate(next, false);
-        self.discovery.start(app, true);
+        if app.navigate(next, false) {
+            self.discovery.start(app, true);
+        }
     }
 }
 /// Ctrl+j / Ctrl+k: the preview pane's content scrolls, the highlight stays.

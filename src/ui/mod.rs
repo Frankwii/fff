@@ -75,8 +75,21 @@ pub(crate) enum Focus {
     DeleteConfirm(crate::operations::DeletePlan),
     /// x on entries too large for the trash, or that cannot go there.
     TrashConfirm(crate::operations::DeletePlan),
-    /// A file operation taking a while: its progress, and Ctrl+c to stop it.
+    /// Checks before a confirmation taking a while: their progress, and
+    /// Ctrl+c to stop them.
     Busy(Job),
+    /// The jobs list (`toggle_job_list`), beside the marks: x stops the
+    /// highlighted operation and undoes what it did.
+    Jobs {
+        index: usize,
+    },
+    /// Archives checked for extraction; the session opens the destination
+    /// prompt next.
+    Extracting(Vec<PathBuf>),
+    /// Leaving while operations run: whether to stop them first.
+    QuitConfirm(Box<Finish>),
+    /// Leaving once the stopped operations have ended.
+    Leaving(Box<Finish>),
     /// Which paths an action applies to, asked only when ambiguous: the current
     /// entry is unmarked while other entries are marked.
     ScopeChoice {
@@ -145,6 +158,8 @@ const PROGRESS_FRAME: Duration = Duration::from_millis(100);
 /// How long a change to the current directory's listing waits for more
 /// changes before the quiet rescan.
 const RELIST_DELAY: Duration = Duration::from_millis(150);
+/// The same while file operations run, which change folders for long.
+const RELIST_DELAY_BUSY: Duration = Duration::from_secs(1);
 /// Whether `event` only edits the query being typed in Insert mode, which
 /// needs no current rows.
 fn types_query(app: &App, focus: &Focus, event: &Event) -> bool {
@@ -200,6 +215,8 @@ fn watched_dirs(app: &App, watch: &crate::watch::Watch) -> (Vec<PathBuf>, usize)
             .collect()
     };
     deeper.sort_unstable();
+    // Copies and extractions being written change too often to follow.
+    deeper.retain(|(_, dir)| !crate::operations::staged(dir));
     dirs.extend(
         deeper
             .into_iter()
@@ -249,11 +266,27 @@ fn session(
         if session.dirty || session.drawn_at.elapsed() >= Duration::from_secs(1) {
             session.draw(app)?;
         }
+        // Leaving once nothing runs, also when the last operation ended
+        // while the question was asked.
+        if matches!(session.focus, Focus::Leaving(_) | Focus::QuitConfirm(_))
+            && app.jobs.is_empty()
+        {
+            let (Focus::Leaving(finish) | Focus::QuitConfirm(finish)) =
+                std::mem::take(&mut session.focus)
+            else {
+                unreachable!()
+            };
+            return Ok(*finish);
+        }
         let Some(event) = session.next_event(app)? else {
             continue;
         };
         if let Some(finish) = session.handle(app, event)? {
-            return Ok(finish);
+            // Running operations are stopped first, once confirmed.
+            if app.jobs.is_empty() {
+                return Ok(finish);
+            }
+            session.focus = Focus::QuitConfirm(Box::new(finish));
         }
     }
 }
@@ -414,9 +447,15 @@ impl Session {
             finish(app, &mut self.discovery, &mut self.focus, job, result);
             self.dirty = true;
         }
+        if poll_jobs(app, &mut self.discovery) {
+            self.dirty = true;
+            if app.jobs.is_empty() && matches!(self.focus, Focus::Jobs { .. }) {
+                self.focus = Focus::Results;
+            }
+        }
         // Progress moves on its own while an operation runs.
-        self.dirty |=
-            matches!(self.focus, Focus::Busy(_)) && self.drawn_at.elapsed() >= PROGRESS_FRAME;
+        self.dirty |= (matches!(self.focus, Focus::Busy(_)) || !app.jobs.is_empty())
+            && self.drawn_at.elapsed() >= PROGRESS_FRAME;
         self.dirty |= self.status.tick(app);
         // Pop-up notifications from background work, shown for a while.
         let now = std::time::Instant::now();
@@ -464,9 +503,15 @@ impl Session {
                 self.match_lines = None;
             }
             self.dirty |= !changes.touched.is_empty();
-            // Coalesce bursts (an extraction, a copy) into one quiet rescan.
+            // Coalesce bursts (an extraction, a copy) into one quiet rescan;
+            // while operations run, into one a second at most.
             if changes.listing && self.relist_at.is_none() {
-                self.relist_at = Some(now + RELIST_DELAY);
+                let delay = if app.jobs.is_empty() {
+                    RELIST_DELAY
+                } else {
+                    RELIST_DELAY_BUSY
+                };
+                self.relist_at = Some(now + delay);
             }
             // A change during a rescan waits for it, so that a busy folder
             // cannot keep restarting it.
@@ -525,6 +570,12 @@ impl Session {
     /// Keeps Neovim on the focused text field: applies a buffer it closed,
     /// and loads the field the focus now edits.
     pub(super) fn sync_editor(&mut self, app: &mut App) -> io::Result<()> {
+        if matches!(self.focus, Focus::Extracting(_)) {
+            let Focus::Extracting(archives) = std::mem::take(&mut self.focus) else {
+                unreachable!()
+            };
+            self.focus = extract_prompt(app, &mut self.editor, archives);
+        }
         if self.editor_directory != app.cwd {
             self.editor_directory = app.cwd.clone();
             warn_stranded(app);
@@ -544,7 +595,7 @@ impl Session {
                             &mut self.discovery,
                             &mut self.focus,
                             request,
-                            None,
+                            false,
                         ),
                         Err(error) => app.status = error,
                     }
@@ -755,7 +806,7 @@ impl Session {
             at.saturating_duration_since(std::time::Instant::now())
                 .min(wait)
         });
-        let wait = if matches!(self.focus, Focus::Busy(_)) {
+        let wait = if matches!(self.focus, Focus::Busy(_)) || !app.jobs.is_empty() {
             wait.min(PROGRESS_FRAME)
         } else {
             wait

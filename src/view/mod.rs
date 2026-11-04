@@ -303,7 +303,7 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
     frame.render_widget(Paragraph::new(location), layout[1]);
     let main = layout[2];
     let wide = area.width >= 78;
-    let marks_focused = matches!(focus, Focus::Marks { .. });
+    let marks_focused = matches!(focus, Focus::Marks { .. } | Focus::Jobs { .. });
     // The preview takes the bottom half: the full width under the results and
     // marks, or between them when they are stacked. Focused marks in a
     // compact terminal take its room.
@@ -325,8 +325,11 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
         (columns[0], columns[1], rows[1])
     } else {
         // Compact terminals stack panes; focusing marks gives that pane more room.
+        // Running jobs share the marks' room, three rows each and a border.
         let marks_height = if marks_focused {
             main.height.saturating_sub(3)
+        } else if !app.jobs.is_empty() {
+            10.min(main.height.saturating_sub(3 + preview_height))
         } else {
             4.min(main.height.saturating_sub(3 + preview_height))
         };
@@ -341,8 +344,21 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
         (rows[0], rows[2], rows[1])
     };
     let mut result = results_pane(frame, results, app, matches!(focus, Focus::Results));
+    // While operations run, the jobs list takes the lower half.
+    let (marks, jobs) = if app.jobs.is_empty() {
+        (marks, Rect::default())
+    } else {
+        let halves = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(marks);
+        (halves[0], halves[1])
+    };
     result.marks = marks_pane(frame, marks, app, focus);
     result.marks_pane = marks;
+    if jobs.height > 0 {
+        jobs_pane(frame, jobs, app, focus);
+    }
     if preview.height > 0 {
         preview_pane(frame, preview, app);
     }
@@ -367,6 +383,8 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
         Focus::DeleteConfirm(plan) => delete_confirmation(frame, main, app, &plan.rows),
         Focus::TrashConfirm(plan) => trash_confirmation(frame, main, app, plan),
         Focus::Busy(job) => progress(frame, main, app, job),
+        Focus::QuitConfirm(_) => quit_confirmation(frame, main, app),
+        Focus::Leaving(_) => leaving(frame, main, app),
         Focus::Exclusions(text) => prompt(
             frame,
             app,

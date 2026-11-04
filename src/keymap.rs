@@ -654,7 +654,7 @@ functions! {
     QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the directory holding the highlighted file; with nothing highlighted, into the current directory. Your shell follows (fff roam, with the shell integration); fff pick prints it.";
     QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks: your shell follows in fff roam, fff pick prints it, and a file dialog answers with it. In a window of its own, fff becomes a shell there.";
     Quit "quit" Finish "Quit without choosing anything: back where you started (fff roam), printing nothing (fff pick, fff seek), or cancelling the dialog (fff explorer).";
-    Cancel "cancel" Finish "Cancel: quit at once, printing nothing, from anywhere in fff. While a file operation runs, stop it instead.";
+    Cancel "cancel" Finish "Cancel: quit at once, printing nothing, from anywhere in fff. While entries are checked for a file operation, stop that instead; while operations run, ask first.";
     ToggleMark "toggle_mark" Marks "Toggle the highlighted row's mark. In the results, the next row is highlighted after (with a contents query, the next file's), so pressing it again marks on down.";
     MarkAll "mark_all" Marks "Mark every listed row.";
     InvertMarks "invert_marks" Marks "Invert the marks of the listed rows: marked ones lose their mark, the others get one.";
@@ -687,8 +687,9 @@ functions! {
     Rename "rename" Files "Rename the listed results by editing their names in a buffer; writing the buffer renames them.";
     Extract "extract" Files "Extract the current or marked archives into a folder a prompt asks for.";
     Create "create" Files "Create a new file or directory in the current directory: choose which, then type its name.";
-    Undo "undo" Files "Undo the last file operation of this session; pressed again, the one before it.";
+    Undo "undo" Files "Undo the last file operation of this session; pressed again, the one before it. One still running is stopped, then undone. Its entries are marked again.";
     Restore "restore" Files "In the trash: put the current or marked entries back where they were deleted from.";
+    ToggleJobList "toggle_job_list" Files "Toggle the focus between the results and the jobs list, the file operations still running (shown below the marks). There x stops the highlighted one and undoes what it had done.";
     ShowKeys "show_keys" Session "Show the Keys screen, to look keys up and change them; the same key closes it.";
     ShowSession "show_session" Session "Show the Session tab: exact paths, search scopes, policies, marks and any errors in the configuration.";
     ShowBookmarks "show_bookmarks" Session "Show the bookmarks: go to one, or add, edit, delete and reorder them.";
@@ -727,8 +728,8 @@ impl Function {
         let lists_or_results = if normal { lists } else { results };
         let file = [H::File];
         match self {
-            HighlightPrevious | HighlightNext | ToggleMark | ToggleMarkedList | ShowKeys
-            | ShowSession | Cancel | PrintMarks => both(lists_or_results),
+            HighlightPrevious | HighlightNext | ToggleMark | ToggleMarkedList | ToggleJobList
+            | ShowKeys | ShowSession | Cancel | PrintMarks => both(lists_or_results),
             HighlightPreviousPage
             | HighlightNextPage
             | SearchShallower
@@ -850,6 +851,7 @@ impl Function {
             ToggleMark => &[("<S-Space>", all)],
             SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
             ToggleMarkedList => &[("<M-Space>", all)],
+            ToggleJobList => &[("<M-J>", all)],
             PrintMarks => &[("<C-w>", all)],
             SearchShallower => &[("<M-Left>", all)],
             SearchDeeper => &[("<M-Right>", all)],
@@ -961,6 +963,7 @@ impl Function {
             MarkAll => &[("m", all)],
             InvertMarks => &[("M", all)],
             ToggleMarkedList => &[("<M-Space>", all), ("<Esc>", scope(&[], &[Marks], &[]))],
+            ToggleJobList => &[("J", all), ("<M-J>", all)],
             PrintMarks => &[("<C-w>", all)],
             ClearQuery => &[("<Esc>", all)],
             SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
@@ -1068,6 +1071,16 @@ pub const FIXED: &[(&str, &str, &str)] = &[
         "Tab  Shift+Tab",
         "bookmark form",
         "Switch fields; Space chooses the icon on its row.",
+    ),
+    (
+        "j k  x  u  Esc",
+        "jobs list",
+        "Move; stop the highlighted operation and undo what it did (u also marks its entries again); go back.",
+    ),
+    (
+        "Enter  Esc",
+        "quitting while operations run",
+        "Stop them and quit once they have ended / stay.",
     ),
     ("click", "mouse", "Highlight a row, clearing the marks."),
     (

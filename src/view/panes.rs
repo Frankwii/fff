@@ -1,5 +1,53 @@
-//! The panes beside the results: the marked list and the preview.
+//! The panes beside the results: the marked list, the jobs list below it
+//! while file operations run, and the preview.
 use super::*;
+
+/// The running file operations, each with its progress.
+pub(super) fn jobs_pane(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
+    let theme = app.palette;
+    let index = match focus {
+        Focus::Jobs { index } => Some((*index).min(app.jobs.len().saturating_sub(1))),
+        _ => None,
+    };
+    let mut block = panel(
+        app.palette,
+        format!(" Jobs ({}) ", app.jobs.len()),
+        index.is_some(),
+        theme.accent,
+    );
+    if index.is_some() {
+        let keys = format!(
+            " x: Stop and undo · {}: Back ",
+            app.key_or_none("esc")
+        );
+        block = block.title_bottom(Line::from(styled(keys, theme.muted)));
+    }
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let width = inner.width.saturating_sub(2) as usize;
+    // Three rows a job; the highlighted one stays in view.
+    let fit = (inner.height as usize / 3).max(1);
+    let first = index.map_or(0, |i| (i + 1).saturating_sub(fit));
+    let mut lines = vec![];
+    for (i, job) in app.jobs.iter().enumerate().skip(first).take(fit) {
+        let chosen = index == Some(i);
+        let title = truncate(&job.title, width);
+        lines.push(Line::from(vec![
+            styled(if chosen { "› " } else { "  " }, theme.accent),
+            if chosen {
+                bold(title, theme.accent)
+            } else {
+                styled(title, theme.text)
+            },
+        ]));
+        for line in progress_lines(app, job, width) {
+            let mut spans = vec![Span::raw("  ")];
+            spans.extend(line.spans);
+            lines.push(Line::from(spans));
+        }
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
 
 pub(super) fn marks_pane(
     frame: &mut Frame,

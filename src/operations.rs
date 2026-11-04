@@ -1576,6 +1576,15 @@ impl<'a> Overwrite<'a> {
     }
 }
 pub const STAGE_PREFIX: &str = ".fff-stage-";
+/// Whether `path` is in (or is) a staging folder: a copy or extraction
+/// still being written, or data an interrupted operation left behind.
+pub fn staged(path: &Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .as_encoded_bytes()
+            .starts_with(STAGE_PREFIX.as_bytes())
+    })
+}
 struct Stage {
     parent: File,
     dir: File,

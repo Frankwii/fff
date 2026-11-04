@@ -425,8 +425,8 @@ pub(super) fn press(app: &mut App, discovery: &mut Discovery, button: Button) ->
         Button::Up => {
             if app.can_navigate()
                 && let Some(parent) = app.cwd.parent().map(PathBuf::from)
+                && app.navigate(parent, true)
             {
-                app.navigate(parent, true);
                 discovery.start(app, true);
             }
         }

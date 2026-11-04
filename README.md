@@ -423,6 +423,7 @@ key says which one.
 | Shift+Space / Space in Normal | Toggle mark; advance in results, past a file's other matches (Shift+Space needs a terminal that tells it from Space) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
+| J / Alt+J | Focus / leave the [jobs list](docs/OPERATIONS.md#progress-and-stopping) of operations still running; x there stops one and undoes it |
 | Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer open-multiple`; nothing elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
@@ -441,7 +442,7 @@ key says which one.
 | v / p / s in Normal | Move / copy / symlink all marked paths into the current directory; a move or copy that would overwrite asks first |
 | x in Normal | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
 | X in Normal | Choose current/selected deletion, review sizes, then Enter deletes permanently |
-| u in Normal | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before) |
+| u in Normal | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before); one still running is stopped and undone |
 | Alt+t / gt in Normal | Open the [trash](docs/OPERATIONS.md#the-trash-folder) like any folder; again, the next filesystem's trash |
 | R in Normal | In the trash: restore the current or marked entries where they were deleted from |
 | r in Normal | Batch rename the filtered results in a buffer |

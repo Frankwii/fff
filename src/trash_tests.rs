@@ -28,6 +28,8 @@ fn record(outcome: Outcome) -> Record {
         summary: "test".into(),
         steps: outcome.undo,
         lost: outcome.lost,
+        order: 0,
+        marked: vec![],
     }
 }
 fn trash_all(f: &Fixture, sources: Vec<PathBuf>) -> Outcome {
@@ -72,6 +74,8 @@ fn trashed_entries_keep_everything_and_undo_puts_them_back() {
         summary: "test".into(),
         steps: out.undo.clone(),
         lost: 0,
+        order: 0,
+        marked: vec![],
     };
     let moving: Vec<_> = r.moving().map(|p| p.into_owned()).collect();
     assert!(moving.contains(&files.join("tree")), "{moving:?}");

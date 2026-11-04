@@ -315,8 +315,14 @@ pub struct App {
     /// The trash's `files/` folders, home bin first, as last read
     /// (`refresh_trash`): where R restores.
     pub trash_folders: Vec<PathBuf>,
-    /// This session's file operations that `u` can undo, oldest first.
+    /// This session's file operations that `u` can undo, in the order they
+    /// started.
     pub undo: Vec<operations::undo::Record>,
+    /// File operations and undos running on threads of their own, in the
+    /// order they started (the jobs list).
+    pub(crate) jobs: Vec<ui::Job>,
+    /// How many operations this session started: each one's `order`.
+    pub(crate) started: u64,
     /// The configuration file `gc` edits; `None` with `--no-config`.
     pub config_path: Option<PathBuf>,
     /// The configuration file's errors while its backup is read instead.
@@ -427,6 +433,8 @@ impl App {
             trash: None,
             trash_folders: Vec::new(),
             undo: Vec::new(),
+            jobs: Vec::new(),
+            started: 0,
             config_path: None,
             config_broken: None,
             no_icons: false,
@@ -766,12 +774,18 @@ impl App {
     pub fn in_trash(&self) -> bool {
         self.trash_folders.contains(&self.cwd)
     }
-    pub fn navigate(&mut self, path: PathBuf, retain_query: bool) {
+    /// Goes to `path`, unless a running operation moves it away or deletes
+    /// it (then says so). Returns whether it went.
+    pub fn navigate(&mut self, path: PathBuf, retain_query: bool) -> bool {
+        if self.leaving(&path) {
+            return false;
+        }
         if path != self.cwd {
             self.back.push(self.cwd.clone());
             self.forward.clear();
         }
         self.go(path, retain_query);
+        true
     }
     /// Ctrl+o (back) / Ctrl+i (forward) through this session's directories,
     /// skipping any that no longer exist. Returns whether the directory changed.
@@ -785,7 +799,8 @@ impl App {
             let Some(target) = target else {
                 return false;
             };
-            if !target.is_dir() || target == self.cwd {
+            // Folders a running operation moves away or deletes are skipped too.
+            if !target.is_dir() || target == self.cwd || self.leaving_job(&target).is_some() {
                 continue;
             }
             let from = self.cwd.clone();
@@ -1546,8 +1561,7 @@ impl App {
                 self.status = "Directory is no longer available".into();
                 return false;
             }
-            self.navigate(path, false);
-            true
+            self.navigate(path, false)
         } else {
             false
         }
@@ -1559,8 +1573,7 @@ impl App {
         self.query.clear();
         let moved = match folder {
             Some(folder) if folder != self.cwd && self.can_navigate() => {
-                self.navigate(folder, false);
-                true
+                self.navigate(folder, false)
             }
             _ => false,
         };
@@ -1625,9 +1638,9 @@ impl App {
         };
         match bookmark.path.canonicalize() {
             Ok(path) if path.is_dir() => {
-                self.navigate(path, false);
+                let moved = self.navigate(path, false);
                 self.wanted = None;
-                true
+                moved
             }
             _ => {
                 self.status = format!(

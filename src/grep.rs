@@ -996,7 +996,11 @@ impl Grep {
             .is_none_or(|(version, _)| version != rows_version)
         {
             let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
-            for c in rows.iter().filter(|c| !c.directory) {
+            // Copies and extractions still being written are not searched.
+            for c in rows
+                .iter()
+                .filter(|c| !c.directory && !crate::operations::staged(&c.path))
+            {
                 let row = Row(Arc::clone(c));
                 if !search.queued.insert(row.clone()) {
                     continue;

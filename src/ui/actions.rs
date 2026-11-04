@@ -46,6 +46,9 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         app.status = hint;
         return;
     }
+    if app.in_use(&[path.to_path_buf()]) {
+        return;
+    }
     let name = path
         .file_name()
         .unwrap_or_default()
@@ -96,6 +99,9 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
 /// last file's folder.
 pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, String> {
     let last = paths.last().ok_or("Nothing to open")?;
+    if let Some((path, job)) = paths.iter().find_map(|p| app.changing(p).map(|job| (p, job))) {
+        return Err(in_use_message(path, job));
+    }
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
         return Err(format!(
             "Only files open this way, not directories like {}",
@@ -201,6 +207,9 @@ pub(super) fn open_here(
     discovery: &mut Discovery,
     paths: Vec<PathBuf>,
 ) -> io::Result<()> {
+    if app.in_use(&paths) {
+        return Ok(());
+    }
     if let Some(dir) = paths.iter().find(|p| p.is_dir()) {
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
         app.status = match (
@@ -257,39 +266,29 @@ pub(super) fn scope(marks: &crate::marks::Marks, current: Option<PathBuf>) -> Sc
         Some(current) => Scope::Ask(current, marks.to_vec()),
     }
 }
-/// Opens the destination prompt only when every chosen file is extractable;
-/// otherwise nothing happens and each refused file is named with its reason.
+/// Checks the chosen archives on another thread (a long check shows its
+/// progress); the destination prompt opens only when every one is
+/// extractable, and otherwise each refused file is named with its reason.
 pub(super) fn start_extract(
+    app: &mut App,
+    discovery: &mut Discovery,
+    archives: Vec<PathBuf>,
+) -> Focus {
+    let mut focus = Focus::Results;
+    let job = extract(app, archives);
+    match job.poll(Duration::from_millis(150)) {
+        Some(result) => finish(app, discovery, &mut focus, job, result),
+        None => focus = Focus::Busy(job),
+    }
+    focus
+}
+/// The destination prompt for checked archives.
+pub(super) fn extract_prompt(
     app: &mut App,
     editor: &mut crate::editor::Nvim,
     archives: Vec<PathBuf>,
 ) -> Focus {
-    let refused = archives
-        .iter()
-        .filter_map(|p| {
-            crate::operations::validate_archive(p).err().map(|e| {
-                let name = p.file_name().unwrap_or(p.as_os_str()).to_string_lossy();
-                format!("{name} ({e})")
-            })
-        })
-        .collect::<Vec<_>>();
-    if !refused.is_empty() {
-        app.status = if archives.len() == 1 {
-            format!("Cannot extract {}", refused[0])
-        } else {
-            format!(
-                "Nothing extracted; {} of {} cannot be extracted: {}",
-                refused.len(),
-                archives.len(),
-                refused.join("; ")
-            )
-        };
-        return Focus::Results;
-    }
-    {
-        let e = &mut *editor;
-        e.reset(Field::Extraction);
-    }
+    editor.reset(Field::Extraction);
     Focus::Operation(crate::operations::Draft {
         kind: crate::operations::EditKind::Extract(archives),
         cwd: app.cwd.clone(),
@@ -338,6 +337,9 @@ pub(super) fn edit_files(
     discovery: &mut Discovery,
     paths: Vec<PathBuf>,
 ) -> io::Result<()> {
+    if app.in_use(&paths) {
+        return Ok(());
+    }
     match crate::run::editor_plan(paths, &app.cwd, app.home.as_deref()) {
         Ok(plan) => run_here(terminal, input, wake, app, discovery, &plan),
         Err(error) => {

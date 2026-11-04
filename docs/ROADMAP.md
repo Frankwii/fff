@@ -3,12 +3,6 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
-- Using fff while a long file operation runs. Operations and their checks
-  already run on another thread with their progress shown and Ctrl+c to stop
-  them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
-  operations usable would need rules for what a second operation may touch and
-  how live-update rescans interact. Archive validation before the extraction
-  prompt still runs on the interface thread.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see

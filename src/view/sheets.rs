@@ -368,14 +368,13 @@ pub(super) fn trash_confirmation(
 }
 /// A file operation taking a while: a bar, how much is done and how fast,
 /// and Ctrl+c while stopping it would change nothing.
-pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui::Job) {
+/// A job's progress in `width` columns: its bar, then its figures.
+pub(super) fn progress_lines(app: &App, job: &crate::ui::Job, width: usize) -> [Line<'static>; 2] {
     use std::sync::atomic::Ordering::Relaxed;
     let theme = app.palette;
     let done = job.progress.done.load(Relaxed);
     let total = job.progress.total.load(Relaxed);
     let elapsed = job.started.elapsed();
-    let stoppable = job.progress.stoppable.load(Relaxed) && !job.stopping();
-    let width = main.width.saturating_sub(4) as usize;
     let room = width.saturating_sub(6).max(1);
     let mut bar = vec![];
     if total > 0 {
@@ -428,6 +427,17 @@ pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui
     if job.stopping() {
         figures += " · stopping…";
     }
+    [
+        Line::from(bar),
+        Line::from(styled(truncate(&figures, width), theme.muted)),
+    ]
+}
+/// Checks before a confirmation, taking a while.
+pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui::Job) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let theme = app.palette;
+    let stoppable = job.progress.stoppable.load(Relaxed) && !job.stopping();
+    let width = main.width.saturating_sub(4) as usize;
     let inner = sheet(
         frame,
         main,
@@ -444,11 +454,70 @@ pub(super) fn progress(frame: &mut Frame, main: Rect, app: &App, job: &crate::ui
             summary: None,
         },
     );
-    let lines = vec![
-        Line::from(bar),
-        Line::from(styled(truncate(&figures, width), theme.muted)),
-    ];
+    frame.render_widget(Paragraph::new(progress_lines(app, job, width).to_vec()), inner);
+}
+/// Leaving while operations run: stop them first, or stay.
+pub(super) fn quit_confirmation(frame: &mut Frame, main: Rect, app: &App) {
+    let theme = app.palette;
+    let width = main.width.saturating_sub(4) as usize;
+    let count = app.jobs.len();
+    let mut lines: Vec<Line> = app
+        .jobs
+        .iter()
+        .take(3)
+        .map(|job| Line::from(styled(truncate(&format!("• {}", job.title), width), theme.text)))
+        .collect();
+    if count > 3 {
+        lines.push(Line::from(styled(format!("  and {} more", count - 3), theme.muted)));
+    }
+    lines.push(Line::from(styled(
+        truncate(
+            "What they have not finished is discarded; steps that cannot stop finish first.",
+            width,
+        ),
+        theme.muted,
+    )));
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        lines.len() as u16 + 2,
+        Sheet {
+            title: match count {
+                1 => " Quit stops a running operation ".into(),
+                n => format!(" Quit stops {n} running operations "),
+            },
+            accent: theme.error,
+            keys: &[("enter", "Stop them and quit"), ("esc", "Stay")],
+            summary: None,
+        },
+    );
     frame.render_widget(Paragraph::new(lines), inner);
+}
+/// Left: the stopped operations end first.
+pub(super) fn leaving(frame: &mut Frame, main: Rect, app: &App) {
+    let theme = app.palette;
+    let width = main.width.saturating_sub(4) as usize;
+    let inner = sheet(
+        frame,
+        main,
+        app,
+        3,
+        Sheet {
+            title: " Quitting ".into(),
+            accent: theme.marked,
+            keys: &[],
+            summary: None,
+        },
+    );
+    let text = match app.jobs.len() {
+        1 => "Waiting for 1 operation to stop…".to_string(),
+        n => format!("Waiting for {n} operations to stop…"),
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(styled(truncate(&text, width), theme.muted))),
+        inner,
+    );
 }
 /// Move, copy and link confirmations list the selection; when existing entries
 /// would be overwritten, the window lists those instead, as a warning.

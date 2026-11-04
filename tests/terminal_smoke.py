@@ -2360,7 +2360,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"u", "Undid: Copied alpha")
         self.assertEqual(os.listdir(target), [])
         self.assertEqual(sorted(os.listdir(self.trash() / "files")), ["alpha", "fresh"])
+        # The copy took alpha's mark as it started; undoing it gives it back.
+        self.assertIn("Marks (1)", s.screen.text)
         s.send(b"u", "Nothing to undo")
+        s.send(b"\x1b[27u\x1b[27u\x1b[27u", "Marks (0)")
         # A move is undone too, but never out from under the browsing directory.
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"ifolder", "❯ folder")
@@ -2370,7 +2373,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"v", "Moved folder")
         s.send(b"ifolder", "❯ folder")
         s.send(b"\x1b[27ul", ("cwd", target / "folder"))
-        s.send(b"u", "Cannot undo: it would move the current directory")
+        s.send(b"u", "Cannot undo: it would move a tab's directory")
         s.send(b"h", ("cwd", target))
         s.send(b"u", "Undid: Moved folder")
         self.assertTrue((self.root / "folder").is_dir())
@@ -2422,46 +2425,72 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_long_operations_show_progress_and_ctrl_c_stops_them_unchanged(self):
+    def test_long_operations_run_in_the_jobs_list_and_stop_unchanged(self):
         # Large enough that checking it takes a while even on tmpfs.
         tree = self.tree("tree", 80000)
         target = self.root / "target"
         target.mkdir()
         s = self.start(implicit_root=True)
-        # A copy stopped while it is staged leaves nothing behind.
-        s.send(b"itree", "❯ tree")
-        s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
-        s.send(b"\x1b[27uitarget", "❯ target")
-        s.send(b"\x1b[27ul", ("cwd", target))
-        s.send(b"p", "Copying tree")
-        s.wait_ui(" of 4.9 MiB · ", timeout=10)
+
+        def copy_tree():
+            s.send(b"itree", "❯ tree")
+            s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
+            s.send(b"\x1b[27uitarget", "❯ target")
+            s.send(b"\x1b[27ul", ("cwd", target))
+            s.send(b"p", "Copying tree")
+            s.wait_ui(" of 4.9 MiB · ", timeout=10)
+            # It takes its marks as it starts, and runs in the jobs list.
+            self.assertIn("Jobs (1)", s.screen.text)
+            self.assertIn("Marks (0)", s.screen.text)
+
+        # A copy stopped while it is staged leaves nothing behind; browsing
+        # goes on meanwhile.
+        copy_tree()
         self.assertRegex(s.screen.text, r"[\d.]+ (B|KiB|MiB) of 4\.9 MiB · [\d.]+ (B|KiB|MiB)/s · \d+ s")
-        self.assertIn("Ctrl+c: Stop", s.screen.text)
-        s.send(b"\x03", "Stopped copying tree; nothing changed")
+        # x in the jobs list stops it and undoes it, leaving the marks alone.
+        s.send(b"J", "x: Stop and undo")
+        s.send(b"x", "Stopped copying tree; nothing changed")
+        s.wait_absent("Jobs (")
+        self.assertEqual(os.listdir(target), [])
+        self.assertIn("Marks (0)", s.screen.text)
+        self.assertIsNone(s.status)
+        # u does the same to the latest operation, and marks its entries again.
+        s.send(b"h", ("cwd", self.root))
+        copy_tree()
+        s.send(b"u", "Stopped copying tree; nothing changed")
+        s.wait_absent("Jobs (")
         self.assertEqual(os.listdir(target), [])
         self.assertIn("Marks (1)", s.screen.text)
-        self.assertIsNone(s.status)
-        # Checking a large selection shows progress, and stops at once.
+        s.send(b"\x1b[27u\x1b[27u\x1b[27u", "Marks (0)")
+        # Checking a large selection before a confirmation shows its sheet,
+        # and Ctrl+c stops it at once.
         s.send(b"h", ("cwd", self.root))
         s.send(b"itree", "❯ tree")
         s.send(b"\x1b[27ux", "Moving tree to the trash")
         s.wait_ui("checking the entries")
+        self.assertIn("Ctrl+c: Stop", s.screen.text)
         s.send(b"\x03", "Stopped moving tree to the trash; nothing changed")
         self.assertEqual(len(os.listdir(tree)), 80000)
         self.assertEqual(os.listdir(self.trash() / "files") if (self.trash() / "files").exists() else [], [])
-        # While an operation runs only Ctrl+c is heard: q does not quit,
-        # Esc does not cancel, and Ctrl+c stops it before anything changed.
+        # A confirmed deletion runs in the jobs list: leaving asks first (Esc
+        # stays), and it stops before anything changed.
         s.send(b"X", "Delete permanently")
         s.send(b"\r", "Deleting tree")
         s.wait_ui("checking the entries")
-        s.send(b"q\x1b[27u")
-        s.send(b"\x03", "Stopped deleting tree; nothing changed")
+        s.send(b"q", "Quit stops a running operation")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Quit stops")
+        s.send(b"J", "x: Stop and undo")
+        s.send(b"x", "Stopped deleting tree; nothing changed")
         self.assertEqual(len(os.listdir(tree)), 80000)
         self.assertIsNone(s.status)
-        # Left alone, it finishes, counting entries.
+        # Left alone, it finishes, counting entries. Meanwhile what collides
+        # with it waits, and the folder it deletes cannot be entered.
         s.send(b"X", "Delete permanently")
         s.send(b"\r", "Deleting tree")
         s.wait_ui(" of 80001 entries · ", timeout=15)
+        s.send(b"x", "Deleting tree uses tree; wait for it to finish")
+        s.send(b"l", "tree is being moved or deleted")
         s.wait_ui("Deleted tree permanently", timeout=30)
         self.assertFalse(tree.exists())
         s.send(b"\x03")

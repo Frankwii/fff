@@ -40,6 +40,11 @@ pub struct Record {
     pub steps: Vec<Step>,
     /// Entries it deleted permanently, which undoing cannot bring back.
     pub lost: usize,
+    /// When the operation started, among this session's: `u` undoes the
+    /// latest first, whether it has ended or still runs.
+    pub order: u64,
+    /// The marks it took on starting, marked again when `u` undoes it.
+    pub marked: Vec<PathBuf>,
 }
 impl Record {
     /// The paths undoing moves away, a trashed entry's slot included; the
@@ -51,6 +56,17 @@ impl Record {
             | Step::Discard { path, .. } => path.into(),
             Step::Restore { bin, slot, .. } => bin.join("files").join(slot).into(),
         })
+    }
+    /// Every path undoing changes: what it moves away and where it puts
+    /// things back.
+    pub fn touching(&self) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = self.moving().map(|p| p.into_owned()).collect();
+        paths.extend(self.steps.iter().filter_map(|step| match step {
+            Step::Return { back, .. } | Step::Restore { back, .. } => Some(back.clone()),
+            Step::Retrash { bin, slot, .. } => Some(bin.join("files").join(slot)),
+            Step::Discard { .. } => None,
+        }));
+        paths
     }
 }
 /// A reversed step, kept to roll it forward again if a later step fails.

@@ -1065,6 +1065,40 @@ fn the_progress_sheet_shows_a_bar_figures_and_the_stop_key_while_it_applies() {
 }
 
 #[test]
+fn running_operations_take_the_lower_half_of_the_marks_pane() {
+    use std::sync::atomic::Ordering::Relaxed;
+    let mut app = fixture();
+    let draw = |app: &mut App, mut focus: Focus| {
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|f| {
+            render(f, app, &mut focus);
+        })
+        .unwrap();
+        text(terminal.backend().buffer())
+    };
+    assert!(!draw(&mut app, Focus::Results).contains("Jobs"));
+    let copying = crate::ui::Job::running("Copying photos", &[], false);
+    copying.progress.total.store(4 << 20, Relaxed);
+    copying.progress.done.store(1 << 20, Relaxed);
+    app.jobs.push(copying);
+    app.jobs.push(crate::ui::Job::running("Deleting old", &[], true));
+    let screen = draw(&mut app, Focus::Results);
+    assert!(screen.contains("Marks (2)") && screen.contains("Jobs (2)"), "{screen}");
+    assert!(screen.contains("Copying photos") && screen.contains("25%"), "{screen}");
+    assert!(screen.contains("1.0 MiB of 4.0 MiB"), "{screen}");
+    assert!(!screen.contains("x: Stop and undo"), "{screen}");
+    // Focused, it highlights a job and names its keys.
+    let screen = draw(&mut app, Focus::Jobs { index: 1 });
+    assert!(screen.contains("› Deleting old"), "{screen}");
+    assert!(screen.contains("x: Stop and undo"), "{screen}");
+    // Leaving asks first, naming what would stop.
+    let screen = draw(&mut app, Focus::QuitConfirm(Box::new(crate::ui::Finish::Cancelled)));
+    assert!(screen.contains("Quit stops 2 running operations"), "{screen}");
+    assert!(screen.contains("• Copying photos"), "{screen}");
+    assert!(screen.contains("Enter: Stop them and quit"), "{screen}");
+}
+
+#[test]
 fn command_entry_keeps_buffer_visible_above_its_cursor() {
     for (width, height) in [(120, 26), (36, 12)] {
         for field in [Field::Query, Field::Exclusions] {
