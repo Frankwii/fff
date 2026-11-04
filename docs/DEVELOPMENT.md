@@ -147,11 +147,15 @@ Where the features of the [roadmap](ROADMAP.md#post-launch) plug in:
   `Matcher::score_candidate` (`src/matching.rs`), called by `Job::rank_piece`
   and `App::merge`; the order then sorts by that score.
 
-Risks this design carries: a reader past the first `LAZY` rows while a scan
-adds paths merges every run on each change (as costly as before, not more);
-`Rows::all` copies the row pointers when there is more than one run;
-kept queries and pending rankings share runs, so pushing to rows they share
-copies the run being merged, as it did before.
+Risks this design carries: while a scan adds paths, a reader past the
+first `LAZY` rows (the view scrolled that far, the highlight there, a
+contents query, a mouse drag) merges every run again after each round,
+copying every row pointer: more than the old insertion, which moved only the
+rows after the new ones, though still bounded by the number of rows.
+Reading row `i` near the front costs `i` times the number of runs.
+`Rows::all` copies the row pointers when there is more than one run. Kept
+queries and pending rankings share runs, so merging a run they share copies
+it, as it did before.
 
 ## Behavior to preserve
 
