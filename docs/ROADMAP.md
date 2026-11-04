@@ -3,75 +3,70 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
-- Content search follow-ups (below).
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
   them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
   operations usable would need rules for what a second operation may touch and
   how live-update rescans interact. Archive validation before the extraction
   prompt still runs on the interface thread.
-- Preview pane follow-up: previewing the marked list's rows from the
-  results.
-- Follow-ups to the Keys screen (below): programs as commands, the
-  `keys.toml` layout, and keys inside choosers.
-- Opening folders from other applications. `--window` exists so that fff,
-  set up as the desktop's file manager, can be opened from programs such as
-  Telegram (opening a download's folder), but Telegram does not open fff yet.
-  What remains is to find how it asks (`xdg-open`, the D-Bus FileManager1
-  service or the portal's OpenURI) and make that path reach fff.
+- Opening folders from other applications (below): every way a program
+  asks for a folder should reach `fff window`.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
 
-## The Keys screen, continued
+## Opening folders from other applications
 
-The Keys screen (F1) and `keys.toml` came in 0.14.0. What remains:
+`fff setup --desktop` makes fff the desktop's file manager (`fff window`),
+but Telegram's "Show in folder" on a download does not open it yet. Programs
+ask for a folder in one of three ways, and Telegram (lib_base's
+`ShowInFolder`, in `base_file_utilities_linux.cpp`) tries all three in turn,
+moving on only when a call fails:
 
-- **Programs as commands.** Keys apply per program, and two programs are
-  still options: `fff roam --window` and `fff explorer --multiple /
-  --directory / --save`. They would become `fff window` and `fff explorer
-  open | open-multiple | folder | save PATH`, named as on the Keys screen,
-  with the launchers and portal wrapper `fff setup` writes calling them.
-- **`keys.toml` itself.** Its layout (one table per mode, scopes as inline
-  tables) is a first version, to be settled.
-- **Keys inside choosers, prompts and sheets** are fixed for now; they could
-  become functions with places of their own.
+1. **`org.freedesktop.FileManager1.ShowItems`** on the session bus, with the
+   file's URI. `fff setup --desktop` installs a D-Bus service for it (`fff
+   dbus-file-manager`), which opens fff with the file highlighted. Setups
+   from before that service existed lack it, and then the call fails because
+   no one owns the name, and Telegram moves on. On the machine this was
+   looked at, `~/.local/share/dbus-1/services/` did not exist: setup had not
+   been run again since. Running it again may be the whole fix.
+2. **The portal's `org.freedesktop.portal.OpenURI.OpenDirectory`**, with a
+   file descriptor of the file. xdg-desktop-portal opens the default
+   application for `inode/directory` (fff.desktop, through GIO, which reads
+   `mimeapps.list`) on the file's folder, or asks through the AppChooser
+   portal (gtk here) when it thinks it should. The call succeeds once the
+   portal has accepted it, so a launch that fails afterwards (in the portal
+   service's environment, which needs `DISPLAY`) stops Telegram from trying
+   the third way. The folder opens without the file highlighted.
+3. **`QDesktopServices::openUrl`** on the folder, which ends in `xdg-open`
+   (or GIO) and so in fff.desktop. This is what `xdg-open ~/Downloads` does
+   from a shell, and it works.
 
-## Content search, continued
+What remains:
 
-A contents query beside the names query (Tab) searches what files contain,
-in `fff roam`, `fff pick` and `fff seek`, one row per match: documents read
-through fff's own text cache and searched on its threads, through an index
-that rules out the files that cannot match, not by running rga, which
-starts a preprocessor for every file on every search (1.85 s and about 25 CPU-seconds a search over
-2,400 cached PDFs, against 0.02 s here). What remains:
-
-- **More formats.** Office documents and archives could fill the same cache
-  through `rga-preproc`, one run per file.
-- **A `/regex/` form** of the contents query.
-- **`e` at the match.** `e` (`edit_files`) would open `$EDITOR` at a text
-  match's line when the editor accepts `+N`, and a document at its page where the viewer
-  takes one (`zathura --page`).
-- **A viewer that follows the highlight.** Extracted text loses
-  formulas: subscripts, fractions and symbols come out as scattered
-  characters. The preview stays text (no images, see [design
-  choices](DEVELOPMENT.md#design-choices)), so the page itself belongs in a
-  PDF viewer. zathura answers on D-Bus (`org.pwmt.zathura`): one window,
-  opened by a key, could follow the highlighted match, going to its page and
-  highlighting it as the highlight moves, the way `at_grep_match` opens a file
-  there once.
-- **Panning a cut match line.** With `toggle_preview_wrap` off, the match's
-  line is cut to keep the match in view; keys of their own could pan it left
-  and right. Ctrl+h and Ctrl+l are out (Ctrl+h is Backspace on many
-  terminals), and stepping between a file's matches needs no keys of its
-  own, since each match is a row.
-- **OCR stays out.** A scanned document without a text layer cannot match;
-  OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text
-  layer to the file once, for every program.
-
-Behavior, keybindings and persistence for these features remain to be designed
-when the work is requested.
+- **Find which way fails.** With the D-Bus service installed, watch
+  `dbus-monitor --session "interface='org.freedesktop.FileManager1'"
+  "interface='org.freedesktop.portal.OpenURI'"` while choosing "Show in
+  folder" in Telegram, and `journalctl --user -u xdg-desktop-portal` for
+  the portal's side. If ShowItems arrives and fff opens, the fix was to run
+  setup again, and the rest is to make that hard to miss.
+- **Say when the service is missing.** `fff setup --check-config` (or a
+  `fff setup --check-desktop`) could report a desktop setup that is out of
+  date: fff.desktop the default without the D-Bus service, launchers or the
+  portal wrapper calling options from earlier versions (as 0.16.4's `fff
+  window` and `fff explorer open` made them), or a binary path that no longer
+  exists. Generated files carry the marker, and could carry the version that
+  wrote them.
+- **Make the portal's way reach fff.** If OpenDirectory is what Telegram
+  ends up using, check that the portal launches fff.desktop rather than
+  asking (`xdg-mime` default set, no AppChooser dialog) and that the launch
+  works from the portal service, whose environment is the systemd user
+  manager's (`systemctl --user show-environment`: `DISPLAY` and `PATH` must
+  reach the terminal in `[open] fff_terminal`).
+- **One window per request.** ShowItems and OpenDirectory may both be tried
+  by other programs, or retried; a second request for the folder already
+  open in a recent fff window could be dropped rather than opening another.
 
 ## Post-launch
 
@@ -314,6 +309,41 @@ to the model's input.
   dependencies stay as they are; `candle` keeps the build pure Rust and
   offline, `ort` is faster but needs ONNX Runtime. Model weights live outside
   the binary, at a path in the configuration.
+
+## Content search, continued
+
+A contents query beside the names query (Tab) searches what files contain,
+in `fff roam`, `fff pick` and `fff seek`, one row per match: documents read
+through fff's own text cache and searched on its threads, through an index
+that rules out the files that cannot match, not by running rga, which
+starts a preprocessor for every file on every search (1.85 s and about 25 CPU-seconds a search over
+2,400 cached PDFs, against 0.02 s here). What remains:
+
+- **More formats.** Office documents and archives could fill the same cache
+  through `rga-preproc`, one run per file.
+- **A `/regex/` form** of the contents query.
+- **`e` at the match.** `e` (`edit_files`) would open `$EDITOR` at a text
+  match's line when the editor accepts `+N`, and a document at its page where the viewer
+  takes one (`zathura --page`).
+- **A viewer that follows the highlight.** Extracted text loses
+  formulas: subscripts, fractions and symbols come out as scattered
+  characters. The preview stays text (no images, see [design
+  choices](DEVELOPMENT.md#design-choices)), so the page itself belongs in a
+  PDF viewer. zathura answers on D-Bus (`org.pwmt.zathura`): one window,
+  opened by a key, could follow the highlighted match, going to its page and
+  highlighting it as the highlight moves, the way `at_grep_match` opens a file
+  there once.
+- **Panning a cut match line.** With `toggle_preview_wrap` off, the match's
+  line is cut to keep the match in view; keys of their own could pan it left
+  and right. Ctrl+h and Ctrl+l are out (Ctrl+h is Backspace on many
+  terminals), and stepping between a file's matches needs no keys of its
+  own, since each match is a row.
+- **OCR stays out.** A scanned document without a text layer cannot match;
+  OCR takes seconds a page, too slow here, and `ocrmypdf` adds the text
+  layer to the file once, for every program.
+
+Behavior, keybindings and persistence for these features remain to be designed
+when the work is requested.
 
 The current release is 0.16.3. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.
