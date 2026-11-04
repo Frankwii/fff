@@ -37,7 +37,7 @@ cargo run -- --config docs/config.example.toml --palette ember
 uses stderr; stdout remains empty. It checks syntax, names, colors, and limits,
 while unavailable bookmark directories are handled when you try to visit them.
 It also warns, without failing, about the [desktop integration](DESKTOP.md)
-when it was set up: files `fff setup --desktop` or `--file-chooser` wrote that
+when it was set up: files `fff setup --desktop` or `--browser` wrote that
 are missing, out of date or run another fff binary, and an environment in which
 Qt applications would not ask the portal for file dialogs.
 

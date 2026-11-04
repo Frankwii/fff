@@ -36,7 +36,7 @@ and exit codes.
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
 | `fff window [PATH]` | Browse in a terminal window of its own, as the desktop's file manager ([details](docs/DESKTOP.md#opening-directories)). |
 | `fff explorer open\|open-multiple\|folder\|save [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
-| `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--man`, `--desktop`, `--file-chooser`, `--check-config`. |
+| `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--man`, `--desktop`, `--browser`, `--check-config`. |
 
 The command only chooses how a session starts: `gm` turns a running session
 into `roam`, `pick` or `seek` without losing your place (see
@@ -89,7 +89,7 @@ locations](docs/CONFIGURATION.md#remembered-locations)).
 
 fff can also be the desktop's file manager and file chooser: `fff setup
 --desktop` opens directories from other programs in fff, and `fff setup
---file-chooser` lets Firefox and other portal users pick files with it, through
+--browser` lets Firefox and other portal users pick files with it, through
 `fff explorer`, a mode for answering file dialogs. See
 [desktop integration](docs/DESKTOP.md).
 
@@ -569,13 +569,16 @@ chords. `COMPLETE=SHELL fff` prints the same registration script.
 ## Manual pages
 
 ```sh
-fff setup --man ~/.local/share/man/man1
+fff setup --man
 ```
 
 writes `fff.1` and a page per command (`fff-pick.1`, `fff-explorer-save.1`,
-...), from the same text as `--help`. `man` searches `~/.local/share/man` when
-`~/.local/bin` is on PATH; then `man fff` or `man fff-pick`. Run it again after
-upgrading.
+...), from the same text as `--help`, into a directory `man` searches: the
+first one `manpath` lists in your home (`~/.local/share/man`, which `man`
+searches when `~/.local/bin` is on PATH), else the first you can write to. When
+there is none, it says so and asks for the folder: `fff setup --man
+~/.local/share/man/man1` writes there. Then `man fff` or `man fff-pick`. Run it
+again after upgrading.
 
 ## Exit status
 

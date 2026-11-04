@@ -7,7 +7,7 @@ desktop portal pick files with it. `fff setup` installs each part:
 
 ```sh
 fff setup --desktop        # open directories in fff
-fff setup --file-chooser   # pick files with fff in Firefox and other apps
+fff setup --browser   # pick files with fff in Firefox and other apps
 ```
 
 Both run fff in a new terminal window using `[open] fff_terminal` from the
@@ -100,7 +100,7 @@ and `!` this way in such a window.
 
 `fff window --resume` continues the last `fff roam` or `fff window` session.
 Launchers and wrappers written by earlier versions may call options that are
-gone: run `fff setup --desktop` and `fff setup --file-chooser` again after
+gone: run `fff setup --desktop` and `fff setup --browser` again after
 upgrading.
 
 ## Show in folder
@@ -145,7 +145,7 @@ it first (on Arch, the AUR package
 `xdg-desktop-portal-termfilechooser-hunkyburrito-git`), then:
 
 ```sh
-fff setup --file-chooser
+fff setup --browser
 systemctl --user restart xdg-desktop-portal
 ```
 
@@ -247,7 +247,7 @@ fff explorer save [PATH]
 ```
 
 Answers one file dialog and prints the answer: each chosen path, absolute,
-followed by a newline. The file chooser installed by `fff setup --file-chooser`
+followed by a newline. The file chooser installed by `fff setup --browser`
 runs it for every dialog, but it works anywhere a script needs a file, a folder
 or a place to save. The general options (`--depth`, `--hidden`,
 `--no-exclusions`, `--palette`, `--no-icons`, `--config`,

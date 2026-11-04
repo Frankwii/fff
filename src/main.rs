@@ -58,7 +58,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Act on every marked path with NUL-separated records.
   <cyan>fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura</cyan>
       Choose PDFs from anywhere below ~/papers and open them.
-  <cyan>fff setup --desktop; fff setup --file-chooser</cyan>
+  <cyan>fff setup --desktop; fff setup --browser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
   <cyan>fff explorer save ~/Downloads/paper.pdf</cyan>
       Choose where to save a file, as a file dialog would (see fff explorer --help).
@@ -263,7 +263,7 @@ enum Command {
     /// Answer a file dialog: open, open-multiple, folder or save
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
-    /// fff setup --file-chooser installs. Enter on a file chooses it and on a
+    /// fff setup --browser installs. Enter on a file chooses it and on a
     /// folder enters it, in either mode; ! takes the folder you are in, and
     /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
     /// how to choose.
@@ -402,7 +402,7 @@ struct SetupArgs {
     /// every application using the desktop portal. Files fff generated before
     /// are replaced; other files are never overwritten.
     #[arg(long)]
-    file_chooser: bool,
+    browser: bool,
     /// Print a shell function that changes directory when fff exits
     ///
     /// Add `eval "$(fff setup --init zsh)"` (or bash) to your shell's startup
@@ -421,13 +421,16 @@ struct SetupArgs {
     #[arg(long, value_name = "SHELL",
         value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
     completions: Option<String>,
-    /// Write the manual pages to DIR: fff.1, and fff-COMMAND.1 for each command
+    /// Write the manual pages: fff.1, and fff-COMMAND.1 for each command
     ///
-    /// For example `fff setup --man ~/.local/share/man/man1`, which man
-    /// searches when ~/.local/bin is on PATH; then `man fff`, `man fff-pick`.
-    /// Run it again after upgrading. Files there are replaced.
-    #[arg(long, value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
-    man: Option<PathBuf>,
+    /// Without DIR, into the man1 folder of a directory man searches (as
+    /// `manpath` lists them) that is in your home, else one you can write
+    /// to: ~/.local/share/man when ~/.local/bin is on PATH. With DIR, into
+    /// DIR itself. Then `man fff`, `man fff-pick`. Run it again after
+    /// upgrading; the pages there are replaced.
+    #[arg(long, value_name = "DIR", num_args = 0..=1,
+        value_hint = clap::ValueHint::DirPath)]
+    man: Option<Option<PathBuf>>,
     /// Validate the configuration (and --palette) and report the result
     ///
     /// Also warns about the desktop integration, if set up: files fff setup
@@ -850,7 +853,11 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         return Ok(true);
     }
     if let Some(dir) = &setup.man {
-        write_man_pages(dir)?;
+        let dir = match dir {
+            Some(dir) => dir.clone(),
+            None => man_dir()?,
+        };
+        write_man_pages(&dir)?;
         return Ok(true);
     }
     let settings = Settings::load(
@@ -903,6 +910,59 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
     Ok(true)
 }
 
+/// Where `fff setup --man` writes without a DIR: the man1 folder of a
+/// directory man searches, or why there is none.
+fn man_dir() -> Result<PathBuf, String> {
+    let listed = std::process::Command::new("manpath")
+        .arg("-q")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .or_else(|| std::env::var("MANPATH").ok())
+        .unwrap_or_default();
+    let search: Vec<PathBuf> = listed
+        .split(':')
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let writable = |dir: &Path| {
+        let man1 = dir.join("man1");
+        let at = if man1.exists() { man1 } else { dir.to_owned() };
+        rustix::fs::access(&at, rustix::fs::Access::WRITE_OK).is_ok()
+    };
+    choose_man_dir(&search, home.as_deref(), writable).ok_or_else(|| {
+        let looked = if search.is_empty() {
+            "fff could not tell where man looks for pages (manpath gave nothing and MANPATH \
+             is unset)"
+                .to_string()
+        } else {
+            format!(
+                "none of the directories man searches ({}) is in your home or writable",
+                listed
+            )
+        };
+        format!(
+            "{looked}; name the folder for the pages, e.g. \
+             fff setup --man ~/.local/share/man/man1, and make man search \
+             ~/.local/share/man (~/.local/bin on PATH does, or add it to MANPATH)"
+        )
+    })
+}
+/// The man1 folder of the first directory in `search` (man's search path,
+/// in its order) that is in `home`, else of the first `writable` one.
+fn choose_man_dir(
+    search: &[PathBuf],
+    home: Option<&Path>,
+    writable: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let mine = search
+        .iter()
+        .find(|d| home.is_some_and(|h| d.starts_with(h)) && writable(d));
+    mine.or_else(|| search.iter().find(|d| writable(d)))
+        .map(|d| d.join("man1"))
+}
 /// fff setup --man: a page per command, as clap_mangen names them (fff.1,
 /// fff-pick.1, ...), each reported on stderr.
 fn write_man_pages(dir: &Path) -> io::Result<()> {
@@ -1000,6 +1060,27 @@ mod tests {
             configs.contains(&"docs/config.example.toml".to_string()),
             "{configs:?}"
         );
+    }
+
+    #[test]
+    fn man_pages_go_to_a_directory_man_searches_in_home_first() {
+        let search: Vec<PathBuf> = ["/usr/local/man", "/usr/share/man", "/home/u/.local/share/man"]
+            .map(PathBuf::from)
+            .to_vec();
+        let all = |_: &Path| true;
+        let home = Some(Path::new("/home/u"));
+        assert_eq!(
+            choose_man_dir(&search, home, all),
+            Some("/home/u/.local/share/man/man1".into())
+        );
+        // As root, or with no man directory in home: the first writable one.
+        let usr_local = |d: &Path| d.starts_with("/usr/local");
+        assert_eq!(
+            choose_man_dir(&search[..2], home, usr_local),
+            Some("/usr/local/man/man1".into())
+        );
+        assert_eq!(choose_man_dir(&search[..2], home, |_| false), None);
+        assert_eq!(choose_man_dir(&[], home, all), None);
     }
 
     #[test]

@@ -4,11 +4,18 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.17.0 — 2026-11-04
+
+File dialogs search contents, manual pages, `/proc`, `/sys` and `/dev` no
+longer flood fff with work, and what earlier versions kept from older ones is
+gone.
 
 ### Changed
 
-- **`fff setup --file-chooser` says what Qt applications need.** Telegram and
+- **`fff setup --file-chooser` is `fff setup --browser`**, the name it had
+  beside it; files it wrote say so, and `--check-config` asks to run it
+  again.
+- **`fff setup --browser` says what Qt applications need.** Telegram and
   other Qt applications use the portal's file dialog, and so fff, only with
   `QT_QPA_PLATFORMTHEME=xdgdesktopportal` in their environment; outside a
   desktop environment they draw Qt's own dialog instead. Setup and the
@@ -16,7 +23,7 @@ history.
 - **The docs say where zsh looks for `_fff`**: in a directory that is in
   `$fpath` when `compinit` runs, not one added later.
 - **`fff setup --check-config` checks the desktop integration.** When `fff
-  setup --desktop` or `--file-chooser` was run, it warns about files they
+  setup --desktop` or `--browser` was run, it warns about files they
   wrote that are missing, out of date or run another fff binary, and about an
   environment in which Qt applications draw their own file dialog.
 
@@ -27,12 +34,12 @@ history.
   saved under still comes only from the names query, whose bar keeps its
   `Save as NAME` title. See [searching contents in a
   dialog](docs/DESKTOP.md#searching-contents-in-a-dialog).
-- **Manual pages.** `fff setup --man ~/.local/share/man/man1` writes `fff.1`
-  and a page per command (`man fff-pick`, `man fff-explorer-save`).
+- **Manual pages.** `fff setup --man` writes `fff.1` and a page per command
+  (`man fff-pick`, `man fff-explorer-save`) into a directory `man` searches,
+  in your home if it can, or into the folder given (`--man DIR`).
 
 ### Removed
 
-- **`fff setup --browser`**, another name for `--file-chooser`.
 - **What earlier versions accepted only to say where it went, or to ignore
   it.** Options that became commands (`--no-dir`, `--output-paths`,
   `--init`, `--completions`, `--setup`, `--check-config` before a command,

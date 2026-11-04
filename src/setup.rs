@@ -1,4 +1,4 @@
-//! `fff setup --desktop` and `--file-chooser`: installs fff as the desktop's file manager (a desktop entry that
+//! `fff setup --desktop` and `--browser`: installs fff as the desktop's file manager (a desktop entry that
 //! opens directories) and as the file chooser of
 //! xdg-desktop-portal-termfilechooser (a wrapper script and the portal
 //! settings that select it). Files fff generates carry [`MARKER`] and are
@@ -124,7 +124,7 @@ pub fn check(
         (service, dbus_service(fff, launcher_text)),
     ];
     let chooser = [(wrapper, wrapper_script(fff, terminal))];
-    for (files, setup) in [(&desktop[..], "--desktop"), (&chooser[..], "--file-chooser")] {
+    for (files, setup) in [(&desktop[..], "--desktop"), (&chooser[..], "--browser")] {
         // Only what fff wrote counts: another program's file is not fff's to judge.
         let written: Vec<_> = files
             .iter()
@@ -157,7 +157,7 @@ pub fn check(
                 stale.join(", ")
             ));
         }
-        if setup == "--file-chooser" {
+        if setup == "--browser" {
             problems.extend(qt_problem(&var));
         }
     }

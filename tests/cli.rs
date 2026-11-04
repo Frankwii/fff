@@ -39,8 +39,8 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
     for text in [
         "--completions <SHELL>",
         "[possible values: bash, elvish, fish, powershell, zsh]",
-        "--file-chooser",
-        "--man <DIR>",
+        "--browser",
+        "--man [<DIR>]",
         "--check-config",
     ] {
         assert!(setup.contains(text), "missing {text:?}");
