@@ -118,9 +118,10 @@ impl Session {
         self.focus = Focus::Results;
         let scan = app.switch_program(program);
         // The query typed into next keeps the mode gm was pressed in.
-        let field = match app.running.grep() {
-            Some(grep) if grep.editing => Field::Contents,
-            _ => Field::Query,
+        let field = if app.typing_contents() {
+            Field::Contents
+        } else {
+            Field::Query
         };
         self.editor.reset_preserving_mode(field);
         if scan {
@@ -659,10 +660,10 @@ impl Session {
             original: app.palette,
         };
     }
-    /// `clear_query`: the query; pressed again with none, the marks. In fff
-    /// grep, the query being typed into, else the other one.
+    /// `clear_query`: the query; pressed again with none, the marks. With
+    /// a contents query, the query being typed into, else the other one.
     pub(super) fn clear_query(&mut self, app: &mut App) {
-        if let Some(grep) = app.running.grep()
+        if let Some(grep) = app.contents()
             && !grep.text.is_empty()
             && (grep.editing || app.query.is_empty())
         {

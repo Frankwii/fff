@@ -1904,3 +1904,27 @@ fn a_sheet_that_does_not_fit_asks_for_a_larger_terminal_instead_of_being_cut() {
         "{screen}"
     );
 }
+#[test]
+fn the_contents_bar_sits_right_of_the_names_and_the_typed_one_gives_way_last() {
+    let mut app = fixture();
+    // fff roam shows one bar until the contents query is typed into.
+    let (screen, _) = draw(&mut app, 100, 20);
+    assert!(screen.contains(" Query ") && !screen.contains("Contents"));
+    app.grep.editing = true;
+    let (screen, _) = draw(&mut app, 100, 20);
+    let top = screen.lines().next().unwrap();
+    let (names, contents) = (top.find("Names").unwrap(), top.find("Contents").unwrap());
+    assert!(names < contents, "{top}");
+    // The bar typed into takes three fifths.
+    assert_eq!(query_widths(100, "", "", true), (40, 60));
+    assert_eq!(query_widths(100, "", "", false), (60, 40));
+    // A long query widens its bar; the other keeps a third and cuts its
+    // query with an ellipsis.
+    assert_eq!(query_widths(100, "", &"x".repeat(80), true), (33, 67));
+    app.query = "a names query much longer than its bar".into();
+    app.grep.text = "y".repeat(80);
+    let (screen, _) = draw(&mut app, 100, 20);
+    let line = screen.lines().nth(1).unwrap();
+    assert!(line.contains("❯ a names query much longer…"), "{line}");
+    assert!(line.contains("❯ …yyyy"), "{line}");
+}

@@ -35,12 +35,12 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    // From a fff grep match, at the match, as the rule's at_grep_match says.
+    // From a contents match, at the match, as the rule's at_grep_match says.
     let at = app
         .highlighted()
         .filter(|_| app.highlight.as_deref() == Some(path))
         .and_then(|row| {
-            let grep = app.running.grep().filter(|g| g.active())?;
+            let grep = app.contents().filter(|g| g.active())?;
             let (hits, i) = grep.shown_hits.get(row)?;
             let hit = &hits[*i];
             Some(crate::open::GrepMatch {

@@ -370,7 +370,7 @@ impl Session {
             editor.reset_insert(Field::Query);
         }
         // fff grep starts in its contents query, also ready to type.
-        if app.running.grep().is_some() {
+        if app.program().contents_first() {
             editor.reset_insert(Field::Contents);
         }
         let editor_directory = app.cwd.clone();

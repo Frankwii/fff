@@ -53,6 +53,15 @@ pub(super) fn text_line(
             continue;
         }
         if used + w > width {
+            // The text goes on past the edge: an ellipsis says so.
+            while used + 1 > width
+                && let Some(last) = spans.pop()
+            {
+                used -= last.width();
+            }
+            if used < width {
+                spans.push(styled("…", theme.muted));
+            }
             break;
         }
         let selected = view

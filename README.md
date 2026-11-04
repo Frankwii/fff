@@ -265,14 +265,14 @@ chosen files (`--relative`, `-0`):
 fff grep ~/papers --glob '*.pdf' --glob '*.djvu' --glob '*.epub' -0 | xargs -0 zathura
 ```
 
-It has two queries side by side. **Contents**, typed into first, keeps the
-files that contain it, with **one row per match**: the file, the match's page
+It has two queries side by side, **Names** on the left and **Contents** on
+the right. Contents, typed into first, keeps the files that contain it, with **one row per match**: the file, the match's page
 (`p. 12`), how far into an EPUB it is (`42%`) or its line (`l. 40`), and
 the line it is on, the match highlighted. The
 preview pane shows the lines around the highlighted match, which Ctrl+j and
 Ctrl+k scroll from there, up to 500 lines either side. **Names** filters
 the files by name as in `fff seek`, so it chooses which files are read.
-Tab switches between them, in either mode (Shift+Space marks there);
+Tab or Alt+/ switches between them, in either mode (Shift+Space marks there);
 Escape clears the one being typed into (the
 other once it is empty). Enter prints the file (while typing, the marks and
 it); marking a match marks its file. `l` opens it in the background and
@@ -290,6 +290,18 @@ through their text, extracted once with `pdftotext` (poppler) and `djvutxt`
 the first search through many documents takes a while, the next ones are
 immediate. A scanned document without a text layer has nothing to find
 (`ocrmypdf` adds one); a missing extractor is named in the query box.
+
+The contents query is not only `fff grep`'s: `fff roam`, `fff pick` and
+`fff seek` have it too. Alt+/ (or Tab in Normal mode) opens its bar beside
+the names query, and while it is set the rows are its matches among the
+files listed, one per match, as in `fff grep`; cleared, they are the
+entries again. Its bar stays while it is set. `fff grep` differs only in
+showing it from the start, typed into first, and in its depth.
+
+The bar typed into takes three fifths of the width, or more when its query
+needs it; the other gives way down to a third and cuts its query at the
+end, an ellipsis saying it goes on (the one typed into scrolls instead, an
+ellipsis at its start).
 
 ### Switching programs
 
@@ -310,7 +322,7 @@ What carries over:
   cannot list comes back once it is listed again, unless you move.
 - The depth, if you set one. Otherwise it becomes the new program's default:
   1 for `roam`, 3 for `pick`, 6 for `seek` and `grep`.
-- `fff grep`'s contents query, which waits for you to come back to `grep`.
+- The contents query and its matches, in every program.
 
 How the session ends follows the program it ends in: `fff pick` and
 `fff grep` print the chosen files, `fff roam` and `fff seek` change
@@ -372,7 +384,7 @@ key says which one.
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
 | Escape twice in Normal | With the query empty: clear every mark |
-| Tab | `fff grep`: type into the other query, contents or names (elsewhere, while typing, Tab marks) |
+| Tab / Alt+/ | Type into the other query, contents or names; Tab does so in Normal mode and in `fff grep` (elsewhere, while typing, Tab marks) |
 | Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`, `fff grep`) or exit into its folder (`fff seek`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`, `fff grep`), exit into its folder (`fff seek`) or reveal it in its folder |
 | Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |

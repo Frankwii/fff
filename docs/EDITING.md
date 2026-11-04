@@ -14,8 +14,9 @@ buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
 form's name and path, the query of `fff pick`, `fff seek` and
 `fff explorer --save`, and both queries of `fff grep` (contents and names)
 start in **Insert mode**, ready for typing; rename and extraction buffers
-start in Normal. In `fff grep` Tab (`switch_query`) moves between its two
-queries in either mode; each keeps its own text, cursor, mode and undo
+start in Normal. Alt+/ (`switch_query`; also Tab in Normal mode, and in
+`fff grep` while typing) moves between the names and contents queries, in
+any program but the file dialogs; each keeps its own text, cursor, mode and undo
 history. Switching programs (`gm`) keeps the mode it was pressed in, in
 whichever query the new program types into.
 Press `i` or `a` to type in a Normal field. Directory navigation
@@ -119,7 +120,7 @@ bookmark forms it saves; in palettes it applies the selected palette. Pending Ne
 entry receive Enter instead. In exclusions and filters, Enter retains Neovim's behavior.
 
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
-Escape when already Normal clears the main query (in `fff grep`, the query
+Escape when already Normal clears the main query (with a contents query, the query
 being typed into, or the other one once it is empty), closes subordinate choosers
 or cancels the bookmark form; exclusion and operation buffers keep Escape inside
 Neovim. With the query already empty, a second Escape in a row clears every

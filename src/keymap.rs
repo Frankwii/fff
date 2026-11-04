@@ -630,7 +630,7 @@ functions! {
     InvertMarks "invert_marks" Marks "Invert the marks of the listed rows: marked ones lose their mark, the others get one.";
     ToggleMarkedList "toggle_marked_list" Marks "Toggle the focus between the results and the marked list, where keys act on the marks.";
     ClearQuery "clear_query" Search "Clear the query. With it already clear, pressing this twice in a row clears every mark instead.";
-    SwitchQuery "switch_query" Search "In fff grep: type into the other query, contents or names.";
+    SwitchQuery "switch_query" Search "Type into the other query, contents or names. The contents query lists one row per match of the files the names query lists; outside fff grep its bar shows while it is typed into or set.";
     SearchShallower "search_shallower" Search "Search one level less deep below the current directory; the least is 1, its own entries.";
     SearchDeeper "search_deeper" Search "Search one level deeper below the current directory.";
     SearchToDepth "search_to_depth" Search "Search down to depth #, a digit from 1 to 9.";
@@ -682,6 +682,8 @@ const NOT_GREP: [Program; 8] = [
     ExplorerFolder,
     ExplorerSave,
 ];
+/// Programs with a contents query: all but the file dialogs.
+const CONTENTS: [Program; 5] = [Roam, Window, Pick, Seek, Grep];
 /// Programs that navigate: all but seek.
 const NAVIGATE: [Program; 8] = [
     Roam,
@@ -735,7 +737,7 @@ impl Function {
             | RunAndQuit | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
             | Extract | Undo | Restore | Quit | EditConfig => only_normal(lists),
             Rename | Create | ClearQuery | SearchToDepth => only_normal(results),
-            SwitchQuery => both(scope(&[Grep], &[Results], &[])),
+            SwitchQuery => both(scope(&CONTENTS, &[Results], &[])),
             GoToParent | GoToPath | ShowBookmarks | GoToTrash | GoBack | GoForward
             | GoToNextTab | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
                 both(scope(&NAVIGATE, &[Results], &[]))
@@ -827,7 +829,7 @@ impl Function {
             OpenRow => &[("<M-#>", all)],
             ConfirmRow => &[("<C-#>", all)],
             ToggleMark => &[("<S-Space>", all), ("<Tab>", scope(&NOT_GREP, &[], &[]))],
-            SwitchQuery => &[("<Tab>", all)],
+            SwitchQuery => &[("<M-/>", all), ("<Tab>", scope(&[Grep], &[], &[]))],
             ToggleMarkedList => &[("<M-Space>", all)],
             PrintMarks => &[("<C-w>", all)],
             SearchShallower => &[("<M-Left>", all)],
@@ -943,7 +945,7 @@ impl Function {
             ToggleMarkedList => &[("<M-Space>", all), ("<Esc>", scope(&[], &[Marks], &[]))],
             PrintMarks => &[("<C-w>", all)],
             ClearQuery => &[("<Esc>", all)],
-            SwitchQuery => &[("<Tab>", all)],
+            SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
             SearchShallower => &[("-", all), ("<M-Left>", all)],
             SearchDeeper => &[("+", all), ("<M-Right>", all)],
             SearchToDepth => &[("<#>", all)],

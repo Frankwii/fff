@@ -399,7 +399,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_switch_program_keeps_grep_contents_for_coming_back(self):
+    def test_switch_program_keeps_the_contents_query(self):
         (self.root / "notes.txt").write_text("a canard here\n")
         (self.root / "other.txt").write_text("nothing\n")
         s = self.start("grep", implicit_root=True, typing=True)
@@ -408,13 +408,40 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "Contents · NORMAL")
         s.send(b"gm", "Switch program")
         self.assertNotIn("g: grep", s.screen.text)
-        # fff seek lists the files, still in Normal mode.
+        # fff seek keeps the contents query and its matches, still in
+        # Normal mode.
         s.send(b"s", "Now fff seek")
-        s.wait_ui("Query · NORMAL")
-        s.wait_ui("Files · 2")
+        s.wait_ui("Contents · NORMAL")
+        s.wait_ui("1 match in 1 file")
+        # Tab goes to the names query, in its own mode; Alt+/ comes back,
+        # and clearing the contents query lists the files.
+        s.send(b"\t", "Names · INSERT")
+        s.send(b"\x1b/", "Contents · NORMAL")
+        s.send(b"\x1b[27u", "Files · 2")
         s.send(b"gm", "Switch program")
-        s.send(b"g", "1 match in 1 file")
-        self.assertIn("❯ canard", s.screen.text)
+        s.send(b"g", "Contents · NORMAL")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_roam_searches_contents_after_alt_slash(self):
+        (self.root / "notes.txt").write_text("intro\na canard here\n")
+        (self.root / "other.txt").write_text("nothing\n")
+        s = self.start(implicit_root=True, output_paths=False)
+        s.wait_ui("Query · NORMAL")
+        self.assertNotIn("Contents", s.screen.text)
+        # Alt+/ opens the contents query beside the names query.
+        s.send(b"\x1b/", "Contents · NORMAL")
+        self.assertIn("Names", s.screen.text)
+        s.send(b"i", "Contents · INSERT")
+        s.send(b"canard", "1 match in 1 file")
+        s.wait_ui("Matches · 1")
+        row = next(l for l in s.screen.text.splitlines() if "notes.txt" in l)
+        self.assertIn("l. 2", row)
+        # Back to the names query, in its own mode; the contents bar stays
+        # while it is set.
+        s.send(b"\x1b/", "Names · NORMAL")
+        self.assertIn("Contents", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

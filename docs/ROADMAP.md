@@ -40,19 +40,12 @@ The Keys screen (F1) and `keys.toml` came in 0.14.0. What remains:
 
 ## Content search, continued
 
-`fff grep` searches contents: a contents query beside the names
-query, one row per match, documents read through fff's own text cache and
+A contents query beside the names query searches what files contain, in
+`fff grep` and the other programs, one row per match, documents read through fff's own text cache and
 searched on its threads, not by running rga, which starts a preprocessor for
 every file on every search (1.85 s and about 25 CPU-seconds a search over
 2,400 cached PDFs, against 0.02 s here). What remains:
 
-- **In the other programs?** To decide: a contents query in `fff roam`,
-  `fff pick` and `fff seek` too, since it sits well in the current
-  interface. A row per match would appear only while the contents query is
-  not empty; with it empty, the results stay one row per entry, as now. The
-  query bars would swap sides, the names query on the left where it is
-  today and the contents query on the right, and long queries need a rule:
-  which bar gives way, and how a cut query shows that it goes on.
 - **An index of the content cache.** Each search reads every cached text
   again; an index built beside the cache (by word, or by trigram so that
   literal substrings still match) would find the candidate files first, so

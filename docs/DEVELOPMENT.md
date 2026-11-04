@@ -14,7 +14,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
-| `src/grep.rs` | `fff grep`: the contents query, extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
+| `src/grep.rs` | The contents query (`App::grep`, in every program but the dialogs): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
@@ -51,7 +51,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
-| `src/program.rs` | The program a session runs as: how programs differ (`Program`: what each lists, prints and starts in, its depth and labels) and what only one keeps (`Running`: `fff grep`'s search, a file dialog), swapped by `App::set_program`. |
+| `src/program.rs` | The program a session runs as: how programs differ (`Program`: what each lists, prints and starts in, its depth and labels) and what only one keeps (`Running`: a file dialog), swapped by `App::set_program`. |
 | `src/keymap.rs` | Functions, where they work (programs are one of its dimensions), their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
 | `src/ui/keys.rs` | The Keys screen's state and keys: the picker (your own list keys through the keymap), key searches, and the editor's staged changes, scopes and saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |

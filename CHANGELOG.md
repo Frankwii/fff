@@ -8,6 +8,12 @@ history.
 
 ### Added
 
+- **A contents query in every program.** `fff roam`, `fff pick` and
+  `fff seek` search what files contain as `fff grep` does: Alt+/ (or Tab in
+  Normal mode) opens the contents query beside the names query, and while
+  it is set the rows are its matches, one per match. It stays when `gm`
+  changes program.
+
 - **`gd` switches how rows are labelled** (`toggle_labels`): by name, with
   only the parent folders that tell same-named entries apart
   (`folder1/main.pdf`), or by their path below the folder searched. The
@@ -20,6 +26,9 @@ history.
 
 ### Changed
 
+- **`fff grep`'s names query is on the left**, its contents query on the
+  right, as in the other programs. The bar typed into widens for a long
+  query and the other gives way; a query cut at the end shows an ellipsis.
 - **The footer is colored like `eza -l`**: the highlighted entry's name in
   its row's color, its size, date, owner and each permission letter in the
   palette's green, blue, yellow and red, so it follows the colorscheme.

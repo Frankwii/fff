@@ -679,14 +679,15 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
 }
 fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
     let theme = app.palette;
-    let status = status_line(app, area.width.saturating_sub(4) as usize).right_aligned();
-    // fff grep: the contents query, wider, beside the names query; the one
-    // typed into has the accent border and the cursor.
-    if let Some(grep) = app.running.grep() {
-        let halves = Layout::default()
+    // With a contents query, two bars: names on the left, contents on the
+    // right; the one typed into has the accent border and the cursor.
+    if app.contents_shown() {
+        let grep = &app.grep;
+        let (names, contents) = query_widths(area.width, &app.query, &grep.text, grep.editing);
+        let [names_area, contents_area] = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-            .split(area);
+            .constraints([Constraint::Length(names), Constraint::Length(contents)])
+            .areas(area);
         let mut summary = vec![Span::raw(" ")];
         if let Some((done, total)) = grep.progress() {
             summary.push(styled(format!("searching {done}/{total}"), theme.marked));
@@ -707,26 +708,28 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         }
         summary.push(Span::raw(" "));
         let summary = Line::from(summary);
+        let status = status_line(app, names.saturating_sub(4) as usize).right_aligned();
         field_box(
             frame,
-            halves[0],
-            app,
-            (Field::Contents, "Contents", &grep.text),
-            "type to search contents…".into(),
-            focused && grep.editing,
-            vec![summary],
-        );
-        field_box(
-            frame,
-            halves[1],
+            names_area,
             app,
             (Field::Query, "Names", &app.query),
             "type to filter names…".into(),
             focused && !grep.editing,
             vec![status],
         );
+        field_box(
+            frame,
+            contents_area,
+            app,
+            (Field::Contents, "Contents", &grep.text),
+            "type to search contents…".into(),
+            focused && grep.editing,
+            vec![summary],
+        );
         return;
     }
+    let status = status_line(app, area.width.saturating_sub(4) as usize).right_aligned();
     let title = app
         .running
         .dialog()
@@ -744,6 +747,23 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         focused,
         vec![status],
     );
+}
+/// The widths of the names and the contents bars, side by side in `width`.
+/// The one typed into takes three fifths, or what its query needs when
+/// longer; the other gives way, down to a third (at least `MIN_BAR`
+/// columns), and shows its cut query with an ellipsis.
+pub(super) fn query_widths(width: u16, names: &str, contents: &str, editing: bool) -> (u16, u16) {
+    const MIN_BAR: u16 = 16;
+    // Borders, padding and the prompt, and a column for the cursor.
+    let need = |text: &str| (text.width() + 7).min(u16::MAX as usize) as u16;
+    let typed = need(if editing { contents } else { names });
+    let other = (width / 3).max(MIN_BAR).min(width / 2);
+    let wide = (width * 3 / 5).max(typed).min(width - other);
+    if editing {
+        (width - wide, wide)
+    } else {
+        (wide, width - wide)
+    }
 }
 /// A query's box: its title and mode, its text (or `hint` while empty),
 /// the cursor when `focused`, and `bottom` in the lower border.
@@ -771,7 +791,12 @@ fn field_box(
     frame.render_widget(block, area);
     let prefix = "❯ ";
     let available = inner.width.saturating_sub(prefix.width() as u16) as usize;
-    let (mut line, cursor) = editable_line(app, field, text, 0, available);
+    // A query not typed into reads from its start, cut at its end.
+    let (mut line, cursor) = if focused {
+        editable_line(app, field, text, 0, available)
+    } else {
+        text_line(theme, None, text, 0, available, 0)
+    };
     if text.is_empty() {
         line = Line::from(styled(hint, theme.muted));
     }

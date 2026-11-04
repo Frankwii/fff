@@ -197,15 +197,15 @@ pub struct App {
     /// The (lowercased) query the highlight was placed under: rows for
     /// another one, as typing changes it, highlight the best match.
     highlight_query: String,
-    /// The program the session runs as, with what only it keeps: `fff
-    /// grep`'s contents query and search, a file dialog's question. It
-    /// decides what is listed, what Enter finishes with and what is
-    /// printed (`program::Program`); `set_program` and `open_dialog` change
-    /// it.
+    /// The program the session runs as, with what only it keeps: a file
+    /// dialog's question. It decides what is listed, what Enter finishes
+    /// with and what is printed (`program::Program`); `set_program` and
+    /// `open_dialog` change it.
     pub running: program::Running,
-    /// The contents query `switch_program` took away from `fff grep`, given
-    /// back on returning to it.
-    kept_contents: String,
+    /// The contents query, its search and the rows it shows: one per match
+    /// while it is set. Every program but the dialogs has it, and it stays
+    /// when `switch_program` changes program.
+    pub grep: grep::Grep,
     /// Counts changes to `rows`, for what is built from them.
     rows_version: u64,
     pub marks: marks::Marks,
@@ -239,8 +239,8 @@ pub struct App {
     /// Active palette name and the palettes offered by the Alt+p chooser.
     pub palette_name: String,
     pub palettes: Vec<(String, config::Palette)>,
-    /// `fff grep`: the highlighted match's file as lines, once read, for its
-    /// preview to scroll past the match's context.
+    /// With a contents query, the highlighted match's file as lines, once
+    /// read, for its preview to scroll past the match's context.
     pub match_text: Option<(PathBuf, std::sync::Arc<grep::Lines>)>,
     /// Every key binding: the defaults with `keys.toml` applied.
     pub keymap: keymap::Keymap,
@@ -352,7 +352,7 @@ impl App {
             highlight_top: false,
             highlight_query: String::new(),
             running: program::Running::Roam,
-            kept_contents: String::new(),
+            grep: grep::Grep::new(),
             rows_version: 0,
             highlight_hint: Cell::new(0),
             marks: marks::Marks::default(),
@@ -522,33 +522,44 @@ impl App {
         self.marks = session.marks.into();
         self.wanted = session.highlight;
     }
-    /// Run as `program`, with its labels and, for `fff grep`, its contents
-    /// query (a file dialog is `open_dialog`).
+    /// Run as `program`, with its labels (a file dialog is `open_dialog`).
+    /// `fff grep` types into the contents query; the others into the names
+    /// query, unless the contents query is set.
     pub fn set_program(&mut self, program: crate::program::Program) {
         if program == self.program() {
             return;
         }
-        let (kept, waker) = (&mut self.kept_contents, &self.waker);
-        let running = program::Running::new(program, || {
-            let mut grep = grep::Grep::new();
-            grep.text = std::mem::take(kept);
-            if let Some(waker) = waker {
-                grep.set_waker(waker.clone());
-            }
-            grep
-        });
-        self.run(running);
+        self.run(program::Running::new(program));
+        if program.contents_first() {
+            self.grep.editing = true;
+        } else if self.grep.text.is_empty() {
+            self.grep.editing = false;
+        }
     }
-    /// Run as `running`. What the program before kept goes with it, but
-    /// for `fff grep`'s contents query, kept for coming back to it.
+    /// Run as `running`. What the program before kept goes with it.
     fn run(&mut self, running: program::Running) {
         if !self.labels_chosen {
             self.short_labels = running.program().short_labels();
         }
-        let before = std::mem::replace(&mut self.running, running);
-        if let program::Running::Grep(grep) = before {
-            self.kept_contents = grep.text;
+        self.running = running;
+        if !self.program().searches_contents() {
+            self.grep.text.clear();
+            self.grep.editing = false;
         }
+    }
+    /// The contents query and its search, in a program that has them.
+    pub fn contents(&self) -> Option<&grep::Grep> {
+        self.program().searches_contents().then_some(&self.grep)
+    }
+    /// The contents query's bar is drawn: always in `fff grep`, elsewhere
+    /// while it is typed into or set.
+    pub fn contents_shown(&self) -> bool {
+        self.contents()
+            .is_some_and(|g| self.program().contents_first() || g.editing || !g.text.is_empty())
+    }
+    /// Typing goes into the contents query, not the names query.
+    pub fn typing_contents(&self) -> bool {
+        self.contents().is_some_and(|g| g.editing)
     }
     /// The program the session runs as.
     pub fn program(&self) -> crate::program::Program {
@@ -575,7 +586,7 @@ impl App {
     /// `switch_program`: go on as `to` (one of `Program::SWITCHABLE`). The
     /// folders, query, highlight, marks and policies stay; the depth
     /// follows the new program's default unless it was set to another, and
-    /// `fff grep`'s contents query is kept for coming back to it. True when
+    /// the contents query stays. True when
     /// the depth changed, which needs a scan; else the rows are re-ranked.
     pub fn switch_program(&mut self, to: crate::program::Program) -> bool {
         use keymap::Dimension;
@@ -602,16 +613,16 @@ impl App {
     fn by_score(&self) -> bool {
         self.program().by_score()
     }
-    /// The rows on screen: the ranked rows, or in `fff grep` with a contents
-    /// query, one row per match in their files' order.
+    /// The rows on screen: the ranked rows, or with a contents query, one
+    /// row per match in their files' order.
     pub fn shown(&self) -> &[Arc<Candidate>] {
-        match self.running.grep() {
+        match self.contents() {
             Some(grep) if grep.active() => &grep.shown,
             _ => &self.rows,
         }
     }
-    /// The shown rows' paths, each once (`fff grep` shows a file once per
-    /// match).
+    /// The shown rows' paths, each once (a contents query shows a file once
+    /// per match).
     pub fn shown_paths(&self) -> Vec<PathBuf> {
         let mut seen = HashSet::new();
         self.shown()
@@ -620,22 +631,20 @@ impl App {
             .map(|c| c.path.clone())
             .collect()
     }
-    /// The match shown at row `i` (`fff grep` with a contents query).
+    /// The match shown at row `i`, with a contents query.
     pub fn hit(&self, i: usize) -> Option<&grep::Hit> {
-        self.running.grep().filter(|g| g.active())?.hit(i)
+        self.contents().filter(|g| g.active())?.hit(i)
     }
-    /// The highlighted row's match, in `fff grep`.
+    /// The highlighted row's match, with a contents query.
     pub fn highlighted_hit(&self) -> Option<&grep::Hit> {
         self.hit(self.highlighted()?)
     }
-    /// `fff grep`: catch up with its search. A new contents query, like a
-    /// new names query, highlights the first match until the user moves.
+    /// Catch up with the contents query's search. A new contents query,
+    /// like a new names query, highlights the first match until the user
+    /// moves.
     pub fn poll_grep(&mut self) -> bool {
-        let Some(grep) = self.running.grep_mut() else {
-            return false;
-        };
         let rows = Arc::clone(&self.rows);
-        if !grep.poll(&rows, self.rows_version) {
+        if !self.grep.poll(&rows, self.rows_version) {
             return false;
         }
         let first = self.shown().first().map(|c| c.path.clone());
@@ -645,14 +654,15 @@ impl App {
         }
         true
     }
-    /// `fff grep`: the contents query changed to `text`.
+    /// The contents query changed to `text`.
     pub fn set_contents(&mut self, text: String) {
-        if let Some(grep) = self.running.grep_mut() {
-            grep.text = text;
-            self.highlight_top = true;
-            self.offset = 0;
-            self.poll_grep();
+        if !self.program().searches_contents() {
+            return;
         }
+        self.grep.text = text;
+        self.highlight_top = true;
+        self.offset = 0;
+        self.poll_grep();
     }
     /// The mode keys are read in: Normal in the query's Normal mode (also
     /// while a sequence begun there waits), else Insert.
@@ -1194,9 +1204,7 @@ impl App {
     }
     /// Wake `waker` when a ranking on another thread is done.
     pub fn set_waker(&mut self, waker: mpsc::SyncSender<()>) {
-        if let Some(grep) = self.running.grep_mut() {
-            grep.set_waker(waker.clone());
-        }
+        self.grep.set_waker(waker.clone());
         self.waker = Some(waker);
     }
     /// Wakes the session loop, e.g. when background work finishes.
@@ -1360,8 +1368,9 @@ impl App {
         let typed = self.highlight_query != query;
         if typed {
             self.highlight_query = query.to_owned();
-            // fff grep's matches stream in after the files: follow the first.
-            self.highlight_top |= self.running.grep().is_some();
+            // A contents query's matches stream in after the files: follow
+            // the first.
+            self.highlight_top |= self.contents().is_some_and(|g| g.active());
         }
         // Rows share the known candidates: look for the wanted one's address.
         // A row to restore takes the highlight off the first row once listed.
@@ -1395,7 +1404,8 @@ impl App {
         let path = self.highlight.as_ref()?;
         let hint = self.highlight_hint.get();
         let rows = self.shown();
-        // fff grep shows a file once per match: the hint tells them apart.
+        // A contents query shows a file once per match: the hint tells them
+        // apart.
         if rows.get(hint).is_some_and(|c| &c.path == path) {
             return Some(hint);
         }
@@ -1449,8 +1459,8 @@ impl App {
         }
         self.marks.extend(added);
     }
-    /// Highlight the row numbered `digit` on screen, by row: fff grep shows
-    /// a file once per match.
+    /// Highlight the row numbered `digit` on screen, by row: a contents
+    /// query shows a file once per match.
     pub fn highlight_numbered(&mut self, digit: u32) {
         let i = if digit == 0 {
             usize::MAX

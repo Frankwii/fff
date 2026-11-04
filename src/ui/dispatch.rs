@@ -432,8 +432,8 @@ impl Session {
             PrintMarks => return Ok(leave_with_marks(app)),
             ClearQuery => self.clear_query(app),
             SwitchQuery => {
-                if let Some(grep) = app.running.grep_mut() {
-                    grep.editing = !grep.editing;
+                if app.program().searches_contents() {
+                    app.grep.editing = !app.grep.editing;
                 }
             }
             SearchShallower | SearchDeeper => {

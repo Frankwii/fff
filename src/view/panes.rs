@@ -219,8 +219,7 @@ pub(super) fn preview_pane(frame: &mut Frame, area: Rect, app: &App) {
 fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &crate::grep::Hit) {
     let theme = app.palette;
     let (nth, of) = app
-        .running
-        .grep()
+        .contents()
         .and_then(|g| g.shown_hits.get(row))
         .map_or((1, 1), |(hits, at)| (at + 1, hits.len()));
     let title = format!(" Preview · {} · match {nth} of {of} ", hit.location());

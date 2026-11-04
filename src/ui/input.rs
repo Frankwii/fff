@@ -231,20 +231,16 @@ fn focused_text<'a>(
 }
 /// The focused field and a copy of its text, for activating it in Neovim.
 pub(super) fn text_field(app: &mut App, focus: &mut Focus) -> Option<(Field, String)> {
-    focused_text(focus, &mut app.query, app.running.grep_mut())
+    let contents = app.program().searches_contents();
+    focused_text(focus, &mut app.query, contents.then_some(&mut app.grep))
         .map(|(text, field)| (field, text.clone()))
 }
 /// The focused text changed: filtered lists go back to their first row, the
 /// go-to prompt's chosen suggestion is dropped, and the results follow the query.
 fn text_changed(app: &mut App, focus: &mut Focus) {
     match focus {
-        Focus::Results if app.running.grep().is_some_and(|g| g.editing) => {
-            let text = app
-                .running
-                .grep()
-                .map(|g| g.text.clone())
-                .unwrap_or_default();
-            app.set_contents(text);
+        Focus::Results if app.typing_contents() => {
+            app.set_contents(app.grep.text.clone());
         }
         Focus::Results => {
             app.offset = 0;
@@ -262,7 +258,10 @@ fn text_changed(app: &mut App, focus: &mut Focus) {
 /// Type `key` into the focused text field (also to replay an unmatched
 /// sequence prefix there).
 pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: KeyEvent) {
-    let Some((text, field)) = focused_text(focus, &mut app.query, app.running.grep_mut()) else {
+    let contents = app.program().searches_contents();
+    let Some((text, field)) =
+        focused_text(focus, &mut app.query, contents.then_some(&mut app.grep))
+    else {
         return;
     };
     let before = text.clone();
@@ -280,7 +279,10 @@ pub(super) fn deliver(app: &mut App, focus: &mut Focus, editor: &mut Nvim, key: 
 /// Paste into the focused text field. Single-line fields take line breaks
 /// as spaces.
 pub(super) fn paste_text(app: &mut App, focus: &mut Focus, editor: &mut Nvim, pasted: &str) {
-    let Some((text, field)) = focused_text(focus, &mut app.query, app.running.grep_mut()) else {
+    let contents = app.program().searches_contents();
+    let Some((text, field)) =
+        focused_text(focus, &mut app.query, contents.then_some(&mut app.grep))
+    else {
         return;
     };
     let pasted = if matches!(field, Field::Exclusions | Field::Filters | Field::Operation) {

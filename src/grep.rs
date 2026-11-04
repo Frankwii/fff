@@ -825,7 +825,7 @@ impl Drop for Search {
     }
 }
 
-/// `fff grep`'s state: the contents query, its search and the rows it shows.
+/// The contents query, its search and the rows it shows.
 #[derive(Default)]
 pub struct Grep {
     /// The contents query, as typed.
@@ -850,7 +850,6 @@ pub struct Grep {
 impl Grep {
     pub fn new() -> Self {
         Self {
-            editing: true,
             cache: cache_dir(),
             ..Self::default()
         }

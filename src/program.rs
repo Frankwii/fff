@@ -1,9 +1,10 @@
 //! The program a session runs as. `fff roam`, `pick`, `seek` and `grep`,
 //! a window of its own and the file dialogs are one session; what differs
 //! between them is said here, by `Program`'s methods, and what only one of
-//! them keeps (`fff grep`'s search, a dialog's question) lives in its
-//! variant of [`Running`], so that it cannot outlast the program.
-use crate::{explorer::Dialog, grep::Grep};
+//! them keeps (a dialog's question) lives in its variant of [`Running`], so
+//! that it cannot outlast the program. The contents query is the session's,
+//! in every program but the dialogs.
+use crate::explorer::Dialog;
 
 /// What a session runs as: the command fff was started as, or the one
 /// `switch_program` went on as. Where keys apply is told by it (a keymap
@@ -63,6 +64,16 @@ impl Program {
             Self::ExplorerOpen | Self::ExplorerMultiple | Self::ExplorerFolder | Self::ExplorerSave
         )
     }
+    /// It has a contents query beside the names query: all but the file
+    /// dialogs, whose query is their question's.
+    pub fn searches_contents(self) -> bool {
+        !self.dialog()
+    }
+    /// The contents query is shown even while empty, and typed into first:
+    /// `fff grep`, which chooses files by it.
+    pub fn contents_first(self) -> bool {
+        self == Self::Grep
+    }
     /// It starts ready to type: a choice of files, or a save dialog's name.
     pub fn starts_typing(self) -> bool {
         matches!(
@@ -106,22 +117,20 @@ pub enum Running {
     Window,
     Pick,
     Seek,
-    /// The contents query and its search.
-    Grep(Box<Grep>),
+    Grep,
     /// The file dialog being answered: Enter chooses files in either mode
     /// and q cancels.
     Dialog(Dialog),
 }
 impl Running {
-    /// Runs as `program`, which is not a dialog (`Running::Dialog`); `fff
-    /// grep` starts with `grep`.
-    pub fn new(program: Program, grep: impl FnOnce() -> Grep) -> Self {
+    /// Runs as `program`, which is not a dialog (`Running::Dialog`).
+    pub fn new(program: Program) -> Self {
         match program {
             Program::Roam => Self::Roam,
             Program::Window => Self::Window,
             Program::Pick => Self::Pick,
             Program::Seek => Self::Seek,
-            Program::Grep => Self::Grep(Box::new(grep())),
+            Program::Grep => Self::Grep,
             dialog => unreachable!("{dialog:?} runs with its dialog"),
         }
     }
@@ -131,20 +140,8 @@ impl Running {
             Self::Window => Program::Window,
             Self::Pick => Program::Pick,
             Self::Seek => Program::Seek,
-            Self::Grep(_) => Program::Grep,
+            Self::Grep => Program::Grep,
             Self::Dialog(dialog) => dialog.program(),
-        }
-    }
-    pub fn grep(&self) -> Option<&Grep> {
-        match self {
-            Self::Grep(grep) => Some(grep),
-            _ => None,
-        }
-    }
-    pub fn grep_mut(&mut self) -> Option<&mut Grep> {
-        match self {
-            Self::Grep(grep) => Some(grep),
-            _ => None,
         }
     }
     pub fn dialog(&self) -> Option<&Dialog> {
