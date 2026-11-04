@@ -60,7 +60,7 @@ pub(super) fn footer(frame: &mut Frame, area: Rect, app: &App, focus: &Focus) {
         let name = selected.map_or(theme.text, |p| {
             let info = app.details.info(p);
             let directory = info.as_ref().is_some_and(|i| i.directory);
-            info_color(theme, info.as_ref(), directory)
+            name_color(theme, p, info.as_ref(), directory)
         });
         let mut spans = vec![
             Span::raw(" "),

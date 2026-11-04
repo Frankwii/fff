@@ -17,9 +17,12 @@ history.
   to the latest one while it runs. Quitting asks before stopping them.
   Folders being moved or deleted cannot be entered meanwhile, and files being
   changed are not opened or given to programs.
-- **Copies and extractions being written are shown in the `marked` color**
-  (their hidden `.fff-stage-*` folders, with hidden entries shown), and
-  content searches and live updates leave them out.
+- **Copies and extractions being written stand out**: with hidden entries
+  shown, their `.fff-stage-*` folders and the folders in them use the new
+  `staged_folder` palette color (pink in the built-in palettes), and the
+  files in them `marked`. Content searches and live updates leave them out.
+- **K (Alt+K) focuses and leaves the marked list**, beside J for the jobs
+  list; Alt+Space still does too.
 
 ### Changed
 

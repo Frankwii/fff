@@ -41,8 +41,21 @@ fn result_names_are_colored_by_file_kind() {
     std::os::unix::fs::symlink("plain", root.join("link")).unwrap();
     std::os::unix::fs::symlink("folder", root.join("dirlink")).unwrap();
     std::os::unix::fs::symlink("gone", root.join("broken")).unwrap();
-    let mut app = App::browse(root.clone(), 1, crate::Policy::default());
+    // A copy still being written: its staging folder and what is in it.
+    std::fs::create_dir_all(root.join(".fff-stage-1-2-3/copied")).unwrap();
+    std::fs::write(root.join(".fff-stage-1-2-3/copied/half"), "x").unwrap();
+    let mut app = App::browse(
+        root.clone(),
+        3,
+        crate::Policy {
+            hidden: true,
+            ..Default::default()
+        },
+    );
     for (name, directory) in [
+        (".fff-stage-1-2-3", true),
+        (".fff-stage-1-2-3/copied", true),
+        (".fff-stage-1-2-3/copied/half", false),
         ("broken", false),
         ("empty", false),
         ("plain", false),
@@ -56,7 +69,7 @@ fn result_names_are_colored_by_file_kind() {
             Candidate {
                 path: root.join(name),
                 directory,
-                depth: 1,
+                depth: name.split('/').count(),
                 root: 0,
             },
         );
@@ -97,6 +110,26 @@ fn result_names_are_colored_by_file_kind() {
     assert_eq!(color_of("dirlink/"), theme.link);
     assert_eq!(color_of("folder/"), theme.accent);
     assert_eq!(color_of("broken"), theme.error);
+    assert_eq!(color_of(".fff-stage-1-2-3/"), theme.staged_folder);
+    // Labelled by path, the parent folders are muted; the name is colored.
+    let name_color = |label: &str, name: &str| {
+        let row = (0..buffer.area.height)
+            .find(|&y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .contains(&format!(" {label}"))
+            })
+            .unwrap_or_else(|| panic!("{label} not shown"));
+        let line = (0..buffer.area.width)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect::<String>();
+        let start = line.find(&format!(" {label}")).unwrap() + 1 + label.rfind(name).unwrap();
+        buffer[(line[..start].chars().count() as u16, row)].fg
+    };
+    assert_eq!(name_color(".fff-stage-1-2-3/copied/", "copied"), theme.staged_folder);
+    assert_eq!(name_color(".fff-stage-1-2-3/copied/half", "half"), theme.marked);
+    assert_ne!(theme.staged_folder, theme.marked);
     let shown = text(buffer);
     assert!(shown.contains("link → plain"), "{shown}");
     assert!(shown.contains("dirlink/ → folder"), "{shown}");

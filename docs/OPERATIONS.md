@@ -114,13 +114,15 @@ While an operation runs, the folders it moves away or deletes cannot be
 entered (going back skips them), and the files it changes are not opened,
 edited or given to a program (`gx`). A copy or extraction is written into a
 hidden `.fff-stage-*` folder beside its destination and appears under its
-name only once complete; with hidden entries shown, those folders and what
-is in them are drawn in the `marked` color, and content searches and live
+name only once complete; with hidden entries shown, those folders and the
+folders in them are drawn in the `staged_folder` color (pink in the built-in
+palettes) and the files in them in `marked`, and content searches and live
 updates leave them out. Live updates rescan folders at most once a second
 while operations run.
 
 `toggle_job_list` (**J**, Alt+J) focuses the jobs list and leaves it again.
-There **j** and **k** (or the arrows) move, Esc goes back, and **x** stops the
+There **j** and **k** (or the arrows) move, Esc goes back, the marked list's
+key (**K**) goes to that list, and **x** stops the
 highlighted operation and undoes what it had done: it stops as soon as
 stopping changes nothing (during the checks, while a copy or an extraction is
 still being staged, which is discarded, or between entries of a permanent

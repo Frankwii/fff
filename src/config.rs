@@ -27,6 +27,9 @@ pub struct Palette {
     pub empty: Color,
     /// Function names, wherever keys are shown or changed.
     pub function: Color,
+    /// Folders a copy or extraction is still writing (`.fff-stage-*` and
+    /// those in them); such files use `marked`.
+    pub staged_folder: Color,
 }
 impl Default for Palette {
     fn default() -> Self {
@@ -72,6 +75,7 @@ impl Palette {
             executable: c[7],
             empty: c[8],
             function: c[8],
+            staged_folder: rgb(crate::palettes::staged_folder(name)),
         })
     }
     fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
@@ -104,6 +108,7 @@ impl Palette {
             "executable" => &mut self.executable,
             "empty" => &mut self.empty,
             "function" => &mut self.function,
+            "staged_folder" => &mut self.staged_folder,
             _ => return Err(format!("Unknown palette color: {key}")),
         } = color;
         Ok(())

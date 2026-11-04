@@ -87,7 +87,9 @@ vivid blue chosen to stand apart from the directory color, since many families
 use their own blue for directories: `#5f6fff` on dark palettes and `#2f2fd0` on
 light ones, with lighter or purer blues where a palette's directories are
 already blue (Solarized dark `#7a7aff`, Atelier Dune `#4040ff`, Gruvbox light
-`#1a3fe0`).
+`#1a3fe0`). Folders still being written by a copy or extraction use a pink
+that no other role uses: `#e88ad0` on dark palettes and `#b02c84` on light
+ones.
 Syntax-highlighting rules are not reproduced. The numeric mappings live
 in `src/palettes.rs`, with Fuzzy file finder's own palettes in `src/config.rs`.
 

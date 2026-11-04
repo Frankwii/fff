@@ -174,8 +174,10 @@ color for that role. Unspecified roles are inherited.
 | `executable` | Result names of regular files with any execute bit. Built-ins reuse `success`. |
 | `empty` | Result names of empty (zero-byte) regular files. Built-ins reuse `error`. |
 | `function` | Function names on the Keys screen (F1), in the `:` picker and where a key clashes. Built-ins reuse `error`. |
+| `staged_folder` | Names of folders a copy or extraction is still writing (`.fff-stage-*` and the folders in it, listed with hidden entries); the files in them use `marked`. Built-ins use a pink no other role uses. |
 
-Result names use the first matching role: `link`, `accent` for directories,
+Result names use the first matching role: `staged_folder` or `marked` for
+what an operation is still writing, `link`, `accent` for directories,
 `empty`, `executable`, then `text`. Only visible rows are inspected, so the
 colors follow the file's current state without slowing discovery. A custom
 palette that overrides `success` or `error` keeps the inherited `executable`,

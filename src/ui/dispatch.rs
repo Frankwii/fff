@@ -689,20 +689,29 @@ impl Session {
     /// q, Q and ! in Normal mode; `current` leaves in the browsing directory.
     /// The jobs list's keys, fixed: j and k (or the arrows) move, x stops
     /// the highlighted operation and undoes what it did, u does the same and
-    /// marks its entries again, Esc (or the key that opened it) goes back.
+    /// marks its entries again, Esc (or the key that opened it) goes back,
+    /// and the marked list's key goes to that list.
     fn jobs_key(&mut self, app: &mut App, key: KeyEvent) {
         let Focus::Jobs { index } = &mut self.focus else {
             return;
         };
         let count = app.jobs.len();
         *index = (*index).min(count.saturating_sub(1));
-        let toggles = app
-            .keymap
-            .of(Function::ToggleJobList, keymap::Mode::Normal)
-            .iter()
-            .any(|b| b.keys.len() == 1 && b.keys[0].takes(keymap::Key::press(key)));
+        let bound = |function| {
+            app.keymap
+                .of(function, keymap::Mode::Normal)
+                .iter()
+                .any(|b| b.keys.len() == 1 && b.keys[0].takes(keymap::Key::press(key)))
+        };
         match key.code {
-            _ if toggles => self.focus = Focus::Results,
+            _ if bound(Function::ToggleJobList) => self.focus = Focus::Results,
+            // The marked list's key goes there, as from the results.
+            _ if bound(Function::ToggleMarkedList) && key.code != K::Esc => {
+                self.focus = Focus::Marks {
+                    rows: app.marks.to_vec(),
+                    index: 0,
+                }
+            }
             K::Esc => self.focus = Focus::Results,
             K::Char('j') | K::Down => *index = cycle(*index, count, true),
             K::Char('k') | K::Up => *index = cycle(*index, count, false),

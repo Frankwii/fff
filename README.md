@@ -422,7 +422,7 @@ key says which one.
 | 1 … 9 in Normal | Search results to that depth |
 | Shift+Space / Space in Normal | Toggle mark; advance in results, past a file's other matches (Shift+Space needs a terminal that tells it from Space) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
-| Alt+Space | Focus / leave the marked list |
+| K / Alt+K / Alt+Space | Focus / leave the marked list (K in Normal mode) |
 | J / Alt+J | Focus / leave the [jobs list](docs/OPERATIONS.md#progress-and-stopping) of operations still running; x there stops one and undoes it |
 | Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer open-multiple`; nothing elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |

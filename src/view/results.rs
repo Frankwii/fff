@@ -225,7 +225,7 @@ pub(super) fn results_pane(
                 styled(if marked { "● " } else { "  " }, theme.marked),
                 styled(kind, icon_color(theme, group)),
             ];
-            let color = info_color(theme, info.as_ref(), c.directory);
+            let color = name_color(theme, &c.path, info.as_ref(), c.directory);
             // A file's further matches dim its name: the first one stands out.
             let color = if hit.is_some() && i > 0 && std::sync::Arc::ptr_eq(visible[i - 1], c) {
                 theme.muted
@@ -332,11 +332,21 @@ pub(super) fn info_color(
 /// A listed path's color, from the details read in the background: drawing
 /// never waits for the filesystem.
 pub(super) fn path_color(app: &App, path: &Path, directory: bool) -> Color {
-    // Being written: a copy or extraction not yet in place.
-    if crate::operations::staged(path) {
-        return app.palette.marked;
+    name_color(app.palette, path, app.details.info(path).as_ref(), directory)
+}
+/// A listed name's color: what a copy or extraction is still writing (not
+/// yet in place) stands out, folders and files apart; otherwise its kind.
+pub(super) fn name_color(
+    theme: Palette,
+    path: &Path,
+    info: Option<&crate::details::Info>,
+    directory: bool,
+) -> Color {
+    match crate::operations::staged(path) {
+        true if directory => theme.staged_folder,
+        true => theme.marked,
+        false => info_color(theme, info, directory),
     }
-    info_color(app.palette, app.details.info(path).as_ref(), directory)
 }
 /// Each column's width, so that columns line up from row to row.
 pub(super) fn column_width(column: Column) -> usize {

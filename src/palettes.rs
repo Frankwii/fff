@@ -184,6 +184,14 @@ pub fn colors(name: &str) -> Option<[u32; 12]> {
         _ => return None,
     })
 }
+/// Folders still being written use a pink that no other role uses.
+pub fn staged_folder(name: &str) -> u32 {
+    match name {
+        "light" | "catppuccin-latte" | "tokyonight-day" | "everforest-light" | "rose-pine-dawn"
+        | "solarized-light" | "ayu-light" | "gruvbox-light" => 0xb02c84,
+        _ => 0xe88ad0,
+    }
+}
 /// Symbolic links use a vivid blue that stands apart from the directory color,
 /// even where a family's own blue is its directory accent.
 pub fn link(name: &str) -> u32 {
