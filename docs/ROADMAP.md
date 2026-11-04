@@ -117,31 +117,40 @@ that inserts `fff pick`'s choice at the cursor (`fzf`'s Ctrl+t), and a
 
 ### Faster scanning
 
-Listing a large tree takes several times as long as `fd`: about 0.85
+Listing a large tree takes several times as long as `fd`: about 0.86
 seconds for the 620,000 entries of `/usr` (headless, until the rows are
-settled), against 0.15, so a query typed at once waits for the scan to reach
-its match. Each depth's folders are read on several threads, and paths are
-attributed to their roots there, which took the walk out of the way (1.0
-seconds before); what remains is the interface thread:
+settled; `tests/scan_timing.rs`), against 0.15, and 1.1 seconds in a
+terminal with the frames drawn meanwhile, so a query typed at once waits
+for the scan to reach its match. In `fff pick`, with its labels, it takes
+2.3 seconds headless and 2.8 in a terminal. Each depth's folders are read on
+several threads, and paths are attributed to their roots there, which took
+the walk out of the way; the rows are kept as sorted runs merged lazily (see
+[how rows are kept](DEVELOPMENT.md#how-rows-are-kept-and-ordered)), so a
+batch no longer moves the rows ranked before it (inserting `/usr`'s paths
+took 0.11 seconds in `fff roam` and 0.17 in `fff pick`, now 0.1 and 0.09).
+What remains is the interface thread:
 
-- Storing each path among the known ones takes about 0.55 seconds of it.
+- Storing each path among the known ones takes about 0.5 seconds of it.
   This is memory latency, not hashing: a faster hasher and keys sharing the
   candidate's path were tried and changed nothing measurable, since each
   lookup follows pointers through a table of 620,000 entries.
-- Merging every batch into the fully sorted rows takes about 0.3 seconds.
-  Kept as fzf keeps its input, in chunks sorted on their own and merged only
-  as far as the screen shows, a batch would cost little more than appending
-  it. Whatever needs every row in order (`G`, the count, `m`, batch rename,
-  the printed marks) would finish the merge first, so nothing changes in
-  what fff lists or does.
+- Filtering, scoring and sorting each round of new paths takes about 0.12
+  seconds in `fff roam`; in `fff pick`, grouping them by name for the labels
+  adds about 0.6, and relabelling the groups they change about 0.95 (see
+  below). Pushing the sorted rounds as runs, and merging the runs as they
+  double, takes the 0.1 seconds above; merging three or four runs at once
+  instead of two would move each row about half as often.
 - **Limiting redraws while a scan runs.** Each batch merged marks the screen
-  as changed, and the session loop draws on its next pass, so a large scan
-  is drawn about as often as batches arrive, on the same interface thread
-  that stores and merges them. Drawing at most every few tens of
-  milliseconds while scanning (and at once after a key, as now), or only
-  when what the screen shows changed (the rows in view, the count, the
-  progress marker), would leave that time to the merge. What those frames
-  cost over `/usr` has not been measured yet.
+  as changed, and the session loop draws on its next pass: a scan of `/usr`
+  draws about 115 frames in `fff roam` and 400 in `fff pick`, on the same
+  interface thread that stores and merges the paths. They, with starting
+  Neovim, are the 0.25 to 0.5 seconds the terminal adds to the headless
+  time; what each frame costs alone has not been measured.
+  Drawing at most every few tens of milliseconds while scanning (and at once
+  after a key, as now), or only when what the screen shows changed (the rows
+  in view, the count, the progress marker), would leave that time to the
+  scan. Frames read only the rows in view from the runs, so they no longer
+  grow with the listing.
 
 How close this can come to fzf. Once a tree is listed, nothing in fff
 needs a slower algorithm than fzf's: each keystroke scores the same names

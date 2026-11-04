@@ -4,6 +4,16 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Listing a large tree is a little faster**: paths arriving from a scan no
+  longer move the results already ranked. `/usr`'s 620,000 entries are
+  listed in about 1.1 s instead of 1.2 in `fff roam`, and 2.8 s instead of
+  3.1 in `fff pick`. Nothing listed, its order or what keys do with it
+  changes.
+
 ## 0.18.0 — 2026-11-04
 
 fff stays usable while file operations run, `fff setup` reports read more
