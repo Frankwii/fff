@@ -77,6 +77,81 @@ listed separately in the [roadmap](ROADMAP.md).
   colors keep to the same rule: a read waits at most 50 ms for them before
   showing the text plain.
 
+## How rows are kept and ordered
+
+The results are the known paths a query matches (`App::known`, every path
+scans delivered), ranked in one order. `src/rows.rs` holds that order and
+the rows; `App::refresh` decides when they are ranked again or merged.
+
+- **The order** is one value, `rows::Order`, which every comparison of rows
+  goes through (`Order::cmp`, on a row and its match score). Today it has
+  two variants, chosen by the program (`Program::order`, read as
+  `App::order`): `Depth` (depth, folders first, best match, root order, then
+  the path's bytes, which break every tie) and `Score` (`fff pick` and `fff
+  seek`: best match first, then as `Depth`). The order is part of what the
+  rows were ranked for (`RefreshBasis`), so another order ranks them again.
+- **The rows** (`rows::Rows`) are sorted runs (`Run`: rows and their scores,
+  in order), each sorted on its own. A ranking produces one run. A scan's
+  new paths are filtered, scored and sorted in rounds (`App::merge`), and
+  each round is pushed as a run of its own: no row already ranked moves.
+  Runs are merged pairwise as they are pushed only while the one before is
+  not more than twice as large, so there are about log₂ of the rows over
+  the round size of them (a dozen for `/usr`), the largest first, and each
+  row is moved once per doubling (a merge takes whole stretches of a run
+  that rank before the other's next row, found by searching, rather than
+  comparing row by row).
+- **Lazy merging.** Reading the first rows (`Rows::row`, `iter_from`,
+  `position`, up to `rows::LAZY` of them) merges the runs' fronts on the
+  fly, without changing them: what a frame draws (the rows in view, those
+  a page above and below, the highlight) costs about what it shows, times
+  the number of runs. Reading deeper, or every row, merges every run once
+  (`Rows::all`), kept until the rows change again.
+- **Every row in order** goes through one function: `App::shown` (the rows,
+  or a contents query's matches), which calls `Rows::all`. `Rows` also
+  dereferences to that slice (so `app.rows[0]` and `app.rows.iter()` read
+  the full order); nothing can read a half-merged list. The count
+  (`App::shown_len`, `Rows::len`) needs no merging. What reads every row,
+  or rows past the screen, in order:
+  - `G` and `gg` (`move_by` to an end), `PageDown` near the end (the offset
+    clamped to the count), the wheel's clamp, single steps that wrap;
+  - `m`/`M` and batch rename `r` (`shown_paths`), the marks they make and
+    so what is printed;
+  - Alt/Ctrl+number (`highlight_numbered`), through the drawn rows and the
+    highlight;
+  - the mouse: clicks (`highlight_row`), drags and the drag held at an edge
+    (`ui/mouse.rs` `drag`, over `shown`);
+  - the contents query, which queues the listed files in order and lists
+    its matches by them (`poll_grep`);
+  - the discovery cache's snapshot of the first rows (`Cache::capture`) and
+    the rows a new scan replays (`Discovery::restart`);
+  - the F2 Session tab's highlighted path, the highlight's index
+    (`highlighted`, by a hint, then by search) and `move_past`.
+- **Kept queries** (`earlier`) keep a clone of the rows (shared runs) with
+  their scores, so that returning to one restores its rows and later merges
+  rank against their kept scores. A change to the listing drops them.
+- **Rankings on another thread** (`ranking.rs`) score a snapshot of the
+  rows or of every known path (`Job::base`, shared runs) in parallel
+  pieces, sort each and merge them there into the one run they hand back.
+
+Where the features of the [roadmap](ROADMAP.md#post-launch) plug in:
+
+- **Sorting**: a variant of `Order` with its comparison in `Order::cmp`,
+  chosen in `App::order` instead of the program's. A key the rows do not
+  carry (size, dates) has to be read before ranking, since comparisons
+  never touch the filesystem.
+- **A tree view**: an order comparing paths by their components (a folder
+  before its contents, siblings by name), with the listing also keeping the
+  folders leading to each match (`Listing::listed`, `App::listed`).
+- **Folders as matches**: what a row matches and how well is
+  `Matcher::score_candidate` (`src/matching.rs`), called by `Job::rank_piece`
+  and `App::merge`; the order then sorts by that score.
+
+Risks this design carries: a reader past the first `LAZY` rows while a scan
+adds paths merges every run on each change (as costly as before, not more);
+`Rows::all` copies the row pointers when there is more than one run;
+kept queries and pending rankings share runs, so pushing to rows they share
+copies the run being merged, as it did before.
+
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
@@ -191,6 +266,7 @@ build`). `src/view/tests.rs` draws frames at a given size (`draw(&mut app,
 For behavior changes:
 
 ```sh
+cargo fmt --check
 cargo test --offline
 cargo clippy --offline --all-targets -- -D warnings
 cargo build --offline
