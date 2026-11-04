@@ -4,6 +4,14 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **`exclusions on` is not shown for the configuration's own exclusions**:
+  only once the list differs from `[exclusions] rules` (Alt+e or
+  `--exclude`).
+
 ## 0.16.1 — 2026-11-04
 
 Exclusions in the configuration and for one place, long names that keep

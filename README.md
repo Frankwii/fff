@@ -232,8 +232,8 @@ basenames or scope-relative paths, with literal separators; one starting with
 `/` or `~/` matches absolute paths (`~/backup`). No automatic `.gitignore`
 integration is enabled.
 The query box's bottom border shows `filters on` and `exclusions on` only
-while filters or exclusion rules exist and are applied; F2's session details list
-their globs. It also shows discovery progress while a scan runs and for three
+while filters or exclusion rules exist and are applied (exclusions not when they
+are exactly the configuration's); F2's session details list their globs. It also shows discovery progress while a scan runs and for three
 seconds after it completes (`◌ partial` stays while a scan stopped at
 `max_paths`). `files only` or `folders only` appear beside the results' count.
 Symlink directories can be selected or entered; recursive discovery does not

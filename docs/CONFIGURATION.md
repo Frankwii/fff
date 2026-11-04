@@ -111,7 +111,8 @@ there.
 They are the first lines of the session's exclusion list, so Alt+e edits and
 removes them for the session (the file is not written) and Alt+H turns them
 all off; each `--exclude` adds a line after them. `--no-config` leaves them
-out, and `--resume` brings back the list the last session had. When `gc`
+out, and `--resume` brings back the list the last session had. The query box's
+`exclusions on` stays away while the list is exactly these rules. When `gc`
 changes them, the file's new rules replace the old ones at the top of the
 list and the session's own lines stay below them.
 

@@ -1277,6 +1277,15 @@ fn location_line_sits_between_filter_and_results_with_status_on_border() {
         "{screen}"
     );
     assert!(!screen.contains("*.tex"), "{screen}");
+    // The configuration's exclusions alone are not named.
+    app.config_rules = vec!["build".into()];
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(!screen.contains("exclusions"), "{screen}");
+    app.policy
+        .set_rules(vec!["build".into(), "*.log".into()])
+        .unwrap();
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("exclusions on"), "{screen}");
     app.policy.ignore = false;
     let (screen, _) = draw(&mut app, 120, 26);
     assert!(!screen.contains("exclusions"), "{screen}");

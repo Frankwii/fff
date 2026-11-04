@@ -653,7 +653,8 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     if app.policy.hidden {
         optional.push(styled("hidden shown", theme.accent));
     }
-    if app.policy.ignore && !app.policy.rules.is_empty() {
+    // The configuration's own exclusions, unchanged, are not news.
+    if app.policy.ignore && !app.policy.rules.is_empty() && app.policy.rules != app.config_rules {
         optional.push(styled("exclusions on", theme.accent));
     }
     let mut keep = optional.len();
