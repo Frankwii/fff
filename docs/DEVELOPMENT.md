@@ -101,12 +101,16 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   row is moved once per doubling (a merge takes whole stretches of a run
   that rank before the other's next row, found by searching, rather than
   comparing row by row).
-- **Lazy merging.** Reading the first rows (`Rows::row`, `iter_from`,
-  `position`, up to `rows::LAZY` of them) merges the runs' fronts on the
-  fly, without changing them: what a frame draws (the rows in view, those
-  a page above and below, the highlight) costs about what it shows, times
-  the number of runs. Reading deeper, or every row, merges every run once
-  (`Rows::all`), kept until the rows change again.
+- **Lazy merging.** The first `rows::LAZY` rows (2048) are kept merged
+  as runs are pushed (`Rows::head`: the new run's first rows merged into
+  them, when any rank before their last), so reading them (`Rows::row`,
+  `iter_from`, `position`) costs what reading a slice does: what a frame
+  draws (the rows in view, those a page above and below, the highlight) is
+  there. Reading past them, or every row, merges every run once
+  (`Rows::all`); from then on the rows stay merged, each new round inserted
+  among them in place (`rows::insert`, moving the rows after it, as before
+  runs), until a ranking replaces them. Reading past the last row merges
+  nothing.
 - **Every row in order** goes through one function: `App::shown` (the rows,
   or a contents query's matches), which calls `Rows::all`. `Rows` also
   dereferences to that slice (so `app.rows[0]` and `app.rows.iter()` read
@@ -147,15 +151,13 @@ Where the features of the [roadmap](ROADMAP.md#post-launch) plug in:
   `Matcher::score_candidate` (`src/matching.rs`), called by `Job::rank_piece`
   and `App::merge`; the order then sorts by that score.
 
-Risks this design carries: while a scan adds paths, a reader past the
-first `LAZY` rows (the view scrolled that far, the highlight there, a
-contents query, a mouse drag) merges every run again after each round,
-copying every row pointer: more than the old insertion, which moved only the
-rows after the new ones, though still bounded by the number of rows.
-Reading row `i` near the front costs `i` times the number of runs.
-`Rows::all` copies the row pointers when there is more than one run. Kept
-queries and pending rankings share runs, so merging a run they share copies
-it, as it did before.
+Risks this design carries: once anything reads past the first `LAZY` rows
+(the view scrolled that far, the highlight there, `G`, a contents query, a
+mouse drag), the rest of the scan merges as it did before runs, no slower
+and no faster. The first `LAZY` rows are copied into `head` and merged
+again with each round that ranks among them. `Rows::all` copies the row
+pointers when there is more than one run. Kept queries and pending rankings
+share runs, so merging a run they share copies it, as it did before.
 
 ## Behavior to preserve
 

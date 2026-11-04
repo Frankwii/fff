@@ -117,7 +117,7 @@ that inserts `fff pick`'s choice at the cursor (`fzf`'s Ctrl+t), and a
 
 ### Faster scanning
 
-Listing a large tree takes several times as long as `fd`: about 0.86
+Listing a large tree takes several times as long as `fd`: about 0.89
 seconds for the 620,000 entries of `/usr` (headless, until the rows are
 settled; `tests/scan_timing.rs`), against 0.15, and 1.1 seconds in a
 terminal with the frames drawn meanwhile, so a query typed at once waits
