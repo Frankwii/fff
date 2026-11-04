@@ -61,51 +61,150 @@ impl Dirs {
     }
 }
 
-/// Runs one setup, reporting each step to `out`. `terminal` is the
+/// Runs one setup, reporting each step. `terminal` is the
 /// `[open] fff_terminal` command, split into words.
 pub fn run(
     target: Target,
     dirs: &Dirs,
     fff: &Path,
     terminal: &[String],
-    out: &mut dyn Write,
+    report: &mut Report,
 ) -> Result<(), String> {
     let fff = fff
         .to_str()
         .filter(|s| !s.contains('\n'))
         .ok_or_else(|| format!("{}: unsupported path for a launcher", fff.display()))?;
     match target {
-        Target::Desktop => desktop(dirs, fff, terminal, out),
-        Target::FileChooser => file_chooser(dirs, fff, terminal, out),
+        Target::Desktop => desktop(dirs, fff, terminal, report),
+        Target::FileChooser => file_chooser(dirs, fff, terminal, report),
     }
     .and_then(|()| {
-        writeln!(
-            out,
-            "fff: its window opens with `{}` ([open] fff_terminal); to float it, add a \
-             window manager rule, e.g. for i3:\n  \
-             for_window [class=\"fff-picker\"] floating enable, resize set 1500 1000, \
-             move position center",
+        report.step(&format!(
+            "fff opens in `{}` ([open] fff_terminal). To float its window, add a window \
+             manager rule; for i3:",
             terminal.join(" ")
+        ))?;
+        report.command(
+            "for_window [class=\"fff-picker\"] floating enable, resize set 1500 1000, \
+             move position center",
         )
     })
     .map_err(|e| e.to_string())
 }
 
-/// What is wrong with the desktop integration set up earlier, if it was:
-/// files fff wrote that are missing or differ from what setup would write
-/// now (another binary, options that changed, another terminal), and, with
-/// the file chooser set up, an environment in which Qt applications draw
-/// their own dialog. `var` reads this environment.
+/// What setup prints, on stderr: a heading per part, a line per file or
+/// finding marked by how it went, and the steps left to do by hand. Colors
+/// only on a terminal; paths in the home directory start with `~`.
+pub struct Report<'a> {
+    out: &'a mut dyn Write,
+    color: bool,
+    home: Option<PathBuf>,
+    started: bool,
+    /// Whether "Next" was printed, so steps share it.
+    next: bool,
+}
+
+impl<'a> Report<'a> {
+    pub fn new(out: &'a mut dyn Write, color: bool, home: Option<PathBuf>) -> Self {
+        Self {
+            out,
+            color,
+            home,
+            started: false,
+            next: false,
+        }
+    }
+    fn paint(&self, code: &str, text: &str) -> String {
+        if self.color {
+            format!("\x1b[{code}m{text}\x1b[0m")
+        } else {
+            text.to_owned()
+        }
+    }
+    /// A path as shown: `~/...` below the home directory.
+    pub fn path(&self, path: &Path) -> String {
+        match self.home.as_deref().and_then(|h| path.strip_prefix(h).ok()) {
+            Some(rest) if !rest.as_os_str().is_empty() => format!("~/{}", rest.display()),
+            _ => path.display().to_string(),
+        }
+    }
+    pub fn heading(&mut self, text: &str) -> io::Result<()> {
+        if self.started {
+            writeln!(self.out)?;
+        }
+        self.started = true;
+        self.next = false;
+        let text = self.paint("1", text);
+        writeln!(self.out, "{text}")
+    }
+    /// Something done or found as it should be.
+    pub fn done(&mut self, text: &str) -> io::Result<()> {
+        let mark = self.paint("32", "✓");
+        writeln!(self.out, "  {mark} {text}")
+    }
+    /// Something left as it was.
+    pub fn same(&mut self, text: &str) -> io::Result<()> {
+        let line = self.paint("2", &format!("· {text}"));
+        writeln!(self.out, "  {line}")
+    }
+    pub fn warn(&mut self, text: &str) -> io::Result<()> {
+        let mark = self.paint("33;1", "!");
+        writeln!(self.out, "  {mark} {text}")
+    }
+    /// A step left to do, under a shared "Next" heading.
+    pub fn step(&mut self, text: &str) -> io::Result<()> {
+        if !self.next {
+            self.heading("Next")?;
+            self.next = true;
+        }
+        writeln!(self.out, "  • {text}")
+    }
+    /// A command or line to copy, below the line it belongs to.
+    pub fn command(&mut self, text: &str) -> io::Result<()> {
+        let text = self.paint("36", text);
+        writeln!(self.out, "      {text}")
+    }
+    /// A file setup wrote (or edited), or found already as it would write it.
+    fn file(&mut self, path: &Path, written: bool, verb: &str) -> io::Result<()> {
+        let path = self.path(path);
+        if written {
+            self.done(&format!("{verb} {path}"))
+        } else {
+            self.same(&format!("unchanged {path}"))
+        }
+    }
+}
+
+/// One part of `fff setup --check-config`'s report.
+#[derive(Debug)]
+pub struct Section {
+    pub title: &'static str,
+    pub findings: Vec<Finding>,
+}
+#[derive(Debug, PartialEq)]
+pub enum Finding {
+    Fine(String),
+    /// What is wrong, and the command that fixes it.
+    Problem(String, Option<String>),
+}
+
+/// The desktop integration set up earlier, if it was: whether the files fff
+/// wrote are what setup would write now (the same binary, options and
+/// terminal), whether folders still open in fff (`folders` asks for the
+/// default application of directories, None when it cannot tell), and, with
+/// the file chooser set up, whether Qt applications ask the portal for their
+/// dialogs. `var` reads this environment.
 pub fn check(
     dirs: &Dirs,
     fff: &Path,
     terminal: &[String],
     var: impl Fn(&str) -> Option<String>,
-) -> Vec<String> {
+    folders: impl Fn() -> Option<String>,
+) -> Vec<Section> {
     let Some(fff) = fff.to_str() else {
         return vec![];
     };
-    let mut problems = vec![];
+    let mut sections = vec![];
     let launcher = dirs.data_home.join("fff/open-folder");
     let launcher_text = launcher.to_str().unwrap_or_default();
     let service = dirs
@@ -124,7 +223,10 @@ pub fn check(
         (service, dbus_service(fff, launcher_text)),
     ];
     let chooser = [(wrapper, wrapper_script(fff, terminal))];
-    for (files, setup) in [(&desktop[..], "--desktop"), (&chooser[..], "--browser")] {
+    for (files, setup, title) in [
+        (&desktop[..], "--desktop", "Opening folders (fff setup --desktop)"),
+        (&chooser[..], "--browser", "File dialogs (fff setup --browser)"),
+    ] {
         // Only what fff wrote counts: another program's file is not fff's to judge.
         let written: Vec<_> = files
             .iter()
@@ -133,6 +235,7 @@ pub fn check(
         if !written.iter().any(|(_, _, has)| has.as_ref().is_some_and(|t| t.contains(MARKER))) {
             continue;
         }
+        let mut findings = vec![];
         let stale: Vec<String> = written
             .iter()
             .filter(|(_, want, has)| has.as_deref() != Some(want.as_str()))
@@ -150,18 +253,43 @@ pub fn check(
                 format!("{} ({how})", path.display())
             })
             .collect();
-        if !stale.is_empty() {
-            problems.push(format!(
-                "fff setup {setup} wrote files that are not what it writes now: {}; \
-                 run fff setup {setup} again",
-                stale.join(", ")
-            ));
+        findings.push(if stale.is_empty() {
+            Finding::Fine("the files it wrote are up to date".into())
+        } else {
+            Finding::Problem(
+                format!("files it wrote differ from what it writes now: {}", stale.join(", ")),
+                Some(format!("fff setup {setup}")),
+            )
+        });
+        if setup == "--desktop" {
+            findings.extend(folders().map(|default| match default.as_str() {
+                DESKTOP_ID => Finding::Fine(format!("folders open in fff ({DESKTOP_ID})")),
+                "" => Finding::Problem(
+                    "no application opens folders; xdg-open will not reach fff".into(),
+                    Some(format!("xdg-mime default {DESKTOP_ID} inode/directory")),
+                ),
+                other => Finding::Problem(
+                    format!("folders open in {other}, not fff"),
+                    Some(format!("xdg-mime default {DESKTOP_ID} inode/directory")),
+                ),
+            }));
+        } else {
+            findings.push(match qt_problem(&var) {
+                Some(problem) => Finding::Problem(problem, None),
+                None => Finding::Fine("Qt applications ask the portal for their dialogs".into()),
+            });
         }
-        if setup == "--browser" {
-            problems.extend(qt_problem(&var));
-        }
+        sections.push(Section { title, findings });
     }
-    problems
+    sections
+}
+/// The application xdg-open uses for folders, or None without xdg-mime.
+pub fn folder_default() -> Option<String> {
+    let output = Command::new("xdg-mime")
+        .args(["query", "default", "inode/directory"])
+        .output()
+        .ok()?;
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 /// Qt asks the portal for file dialogs only with its portal platform theme
 /// (or GTK's, with GTK told to use the portal), inside Flatpak, or when a
@@ -181,17 +309,20 @@ fn qt_problem(var: &impl Fn(&str) -> Option<String>) -> Option<String> {
     })
 }
 
-fn desktop(dirs: &Dirs, fff: &str, terminal: &[String], out: &mut dyn Write) -> io::Result<()> {
+fn desktop(dirs: &Dirs, fff: &str, terminal: &[String], report: &mut Report) -> io::Result<()> {
+    report.heading("Opening folders in fff")?;
+    // Asked first: the entry written below may answer it already.
+    let previous = folder_default();
     let launcher = dirs.data_home.join("fff/open-folder");
     let written = generate(&launcher, &launcher_script(fff, terminal), 0o755)?;
-    report(out, &launcher, written)?;
+    report.file(&launcher, written, "wrote")?;
     let launcher = launcher
         .to_str()
         .ok_or_else(|| io::Error::other("the data directory is not UTF-8"))?;
     let applications = dirs.data_home.join("applications");
     let entry = applications.join(DESKTOP_ID);
     let written = generate(&entry, &desktop_entry(launcher), 0o644)?;
-    report(out, &entry, written)?;
+    report.file(&entry, written, "wrote")?;
     // "Show in folder" asks a file manager over D-Bus; the bus starts fff to
     // answer, which highlights the file.
     let service = dirs
@@ -199,7 +330,7 @@ fn desktop(dirs: &Dirs, fff: &str, terminal: &[String], out: &mut dyn Write) -> 
         .join("dbus-1/services")
         .join(format!("{}.service", crate::dbus::NAME));
     let written = generate(&service, &dbus_service(fff, launcher), 0o644)?;
-    report(out, &service, written)?;
+    report.file(&service, written, "wrote")?;
     // A bus started before the directory existed reads it on reloading.
     let _ = Command::new("dbus-send")
         .args([
@@ -214,39 +345,31 @@ fn desktop(dirs: &Dirs, fff: &str, terminal: &[String], out: &mut dyn Write) -> 
     let _ = Command::new("update-desktop-database")
         .arg(&applications)
         .output();
-    let previous = Command::new("xdg-mime")
-        .args(["query", "default", "inode/directory"])
-        .output();
-    let Ok(previous) = previous else {
-        writeln!(
-            out,
-            "fff: xdg-mime not found; make fff the default with\n  \
-             xdg-mime default {DESKTOP_ID} inode/directory"
-        )?;
+    let Some(previous) = previous else {
+        report.warn("xdg-mime not found; make fff the default for folders with")?;
+        report.command(&format!("xdg-mime default {DESKTOP_ID} inode/directory"))?;
         return Ok(());
     };
-    let previous = String::from_utf8_lossy(&previous.stdout).trim().to_owned();
     // xdg-mime writes mimeapps.list there, and fails quietly (status 0)
     // when the directory is missing.
     fs::create_dir_all(&dirs.config_home)?;
     let status = Command::new("xdg-mime")
         .args(["default", DESKTOP_ID, "inode/directory"])
         .status()?;
-    let now = Command::new("xdg-mime")
-        .args(["query", "default", "inode/directory"])
-        .output()?;
-    if !status.success() || String::from_utf8_lossy(&now.stdout).trim() != DESKTOP_ID {
+    if !status.success() || folder_default().as_deref() != Some(DESKTOP_ID) {
         return Err(io::Error::other(format!(
             "xdg-mime default {DESKTOP_ID} inode/directory did not take effect"
         )));
     }
     match previous.as_str() {
-        "" | DESKTOP_ID => writeln!(out, "fff: directories now open in fff"),
-        previous => writeln!(
-            out,
-            "fff: directories now open in fff (previously {previous}; \
-             `xdg-mime default {previous} inode/directory` restores it)"
-        ),
+        DESKTOP_ID => report.same(&format!("folders already open in fff ({DESKTOP_ID})")),
+        "" => report.done(&format!("folders open in fff ({DESKTOP_ID})")),
+        previous => {
+            report.done(&format!(
+                "folders open in fff ({DESKTOP_ID}), no longer in {previous}; to go back:"
+            ))?;
+            report.command(&format!("xdg-mime default {previous} inode/directory"))
+        }
     }
 }
 
@@ -336,8 +459,9 @@ fn file_chooser(
     dirs: &Dirs,
     fff: &str,
     terminal: &[String],
-    out: &mut dyn Write,
+    report: &mut Report,
 ) -> io::Result<()> {
+    report.heading("Picking files with fff in file dialogs")?;
     let installed = std::iter::once(&dirs.data_home)
         .chain(&dirs.data_dirs)
         .any(|d| {
@@ -345,17 +469,16 @@ fn file_chooser(
                 .is_file()
         });
     if !installed {
-        writeln!(
-            out,
-            "fff: xdg-desktop-portal-termfilechooser does not seem to be installed; \
-             install it (https://github.com/hunkyburrito/xdg-desktop-portal-termfilechooser) \
-             for this to take effect"
+        report.warn(
+            "xdg-desktop-portal-termfilechooser does not seem to be installed; \
+             this takes effect once it is:",
         )?;
+        report.command("https://github.com/hunkyburrito/xdg-desktop-portal-termfilechooser")?;
     }
     let folder = dirs.config_home.join("xdg-desktop-portal-termfilechooser");
     let wrapper = folder.join("fff-wrapper.sh");
     let written = generate(&wrapper, &wrapper_script(fff, terminal), 0o755)?;
-    report(out, &wrapper, written)?;
+    report.file(&wrapper, written, "wrote")?;
     let wrapper = wrapper
         .to_str()
         .ok_or_else(|| io::Error::other("the configuration directory is not UTF-8"))?;
@@ -373,7 +496,7 @@ fn file_chooser(
         let text = set_key(&text, "filechooser", "create_help_file", "0", true);
         set_key(&text, "filechooser", "default_dir", "$HOME", false)
     })?;
-    report(out, &config, written)?;
+    report.file(&config, written, "updated")?;
     // A desktop-specific file takes precedence over portals.conf.
     let portals = dirs.config_home.join("xdg-desktop-portal");
     let preferences = dirs
@@ -385,16 +508,18 @@ fn file_chooser(
     let written = edit(&preferences, |text| {
         set_key(text, "preferred", FILE_CHOOSER_KEY, "termfilechooser", true)
     })?;
-    report(out, &preferences, written)?;
-    writeln!(
-        out,
-        "fff: next, restart the portal:\n  \
-         systemctl --user restart xdg-desktop-portal\n\
-         and in Firefox's about:config set widget.use-xdg-desktop-portal.file-picker to 1,\n\
-         then restart Firefox; Qt applications (Telegram) need\n  \
-         QT_QPA_PLATFORMTHEME=xdgdesktopportal\n\
-         in their environment"
-    )
+    report.file(&preferences, written, "updated")?;
+    report.step("Restart the portal:")?;
+    report.command("systemctl --user restart xdg-desktop-portal")?;
+    report.step(
+        "In Firefox's about:config, set widget.use-xdg-desktop-portal.file-picker to 1, \
+         then restart Firefox.",
+    )?;
+    if qt_problem(&|name: &str| std::env::var(name).ok()).is_some() {
+        report.step("Qt applications (Telegram) need this in their environment:")?;
+        report.command("QT_QPA_PLATFORMTHEME=xdgdesktopportal")?;
+    }
+    Ok(())
 }
 
 /// The termfilechooser wrapper script for this fff binary and terminal.
@@ -448,11 +573,6 @@ fn edit(path: &Path, change: impl Fn(&str) -> String) -> io::Result<bool> {
     }
     fs::write(path, new)?;
     Ok(true)
-}
-
-fn report(out: &mut dyn Write, path: &Path, written: bool) -> io::Result<()> {
-    let state = if written { "wrote" } else { "unchanged" };
-    writeln!(out, "fff: {state} {}", path.display())
 }
 
 /// Sets `key=value` in an INI-style file's `[section]`, leaving every other
@@ -604,19 +724,38 @@ mod tests {
         };
         let terminal = words("st -e");
         let none = |_: &str| None;
+        let ours = || Some(DESKTOP_ID.to_string());
+        // The problems found, each with its fix.
+        let problems = |fff: &str, var: &dyn Fn(&str) -> Option<String>, folders: Option<&str>| {
+            check(&dirs, Path::new(fff), &terminal, var, || folders.map(String::from))
+                .into_iter()
+                .flat_map(|s| s.findings)
+                .filter_map(|f| match f {
+                    Finding::Problem(text, fix) => Some(format!("{text} | {fix:?}")),
+                    Finding::Fine(_) => None,
+                })
+                .collect::<Vec<_>>()
+        };
         // Nothing set up: nothing to say.
-        assert!(check(&dirs, Path::new("/bin/fff"), &terminal, none).is_empty());
-        run(Target::FileChooser, &dirs, Path::new("/bin/fff"), &terminal, &mut vec![]).unwrap();
+        assert!(check(&dirs, Path::new("/bin/fff"), &terminal, none, ours).is_empty());
+        run(Target::FileChooser, &dirs, Path::new("/bin/fff"), &terminal, &mut Report::new(&mut vec![], false, None)).unwrap();
         let qt = |name: &str| (name == "QT_QPA_PLATFORMTHEME").then(|| "xdgdesktopportal".into());
-        assert!(check(&dirs, Path::new("/bin/fff"), &terminal, qt).is_empty());
-        let problems = check(&dirs, Path::new("/bin/fff"), &terminal, none);
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("QT_QPA_PLATFORMTHEME"));
-        // Another binary than the one the wrapper runs.
-        let problems = check(&dirs, Path::new("/usr/bin/fff"), &terminal, qt);
+        let sections = check(&dirs, Path::new("/bin/fff"), &terminal, qt, ours);
         assert!(
-            problems.len() == 1 && problems[0].contains("fff-wrapper.sh (runs another fff binary)"),
-            "{problems:?}"
+            sections.len() == 1
+                && sections[0].findings.iter().all(|f| matches!(f, Finding::Fine(_))),
+            "{sections:?}"
+        );
+        let found = problems("/bin/fff", &none, None);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("QT_QPA_PLATFORMTHEME"));
+        // Another binary than the one the wrapper runs.
+        let found = problems("/usr/bin/fff", &qt, None);
+        assert!(
+            found.len() == 1
+                && found[0].contains("fff-wrapper.sh (runs another fff binary)")
+                && found[0].contains("fff setup --browser"),
+            "{found:?}"
         );
         // A desktop setup without its D-Bus service.
         fs::create_dir_all(dirs.data_home.join("fff")).unwrap();
@@ -625,13 +764,24 @@ mod tests {
             launcher_script("/bin/fff", &terminal),
         )
         .unwrap();
-        let problems = check(&dirs, Path::new("/bin/fff"), &terminal, qt);
+        let found = problems("/bin/fff", &qt, Some(DESKTOP_ID));
         assert!(
-            problems.len() == 1
-                && problems[0].contains("fff.desktop (missing)")
-                && problems[0].contains("FileManager1.service (missing)"),
-            "{problems:?}"
+            found.len() == 1
+                && found[0].contains("fff.desktop (missing)")
+                && found[0].contains("FileManager1.service (missing)"),
+            "{found:?}"
         );
+        // Folders opening in another application, or in none; without
+        // xdg-mime there is nothing to say.
+        let found = problems("/bin/fff", &qt, Some("org.gnome.Nautilus.desktop"));
+        assert!(
+            found.len() == 2
+                && found[1].contains("folders open in org.gnome.Nautilus.desktop, not fff")
+                && found[1].contains("xdg-mime default fff.desktop inode/directory"),
+            "{found:?}"
+        );
+        let found = problems("/bin/fff", &qt, Some(""));
+        assert!(found.len() == 2 && found[1].contains("no application opens folders"), "{found:?}");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -655,7 +805,7 @@ mod tests {
             &dirs,
             Path::new("/bin/fff"),
             &words("st -e"),
-            &mut out,
+            &mut Report::new(&mut out, false, None),
         )
         .unwrap();
         let out = String::from_utf8(out).unwrap();
@@ -691,7 +841,7 @@ mod tests {
             &dirs,
             Path::new("/bin/fff"),
             &words("st -e"),
-            &mut again,
+            &mut Report::new(&mut again, false, None),
         )
         .unwrap();
         assert!(!String::from_utf8(again).unwrap().contains("wrote"));

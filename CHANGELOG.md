@@ -4,6 +4,21 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **`fff setup` reports read more easily.** Each part has a heading, every
+  file a line saying whether it was written, updated or left unchanged
+  (paths in your home start with `~`), and what is left to do by hand comes
+  last under "Next", with the commands to copy; colored on a terminal unless
+  `NO_COLOR` is set. `--man` says how many pages it wrote, and
+  `--check-config` lists what it checked, not only what is wrong.
+- **`fff setup --check-config` warns when folders no longer open in fff**:
+  after `fff setup --desktop`, when `xdg-mime query default inode/directory`
+  names another application, or none, with the command that makes fff the
+  default again.
+
 ## 0.17.0 — 2026-11-04
 
 File dialogs search contents, manual pages, `/proc`, `/sys` and `/dev` no

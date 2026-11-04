@@ -4,7 +4,7 @@ use fuzzy_file_finder::{
     App, Policy, completion, config::Settings, explorer::Dialog, keymap, ui, write_paths,
 };
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -434,8 +434,9 @@ struct SetupArgs {
     /// Validate the configuration (and --palette) and report the result
     ///
     /// Also warns about the desktop integration, if set up: files fff setup
-    /// wrote that are missing, out of date or run another fff binary, and an
-    /// environment in which Qt applications draw their own file dialog.
+    /// wrote that are missing, out of date or run another fff binary, folders
+    /// that open in another application, and an environment in which Qt
+    /// applications draw their own file dialog.
     #[arg(long)]
     check_config: bool,
 }
@@ -852,12 +853,16 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         completion::write_registration(shell, &program, &mut io::stdout().lock())?;
         return Ok(true);
     }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mut stderr = io::stderr();
+    let color = stderr.is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
+    let mut report = fuzzy_file_finder::setup::Report::new(&mut stderr, color, home.clone());
     if let Some(dir) = &setup.man {
         let dir = match dir {
             Some(dir) => dir.clone(),
             None => man_dir()?,
         };
-        write_man_pages(&dir)?;
+        write_man_pages(&dir, &mut report)?;
         return Ok(true);
     }
     let settings = Settings::load(
@@ -866,32 +871,48 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         args.palette.as_deref(),
     )?;
     if setup.check_config {
-        if let Some(path) = settings.bookmark_path.as_deref().map(keymap::path_beside) {
-            keymap::Keymap::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let keys = settings.bookmark_path.as_deref().map(keymap::path_beside);
+        if let Some(path) = &keys {
+            keymap::Keymap::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
         }
         // Openers name programs; report the ones that are not installed.
-        let home = std::env::var_os("HOME").map(PathBuf::from);
         let missing = settings
             .open
             .missing(&std::env::current_dir()?, home.as_deref());
         if !missing.is_empty() {
             return Err(format!("[open] programs not found: {}", missing.join("; ")).into());
         }
+        report.heading("Configuration")?;
         match &settings.source {
-            Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
-            None => eprintln!("fff: no configuration file; using built-in settings"),
+            Some(path) => report.done(&format!("valid: {}", report.path(path)))?,
+            None => report.same("no configuration file; using built-in settings")?,
         }
+        if let Some(path) = keys.filter(|p| p.exists()) {
+            report.done(&format!("valid: {}", report.path(&path)))?;
+        }
+        report.done("every program [open] names is installed")?;
         // The desktop integration, if set up: warnings, since the
         // configuration itself is valid.
-        let home = std::env::var_os("HOME").map(PathBuf::from);
         if let (Ok(terminal), Ok(dirs), Ok(fff)) = (
             fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref()),
             fuzzy_file_finder::setup::Dirs::from_env(),
             std::env::current_exe(),
         ) {
+            use fuzzy_file_finder::setup::{self, Finding};
             let var = |name: &str| std::env::var(name).ok();
-            for problem in fuzzy_file_finder::setup::check(&dirs, &fff, &terminal, var) {
-                eprintln!("fff: warning: {problem}");
+            for section in setup::check(&dirs, &fff, &terminal, var, setup::folder_default) {
+                report.heading(section.title)?;
+                for finding in section.findings {
+                    match finding {
+                        Finding::Fine(text) => report.done(&text)?,
+                        Finding::Problem(text, fix) => {
+                            report.warn(&text)?;
+                            if let Some(fix) = fix {
+                                report.command(&fix)?;
+                            }
+                        }
+                    }
+                }
             }
         }
         return Ok(true);
@@ -901,12 +922,11 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
     } else {
         fuzzy_file_finder::setup::Target::FileChooser
     };
-    let home = std::env::var_os("HOME").map(PathBuf::from);
     let terminal = fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref())
         .map_err(|e| format!("[open] fff_terminal: {e}"))?;
     let dirs = fuzzy_file_finder::setup::Dirs::from_env()?;
     let fff = std::env::current_exe()?;
-    fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut io::stderr())?;
+    fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut report)?;
     Ok(true)
 }
 
@@ -964,8 +984,8 @@ fn choose_man_dir(
         .map(|d| d.join("man1"))
 }
 /// fff setup --man: a page per command, as clap_mangen names them (fff.1,
-/// fff-pick.1, ...), each reported on stderr.
-fn write_man_pages(dir: &Path) -> io::Result<()> {
+/// fff-pick.1, ...), reported on stderr.
+fn write_man_pages(dir: &Path, report: &mut fuzzy_file_finder::setup::Report) -> io::Result<()> {
     fn pages(command: &clap::Command, all: &mut Vec<clap::Command>) {
         for sub in command.get_subcommands().filter(|s| !s.is_hide_set()) {
             pages(sub, all);
@@ -977,11 +997,15 @@ fn write_man_pages(dir: &Path) -> io::Result<()> {
     command.build();
     let mut all = Vec::new();
     pages(&command, &mut all);
+    let count = all.len();
     for page in all.into_iter().rev() {
-        let path = clap_mangen::Man::new(page).generate_to(dir)?;
-        // Not eprintln!, which panics when stderr is closed.
-        let _ = writeln!(io::stderr(), "fff: wrote {}", path.display());
+        clap_mangen::Man::new(page).generate_to(dir)?;
     }
+    // Reports fail quietly: the pages are written, and stderr may be closed.
+    let _ = report.heading("Manual pages");
+    let _ = report.done(&format!("wrote {count} pages to {}", report.path(dir)));
+    let _ = report.step("Read them with:");
+    let _ = report.command("man fff; man fff-pick; man fff-setup");
     Ok(())
 }
 

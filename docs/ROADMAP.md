@@ -9,11 +9,6 @@ not implemented features or commitments:
   operations usable would need rules for what a second operation may touch and
   how live-update rescans interact. Archive validation before the extraction
   prompt still runs on the interface thread.
-- Two leftovers of opening folders from other applications: `fff setup
-  --check-config` could warn when `xdg-mime query default inode/directory`
-  is not fff.desktop, and the D-Bus service could drop a request for a
-  folder that a recent fff window already shows, for programs that ask more
-  than one way or retry.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
@@ -82,6 +77,13 @@ does, beside its name (`-rw-r--r--  frank  users`), toggled on and off. The
 shows the highlighted entry's permissions and owner; this would make them a quick
 toggle for every row rather than a configuration change, with owner and
 group as columns of their own, and could show octal modes too.
+
+### Names a running operation will take
+
+Creating a file or folder whose name a running copy, move or extraction will
+publish is refused until it finishes. A prompt could offer the choices
+instead: name the new entry `name (1).ext`, rename the arriving one to
+`name (1).ext` when it lands, overwrite it when it lands, or abort.
 
 ### Named workspaces
 
