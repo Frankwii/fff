@@ -451,6 +451,18 @@ impl Session {
             for path in &changes.touched {
                 app.details.touched(path);
             }
+            app.grep.touched(&changes.touched);
+            // A changed file's lines are read again for its matches.
+            if let Some((path, _)) = &app.match_text
+                && changes.touched.contains(path)
+            {
+                app.match_text = None;
+            }
+            if let Some((path, _)) = &self.match_lines
+                && changes.touched.contains(path)
+            {
+                self.match_lines = None;
+            }
             self.dirty |= !changes.touched.is_empty();
             // Coalesce bursts (an extraction, a copy) into one quiet rescan.
             if changes.listing && self.relist_at.is_none() {

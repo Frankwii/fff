@@ -866,6 +866,8 @@ struct Search {
     queue: Arc<Mutex<VecDeque<Row>>>,
     /// Every file handed to this search, so that new rows are added once.
     queued: HashSet<Row>,
+    /// Files that changed before their results came: searched again then.
+    again: HashSet<Row>,
     cancel: Arc<AtomicBool>,
     /// Matches the workers found: past `TOTAL`, files are no longer read.
     matched: Arc<AtomicUsize>,
@@ -964,6 +966,7 @@ impl Grep {
                 pattern: Arc::new(pattern),
                 queue: Arc::default(),
                 queued: HashSet::new(),
+                again: HashSet::new(),
                 cancel: Arc::default(),
                 matched: Arc::default(),
                 found,
@@ -1001,6 +1004,45 @@ impl Grep {
             }
             changed = true;
         }
+        // The shown rows change with the rows, or with a file that matched;
+        // files without a match change only the count.
+        let mut rebuild = self.stale || self.shown_from != Some((rows_version, self.generation));
+        while let Ok(found) = search.found.try_recv() {
+            let row = match &found {
+                Found::Hits(row, _) | Found::Skipped(row, _) => row,
+            };
+            if search.again.remove(row) {
+                let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
+                queue.push_back(row.clone());
+                continue;
+            }
+            search.done += 1;
+            changed = true;
+            match found {
+                Found::Hits(row, hits) => {
+                    // Past the total, files still count as searched.
+                    let room = TOTAL.saturating_sub(search.kept).min(hits.len());
+                    rebuild |= room > 0;
+                    search.kept += room;
+                    let hits = if room < hits.len() {
+                        Arc::from(&hits[..room])
+                    } else {
+                        hits
+                    };
+                    self.hits.insert(row, hits);
+                }
+                Found::Skipped(row, missing) => {
+                    if let Some(tool) = missing
+                        && !self.missing.contains(&tool)
+                    {
+                        self.missing.push(tool);
+                    }
+                    self.hits.insert(row, Arc::from([]));
+                }
+            }
+        }
+        // Workers start once the results are taken, for the files changed
+        // while they were read to be searched again.
         let workers = std::thread::available_parallelism()
             .map_or(1, |n| n.get() / 2)
             .clamp(1, 8);
@@ -1041,35 +1083,6 @@ impl Grep {
                 break;
             }
         }
-        // The shown rows change with the rows, or with a file that matched;
-        // files without a match change only the count.
-        let mut rebuild = self.stale || self.shown_from != Some((rows_version, self.generation));
-        while let Ok(found) = search.found.try_recv() {
-            search.done += 1;
-            changed = true;
-            match found {
-                Found::Hits(row, hits) => {
-                    // Past the total, files still count as searched.
-                    let room = TOTAL.saturating_sub(search.kept).min(hits.len());
-                    rebuild |= room > 0;
-                    search.kept += room;
-                    let hits = if room < hits.len() {
-                        Arc::from(&hits[..room])
-                    } else {
-                        hits
-                    };
-                    self.hits.insert(row, hits);
-                }
-                Found::Skipped(row, missing) => {
-                    if let Some(tool) = missing
-                        && !self.missing.contains(&tool)
-                    {
-                        self.missing.push(tool);
-                    }
-                    self.hits.insert(row, Arc::from([]));
-                }
-            }
-        }
         // A search done, what it learned is written.
         if changed
             && search.done == search.total
@@ -1099,6 +1112,38 @@ impl Grep {
             self.shown_from = Some((rows_version, self.generation));
         }
         changed
+    }
+    /// Files whose contents changed (or that were replaced): their matches
+    /// go, and the next `poll` searches them again.
+    pub fn touched(&mut self, paths: &[PathBuf]) {
+        let Some(search) = self.search.as_mut() else {
+            return;
+        };
+        if paths.is_empty() {
+            return;
+        }
+        let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
+        for row in search
+            .queued
+            .iter()
+            .filter(|r| paths.contains(r.0.path.as_path()))
+        {
+            // One not searched yet may be read now, before the change.
+            let Some(hits) = self.hits.remove(row) else {
+                search.again.insert(row.clone());
+                continue;
+            };
+            search.done -= 1;
+            search.kept -= hits.len();
+            let _ = search
+                .matched
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |m| {
+                    Some(m.saturating_sub(hits.len()))
+                });
+            queue.push_back(row.clone());
+            self.stale = true;
+        }
     }
     /// When matches wait to be shown: the next `poll` is due by then.
     pub fn due(&self) -> Option<Instant> {

@@ -32,6 +32,10 @@ history.
   in the trash left its old name to another entry put there by hand, the
   purge deleted the newcomer once the renamed entry's time was up, and kept
   the old one. It now deletes only the entry its record names.
+- **Contents matches follow files changed while the query is set.** A file
+  edited, or replaced, in a watched folder kept the matches found before the
+  change until the query changed; it is now searched again, and the preview
+  reads its lines again.
 
 ## 0.16.4 — 2026-11-04
 

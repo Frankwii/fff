@@ -1024,7 +1024,11 @@ fn the_purge_never_deletes_an_entry_that_took_a_renamed_ones_slot() {
     fs::rename(files.join("a"), files.join("b")).unwrap();
     // Put there by hand, with no record of its own.
     fs::write(files.join("a"), b"newcomer").unwrap();
-    assert_eq!(t.purge(SystemTime::now() + Duration::from_secs(31 * 86_400)).removed, 1);
+    assert_eq!(
+        t.purge(SystemTime::now() + Duration::from_secs(31 * 86_400))
+            .removed,
+        1
+    );
     assert_eq!(listing(&files), ["a"]);
     assert_eq!(fs::read(files.join("a")).unwrap(), b"newcomer");
     assert!(listing(&bin(&f).join("info")).is_empty());

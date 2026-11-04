@@ -1401,3 +1401,49 @@ fn the_highlighted_match_stays_as_matches_arrive_above_it() {
     assert_eq!(app.highlighted_hit().unwrap().line, 3);
     std::fs::remove_dir_all(&root).unwrap();
 }
+#[test]
+fn files_changed_during_a_contents_query_are_searched_again() {
+    let root = std::env::temp_dir().join(format!("fff-grep-touched-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.txt"), "a canard\n").unwrap();
+    std::fs::write(root.join("b.txt"), "nothing\n").unwrap();
+    let mut app = App::new(vec![root.clone()], 6, Policy::default());
+    app.grep.cache = Some(root.join("cache"));
+    for name in ["a.txt", "b.txt"] {
+        app.insert(
+            0,
+            Candidate {
+                path: root.join(name),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    let settle = |app: &mut App| {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(10) {
+            app.poll_grep();
+            if app.grep.progress().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the search did not finish");
+    };
+    let shown =
+        |app: &App| -> Vec<PathBuf> { app.shown().iter().map(|c| c.path.clone()).collect() };
+    app.set_contents("canard".into());
+    settle(&mut app);
+    assert_eq!(shown(&app), [root.join("a.txt")]);
+    // The word moves from one file to the other, as the watcher reports.
+    std::fs::write(root.join("a.txt"), "nothing\n").unwrap();
+    std::fs::write(root.join("b.txt"), "a canard\nanother canard\n").unwrap();
+    app.grep.touched(&[root.join("a.txt"), root.join("b.txt")]);
+    settle(&mut app);
+    assert_eq!(shown(&app), [root.join("b.txt"), root.join("b.txt")]);
+    assert_eq!(app.grep.summary(), (2, 1));
+    std::fs::remove_dir_all(&root).unwrap();
+}
