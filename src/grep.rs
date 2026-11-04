@@ -9,10 +9,11 @@
 //! which gives each match its page.
 //!
 //! Searching happens here, on worker threads, in the order of the rows: no
-//! program runs per search. A new query stops the old search, but an
+//! program runs per search. The contents index (`index`) knows which files
+//! cannot match, so that they are not read. A new query stops the old search, but an
 //! extraction already running finishes into the cache, since the next query
 //! needs the same text.
-use crate::Candidate;
+use crate::{Candidate, index};
 use regex_automata::meta::Regex;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -42,6 +43,9 @@ const LINE_CHARS: usize = 400;
 const TEXT_LIMIT: u64 = 64 << 20;
 /// Bytes of a text file checked for a NUL, which marks it binary.
 const SNIFF: usize = 8192;
+/// While matches stream in, the shown rows are built again at most this
+/// often: each time reads every row.
+const REBUILD: Duration = Duration::from_millis(50);
 /// How long an extraction may take before it is given up.
 const EXTRACT_TIME: Duration = Duration::from_secs(120);
 /// Extractions run at this niceness, below the interface.
@@ -172,8 +176,10 @@ fn kind(path: &Path) -> Kind {
 /// Why a file has no text to search.
 #[derive(Debug, PartialEq, Eq)]
 enum Skip {
-    /// Unreadable, binary, too large, or its extraction failed.
+    /// Unreadable, too large, or its extraction timed out.
     NoText,
+    /// Binary: a NUL among its first bytes.
+    Binary,
     /// The program that extracts it is not installed.
     Missing(&'static str),
 }
@@ -222,8 +228,12 @@ fn cache_name(meta: &fs::Metadata) -> String {
 /// The text of `path`: read, or for a document taken from the cache in
 /// `cache`, extracting it there first.
 fn text_of(path: &Path, cache: Option<&Path>) -> Result<Text, Skip> {
-    let kind = kind(path);
     let meta = fs::metadata(path).map_err(|_| Skip::NoText)?;
+    read_text(path, &meta, cache)
+}
+/// The text of `path`, whose metadata is `meta`.
+fn read_text(path: &Path, meta: &fs::Metadata, cache: Option<&Path>) -> Result<Text, Skip> {
+    let kind = kind(path);
     if !meta.is_file() {
         return Err(Skip::NoText);
     }
@@ -239,7 +249,7 @@ fn text_of(path: &Path, cache: Option<&Path>) -> Result<Text, Skip> {
             .read_to_end(&mut bytes)
             .map_err(|_| Skip::NoText)?;
         if memchr::memchr(0, &bytes).is_some() {
-            return Err(Skip::NoText);
+            return Err(Skip::Binary);
         }
         file.read_to_end(&mut bytes).map_err(|_| Skip::NoText)?;
         return Ok(Text {
@@ -252,11 +262,15 @@ fn text_of(path: &Path, cache: Option<&Path>) -> Result<Text, Skip> {
     } else {
         Units::Pages
     };
-    let entry = cache.map(|dir| dir.join(cache_name(&meta)));
+    let entry = cache.map(|dir| dir.join(cache_name(meta)));
     if let Some(entry) = &entry
-        && let Ok(bytes) = fs::read(entry)
+        && let Ok(mut file) = fs::File::open(entry)
     {
-        return Ok(Text { bytes, units });
+        let mut bytes = Vec::new();
+        if file.read_to_end(&mut bytes).is_ok() {
+            index::used(&file);
+            return Ok(Text { bytes, units });
+        }
     }
     let extracted = match kind {
         Kind::Pdf => run_extractor(
@@ -546,7 +560,7 @@ fn entities(text: &str) -> String {
 
 /// The base letter of an accented Latin letter (`é` → `e`, `Ñ` → `n`), by
 /// nucleo's table, so that contents fold accents as names do.
-fn base_letter(c: char) -> Option<char> {
+pub(crate) fn base_letter(c: char) -> Option<char> {
     static TABLE: OnceLock<HashMap<char, char>> = OnceLock::new();
     if c.is_ascii() {
         return None;
@@ -606,6 +620,8 @@ fn accented(letter: char) -> Vec<char> {
 /// broken by a hyphen at a line end still matches.
 pub struct Pattern {
     regex: Regex,
+    /// What any match holds, for the index.
+    trigrams: Vec<u64>,
 }
 impl Pattern {
     /// `None` for a query with nothing to search for.
@@ -664,7 +680,14 @@ impl Pattern {
             )
             .build(&pattern)
             .ok()?;
-        Some(Self { regex })
+        Some(Self {
+            regex,
+            trigrams: index::trigrams(query),
+        })
+    }
+    /// Whether `text` holds a match.
+    pub fn matches(&self, text: &[u8]) -> bool {
+        self.regex.is_match(text)
     }
     /// The matches in `text`, up to `PER_FILE`.
     fn hits(&self, text: &[u8], units: Units) -> Vec<Hit> {
@@ -796,26 +819,47 @@ fn cut(line: &str) -> String {
     line.chars().take(LINE_CHARS).collect()
 }
 
+/// A row's file, by the address of its candidate, which rows share: cheaper
+/// to hash than its path. It holds the candidate, so that the address
+/// cannot be another's while it is a key; a candidate made again for the
+/// same path is another row, searched again.
+#[derive(Clone)]
+struct Row(Arc<Candidate>);
+impl PartialEq for Row {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for Row {}
+impl std::hash::Hash for Row {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (Arc::as_ptr(&self.0) as usize).hash(state);
+    }
+}
 /// What a worker found in one file.
 enum Found {
-    Hits(PathBuf, Arc<[Hit]>),
+    Hits(Row, Arc<[Hit]>),
     /// No text: binary, unreadable, or its extractor (named) is missing.
-    Skipped(PathBuf, Option<&'static str>),
+    Skipped(Row, Option<&'static str>),
 }
 
 /// One query's search over the rows.
 struct Search {
     query: String,
     pattern: Arc<Pattern>,
-    queue: Arc<Mutex<VecDeque<PathBuf>>>,
+    queue: Arc<Mutex<VecDeque<Row>>>,
     /// Every file handed to this search, so that new rows are added once.
-    queued: HashSet<PathBuf>,
+    queued: HashSet<Row>,
     cancel: Arc<AtomicBool>,
+    /// Matches the workers found: past `TOTAL`, files are no longer read.
+    matched: Arc<AtomicUsize>,
     found: Receiver<Found>,
     sender: Sender<Found>,
     /// The previous query's results, when this one narrows it: files it
     /// did not match cannot match now.
-    narrowing: Option<HashMap<PathBuf, Arc<[Hit]>>>,
+    narrowing: Option<HashMap<Row, Arc<[Hit]>>>,
+    /// Matches kept so far, up to `TOTAL`.
+    kept: usize,
     total: usize,
     done: usize,
 }
@@ -834,18 +878,24 @@ pub struct Grep {
     pub editing: bool,
     search: Option<Search>,
     /// The current query's results by file; empty when it does not match.
-    hits: HashMap<PathBuf, Arc<[Hit]>>,
+    hits: HashMap<Row, Arc<[Hit]>>,
     /// Shown rows: one per match, files in the rows' order, and each one's
     /// match.
     pub shown: Vec<Arc<Candidate>>,
     pub shown_hits: Vec<(Arc<[Hit]>, usize)>,
-    /// The rows and results `shown` was built from.
+    /// The rows and results `shown` was built from, and when.
     shown_from: Option<(u64, usize)>,
+    built: Option<Instant>,
+    /// Matches came that `shown` does not show yet.
+    stale: bool,
     generation: usize,
     /// Extractors met that are not installed.
     pub missing: Vec<&'static str>,
     waker: Option<SyncSender<()>>,
     pub cache: Option<PathBuf>,
+    /// The contents index beside the cache, opened by the first search's
+    /// workers.
+    index: Arc<OnceLock<Option<Arc<index::Index>>>>,
 }
 impl Grep {
     pub fn new() -> Self {
@@ -885,8 +935,10 @@ impl Grep {
                 return false;
             };
             let previous = self.search.take();
+            // Past `TOTAL`, files counted as searched were not all read:
+            // a search that reached it cannot narrow.
             let narrowing = previous
-                .filter(|p| narrows(&p.query, &query))
+                .filter(|p| narrows(&p.query, &query) && p.kept < TOTAL)
                 .map(|_| std::mem::take(&mut self.hits));
             self.hits.clear();
             let (sender, found) = mpsc::channel();
@@ -896,9 +948,11 @@ impl Grep {
                 queue: Arc::default(),
                 queued: HashSet::new(),
                 cancel: Arc::default(),
+                matched: Arc::default(),
                 found,
                 sender,
                 narrowing,
+                kept: 0,
                 total: 0,
                 done: 0,
             });
@@ -913,19 +967,19 @@ impl Grep {
         {
             let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
             for c in rows.iter().filter(|c| !c.directory) {
-                if search.queued.contains(&c.path) {
+                let row = Row(Arc::clone(c));
+                if !search.queued.insert(row.clone()) {
                     continue;
                 }
-                search.queued.insert(c.path.clone());
                 search.total += 1;
                 // A file the shorter query searched without a match cannot
                 // match a longer one.
-                match search.narrowing.as_ref().and_then(|n| n.get(&c.path)) {
+                match search.narrowing.as_ref().and_then(|n| n.get(&row)) {
                     Some(hits) if hits.is_empty() => {
-                        self.hits.insert(c.path.clone(), Arc::from([]));
+                        self.hits.insert(row, Arc::from([]));
                         search.done += 1;
                     }
-                    _ => queue.push_back(c.path.clone()),
+                    _ => queue.push_back(row),
                 }
             }
             changed = true;
@@ -939,52 +993,86 @@ impl Grep {
                 break;
             }
             WORKERS.fetch_add(1, Ordering::Relaxed);
-            let (queue, pattern, cancel, sender) = (
+            let (queue, pattern, cancel, matched, sender) = (
                 Arc::clone(&search.queue),
                 Arc::clone(&search.pattern),
                 Arc::clone(&search.cancel),
+                Arc::clone(&search.matched),
                 search.sender.clone(),
             );
-            let (cache, waker) = (self.cache.clone(), self.waker.clone());
+            let (cache, index, waker) = (
+                self.cache.clone(),
+                Arc::clone(&self.index),
+                self.waker.clone(),
+            );
             let spawned = std::thread::Builder::new()
                 .name("fff-grep".into())
-                .spawn(move || work(&queue, &pattern, &cancel, &sender, cache.as_deref(), waker));
+                .spawn(move || {
+                    let index = index.get_or_init(|| cache.as_deref().map(index::Index::open));
+                    let files = Files {
+                        cache: cache.as_deref(),
+                        index: index.as_ref(),
+                    };
+                    let stop = Stop {
+                        cancel: &cancel,
+                        matched: &matched,
+                    };
+                    work(&queue, &pattern, stop, &sender, files, waker)
+                });
             if spawned.is_err() {
                 WORKERS.fetch_sub(1, Ordering::Relaxed);
                 break;
             }
         }
-        let mut kept: usize = self.hits.values().map(|h| h.len()).sum();
+        // The shown rows change with the rows, or with a file that matched;
+        // files without a match change only the count.
+        let mut rebuild = self.stale || self.shown_from != Some((rows_version, self.generation));
         while let Ok(found) = search.found.try_recv() {
             search.done += 1;
             changed = true;
             match found {
-                Found::Hits(path, hits) => {
+                Found::Hits(row, hits) => {
                     // Past the total, files still count as searched.
-                    let room = TOTAL.saturating_sub(kept).min(hits.len());
-                    kept += room;
+                    let room = TOTAL.saturating_sub(search.kept).min(hits.len());
+                    rebuild |= room > 0;
+                    search.kept += room;
                     let hits = if room < hits.len() {
                         Arc::from(&hits[..room])
                     } else {
                         hits
                     };
-                    self.hits.insert(path, hits);
+                    self.hits.insert(row, hits);
                 }
-                Found::Skipped(path, missing) => {
+                Found::Skipped(row, missing) => {
                     if let Some(tool) = missing
                         && !self.missing.contains(&tool)
                     {
                         self.missing.push(tool);
                     }
-                    self.hits.insert(path, Arc::from([]));
+                    self.hits.insert(row, Arc::from([]));
                 }
             }
         }
-        if changed {
+        // A search done, what it learned is written.
+        if changed
+            && search.done == search.total
+            && let Some(Some(index)) = self.index.get()
+        {
+            index.save();
+        }
+        // Matches arriving wait a little, unless the search is done or none
+        // are shown yet.
+        let soon = self.shown.is_empty()
+            || search.done == search.total
+            || self.built.is_none_or(|b| b.elapsed() >= REBUILD)
+            || self.shown_from.is_none_or(|(_, g)| g != self.generation);
+        self.stale = rebuild && !soon;
+        if rebuild && soon {
+            self.built = Some(Instant::now());
             self.shown.clear();
             self.shown_hits.clear();
             for c in rows {
-                if let Some(hits) = self.hits.get(&c.path) {
+                if let Some(hits) = self.hits.get(&Row(Arc::clone(c))) {
                     for i in 0..hits.len() {
                         self.shown.push(Arc::clone(c));
                         self.shown_hits.push((Arc::clone(hits), i));
@@ -994,6 +1082,11 @@ impl Grep {
             self.shown_from = Some((rows_version, self.generation));
         }
         changed
+    }
+    /// When matches wait to be shown: the next `poll` is due by then.
+    pub fn due(&self) -> Option<Instant> {
+        self.stale
+            .then(|| self.built.map_or_else(Instant::now, |b| b + REBUILD))
     }
     /// The shown matches and the files they are in.
     pub fn summary(&self) -> (usize, usize) {
@@ -1010,14 +1103,54 @@ impl Grep {
         self.shown_hits.get(i).map(|(hits, at)| &hits[*at])
     }
 }
+/// Where a search finds texts: the text cache and its index.
+#[derive(Clone, Copy)]
+struct Files<'a> {
+    cache: Option<&'a Path>,
+    index: Option<&'a Arc<index::Index>>,
+}
+/// The matches in `path`, reading it only when the index does not rule it
+/// out; what is read is added to the index.
+fn search_file(path: &Path, pattern: &Pattern, files: Files) -> Result<Vec<Hit>, Skip> {
+    let meta = fs::metadata(path).map_err(|_| Skip::NoText)?;
+    let Some(index) = files.index.filter(|_| meta.is_file()) else {
+        return read_text(path, &meta, files.cache)
+            .map(|text| pattern.hits(&text.bytes, text.units));
+    };
+    let key = index::Key::of(&meta);
+    let known = index.lookup(&key);
+    match &known {
+        Some(index::Entry::Binary) => return Err(Skip::Binary),
+        Some(index::Entry::Filter(words)) if !index::may_match(words, &pattern.trigrams) => {
+            return Ok(Vec::new());
+        }
+        _ => {}
+    }
+    let text = read_text(path, &meta, files.cache);
+    if known.is_none() && index::settled(&meta) {
+        match &text {
+            Ok(text) => index.record(key, index::Entry::Filter(index::filter(&text.bytes))),
+            Err(Skip::Binary) => index.record(key, index::Entry::Binary),
+            Err(_) => {}
+        }
+    }
+    text.map(|text| pattern.hits(&text.bytes, text.units))
+}
+/// When a search's workers stop: the search was, or they found `TOTAL`
+/// matches, after which files only count as searched.
+#[derive(Clone, Copy)]
+struct Stop<'a> {
+    cancel: &'a AtomicBool,
+    matched: &'a AtomicUsize,
+}
 /// A worker: take files from `queue` until it is empty or the search is
 /// stopped, and send what each holds.
 fn work(
-    queue: &Mutex<VecDeque<PathBuf>>,
+    queue: &Mutex<VecDeque<Row>>,
     pattern: &Pattern,
-    cancel: &AtomicBool,
+    Stop { cancel, matched }: Stop,
     sender: &Sender<Found>,
-    cache: Option<&Path>,
+    files: Files,
     waker: Option<SyncSender<()>>,
 ) {
     // The slot frees however the worker ends.
@@ -1032,17 +1165,24 @@ fn work(
         if cancel.load(Ordering::Relaxed) {
             break;
         }
-        let Some(path) = queue.lock().ok().and_then(|mut q| q.pop_front()) else {
+        let Some(row) = queue.lock().ok().and_then(|mut q| q.pop_front()) else {
             break;
         };
         // A file that trips a bug is skipped rather than stopping the search.
-        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            text_of(&path, cache).map(|text| pattern.hits(&text.bytes, text.units))
-        }));
+        let read = if matched.load(Ordering::Relaxed) >= TOTAL {
+            Ok(Ok(Vec::new()))
+        } else {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                search_file(&row.0.path, pattern, files)
+            }))
+        };
+        if let Ok(Ok(hits)) = &read {
+            matched.fetch_add(hits.len(), Ordering::Relaxed);
+        }
         let found = match read {
-            Ok(Ok(hits)) => Found::Hits(path, hits.into()),
-            Ok(Err(Skip::Missing(tool))) => Found::Skipped(path, Some(tool)),
-            Ok(Err(Skip::NoText)) | Err(_) => Found::Skipped(path, None),
+            Ok(Ok(hits)) => Found::Hits(row, hits.into()),
+            Ok(Err(Skip::Missing(tool))) => Found::Skipped(row, Some(tool)),
+            Ok(Err(Skip::NoText | Skip::Binary)) | Err(_) => Found::Skipped(row, None),
         };
         if cancel.load(Ordering::Relaxed) || sender.send(found).is_err() {
             break;
@@ -1204,6 +1344,34 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
     #[test]
+    fn the_index_rules_files_out_before_they_are_read() {
+        let dir = std::env::temp_dir().join(format!("fff-grep-index-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("text")).unwrap();
+        let index = index::Index::open(&dir.join("text"));
+        let files = Files {
+            cache: Some(&dir.join("text")),
+            index: Some(&index),
+        };
+        let pattern = Pattern::new("canard").unwrap();
+        let path = dir.join("notes.txt");
+        fs::write(&path, "a canard\n").unwrap();
+        let key = index::Key::of(&fs::metadata(&path).unwrap());
+        // Read: a file changed this moment is not indexed yet.
+        assert_eq!(search_file(&path, &pattern, files).unwrap().len(), 1);
+        assert_eq!(index.lookup(&key), None);
+        // What the index says of a file decides without reading it.
+        index.record(key, index::Entry::Filter(index::filter(b"nothing here")));
+        assert!(search_file(&path, &pattern, files).unwrap().is_empty());
+        index.record(key, index::Entry::Binary);
+        assert_eq!(search_file(&path, &pattern, files), Err(Skip::Binary));
+        // A filter that may hold the query has the file read.
+        index.record(key, index::Entry::Filter(index::filter(b"canard")));
+        assert_eq!(search_file(&path, &pattern, files).unwrap().len(), 1);
+        drop(index);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
     fn documents_are_cached_by_identity() {
         let dir = std::env::temp_dir().join(format!("fff-grep-cache-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -1231,7 +1399,7 @@ mod tests {
         fs::write(dir.join("blob.bin"), b"a\0b").unwrap();
         assert_eq!(
             text_of(&dir.join("blob.bin"), Some(&cache)).err(),
-            Some(Skip::NoText)
+            Some(Skip::Binary)
         );
         fs::remove_dir_all(&dir).unwrap();
     }

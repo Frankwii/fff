@@ -41,26 +41,18 @@ The Keys screen (F1) and `keys.toml` came in 0.14.0. What remains:
 ## Content search, continued
 
 A contents query beside the names query searches what files contain, in
-`fff grep` and the other programs, one row per match, documents read through fff's own text cache and
-searched on its threads, not by running rga, which starts a preprocessor for
-every file on every search (1.85 s and about 25 CPU-seconds a search over
+`fff grep` and the other programs, one row per match: documents read
+through fff's own text cache and searched on its threads, through an index
+that rules out the files that cannot match, not by running rga, which
+starts a preprocessor for every file on every search (1.85 s and about 25 CPU-seconds a search over
 2,400 cached PDFs, against 0.02 s here). What remains:
 
-- **An index of the content cache.** Each search reads every cached text
-  again; an index built beside the cache (by word, or by trigram so that
-  literal substrings still match) would find the candidate files first, so
-  that searches over large trees read only those. It must follow the cache:
-  a changed file is a new entry, and pruning would drop its index entries
-  too.
 - **More formats.** Office documents and archives could fill the same cache
   through `rga-preproc`, one run per file.
 - **A `/regex/` form** of the contents query.
 - **E at the match.** E would open `$EDITOR` at a text match's line when
   the editor accepts `+N`, and a document at its page where the viewer
   takes one (`zathura --page`).
-- **Pruning the cache.** Entries are never removed yet; old ones would go by
-  age and total size. The text of every PDF in a home folder takes a few
-  hundred megabytes at most.
 - **A viewer that follows the highlight.** Extracted text loses
   formulas: subscripts, fractions and symbols come out as scattered
   characters. The preview stays text (no images, see [design

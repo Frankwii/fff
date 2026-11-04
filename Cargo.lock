@@ -392,6 +392,7 @@ dependencies = [
  "nucleo-matcher",
  "ratatui",
  "regex-automata",
+ "regex-syntax",
  "rmpv",
  "rustix",
  "serde",

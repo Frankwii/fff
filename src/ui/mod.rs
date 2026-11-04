@@ -736,6 +736,10 @@ impl Session {
             at.saturating_duration_since(std::time::Instant::now())
                 .min(wait)
         });
+        let wait = app.grep.due().map_or(wait, |at| {
+            at.saturating_duration_since(std::time::Instant::now())
+                .min(wait)
+        });
         let wait = if matches!(self.focus, Focus::Busy(_)) {
             wait.min(PROGRESS_FRAME)
         } else {

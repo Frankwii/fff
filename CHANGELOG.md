@@ -13,6 +13,14 @@ history.
   Normal mode) opens the contents query beside the names query, and while
   it is set the rows are its matches, one per match. It stays when `gm`
   changes program.
+- **An index of what files contain** makes contents searches over large
+  trees read only the files that may match: every file a search reads is
+  remembered by its trigrams in `~/.cache/fff/index`, keyed by its inode,
+  size and times. Over 195,000 files a word in a few of them takes about
+  0.1 s instead of 1 s. No match is lost to it.
+- **The text cache and the index prune themselves**, once a day: entries
+  unused for 90 to 135 days go, each on a day of its own, and the least
+  recently used while the text cache passes 2 GiB or the index 512 MiB.
 
 - **`gd` switches how rows are labelled** (`toggle_labels`): by name, with
   only the parent folders that tell same-named entries apart
@@ -26,6 +34,9 @@ history.
 
 ### Changed
 
+- **Contents searches with many matches stay quick**: the rows are rebuilt
+  at most every 50 ms while matches stream in, and files past the 20,000th
+  match are no longer read, only counted.
 - **`fff grep`'s names query is on the left**, its contents query on the
   right, as in the other programs. The bar typed into widens for a long
   query and the other gives way; a query cut at the end shows an ellipsis.
@@ -50,6 +61,11 @@ history.
 - **A sheet too tall for the terminal asks for a larger one** instead of
   being cut, as fff does below 36 × 12; a function's keys first leave out
   the checklists that repeat the highlighted row.
+
+### Fixed
+
+- **A longer contents query no longer misses matches** in files that the
+  shorter one, having reached its 20,000 matches, had only counted.
 
 ## 0.15.0 — 2026-11-03
 

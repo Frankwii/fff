@@ -291,6 +291,21 @@ the first search through many documents takes a while, the next ones are
 immediate. A scanned document without a text layer has nothing to find
 (`ocrmypdf` adds one); a missing extractor is named in the query box.
 
+Every file a search reads is also remembered in an index beside the cache
+(`~/.cache/fff/index`): the trigrams of its text, folded as the query
+matches them, keyed by the file's inode, size and times, so that an edited
+file is read afresh. Later searches read only the files that may hold the
+query (over 195,000 files, about 0.1 s for a word in a few of them, against
+1 s reading them all), and binary files are not opened again. The index only
+rules out files that cannot match, so it never loses a match; a query
+without three letters or digits in a row reads every file.
+
+Both stay small by themselves: once a day, a text or an index entry unused
+for about three months goes (each after its own number of days, between 90
+and 135, so that a search's entries do not all go at once), and the least
+recently used go first while the text cache passes 2 GiB or the index
+512 MiB.
+
 The contents query is not only `fff grep`'s: `fff roam`, `fff pick` and
 `fff seek` have it too. Alt+/ (or Tab in Normal mode) opens its bar beside
 the names query, and while it is set the rows are its matches among the
@@ -497,7 +512,9 @@ a folder whose scan finishes within 12 ms is drawn once, complete.
 Recent complete snapshots skip redundant scans for 3 seconds by default. Depth-1
 views refresh about every 3 seconds and can prefetch a child after a 500 ms
 highlight dwell; recursive views reuse known descendants and refresh every
-60 seconds by default. F5 forces freshness. All caches are session-local RAM.
+60 seconds by default. F5 forces freshness. All caches of listings are
+session-local RAM (only contents searches keep a [cache on
+disk](#searching-contents-fff-grep)).
 
 The interface shows the current directory on the `@` line and pinned roots by
 name. Marks sit to the right on wide terminals and stack on narrow ones.

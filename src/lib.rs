@@ -12,6 +12,7 @@ pub mod explorer;
 pub mod grep;
 pub mod highlight;
 pub mod icons;
+mod index;
 pub mod keymap;
 pub mod known;
 pub mod location;
