@@ -148,8 +148,10 @@ struct Args {
     glob: Vec<String>,
     /// Exclude a basename or root-relative glob; repeat for several rules
     ///
-    /// A matching directory prunes its whole subtree. Edit the rules during the
-    /// session with Alt+e and toggle enforcement with Alt+H.
+    /// A matching directory prunes its whole subtree; a glob starting with / or
+    /// ~/ matches absolute paths. The rules follow the configuration's
+    /// [exclusions] rules. Edit them during the session with Alt+e and toggle
+    /// enforcement with Alt+H.
     #[arg(
         global = true,
         long = "exclude",
@@ -535,9 +537,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         ignore: !args.no_exclusions,
         ..Policy::default()
     };
-    if let Err(e) = policy.set_rules(args.exclusions) {
-        usage("--exclude", &e);
-    }
     if let Err(e) = policy.set_filters(args.glob) {
         usage("--glob", &e);
     }
@@ -553,6 +552,17 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         args.palette.clone(),
         fuzzy_file_finder::reload::PaletteState::from_settings(&settings),
     );
+    // The configuration's exclusions come first, then those of --exclude.
+    if let Err(e) = policy.set_rules(
+        settings
+            .exclusions
+            .iter()
+            .cloned()
+            .chain(args.exclusions)
+            .collect(),
+    ) {
+        usage("--exclude", &e);
+    }
     let invocation = std::env::current_dir()?.canonicalize()?;
     let (browse_from, dialog) = starting_place(&mode, &invocation)?;
     let roots = pinned_roots(&mode)?;
@@ -594,6 +604,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         &settings,
     ));
     app.bookmarks = settings.bookmarks;
+    app.config_rules = settings.exclusions;
     app.icons = settings.icons && !args.no_icons;
     // keys.toml sits beside the configuration; one with errors gives way
     // to the defaults, and the Session tab says why.

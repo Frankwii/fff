@@ -216,13 +216,9 @@ pub(super) fn results_pane(
             };
             let available = room.saturating_sub(meta.width());
             // A match's name leaves most of the row to where it is and its line.
-            let name = match hit {
-                Some(_) => {
-                    let name = elide(&name, name_column.min(available));
-                    let pad = name_column.min(available).saturating_sub(name.width());
-                    name + &" ".repeat(pad)
-                }
-                None => elide(&name, available),
+            let width = match hit {
+                Some(_) => name_column.min(available),
+                None => available,
             };
             let mut spans = vec![
                 styled(prefix, if selected { theme.accent } else { theme.muted }),
@@ -236,9 +232,12 @@ pub(super) fn results_pane(
             } else {
                 color
             };
-            spans.extend(filename_spans(app.palette, &name, c, &app.query, color));
-            let mut used = name.width();
+            let (name, mut used) = filename_spans(app.palette, &name, c, &app.query, color, width);
+            spans.extend(name);
             if let Some(hit) = hit {
+                let pad = width.saturating_sub(used);
+                spans.push(styled(" ".repeat(pad), color));
+                used += pad;
                 let location = format!("  {:>7}  ", hit.location());
                 let room = available.saturating_sub(used + location.width());
                 used += location.width();
@@ -380,13 +379,18 @@ pub(super) fn row_details(
     text.push(' ');
     text
 }
+/// `label` cut to `width` columns, its matched letters highlighted. A
+/// label too long to fit keeps its matched letters in view, else the start
+/// of its name (the end of the label while the whole name fits), and shows
+/// an ellipsis where it is cut. Returns the spans and their width.
 pub(super) fn filename_spans(
     theme: Palette,
     label: &str,
     candidate: &Candidate,
     query: &str,
     name: Color,
-) -> Vec<Span<'static>> {
+    width: usize,
+) -> (Vec<Span<'static>>, usize) {
     let basename = candidate
         .path
         .file_name()
@@ -395,30 +399,110 @@ pub(super) fn filename_spans(
     let start = label
         .len()
         .saturating_sub(safe(&basename).len() + usize::from(candidate.directory));
+    let start = label[..start].chars().count();
     let matched = matched_letters(label, candidate, query);
-    label
-        .char_indices()
-        .enumerate()
-        .map(|(n, (i, c))| {
-            let matched = matched.contains(&n);
-            // The parent part of a label is dimmed so the name stands out.
-            let span = styled(
-                c.to_string(),
-                if matched {
-                    theme.marked
-                } else if i < start {
-                    theme.muted
-                } else {
-                    name
-                },
-            );
+    let chars: Vec<char> = label.chars().collect();
+    let (from, to) = name_window(&chars, start, &matched, width);
+    let mut spans = Vec::new();
+    if from > 0 {
+        spans.push(styled("…", theme.muted));
+    }
+    spans.extend(chars[from..to].iter().enumerate().map(|(n, c)| {
+        let n = from + n;
+        let matched = matched.contains(&n);
+        // The parent part of a label is dimmed so the name stands out.
+        let span = styled(
+            c.to_string(),
             if matched {
-                span.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                theme.marked
+            } else if n < start {
+                theme.muted
             } else {
-                span
-            }
-        })
-        .collect()
+                name
+            },
+        );
+        if matched {
+            span.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            span
+        }
+    }));
+    if to < chars.len() {
+        spans.push(styled("…", if to <= start { theme.muted } else { name }));
+    }
+    let used = spans.iter().map(|s| s.width()).sum();
+    (spans, used)
+}
+/// The chars `from..to` of a label shown in `width` columns, with an
+/// ellipsis before a cut start and after a cut end. The matched letters
+/// stay in view, centered when the default cannot hold them; the default
+/// is the label's end while the name (from char `start`) fits, else the
+/// name's start.
+pub(super) fn name_window(
+    chars: &[char],
+    start: usize,
+    matched: &HashSet<usize>,
+    width: usize,
+) -> (usize, usize) {
+    let w = |c: &char| c.width().unwrap_or(0);
+    let n = chars.len();
+    if chars.iter().map(w).sum::<usize>() <= width {
+        return (0, n);
+    }
+    if width == 0 {
+        return (0, 0);
+    }
+    // From `from` rightwards, leaving room for the ellipses.
+    let rightwards = |from: usize| {
+        let room = width - usize::from(from > 0);
+        let mut used = 0;
+        let mut to = from;
+        while to < n && used + w(&chars[to]) <= room {
+            used += w(&chars[to]);
+            to += 1;
+        }
+        while to < n && used + 1 > room && to > from {
+            to -= 1;
+            used -= w(&chars[to]);
+        }
+        (from, to)
+    };
+    // The label's end, with an ellipsis before it.
+    let tail = {
+        let mut used = 1;
+        let mut from = n;
+        while from > 0 && used + w(&chars[from - 1]) <= width {
+            from -= 1;
+            used += w(&chars[from]);
+        }
+        (from, n)
+    };
+    let default = if tail.0 <= start {
+        tail
+    } else {
+        rightwards(start)
+    };
+    let (Some(&lo), Some(&hi)) = (matched.iter().min(), matched.iter().max()) else {
+        return default;
+    };
+    let holds = |(from, to): (usize, usize)| from <= lo && hi < to;
+    if holds(default) {
+        return default;
+    }
+    // Center the matched letters, or start at the first when they are wider.
+    let span: usize = chars[lo..=hi].iter().map(w).sum();
+    let mut before = width.saturating_sub(span + 2) / 2;
+    let mut from = lo;
+    while from > 0 && w(&chars[from - 1]) <= before {
+        from -= 1;
+        before -= w(&chars[from]);
+    }
+    let window = rightwards(from);
+    if window.1 == n || holds(tail) {
+        tail
+    } else {
+        window
+    }
 }
 /// Char indices of `label` the query matches: letters of the name, or with
 /// a `/` in the query, along the whole path. Only a row the query matches is

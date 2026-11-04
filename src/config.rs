@@ -264,6 +264,13 @@ struct RawConfig {
     keys: Option<toml::Value>,
     open: crate::open::OpenConfig,
     trash: RawTrash,
+    exclusions: RawExclusions,
+}
+/// `[exclusions]`: rules every session starts with.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawExclusions {
+    rules: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -350,6 +357,9 @@ pub struct Settings {
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
     pub trash: TrashConfig,
+    /// `[exclusions] rules`: the exclusion rules sessions start with, before
+    /// those of `--exclude`.
+    pub exclusions: Vec<String>,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
     /// Active bookmark save destination, including a missing default config.
@@ -390,6 +400,12 @@ impl Settings {
         }
         raw.open.validate()?;
         let trash = raw.trash.validate()?;
+        if let Some(rule) = raw.exclusions.rules.iter().find(|r| r.is_empty()) {
+            return Err(format!("exclusions.rules: {rule:?} is empty"));
+        }
+        crate::Policy::default()
+            .set_rules(raw.exclusions.rules.clone())
+            .map_err(|e| format!("exclusions.rules: {e}"))?;
         let mut palettes = BTreeMap::new();
         for (name, values) in &raw.palettes {
             if Palette::named(name).is_some() {
@@ -451,6 +467,7 @@ impl Settings {
             highlight: raw.ui.highlight,
             open: raw.open,
             trash,
+            exclusions: raw.exclusions.rules,
             source: None,
             bookmark_path: None,
             broken: None,

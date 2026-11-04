@@ -322,6 +322,9 @@ pub struct App {
     /// `--no-icons`, which outranks the configuration each time it is read
     /// again.
     pub no_icons: bool,
+    /// The configuration's exclusion rules (`[exclusions]`), which lead the
+    /// session's; `gc` replaces them when they change there.
+    pub config_rules: Vec<String>,
 }
 
 impl App {
@@ -425,6 +428,7 @@ impl App {
             config_path: None,
             config_broken: None,
             no_icons: false,
+            config_rules: Vec::new(),
         }
     }
     /// The button bar is shown: always, or while the mouse is in use.
@@ -902,7 +906,7 @@ impl App {
             .filter_map(|(root, base)| {
                 let relative = candidate.path.strip_prefix(base).ok()?;
                 let depth = relative.components().count();
-                (depth > 0 && depth <= self.depth && self.policy.allows(relative))
+                (depth > 0 && depth <= self.depth && self.policy.allows(base, relative))
                     .then_some((depth, root))
             })
             .min();

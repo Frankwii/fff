@@ -321,7 +321,7 @@ impl Discovery {
                     app.scope.iter().any(|root| {
                         c.path.strip_prefix(root).is_ok_and(|p| {
                             let depth = p.components().count();
-                            depth > 0 && depth <= app.depth && app.policy.allows(p)
+                            depth > 0 && depth <= app.depth && app.policy.allows(root, p)
                         })
                     })
                 })
@@ -596,7 +596,7 @@ impl Walk<'_> {
             .filter_map(|(root, base)| {
                 let relative = path.strip_prefix(base).ok()?;
                 let depth = relative.components().count();
-                (depth > 0 && depth <= self.max && self.policy.allows(relative))
+                (depth > 0 && depth <= self.max && self.policy.allows(base, relative))
                     .then_some((depth, root))
             })
             .min()
@@ -660,10 +660,10 @@ impl Walk<'_> {
                     }
                 };
                 let path = entry.path();
-                if !self
-                    .policy
-                    .allows(path.strip_prefix(&self.roots[root]).unwrap())
-                {
+                if !self.policy.allows(
+                    &self.roots[root],
+                    path.strip_prefix(&self.roots[root]).unwrap(),
+                ) {
                     continue;
                 }
                 let kind = match entry.file_type() {

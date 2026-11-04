@@ -1414,8 +1414,9 @@ fn icons_keep_columns_elision_and_numbered_targets_aligned() {
     let (off, off_start, off_targets) = &frames[1];
     assert_eq!((on_start, on_targets), (off_start, off_targets));
     assert!(on.contains("\u{f07b} research/")); // folder
-    assert!(on.contains("\u{e7a8} …")); // rust, elided keeping the basename
-    assert!(on.contains("tail.rs"));
+    // Rust; a name too long for the row keeps its start.
+    assert!(on.contains("\u{e7a8} long_long_") && on.contains("long_… "));
+    assert!(!on.contains("tail.rs"));
     assert!(on.contains("● \u{f15c} report.tex")); // marked row
     assert!(off.contains("▸ research/") && off.contains("· todo.txt"));
     assert!(!off.contains('\u{f07b}') && off.contains("● report.tex"));
@@ -1991,4 +1992,51 @@ fn a_cut_line_keeps_its_match_marked_wherever_the_cut_falls() {
         assert_eq!(&text[parts[0].clone()], "needle", "{width}: {text}");
         assert_eq!(&text[parts[1].clone()], "more", "{width}: {text}");
     }
+}
+#[test]
+fn long_names_keep_their_matched_letters_else_their_start_in_view() {
+    let shown = |label: &str, start: usize, query: &str, width: usize| {
+        let chars: Vec<char> = label.chars().collect();
+        let matched: HashSet<usize> = label
+            .find(query)
+            .filter(|_| !query.is_empty())
+            .map(|at| {
+                let at = label[..at].chars().count();
+                (at..at + query.chars().count()).collect()
+            })
+            .unwrap_or_default();
+        let (from, to) = results::name_window(&chars, start, &matched, width);
+        let text: String = chars[from..to].iter().collect();
+        let text = format!(
+            "{}{text}{}",
+            if from > 0 { "…" } else { "" },
+            if to < chars.len() { "…" } else { "" }
+        );
+        assert!(text.width() <= width, "{text:?} is wider than {width}");
+        text
+    };
+    let name = "Introduction to the theory of linear nonselfadjoint operators \
+                (Gohberg, I. (Israel) ,1928-, Kreĭn etc.) (z-library.sk).pdf";
+    assert_eq!(
+        shown(name, 0, "", 40),
+        "Introduction to the theory of linear no…"
+    );
+    assert_eq!(
+        shown(name, 0, "Gohberg", 40),
+        "…int operators (Gohberg, I. (Israel) ,1…"
+    );
+    // Letters the start shows stay there; ones near the end show the end.
+    assert_eq!(
+        shown(name, 0, "theory", 40),
+        "Introduction to the theory of linear no…"
+    );
+    assert_eq!(
+        shown(name, 0, "z-library", 30),
+        "…reĭn etc.) (z-library.sk).pdf"
+    );
+    // A path's parent is cut first, while the whole name fits.
+    assert_eq!(shown("notes/report.tex", 6, "", 11), "…report.tex");
+    assert_eq!(shown("notes/report.tex", 6, "notes", 11), "notes/repo…");
+    assert_eq!(shown("short.txt", 0, "", 9), "short.txt");
+    assert_eq!(shown("日本語の長い名前.txt", 0, "", 9), "日本語の…");
 }

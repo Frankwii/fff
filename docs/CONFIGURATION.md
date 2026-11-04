@@ -41,7 +41,7 @@ while unavailable bookmark directories are handled when you try to visit them.
 
 `gc` in Normal mode (`edit_config` on the [Keys screen](#keys)) opens the
 configuration file in `$EDITOR`, as `e` would, and applies it as soon as the
-editor ends, reading `keys.toml` again too: bookmarks,
+editor ends, reading `keys.toml` again too: bookmarks, exclusions,
 openers, icons, columns, the mouse and the button bar, live updates, the
 trash, cache and performance limits, message timing and syntax colors.
 `--no-icons` and `--palette` still win over the file. A palette
@@ -84,7 +84,36 @@ config; a missing default file is created on the first save. Startup alone never
 writes it. With `--no-config`, bookmark edits last only for the session.
 Palette edits reload live; external bookmark edits reload with r in the
 bookmark chooser. Editor edits take effect on the next invocation.
-CLI discovery/output options are independent of this file.
+CLI discovery/output options are independent of this file, except that
+`--exclude` adds to its [exclusions](#exclusions).
+
+## Exclusions
+
+`[exclusions] rules` are exclusion rules every session starts with, in
+every program (roam, pick, seek and the file dialogs):
+
+```toml
+[exclusions]
+rules = [
+  "~/backup",   # this folder only
+  "~/.cache",
+  "node_modules", # any folder or file of this name
+]
+```
+
+A rule starting with `/` or `~/` (the home folder) is a glob of absolute
+paths and excludes that place and everything below it; any other rule
+matches basenames or paths below the searched roots, as `--exclude` does.
+Globs keep `/` literal (`*` stays within one component; `**` crosses them).
+A folder an absolute rule excludes is still listed from inside, once you go
+there.
+
+They are the first lines of the session's exclusion list, so Alt+e edits and
+removes them for the session (the file is not written) and Alt+H turns them
+all off; each `--exclude` adds a line after them. `--no-config` leaves them
+out, and `--resume` brings back the list the last session had. When `gc`
+changes them, the file's new rules replace the old ones at the top of the
+list and the session's own lines stay below them.
 
 ## Color palettes
 

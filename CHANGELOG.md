@@ -6,6 +6,22 @@ history.
 
 ## Unreleased
 
+### Added
+
+- **Exclusions in the configuration.** `[exclusions] rules` lists
+  exclusion rules every session starts with, in every program; they are
+  the first lines of the list Alt+e edits, `--exclude` adds lines after
+  them, and `gc` applies changes to them at once.
+- **Exclusion rules for one place**: a rule starting with `/` or `~/`
+  (`~/backup`) matches absolute paths, so it excludes that folder and not
+  every folder of the same name.
+
+### Changed
+
+- **Names too long for their row keep the part that matters in view**:
+  the letters the query matches, with an ellipsis on each side where the
+  name is cut, and otherwise the start of the name rather than its end.
+
 ### Fixed
 
 - **A match no longer loses its highlight in the rows.** With a contents

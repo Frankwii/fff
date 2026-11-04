@@ -225,9 +225,12 @@ directories are hidden but still traversed. Repeat it to allow several patterns
 Alt+F (`gf`) turns them off and on again, keeping them. Changing them re-lists
 the files already found without rescanning.
 
-Hidden entries are off by default. Explicit `--exclude` glob rules are enforced;
-a matching directory prunes its subtree. Rules match basenames or scope-relative
-paths, with literal separators. No automatic `.gitignore` integration is enabled.
+Hidden entries are off by default. Exclusion rules, from `[exclusions] rules`
+in the [configuration](docs/CONFIGURATION.md#exclusions) and then each
+`--exclude`, are enforced; a matching directory prunes its subtree. Rules match
+basenames or scope-relative paths, with literal separators; one starting with
+`/` or `~/` matches absolute paths (`~/backup`). No automatic `.gitignore`
+integration is enabled.
 The query box's bottom border shows `filters on` and `exclusions on` only
 while filters or exclusion rules exist and are applied; F2's session details list
 their globs. It also shows discovery progress while a scan runs and for three

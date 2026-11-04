@@ -202,7 +202,7 @@ fn read_seed(
         let entry = entry.ok()?;
         physical_empty = false;
         let path = entry.path();
-        if !policy.allows(path.strip_prefix(target).ok()?) {
+        if !policy.allows(target, path.strip_prefix(target).ok()?) {
             continue;
         }
         let kind = entry.file_type().ok()?;

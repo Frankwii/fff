@@ -10,7 +10,10 @@ pub struct Policy {
     pub hidden: bool,
     pub ignore: bool,
     pub rules: Vec<String>,
+    /// Rules matched against basenames and paths below their root.
     pub exclusions: Vec<GlobMatcher>,
+    /// Rules starting with `/` or `~/`, matched against absolute paths.
+    pub absolute: Vec<GlobMatcher>,
     /// File filters (`--glob`, Alt+f): with any, only files whose basename
     /// matches one of them are listed; directories are still traversed.
     pub filters: Vec<String>,
@@ -28,13 +31,21 @@ pub fn glob(pattern: &str) -> Result<GlobMatcher, globset::Error> {
 
 impl Policy {
     pub fn set_rules(&mut self, rules: Vec<String>) -> Result<(), globset::Error> {
-        let compiled = rules
-            .iter()
-            .map(|s| glob(s))
-            .collect::<Result<Vec<_>, _>>()?;
+        let (mut relative, mut absolute) = (Vec::new(), Vec::new());
+        for rule in &rules {
+            match absolute_rule(rule) {
+                Some(rule) => absolute.push(glob(&rule)?),
+                None => relative.push(glob(rule)?),
+            }
+        }
         self.rules = rules;
-        self.exclusions = compiled;
+        self.exclusions = relative;
+        self.absolute = absolute;
         Ok(())
+    }
+    /// Whether exclusion rules apply: there are some, and they are enforced.
+    pub fn excluding(&self) -> bool {
+        self.ignore && !(self.exclusions.is_empty() && self.absolute.is_empty())
     }
     /// Like `set_rules`, atomic: every filter compiles before any replaces the list.
     pub fn set_filters(&mut self, filters: Vec<String>) -> Result<(), globset::Error> {
@@ -59,7 +70,7 @@ impl Policy {
     /// `None` (use `allows`) when exclusion rules apply or the bytes do not
     /// show a plain `root/…` prefix, so Path's component rules decide instead.
     pub fn allows_below(&self, root: &Path, path: &Path) -> Option<bool> {
-        if self.ignore && !self.exclusions.is_empty() {
+        if self.excluding() {
             return None;
         }
         let root = root.as_os_str().as_encoded_bytes();
@@ -80,10 +91,17 @@ impl Policy {
         }
         Some(self.hidden || !hidden)
     }
-    pub fn allows(&self, relative: &Path) -> bool {
+    /// Whether `relative`, a path below `root`, is listed: neither it nor a
+    /// folder above it (below `root`) is hidden or excluded.
+    pub fn allows(&self, root: &Path, relative: &Path) -> bool {
         // Ancestor prefixes are only needed to match exclusion rules.
-        let excluding = self.ignore && !self.exclusions.is_empty();
+        let excluding = self.excluding();
         let mut prefix = PathBuf::new();
+        let mut full = if excluding && !self.absolute.is_empty() {
+            Some(root.to_path_buf())
+        } else {
+            None
+        };
         for part in relative.components() {
             if !self.hidden && part.as_os_str().as_encoded_bytes().first() == Some(&b'.') {
                 return false;
@@ -97,12 +115,28 @@ impl Policy {
                 {
                     return false;
                 }
+                if let Some(full) = &mut full {
+                    full.push(part);
+                    if self.absolute.iter().any(|g| g.is_match(&*full)) {
+                        return false;
+                    }
+                }
             }
         }
         true
     }
 }
 
+/// `rule` as an absolute glob when it names one (`/…`, or `~/…` below
+/// `$HOME`); `None` for a basename or root-relative rule.
+fn absolute_rule(rule: &str) -> Option<String> {
+    if rule.starts_with('/') {
+        return Some(rule.to_owned());
+    }
+    let rest = rule.strip_prefix("~/")?;
+    let home = std::env::var("HOME").ok().filter(|h| h.starts_with('/'))?;
+    Some(format!("{}/{rest}", home.trim_end_matches('/')))
+}
 /// Whether `c` is within `depth` of its root, allowed by `policy`, and not `cwd`.
 pub(crate) fn eligible(
     depth: usize,
@@ -120,7 +154,10 @@ pub(crate) fn eligible(
     if let Some(allowed) = policy.allows_below(root, &c.path) {
         return allowed && c.path.as_os_str() != cwd.as_os_str();
     }
-    c.path != cwd && c.path.strip_prefix(root).is_ok_and(|p| policy.allows(p))
+    c.path != cwd
+        && c.path
+            .strip_prefix(root)
+            .is_ok_and(|p| policy.allows(root, p))
 }
 /// Which kinds of entry the results list.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

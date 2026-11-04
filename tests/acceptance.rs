@@ -474,6 +474,45 @@ fn policy_toggles_prune_and_preserve_marks() {
     assert_eq!(app.marks, vec![main]);
 }
 #[test]
+fn absolute_exclusions_hide_one_place_and_what_is_below_it() {
+    let f = Fixture::new();
+    f.file("backup/old.txt");
+    f.file("notes/backup/kept.txt");
+    let mut policy = Policy {
+        ignore: true,
+        ..Policy::default()
+    };
+    let rule = format!("{}/backup", f.0.display());
+    policy.set_rules(vec![rule.clone()]).unwrap();
+    assert_eq!(policy.rules, [rule]);
+    let mut app = App::new(vec![f.0.clone()], 3, policy);
+    let mut scan = Scan::start(&mut app, true);
+    complete(&mut scan, &mut app);
+    let mut rows: Vec<_> = app
+        .rows
+        .iter()
+        .map(|c| c.path.strip_prefix(&f.0).unwrap().to_owned())
+        .collect();
+    rows.sort();
+    let names: Vec<_> = ["notes", "notes/backup", "notes/backup/kept.txt"]
+        .map(PathBuf::from)
+        .to_vec();
+    assert_eq!(rows, names);
+    // Browsed from inside, the excluded folder's own entries are listed.
+    let inside = f.0.join("backup");
+    assert!(app.policy.allows(&inside, Path::new("old.txt")));
+    // ~/ is the home folder.
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        let home = PathBuf::from(home);
+        app.policy.hidden = true;
+        app.policy.set_rules(vec!["~/.cache".into()]).unwrap();
+        assert!(!app.policy.allows(&home, Path::new(".cache/x")));
+        assert!(app.policy.allows(&home, Path::new("a/.cache")));
+        app.policy.ignore = false;
+        assert!(app.policy.allows(&home, Path::new(".cache/x")));
+    }
+}
+#[test]
 fn keys_bind_by_function_and_typing_stays_text() {
     use fuzzy_file_finder::{
         keymap::{Cell, Function, Highlight, Keymap, Mode, Place, Step},
@@ -826,7 +865,9 @@ fn byte_level_policy_matches_path_components() {
             for tail in tails {
                 for joined in [format!("{root}/{tail}"), format!("{root}{tail}")] {
                     let (root, path) = (Path::new(root), Path::new(&joined));
-                    let slow = path.strip_prefix(root).is_ok_and(|p| policy.allows(p));
+                    let slow = path
+                        .strip_prefix(root)
+                        .is_ok_and(|p| policy.allows(root, p));
                     if let Some(fast) = policy.allows_below(root, path) {
                         assert_eq!(fast, slow, "{root:?} {path:?} hidden={hidden}");
                     }

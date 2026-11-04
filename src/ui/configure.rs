@@ -131,6 +131,26 @@ impl Session {
         self.discovery.refresh_every = Duration::from_millis(settings.performance.refresh_ms);
         self.discovery.max_paths = settings.performance.max_paths;
         app.cached_queries = settings.performance.cached_queries;
+        if app.config_rules != settings.exclusions {
+            // The new rules lead; the session's own follow, as they were.
+            let old = std::mem::replace(&mut app.config_rules, settings.exclusions);
+            let rules: Vec<String> = app
+                .config_rules
+                .iter()
+                .cloned()
+                .chain(
+                    app.policy
+                        .rules
+                        .iter()
+                        .filter(|rule| !old.contains(rule) && !app.config_rules.contains(rule))
+                        .cloned(),
+                )
+                .collect();
+            if rules != app.policy.rules && app.policy.set_rules(rules).is_ok() && app.policy.ignore
+            {
+                self.discovery.start(app, false);
+            }
+        }
         self.palettes.refresh();
         Ok(Ok(()))
     }

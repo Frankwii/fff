@@ -88,6 +88,9 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
         "[[bookmarks]]\nname=''\npath='/tmp'",
         "[[bookmarks]]\nname='A'\npath=''",
         "[[bookmarks]]\nname='A'\npath='/a'\n[[bookmarks]]\nname='A'\npath='/b'",
+        "[exclusions]\nrules=['[']",
+        "[exclusions]\nrules=['']",
+        "[exclusions]\nrule=['a']",
     ] {
         assert!(parse(text).is_err(), "accepted {text}");
     }
@@ -520,4 +523,10 @@ fn preview_syntax_colors_default_on_and_can_be_turned_off() {
     assert!(parse("").unwrap().highlight);
     assert!(!parse("[ui]\nhighlight = false\n").unwrap().highlight);
     assert!(parse("[ui]\nhighlight = 'yes'\n").is_err());
+}
+#[test]
+fn exclusion_rules_are_kept_in_order_as_written() {
+    assert!(parse("").unwrap().exclusions.is_empty());
+    let s = parse("[exclusions]\nrules=['~/backup', '.cache', '/mnt/*/tmp']").unwrap();
+    assert_eq!(s.exclusions, ["~/backup", ".cache", "/mnt/*/tmp"]);
 }
