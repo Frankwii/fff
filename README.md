@@ -1,7 +1,7 @@
 # fuzzy file finder
 
 A Rust terminal file picker with fuzzy filename filtering, directory navigation,
-live search depth, pinned roots and persistent marked paths. Version **0.15.0**.
+live search depth, pinned roots and persistent marked paths. Version **0.16.3**.
 The executable is **`fff`**; the crate package is **`fuzzy-file-finder`**.
 
 ## Build and run
@@ -34,7 +34,8 @@ and exit codes.
 | `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. `--resume` continues the last session. |
 | `fff pick [ROOTS]` | Browse and print the chosen paths, for scripts and `$(...)`. |
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
-| `fff explorer [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
+| `fff window [PATH]` | Browse in a terminal window of its own, as the desktop's file manager ([details](docs/DESKTOP.md#opening-directories)). |
+| `fff explorer open\|open-multiple\|folder\|save [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
 | `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--desktop`, `--file-chooser`, `--check-config`. |
 
 The command only chooses how a session starts: `gm` turns a running session
@@ -95,7 +96,7 @@ fff can also be the desktop's file manager and file chooser: `fff setup
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
 except prompts made for typing (new names, the go-to prompt, the gx/gX command,
 the bookmark form)
-and the query of `fff pick`, `fff seek` and `fff explorer --save`, which start
+and the query of `fff pick`, `fff seek` and `fff explorer save`, which start
 in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. See [editing](docs/EDITING.md).
@@ -164,7 +165,7 @@ The keys that open or finish fit together:
 dialogs, keeps these meanings: Enter chooses a file and enters a folder, `!`
 takes the folder you are in, Ctrl+w the marks (in dialogs for several files),
 and Ctrl+s saves. A folder
-opened from the desktop (`--window`) has no shell to leave into: Enter enters a
+opened from the desktop (`fff window`) has no shell to leave into: Enter enters a
 folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
@@ -173,7 +174,7 @@ survive navigation and filtering. On a [contents match](#searching-contents)
 the mark is its file's, and the highlight moves on to the next file. Escape twice in Normal mode, with the
 query empty, clears every mark. Ctrl+w finishes
 with the marks only, and only where the answer can be several paths: `fff
-pick` returns them (as does `fff explorer --multiple`).
+pick` returns them (as do `fff explorer open-multiple` and `folder --multiple`).
 Elsewhere (`fff roam`,
 `fff seek`, other dialogs) it does nothing but say so; there the marks are for
 file operations, `o`, `e` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
@@ -340,7 +341,7 @@ What carries over:
 How the session ends follows the program it ends in: `fff pick` prints the
 chosen files, `fff roam` and `fff seek` change directory.
 
-Dialogs (`fff explorer`) and `--window` sessions do not switch: a dialog
+Dialogs (`fff explorer`) and `fff window` sessions do not switch: a dialog
 answers the application that opened it, and a window has no shell to change
 directory or print to.
 
@@ -419,7 +420,7 @@ key says which one.
 | Shift+Space / Space in Normal | Toggle mark; advance in results, past a file's other matches (Shift+Space needs a terminal that tells it from Space) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
-| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer --multiple`; nothing elsewhere) |
+| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer open-multiple`; nothing elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
@@ -529,6 +530,17 @@ source <(fff setup --completions bash)   # ~/.bashrc
 source <(fff setup --completions zsh)    # ~/.zshrc, after compinit
 fff setup --completions fish | source    # ~/.config/fish/config.fish
 ```
+
+Or save the script once where the shell finds completions, and nothing goes in
+its startup file:
+
+```sh
+fff setup --completions zsh > ~/.config/zsh/completions/_fff   # any directory in $fpath, before compinit
+fff setup --completions fish > ~/.config/fish/completions/fff.fish
+```
+
+The script only calls `fff` back (the binary on PATH, as named when the script
+was printed), so it needs no update when fff is upgraded.
 
 Elvish and PowerShell are supported too. Completion calls the running binary and
 covers options, root/config paths, editors, built-in/custom palettes and key

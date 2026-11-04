@@ -66,9 +66,10 @@ class Session:
             if environment: os.environ.update(environment)
             if "--config" not in args and "--no-config" not in args and not environment:
                 args=(*args,"--no-config")
-            # A command (fff seek, fff explorer) comes before the root; the
-            # picker is fff pick, the only command that prints paths.
-            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick") else []
+            # A command (fff seek, fff explorer open) comes before the root;
+            # the picker is fff pick, the only command that prints paths.
+            command = [args[0]] if args and args[0] in ("seek", "explorer", "pick", "window") else []
+            if command == ["explorer"]: command = list(args[:2])
             args = args[len(command):]
             if output_paths and not command:
                 command = ["pick"]
@@ -1521,7 +1522,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_explorer_l_on_a_file_says_how_to_choose_it(self):
         (self.root / "page.html").touch()
-        s = self.start("explorer", "--save", "page.html", "--depth", "1",
+        s = self.start("explorer", "save", "page.html", "--depth", "1",
                        implicit_root=True, output_paths=False)
         s.send(b"\x1b[27u", "NORMAL")  # save dialogs start typing a name
         s.send(b"l", "Files do not open here. To save over this one, press Enter on it")
@@ -1530,7 +1531,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
         s.close()
         # An open (attach) dialog says the same, with "choose".
-        s = self.session = Session(self.root, "explorer", "--depth", "1",
+        s = self.session = Session(self.root, "explorer", "open", "--depth", "1",
                                    implicit_root=True, output_paths=False)
         s.send(b"l", "Files do not open here. To choose this one, press Enter on it")
         s.send(b"q")
@@ -1539,7 +1540,7 @@ class TerminalTests(unittest.TestCase):
     def test_explorer_double_click_is_enter_on_the_row(self):
         (self.root / "alpha").mkdir()
         (self.root / "alpha" / "inside").touch()
-        s = self.start("explorer", "--depth", "1", implicit_root=True, output_paths=False)
+        s = self.start("explorer", "open", "--depth", "1", implicit_root=True, output_paths=False)
         def double_click(name):
             lines = s.screen.text.splitlines()
             row = next(i for i, l in enumerate(lines) if f" {name}" in l and "@" not in l)
@@ -1561,7 +1562,7 @@ class TerminalTests(unittest.TestCase):
         (docs / "a.pdf").write_text("a")
         (docs / "other.txt").write_text("o")
         def save():
-            s = self.session = Session(self.root, "explorer", "--save", str(docs / "a.pdf"),
+            s = self.session = Session(self.root, "explorer", "save", str(docs / "a.pdf"),
                                        implicit_root=True, output_paths=False)
             s.wait_ui("Save as a.pdf · INSERT")
             s.send(b"new.pdf", "Save as new.pdf · INSERT")
@@ -2695,7 +2696,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "docs" / "a.pdf").write_text("a")
         (self.root / "b.txt").write_text("b")
         # Normal-mode Enter enters a folder, then chooses a file.
-        s = self.start("explorer", implicit_root=True, output_paths=False)
+        s = self.start("explorer", "open", implicit_root=True, output_paths=False)
         s.wait_ui("Press Enter on a file to choose it.")
         s.wait_ui("F1 keys  q quit")
         s.send(b"\r", ("cwd", self.root / "docs"))
@@ -2704,7 +2705,7 @@ class TerminalTests(unittest.TestCase):
         s.close()
         # One answer: Enter takes that file even when other files are marked
         # after it.
-        s = self.session = Session(self.root, "explorer", "--depth", "1",
+        s = self.session = Session(self.root, "explorer", "open", "--depth", "1",
                                    implicit_root=True, output_paths=False)
         s.send(b"j", "› 2/0")
         s.send(SHIFT_SPACE, "Marks (1)")
@@ -2717,7 +2718,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "b.txt") + b"\n"))
         s.close()
         # q cancels instead of returning the launch directory.
-        s = self.session = Session(self.root, "explorer", implicit_root=True,
+        s = self.session = Session(self.root, "explorer", "open", implicit_root=True,
                                    output_paths=False)
         s.send(b"q")
         self.assertEqual(s.finish(), (130, b""))
@@ -2726,7 +2727,7 @@ class TerminalTests(unittest.TestCase):
         # shows; a taken name asks first: k keeps both, Enter replaces.
         docs = self.root / "docs"
         def save(*args):
-            s = self.session = Session(self.root, "explorer", "--save", str(docs / "a.pdf"),
+            s = self.session = Session(self.root, "explorer", "save", str(docs / "a.pdf"),
                                        *args, implicit_root=True, output_paths=False)
             s.wait_ui(("cwd", docs))
             # Save dialogs start ready to type a name.
@@ -2765,7 +2766,7 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
             s.close()
         # A folder dialog takes the folder being browsed.
-        s = self.session = Session(self.root, "explorer", "--directory", "docs",
+        s = self.session = Session(self.root, "explorer", "folder", "docs",
                                    implicit_root=True, output_paths=False)
         s.wait_ui("Press ! or Ctrl+s to choose the folder you are in.")
         s.send(b"!")
@@ -2986,8 +2987,8 @@ class TerminalTests(unittest.TestCase):
         for args, kwargs in [
             ((), {"output_paths": False}),
             (("seek",), {}),
-            (("explorer",), {"output_paths": False}),
-            (("explorer", "--save", str(self.root / "c.pdf")), {"output_paths": False}),
+            (("explorer", "open"), {"output_paths": False}),
+            (("explorer", "save", str(self.root / "c.pdf")), {"output_paths": False}),
         ]:
             s = self.session = Session(self.root, *args, implicit_root=True, **kwargs)
             s.send(b"\x1b[27u", "NORMAL")
@@ -3003,7 +3004,7 @@ class TerminalTests(unittest.TestCase):
             s.close()
         self.session = None
         # fff pick returns them, as does a dialog for several files.
-        for args in [(), ("explorer", "--multiple")]:
+        for args in [(), ("explorer", "open-multiple")]:
             s = self.session = Session(self.root, *args, implicit_root=True,
                                        output_paths=not args)
             s.send(b"\x1b[27u", "NORMAL")
@@ -3024,7 +3025,7 @@ class TerminalTests(unittest.TestCase):
         env = self.run_environment("fakesh", f'pwd > "{here}"; exit 5\n')
         env["SHELL"] = "fakesh"
         def start():
-            return self.start("--depth", "1", "--browse", str(self.root), "--window",
+            return self.start("window", str(self.root), "--depth", "1",
                               implicit_root=True, output_paths=False, environment=env)
         # Normal-mode Enter on a folder goes into it, and fff stays.
         s = start()

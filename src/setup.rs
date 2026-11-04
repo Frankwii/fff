@@ -175,7 +175,7 @@ pub fn launcher_script(fff: &str, terminal: &[String]) -> String {
     let command: Vec<String> = terminal
         .iter()
         .map(String::as_str)
-        .chain([fff, "--browse", "--window"])
+        .chain([fff, "window"])
         .map(shell_quote)
         .collect();
     format!(
@@ -481,7 +481,7 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(dir.join("args")).unwrap(),
-            "-c\nit's\n/my fff\n--browse\n--window\n/a dir\n"
+            "-c\nit's\n/my fff\nwindow\n/a dir\n"
         );
         fs::remove_dir_all(dir).unwrap();
     }
@@ -611,15 +611,17 @@ mod tests {
         let home = dir.display();
         let (got, args) = dialog(&dir, ["0", "0", "0", ""], "/x/a\n");
         assert_eq!(got, "/x/a\n");
-        assert_eq!(args, format!("{home}\nexplorer\n"));
+        assert_eq!(args, format!("{home}\nexplorer\nopen\n"));
         let (_, args) = dialog(&dir, ["1", "1", "0", "/x/y z"], "");
         assert_eq!(
             args,
-            format!("{home}\nexplorer\n--multiple\n--directory\n/x/y z\n")
+            format!("{home}\nexplorer\nfolder\n--multiple\n/x/y z\n")
         );
         let (got, args) = dialog(&dir, ["0", "0", "1", "/x/page.html"], "");
         assert_eq!(got, "");
-        assert_eq!(args, format!("{home}\nexplorer\n--save\n/x/page.html\n"));
+        assert_eq!(args, format!("{home}\nexplorer\nsave\n/x/page.html\n"));
+        let (_, args) = dialog(&dir, ["1", "0", "0", ""], "");
+        assert_eq!(args, format!("{home}\nexplorer\nopen-multiple\n"));
         fs::remove_dir_all(dir).unwrap();
     }
 }

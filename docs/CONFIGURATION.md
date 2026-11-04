@@ -313,7 +313,7 @@ key does:
 | Mark / Unmark | Shift+Space, without moving: mark the highlighted row |
 | Show / Hide hidden | Alt+.: hidden entries |
 | Cancel | Ctrl+c: quit without output |
-| Select & Exit | Ctrl+w with marks where they are returned (`fff pick`, `fff explorer --multiple`), else Normal-mode Enter on the highlighted row |
+| Select & Exit | Ctrl+w with marks where they are returned (`fff pick`, `fff explorer open-multiple`), else Normal-mode Enter on the highlighted row |
 
 Buttons that cannot act (Back with no history, Up and Back in `fff seek`)
 are dimmed. In the copy, move, link and permanent-deletion confirmations the bar shows
@@ -907,8 +907,8 @@ A place is a combination of three things, fixed by design:
 
 | Dimension | Values |
 | --- | --- |
-| program | `roam`, `window` (`fff roam --window`), `pick`, `seek`, `explorer-open`, `explorer-multiple`, `explorer-folder`, `explorer-save` |
-| list (`place` in `keys.toml`) | `results`, `marks` (the marked list) |
+| program | `roam`, `window`, `pick`, `seek`, `explorer-open`, `explorer-open-multiple`, `explorer-folder`, `explorer-save` (`fff explorer open`, `open-multiple`, `folder` with or without `--multiple`, and `save`) |
+| list | `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 
 Each function works only in some places, which may be several:
@@ -1019,14 +1019,18 @@ quit = "Q"
 go_to_highlighted = [
   { keys = "l", highlight = ["dir"] },
   { keys = "<CR>", program = ["roam", "window"], highlight = ["dir"] },
-  { keys = "<CR>", program = ["pick"], place = ["results"], highlight = ["dir"] },
+  { keys = "<CR>", program = ["pick"], list = ["results"], highlight = ["dir"] },
 ]
 ```
 
 Each entry replaces one function's keys in one mode; functions not named
 keep their defaults. A value is keys, `"none"` (or `""`, `[]`) for no keys,
-or a list of keys and tables with `keys` and any of `program`, `place` and
-`highlight`. Keys use Vim's notation: printable keys stand for themselves
+or a list of keys and tables with `keys` and any of `program`, `list` and
+`highlight`, each a list of the values [above](#where-keys-apply), named as the
+Keys screen's columns name them. This layout is settled: files written since
+0.14.0 keep working, and the two names that changed in 0.16.4 (`place`, now
+`list`, and the program `explorer-multiple`, now `explorer-open-multiple`) are
+still read, and written anew when the Keys screen next saves. Keys use Vim's notation: printable keys stand for themselves
 (`gg`, `g/`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),
 `M-` (Alt) and `S-` (Shift) before them: `<CR>`, `<Esc>`, `<Tab>`, `<BS>`,
 `<Del>`, `<Insert>`, `<Space>`, `<lt>` (`<`), `<Up>`, `<Down>`, `<Left>`,

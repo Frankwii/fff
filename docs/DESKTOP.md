@@ -53,7 +53,7 @@ time, keeping everything else.
 `fff setup --desktop`:
 
 1. Writes `$XDG_DATA_HOME/fff/open-folder` (`~/.local/share/...` by default),
-   a launcher script running `FFF_TERMINAL fff --browse --window FOLDER` with the
+   a launcher script running `FFF_TERMINAL fff window FOLDER` with the
    terminal's own output discarded (st, for one, logs escape sequences it does
    not support, and that log would otherwise land in the shell that ran
    `xdg-open`).
@@ -71,10 +71,10 @@ time, keeping everything else.
    and names the previous default and how to restore it. Without `xdg-mime`,
    it prints that command instead.
 
-`--browse` starts fff at the path it is given rather than pinning it as a
-search root; given a file, fff starts in its folder with the file highlighted.
-Started from a menu without a path, fff browses as usual from the directory
-the launcher starts in (usually your home directory).
+`fff window` starts at the path it is given; given a file, fff starts in its
+folder with the file highlighted. Started from a menu without a path, fff
+browses from the directory the launcher starts in (usually your home
+directory).
 
 The entry runs the terminal itself instead of setting `Terminal=true`: with
 `Terminal=true` each launcher chooses the terminal from its own list (GIO, used
@@ -88,7 +88,7 @@ xdg-mime query default inode/directory   # fff.desktop
 xdg-open ~/Downloads                      # fff in a floating terminal
 ```
 
-`--window` tells fff it has a window of its own and no shell to change into,
+`fff window` is fff with a window of its own and no shell to change into,
 so the keys that would leave into a directory act like a graphical file
 manager instead. Normal-mode Enter on a folder (or on a folder in the marked
 list, or the Select button) enters it and fff stays. Enter on a file opens it
@@ -100,8 +100,11 @@ are browsing, so the window becomes a terminal there; leaving the shell closes
 it. `q` closes the window. Nothing is printed. The F1 guide describes Enter
 and `!` this way in such a window.
 
-Launchers written by `fff --setup desktop` before 0.8.1 lack `--window`; run
-setup again to add it.
+Launchers and portal wrappers written before 0.16.4 call `fff --browse
+--window` and `fff explorer --multiple` (and the like), which now only say
+what replaced them; run `fff setup --desktop` and `fff setup --file-chooser`
+again to update them. `fff window --resume` continues the last `fff roam` or
+`fff window` session.
 
 ## Show in folder
 
@@ -222,7 +225,10 @@ portal's log.
 ## fff explorer
 
 ```
-fff explorer [--multiple] [--directory] [--save] [PATH]
+fff explorer open [PATH]
+fff explorer open-multiple [PATH]
+fff explorer folder [--multiple] [PATH]
+fff explorer save [PATH]
 ```
 
 Answers one file dialog and prints the answer: each chosen path, absolute,
@@ -230,19 +236,20 @@ followed by a newline. The file chooser installed by `fff setup --file-chooser`
 runs it for every dialog, but it works anywhere a script needs a file, a folder
 or a place to save. The general options (`--depth`, `--hidden`,
 `--no-exclusions`, `--palette`, `--no-icons`, `--config`,
-`--no-config`) apply as usual and may follow the subcommand.
+`--no-config`) apply as usual and may follow the subcommand. The
+subcommands are named as the [Keys screen](CONFIGURATION.md#where-keys-apply)
+names their programs (`explorer-open`, ...); one folder and several share
+`explorer-folder`, since their keys do not differ.
 
 ### Kinds of dialog
 
-| Flags | Dialog | Answer |
+| Command | Dialog | Answer |
 | --- | --- | --- |
-| none | Open one file | One file. |
-| `--multiple` | Open several files | One or more files. |
-| `--directory` | Choose a folder | One folder. |
-| `--directory --multiple` | Choose folders | One or more folders. |
-| `--save` | Save a file | One file path, which may not exist yet. |
-
-`--directory` and `--save` cannot be combined.
+| `open` | Open one file | One file. |
+| `open-multiple` | Open several files | One or more files. |
+| `folder` | Choose a folder | One folder. |
+| `folder --multiple` | Choose folders | One or more folders. |
+| `save` | Save a file | One file path, which may not exist yet. |
 
 ### Where it starts
 
@@ -264,13 +271,13 @@ PATH is a folder, it is `untitled`.
 
 The keys keep their meaning from a normal session (see the
 [README](../README.md#browsing-and-returning-paths)): Enter acts on the
-highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (with
-`--multiple` only). What differs:
+highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (in
+`open-multiple` and `folder --multiple` only). What differs:
 
 | Key | In `fff explorer` |
 | --- | --- |
 | Enter on a folder | Enters it, in Normal and Insert mode alike (a normal session leaves into it from Normal mode). |
-| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file) it is that file whatever is marked; with `--multiple`, the marks and that file. When saving, offers to [replace](#saving) it. |
+| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file) it is that file whatever is marked; in `open-multiple`, the marks and that file. When saving, offers to [replace](#saving) it. |
 | Enter while typing (Insert mode), when saving | Saves under the typed name, as in any name field. |
 | Enter with nothing listed (an empty folder), when saving | Saves under the typed or suggested name. |
 | Enter in the marked list | Chooses that mark (when saving, offers to replace it). |
@@ -278,7 +285,7 @@ highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (with
 | Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
 | `q` (Normal mode) | Cancels, as everywhere: nothing is chosen. |
 | Ctrl+c | Cancels. |
-| Ctrl+w | Chooses the marks, with `--multiple`. Other dialogs have one answer, which Ctrl+w does nothing for but say so. |
+| Ctrl+w | Chooses the marks, in `open-multiple` and `folder --multiple`. Other dialogs have one answer, which Ctrl+w does nothing for but say so. |
 | Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving, also while typing a name to save under. |
 | Double click | Enter on that row, as Ctrl+number (a normal session acts like `l`). |
 | `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says to press Enter on it or Ctrl+number on its row, to choose it or, when saving, to replace it. In folder dialogs a file opens in the background, as in a normal session. |
@@ -334,7 +341,7 @@ window for that file.
 The paths a key returned become the answer as follows:
 
 - **Open:** folders are dropped, so a folder returned by `!` or Ctrl+w counts
-  as nothing. Without `--multiple`, only the last remaining path is kept: the
+  as nothing. In `open`, only the last remaining path is kept: the
   file Enter was pressed on, or the last mark.
 - **Folder:** files are dropped. Without `--multiple`, only the last folder is
   kept.
@@ -351,14 +358,14 @@ Nothing is written for a cancelled dialog or an empty answer.
 | --- | --- |
 | 0 | An answer was printed. |
 | 1 | Startup, configuration or I/O error. |
-| 2 | Invalid usage, e.g. `--directory` with `--save`. |
+| 2 | Invalid usage, e.g. no kind of dialog. |
 | 130 | Cancelled, or nothing chosen fits the dialog; nothing printed. |
 
 ### Examples
 
 ```sh
-fff explorer ~/Downloads                     # choose one file, starting in Downloads
-fff explorer --multiple | xargs -d '\n' ls -l
-fff explorer --directory --multiple          # choose folders
-fff explorer --save ~/Downloads/paper.pdf    # where to save paper.pdf
+fff explorer open ~/Downloads                # choose one file, starting in Downloads
+fff explorer open-multiple | xargs -d '\n' ls -l
+fff explorer folder --multiple               # choose folders
+fff explorer save ~/Downloads/paper.pdf      # where to save paper.pdf
 ```

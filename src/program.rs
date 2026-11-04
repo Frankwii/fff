@@ -85,17 +85,17 @@ impl Program {
     pub fn records_session(self) -> bool {
         matches!(self, Self::Roam | Self::Window)
     }
-    /// The program as its command line says it: `roam`, `explorer --save`.
+    /// The program as its command line says it: `roam`, `explorer save`.
     pub fn title(self) -> &'static str {
         match self {
             Self::Roam => "roam",
-            Self::Window => "roam --window",
+            Self::Window => "window",
             Self::Pick => "pick",
             Self::Seek => "seek",
-            Self::ExplorerOpen => "explorer",
-            Self::ExplorerMultiple => "explorer --multiple",
-            Self::ExplorerFolder => "explorer --directory",
-            Self::ExplorerSave => "explorer --save",
+            Self::ExplorerOpen => "explorer open",
+            Self::ExplorerMultiple => "explorer open-multiple",
+            Self::ExplorerFolder => "explorer folder",
+            Self::ExplorerSave => "explorer save",
         }
     }
 }

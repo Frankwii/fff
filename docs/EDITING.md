@@ -12,7 +12,7 @@ The query, exclusions, file filters, bookmark and icon filters, and palette
 filter all initially start in **Normal mode**. New file/directory naming
 buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
 form's name and path, and the query of `fff pick`, `fff seek` and
-`fff explorer --save` start in **Insert mode**, ready for typing; rename and
+`fff explorer save` start in **Insert mode**, ready for typing; rename and
 extraction buffers and the contents query start in Normal. Tab or Alt+/
 (`switch_query`), in either mode, moves between the names and contents
 queries, in any program but the file dialogs; each keeps its own text, cursor, mode and undo

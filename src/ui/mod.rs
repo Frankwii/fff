@@ -91,7 +91,7 @@ pub(crate) enum Focus {
     NewChoice,
     /// `switch_program`: which program to go on as.
     ProgramChoice,
-    /// A name is taken (fff explorer --save, R): replace it, keep both or
+    /// A name is taken (fff explorer save, R): replace it, keep both or
     /// go back.
     Replace(Replace),
     Location(crate::location::Location),
@@ -124,7 +124,7 @@ pub(crate) struct Replace {
     pub then: Replacing,
 }
 pub(crate) enum Replacing {
-    /// fff explorer --save: the answer.
+    /// fff explorer save: the answer.
     Save,
     /// R: the entries going back from the trash.
     Restore(crate::operations::RestorePlan),

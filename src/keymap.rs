@@ -88,10 +88,19 @@ impl Dimension for Program {
             Self::Pick => "pick",
             Self::Seek => "seek",
             Self::ExplorerOpen => "explorer-open",
-            Self::ExplorerMultiple => "explorer-multiple",
+            Self::ExplorerMultiple => "explorer-open-multiple",
             Self::ExplorerFolder => "explorer-folder",
             Self::ExplorerSave => "explorer-save",
         }
+    }
+    /// Also the name before 0.16.4, when the command was `explorer --multiple`.
+    fn named(name: &str) -> Option<Self> {
+        let name = if name == "explorer-multiple" {
+            "explorer-open-multiple"
+        } else {
+            name
+        };
+        Self::ALL.iter().copied().find(|v| v.name() == name)
     }
 }
 impl Dimension for Place {
@@ -649,8 +658,8 @@ functions! {
     PrintHighlighted "print_highlighted" Finish "Print the highlighted path and quit, ignoring the marks: the answer of fff pick, or of a file dialog (fff explorer).";
     PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted file, then quit: the answer where you may choose several paths.";
     PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer can be several paths (fff pick, and dialogs for several files). Elsewhere it says why it does nothing.";
-    SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or else the suggested one (fff explorer --save).";
-    SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (fff explorer --save).";
+    SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or else the suggested one (fff explorer save).";
+    SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (fff explorer save).";
     QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the directory holding the highlighted file; with nothing highlighted, into the current directory. Your shell follows (fff roam, with the shell integration); fff pick prints it.";
     QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks: your shell follows in fff roam, fff pick prints it, and a file dialog answers with it. In a window of its own, fff becomes a shell there.";
     Quit "quit" Finish "Quit without choosing anything: back where you started (fff roam), printing nothing (fff pick, fff seek), or cancelling the dialog (fff explorer).";
@@ -1521,7 +1530,8 @@ pub fn clash(a: &Binding, b: &Binding, at: Scope) -> String {
     )
 }
 /// One entry of `keys.toml`: keys, `"none"`, or a list of keys and tables
-/// `{ keys = "<CR>", program = [...], place = [...], highlight = [...] }`.
+/// `{ keys = "<CR>", program = [...], list = [...], highlight = [...] }`
+/// (`list` was `place` before 0.16.4, which is still read).
 fn read_bindings(
     function: Function,
     mode: Mode,
@@ -1542,11 +1552,15 @@ fn read_bindings(
                     .ok_or("a table needs keys = \"...\"")?
                     .to_string();
                 for name in table.keys() {
-                    if !["keys", "program", "place", "highlight"].contains(&name.as_str()) {
+                    if !["keys", "program", "list", "place", "highlight"].contains(&name.as_str())
+                    {
                         return Err(format!(
-                            "unknown field {name:?}; use keys, program, place or highlight"
+                            "unknown field {name:?}; use keys, program, list or highlight"
                         ));
                     }
+                }
+                if table.contains_key("list") && table.contains_key("place") {
+                    return Err("list and place are the same field; keep list".into());
                 }
                 fn set<D: Dimension>(table: &toml::Table, field: &str) -> Result<u16, String> {
                     let Some(value) = table.get(field) else {
@@ -1577,7 +1591,11 @@ fn read_bindings(
                 }
                 let scope = Scope {
                     programs: set::<Program>(table, "program")?,
-                    places: set::<Place>(table, "place")?,
+                    places: if table.contains_key("place") {
+                        set::<Place>(table, "place")?
+                    } else {
+                        set::<Place>(table, "list")?
+                    },
                     highlights: set::<Highlight>(table, "highlight")?,
                 };
                 (text, scope)
@@ -1615,7 +1633,7 @@ fn write_bindings(bindings: &[Binding]) -> toml_edit::Value {
             table.insert("program", v);
         }
         if let Some(v) = names::<Place>(b.scope.places) {
-            table.insert("place", v);
+            table.insert("list", v);
         }
         if let Some(v) = names::<Highlight>(b.scope.highlights) {
             table.insert("highlight", v);
@@ -1877,6 +1895,26 @@ mod tests {
             Keymap::parse("[normal]\ngo_to_highlighted = { keys = 'L', program = ['seek'] }\n")
                 .is_err()
         );
+    }
+    #[test]
+    fn keys_toml_reads_names_from_before_0_16_4() {
+        let new = Keymap::parse(
+            "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-open-multiple'], list = ['marks'] }]\n",
+        )
+        .unwrap();
+        let old = Keymap::parse(
+            "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-multiple'], place = ['marks'] }]\n",
+        )
+        .unwrap();
+        assert_eq!(new.bindings(), old.bindings());
+        assert!(
+            Keymap::parse("[normal]\nquit = { keys = 'Q', list = ['marks'], place = ['marks'] }\n")
+                .is_err()
+        );
+        let quit: Vec<Binding> = new.of(Function::Quit, Mode::Normal).into_iter().cloned().collect();
+        let saved = write_bindings(&quit).to_string();
+        assert!(saved.contains("list = [\"marks\"]"), "{saved}");
+        assert!(saved.contains("explorer-open-multiple"), "{saved}");
     }
     #[test]
     fn saving_writes_only_what_differs() {

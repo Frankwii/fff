@@ -891,7 +891,7 @@ pub(super) fn scope_choice(
         ],
     );
 }
-/// A name that is taken: the file dialog's answer (fff explorer --save) or
+/// A name that is taken: the file dialog's answer (fff explorer save) or
 /// entries restored from the trash.
 pub(super) fn replace_choice(
     frame: &mut Frame,

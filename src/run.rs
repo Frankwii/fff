@@ -598,7 +598,7 @@ pub fn editor_plan(paths: Vec<PathBuf>, cwd: &Path, home: Option<&Path>) -> Resu
         line: value.trim().to_owned(),
     })
 }
-/// `!` with `--window`: `$SHELL` (else `/bin/sh`) in `cwd`, replacing fff.
+/// `!` in `fff window`: `$SHELL` (else `/bin/sh`) in `cwd`, replacing fff.
 pub fn shell_plan(cwd: &Path) -> Result<Plan, String> {
     let shell = std::env::var("SHELL")
         .ok()

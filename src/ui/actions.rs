@@ -153,7 +153,7 @@ pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
     }
     app.confirm(None).map(Finish::Paths)
 }
-/// fff explorer --save, Ctrl+s or !: saves under the typed name (else the
+/// fff explorer save, Ctrl+s or !: saves under the typed name (else the
 /// suggested one) in the folder being browsed.
 pub(super) fn save_here(app: &mut App, focus: &mut Focus) -> Option<Finish> {
     let name = app.running.dialog()?.save_name(&app.query)?.to_owned();

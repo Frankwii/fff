@@ -60,7 +60,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Choose PDFs from anywhere below ~/papers and open them.
   <cyan>fff setup --desktop; fff setup --file-chooser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
-  <cyan>fff explorer --save ~/Downloads/paper.pdf</cyan>
+  <cyan>fff explorer save ~/Downloads/paper.pdf</cyan>
       Choose where to save a file, as a file dialog would (see fff explorer --help).
 
 <bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff to search and rebind them, <cyan>F2</cyan> for session details)
@@ -100,7 +100,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 
 <bold><green>Shell completions:</green></bold>
   bash  <cyan>source <<(fff setup --completions bash)</cyan>   in ~/.bashrc
-  zsh   <cyan>source <<(fff setup --completions zsh)</cyan>    in ~/.zshrc
+  zsh   <cyan>source <<(fff setup --completions zsh)</cyan>    in ~/.zshrc, or once:
+        <cyan>fff setup --completions zsh > DIR/_fff</cyan>   for a DIR in $fpath
   fish  <cyan>fff setup --completions fish | source</cyan>    in ~/.config/fish/config.fish
   Completions cover options, root and config paths, and palettes
   (including custom ones from the configuration)."
@@ -224,12 +225,8 @@ struct RoamArgs {
     #[arg(long, help_heading = "Search",
         conflicts_with_all = ["roots", "browse", "depth", "glob", "exclusions", "hidden", "no_exclusions"])]
     resume: bool,
-    /// Run in a terminal window of its own, with no shell to change directory
-    ///
-    /// Normal-mode Enter on a folder enters it instead of leaving, ! replaces
-    /// fff with $SHELL in the folder being browsed, and nothing is printed.
-    /// The desktop entry installed by fff setup --desktop starts fff this way.
-    #[arg(long, help_heading = "Interface")]
+    /// Became fff window, kept only to say so.
+    #[arg(long, hide = true)]
     window: bool,
     /// Accepted for compatibility: fff always starts here unless --resume.
     #[arg(long, hide = true)]
@@ -237,7 +234,7 @@ struct RoamArgs {
 }
 impl RoamArgs {
     fn is_empty(&self) -> bool {
-        self.roots.is_empty() && !self.browse && !self.resume && !self.window
+        self.roots.is_empty() && !self.browse && !self.resume
     }
 }
 /// Options of earlier versions, each now part of a command.
@@ -290,6 +287,14 @@ enum Command {
     /// shell function from fff setup --init; without it, the folder is
     /// printed).
     Roam(RoamArgs),
+    /// Browse in a terminal window of its own, with no shell to change directory
+    ///
+    /// Starts at PATH: in a folder, or in a file's folder with the file
+    /// highlighted. Normal-mode Enter on a folder enters it instead of
+    /// leaving, ! replaces fff with $SHELL in the folder being browsed, and
+    /// nothing is printed. The desktop entry installed by fff setup --desktop
+    /// starts fff this way.
+    Window(WindowArgs),
     /// Browse and print the chosen paths, for scripts and $(...)
     ///
     /// Enter on a file prints it (while typing, the marks and it), Ctrl+number
@@ -305,13 +310,14 @@ enum Command {
     /// file's folder. q and ! leave without choosing anything. To print files, use fff pick:
     /// with --glob it too lists only matching files.
     Seek(SeekArgs),
-    /// Answer a file dialog: choose files or a folder, or where to save
+    /// Answer a file dialog: open, open-multiple, folder or save
     ///
     /// Prints the chosen paths, one per line, for the file chooser that
     /// fff setup --file-chooser installs. Enter on a file chooses it and on a
     /// folder enters it, in either mode; ! takes the folder you are in, and
     /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
     /// how to choose.
+    #[command(args_conflicts_with_subcommands = true)]
     Explorer(ExplorerArgs),
     /// Set fff up: the desktop, file dialogs, your shell, the configuration
     ///
@@ -358,21 +364,105 @@ struct SeekArgs {
     roots: Vec<PathBuf>,
 }
 #[derive(clap::Args)]
-struct ExplorerArgs {
-    /// Where to start: a folder, or a file to highlight in its folder; when
-    /// saving, the suggested file, which need not exist
+struct WindowArgs {
+    /// Where to start: a folder, or a file to highlight in its folder;
+    /// without it, the current directory
     #[arg(value_hint = clap::ValueHint::AnyPath)]
     path: Option<PathBuf>,
-    /// Allow several files (Space marks them)
-    #[arg(long)]
+    /// Continue the last fff roam or fff window session where it ended
+    #[arg(long, conflicts_with = "path")]
+    resume: bool,
+}
+#[derive(clap::Args)]
+struct ExplorerArgs {
+    #[command(subcommand)]
+    dialog: Option<DialogCommand>,
+    /// The options of earlier versions, kept only to say where they went.
+    #[arg(long, hide = true)]
     multiple: bool,
-    /// Choose folders instead of files: ! chooses the folder you are in
-    #[arg(long, conflicts_with = "save")]
+    #[arg(long, hide = true)]
     directory: bool,
+    #[arg(long, hide = true)]
+    save: bool,
+    #[arg(hide = true)]
+    path: Option<PathBuf>,
+}
+/// The kinds of file dialog, named as the Keys screen names their programs.
+#[derive(clap::Subcommand)]
+enum DialogCommand {
+    /// Open one file
+    Open(DialogPath),
+    /// Open one or more files (Space marks them, Ctrl+w chooses the marks)
+    OpenMultiple(DialogPath),
+    /// Choose a folder: ! or Ctrl+s chooses the folder you are in
+    Folder(FolderArgs),
     /// Choose where to save: ! or Ctrl+s saves here under the typed name (the
     /// query) or the suggested one; replacing a file asks first
+    Save(SavePath),
+}
+#[derive(clap::Args)]
+struct DialogPath {
+    /// Where to start: a folder, or a file to highlight in its folder
+    #[arg(value_hint = clap::ValueHint::AnyPath)]
+    path: Option<PathBuf>,
+}
+#[derive(clap::Args)]
+struct FolderArgs {
+    /// Where to start: a folder, or a file to highlight in its folder
+    #[arg(value_hint = clap::ValueHint::AnyPath)]
+    path: Option<PathBuf>,
+    /// Allow several folders (Space marks them, Ctrl+w chooses the marks)
     #[arg(long)]
+    multiple: bool,
+}
+#[derive(clap::Args)]
+struct SavePath {
+    /// The suggested file, which need not exist: where to start and the name
+    /// to save under; without it, the current directory and `untitled`
+    #[arg(value_hint = clap::ValueHint::AnyPath)]
+    path: Option<PathBuf>,
+}
+/// What a file dialog asks, from `fff explorer`'s command line.
+struct Asked {
+    path: Option<PathBuf>,
+    multiple: bool,
+    directory: bool,
     save: bool,
+}
+impl ExplorerArgs {
+    /// The dialog asked for, or where the old option given went.
+    fn asked(self) -> Result<Asked, String> {
+        let asked = |path, multiple, directory, save| Asked {
+            path,
+            multiple,
+            directory,
+            save,
+        };
+        Ok(match self.dialog {
+            Some(DialogCommand::Open(d)) => asked(d.path, false, false, false),
+            Some(DialogCommand::OpenMultiple(d)) => asked(d.path, true, false, false),
+            Some(DialogCommand::Folder(d)) => asked(d.path, d.multiple, true, false),
+            Some(DialogCommand::Save(d)) => asked(d.path, false, false, true),
+            None => {
+                let (old, new) = if self.save {
+                    ("--save", "save")
+                } else if self.directory {
+                    (
+                        "--directory",
+                        if self.multiple { "folder --multiple" } else { "folder" },
+                    )
+                } else if self.multiple {
+                    ("--multiple", "open-multiple")
+                } else {
+                    return Err(
+                        "fff explorer needs the kind of dialog: open, open-multiple, folder or save [PATH]"
+                            .into(),
+                    );
+                };
+                return Err(format!("fff explorer {old} is now fff explorer {new} [PATH]"));
+            }
+        })
+    }
 }
 #[derive(clap::Args)]
 #[group(required = true, multiple = false)]
@@ -402,8 +492,10 @@ struct SetupArgs {
     /// Print the shell completion script for SHELL
     ///
     /// Load it from your shell's startup file, e.g. `source <(fff setup
-    /// --completions bash)`, so it is regenerated after upgrades.
-    /// `COMPLETE=SHELL fff` prints the same script.
+    /// --completions bash)`. The script only calls fff back, so it can also
+    /// be saved once: zsh's as `_fff` in a directory of $fpath, fish's as
+    /// ~/.config/fish/completions/fff.fish. `COMPLETE=SHELL fff` prints the
+    /// same script.
     #[arg(long, value_name = "SHELL",
         value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
     completions: Option<String>,
@@ -415,6 +507,7 @@ fn main() -> ExitCode {
     // Answers `COMPLETE=<shell> fff ...` requests before anything is printed.
     CompleteEnv::with_factory(Args::command)
         .var(completion::ENV_VAR)
+        .shells(completion::SHELLS)
         .complete();
     match run() {
         Ok(true) => ExitCode::SUCCESS,
@@ -436,7 +529,7 @@ struct Mode {
     resume: bool,
     relative: bool,
     null: bool,
-    explorer: Option<ExplorerArgs>,
+    explorer: Option<Asked>,
 }
 impl Default for Mode {
     fn default() -> Self {
@@ -449,14 +542,6 @@ impl Default for Mode {
             null: false,
             explorer: None,
         }
-    }
-}
-/// The program `fff roam` runs as: with `--window`, a window of its own.
-fn roaming(window: bool) -> fuzzy_file_finder::program::Program {
-    if window {
-        fuzzy_file_finder::program::Program::Window
-    } else {
-        fuzzy_file_finder::program::Program::Roam
     }
 }
 /// Exits with a usage error (status 2) for arguments that cannot go together.
@@ -483,15 +568,22 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     }
     // fff roam's options before another command would be ignored.
     let roam = std::mem::take(&mut args.roam);
+    if roam.window || matches!(&args.command, Some(Command::Roam(r)) if r.window) {
+        Args::command()
+            .error(
+                clap::error::ErrorKind::UnknownArgument,
+                "--window is now a command of its own: fff window [PATH]",
+            )
+            .exit()
+    }
     if !matches!(args.command, None | Some(Command::Roam(_))) && !roam.is_empty() {
-        conflict("roots, --browse, --resume and --window belong to fff roam");
+        conflict("roots, --browse and --resume belong to fff roam");
     }
     let mut mode = match args.command.take() {
         None => Mode {
             roots: roam.roots,
             browse: roam.browse,
             resume: roam.resume,
-            program: roaming(roam.window),
             ..Mode::default()
         },
         Some(Command::Roam(mut more)) => {
@@ -501,10 +593,16 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
                 roots,
                 browse: roam.browse || more.browse,
                 resume: roam.resume || more.resume,
-                program: roaming(roam.window || more.window),
                 ..Mode::default()
             }
         }
+        Some(Command::Window(window)) => Mode {
+            roots: window.path.into_iter().collect(),
+            browse: true,
+            resume: window.resume,
+            program: fuzzy_file_finder::program::Program::Window,
+            ..Mode::default()
+        },
         Some(Command::Pick(pick)) => Mode {
             roots: pick.roots,
             browse: pick.browse,
@@ -520,7 +618,11 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         },
         Some(Command::Explorer(explorer)) => Mode {
             program: fuzzy_file_finder::program::Program::ExplorerOpen,
-            explorer: Some(explorer),
+            explorer: Some(explorer.asked().unwrap_or_else(|instead| {
+                Args::command()
+                    .error(clap::error::ErrorKind::MissingSubcommand, instead)
+                    .exit()
+            })),
             ..Mode::default()
         },
         Some(Command::Setup(setup)) => return run_setup(setup, args),
@@ -933,8 +1035,13 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         assert_eq!(candidates(&["fff", "do"], Some(root)), ["docs/"]);
         assert_eq!(
-            candidates(&["fff", "explorer", "--no-config", "do"], Some(root)),
+            candidates(&["fff", "explorer", "save", "--no-config", "do"], Some(root)),
             ["docs/"]
+        );
+        assert_eq!(candidates(&["fff", "window", "do"], Some(root)), ["docs/"]);
+        assert_eq!(
+            candidates(&["fff", "explorer", "open-"], None),
+            ["open-multiple"]
         );
         assert_eq!(candidates(&["fff", "seek", "do"], Some(root)), ["docs/"]);
         assert_eq!(candidates(&["fff", "pick", "do"], Some(root)), ["docs/"]);
@@ -963,5 +1070,15 @@ mod tests {
             );
         }
         assert!(completion::write_registration("tcsh", "fff".as_ref(), &mut Vec::new()).is_err());
+        // zsh's also works saved as _fff in $fpath, completing on the first Tab.
+        let mut zsh = Vec::new();
+        completion::write_registration("zsh", "fff".as_ref(), &mut zsh).unwrap();
+        let zsh = String::from_utf8(zsh).unwrap();
+        assert!(zsh.starts_with("#compdef fff\n"), "{zsh}");
+        assert!(
+            zsh.contains("if [[ ${funcstack[1]} == _fff ]]; then\n    # Autoloaded")
+                && zsh.contains("    compdef _clap_dynamic_completer_fff fff\nfi\n"),
+            "{zsh}"
+        );
     }
 }

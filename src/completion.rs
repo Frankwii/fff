@@ -1,7 +1,10 @@
 //! Shell-completion helpers. Candidates are computed by the running binary
 //! (`COMPLETE=<shell> fff`), so custom palettes come from the live config.
 use crate::config::{Palette, default_path};
-use clap_complete::engine::CompletionCandidate;
+use clap_complete::{
+    engine::CompletionCandidate,
+    env::{Bash, Elvish, EnvCompleter, Fish, Powershell, Shells},
+};
 use std::{
     ffi::{OsStr, OsString},
     io::{self, Write},
@@ -11,17 +14,68 @@ use std::{
 /// Environment variable that switches the binary into completion mode.
 pub const ENV_VAR: &str = "COMPLETE";
 
-/// Shells with a registration script, as accepted by `fff setup --completions`.
+/// Shells with a registration script, as accepted by `fff setup --completions`:
+/// clap's, with zsh's script made to work as a `_fff` file too.
+pub const SHELLS: Shells<'static> = Shells(&[&Bash, &Elvish, &Fish, &Powershell, &Zsh]);
+
 pub fn shells() -> Vec<&'static str> {
-    clap_complete::env::Shells::builtins().names().collect()
+    SHELLS.names().collect()
+}
+
+/// clap's zsh completion, whose script also works as an autoloaded `_fff`
+/// in `$fpath`: loaded that way it completes at once, where clap's would
+/// only register itself on the first Tab and complete from the second.
+pub struct Zsh;
+impl EnvCompleter for Zsh {
+    fn name(&self) -> &'static str {
+        clap_complete::env::Zsh.name()
+    }
+    fn is(&self, name: &str) -> bool {
+        clap_complete::env::Zsh.is(name)
+    }
+    fn write_registration(
+        &self,
+        var: &str,
+        name: &str,
+        bin: &str,
+        completer: &str,
+        buf: &mut dyn Write,
+    ) -> io::Result<()> {
+        let mut script = Vec::new();
+        clap_complete::env::Zsh.write_registration(var, name, bin, completer, &mut script)?;
+        let script = String::from_utf8_lossy(&script);
+        let function = format!("_clap_dynamic_completer_{}", name.replace('-', "_"));
+        let register = format!("compdef {function} {bin}");
+        let Some((body, rest)) = script.rsplit_once(&register) else {
+            return buf.write_all(script.as_bytes());
+        };
+        write!(
+            buf,
+            "{body}if [[ ${{funcstack[1]}} == _{bin} ]]; then\n    \
+             # Autoloaded from $fpath: complete now.\n    \
+             {function} \"$@\"\n\
+             else\n    \
+             # Sourced: register for the next Tab.\n    \
+             {register}\n\
+             fi{rest}"
+        )
+    }
+    fn write_complete(
+        &self,
+        cmd: &mut clap::Command,
+        args: Vec<OsString>,
+        current_dir: Option<&Path>,
+        buf: &mut dyn Write,
+    ) -> io::Result<()> {
+        clap_complete::env::Zsh.write_complete(cmd, args, current_dir, buf)
+    }
 }
 
 /// Print the registration script that `COMPLETE=<shell> fff` would print.
 /// The script calls back into `program` (argv[0], made absolute when it is a
 /// relative path with directories, matching `CompleteEnv`).
 pub fn write_registration(shell: &str, program: &OsStr, out: &mut dyn Write) -> io::Result<()> {
-    let shells = clap_complete::env::Shells::builtins();
-    let completer = shells
+    let completer = SHELLS
         .completer(shell)
         .ok_or_else(|| io::Error::other(format!("Unsupported shell: {shell}")))?;
     let mut program = PathBuf::from(program);
@@ -29,7 +83,8 @@ pub fn write_registration(shell: &str, program: &OsStr, out: &mut dyn Write) -> 
         && program.components().count() > 1
         && let Ok(cwd) = std::env::current_dir()
     {
-        program = cwd.join(program);
+        // `./target/release/fff` without its `.`.
+        program = cwd.join(program).components().collect();
     }
     completer.write_registration(ENV_VAR, "fff", "fff", &program.to_string_lossy(), out)
 }

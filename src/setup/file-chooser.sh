@@ -33,10 +33,16 @@ shift
 multiple=$1 directory=$2 save=$3 path=$4 out=$5
 [[ ${6:-0} -ge 4 ]] && set -x
 
-args=(explorer)
-[[ $multiple == 1 ]] && args+=(--multiple)
-[[ $directory == 1 ]] && args+=(--directory)
-[[ $save == 1 ]] && args+=(--save)
+if [[ $save == 1 ]]; then
+    args=(explorer save)
+elif [[ $directory == 1 ]]; then
+    args=(explorer folder)
+    [[ $multiple == 1 ]] && args+=(--multiple)
+elif [[ $multiple == 1 ]]; then
+    args=(explorer open-multiple)
+else
+    args=(explorer open)
+fi
 [[ -n $path ]] && args+=("$path")
 # Without a suggestion, dialogs start at home.
 cd -- "$HOME" || exit

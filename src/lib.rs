@@ -1656,7 +1656,7 @@ impl App {
         self.confirm(Some(self.cwd.clone()))
     }
     /// Whether Enter in a verified empty folder may answer with the folder:
-    /// not in `fff seek`, with no shell to leave into (`--window`), or in a
+    /// not in `fff seek`, with no shell to leave into (`fff window`), or in a
     /// dialog choosing files, whose answer has no room for a folder.
     fn returns_folder(&self) -> bool {
         use crate::program::Program::*;
@@ -1676,7 +1676,7 @@ impl App {
         };
     }
     /// Whether Ctrl+w may finish with the marks: only where the answer can be
-    /// several paths, `fff pick` and `fff explorer --multiple` (not saving).
+    /// several paths, `fff pick` and the dialogs choosing several (`fff explorer open-multiple`, `folder --multiple`).
     pub fn returns_marks(&self) -> bool {
         self.running.returns_marks()
     }

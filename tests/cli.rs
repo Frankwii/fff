@@ -74,6 +74,15 @@ fn seek_is_a_command_and_no_dir_points_to_it() {
         (&["--completions", "bash"], "fff setup --completions bash"),
         (&["--setup", "desktop"], "fff setup --desktop"),
         (&["--check-config"], "fff setup --check-config"),
+        (&["--window"], "fff window [PATH]"),
+        (&["roam", "--window"], "fff window [PATH]"),
+        (&["explorer", "--save", "x.pdf"], "fff explorer save [PATH]"),
+        (&["explorer", "--multiple"], "fff explorer open-multiple [PATH]"),
+        (
+            &["explorer", "--directory", "--multiple"],
+            "fff explorer folder --multiple [PATH]",
+        ),
+        (&["explorer"], "open, open-multiple, folder or save"),
     ] {
         let output = fff(&[&["--no-config"], old].concat(), None);
         assert_eq!(output.status.code(), Some(2), "{old:?}");
@@ -240,7 +249,7 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
     let script = std::fs::read_to_string(&launcher).unwrap();
     assert!(
         script.contains(&format!(
-            "exec 'st' '-c' 'fff-picker' '-e' '{}' '--browse' '--window' \"$@\" >/dev/null 2>&1",
+            "exec 'st' '-c' 'fff-picker' '-e' '{}' 'window' \"$@\" >/dev/null 2>&1",
             exe.display()
         )),
         "{script}"

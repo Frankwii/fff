@@ -4,6 +4,27 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **A window of its own and each file dialog are commands.** `fff roam
+  --window` is now `fff window [PATH]`, starting at PATH (a file's folder,
+  with the file highlighted), and `fff explorer` takes the kind of dialog:
+  `fff explorer open`, `open-multiple`, `folder` (`--multiple` for several)
+  or `save`, named as the Keys screen names these programs. The old options
+  say what replaced them. Run `fff setup --desktop` and `fff setup
+  --file-chooser` again so that the launchers and the portal wrapper call
+  the new commands.
+- **`keys.toml` names things as the Keys screen does.** Where a key applies
+  is `list = [...]` (was `place`), and the program choosing several files is
+  `explorer-open-multiple` (was `explorer-multiple`). Files with the old
+  names are still read, and rewritten with the new ones when the Keys
+  screen saves.
+- **zsh completion can be a file.** `fff setup --completions zsh >
+  DIR/_fff`, for a DIR in `$fpath`, completes from the first Tab, with no
+  line in `.zshrc`; sourcing it works as before.
+
 ## 0.16.3 — 2026-11-04
 
 Folders show their size, added up in the background where you look, and
