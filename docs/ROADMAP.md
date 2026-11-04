@@ -198,14 +198,37 @@ the aim; what is lost to the features above is the price of them.
 
 A query by meaning rather than by letters: `heat equation stability` would
 find the notes and papers about it in Spanish, Catalan or English, and the
-photos and figures of it, ranked together. A small multilingual, multimodal
-embedding model would map text chunks and images into one vector space, run
-locally on the CPU; images are embedded directly, never captioned into text
-first. Candidates to compare: `jina-clip-v2` (multilingual, long texts, but
-near a billion parameters), SigLIP 2 and multilingual CLIP (smaller, but
-their text encoders take only a few dozen tokens, weak for documents). If
-no single model is good enough at both, a text model and an image model
-would each be searched and their rankings fused.
+photos and figures of it, ranked together. Models run locally on the CPU,
+and images are embedded directly, never captioned into text first.
+
+Two models by default: a multilingual text embedder for documents, and a
+multilingual CLIP-style model whose image and text encoders share a space,
+for images. A query is embedded by both text encoders, each store searched,
+and the rankings fused. The CLIP-style models' text sides are trained on
+captions, so they embed a document chunk poorly; a text embedder does not
+see images at all.
+
+| Model | Role | Parameters | Weights (f32 / int8) | Notes |
+| --- | --- | --- | --- | --- |
+| `intfloat/multilingual-e5-small` | text, the default | 118M | 470 MB / 120 MB | 384 dimensions, 512 tokens, about 100 languages (XLM-R vocabulary), MIT |
+| `Alibaba-NLP/gte-multilingual-base` | text, if quality needs it | 305M | 1.2 GB / 305 MB | 768 dimensions (truncatable to 128), 8192 tokens, 70+ languages, Apache-2.0 |
+| `sentence-transformers/clip-ViT-B-32-multilingual-v1` with CLIP ViT-B/32's image encoder | images, the default | 135M text + 88M image | 890 MB / 225 MB | 512 dimensions, aligned on 50+ languages including Catalan and Spanish, Apache-2.0 |
+| `google/siglip2-base-patch16-224` | images, if quality needs it | 375M (about 280M of it text, mostly its 256,000-token vocabulary) | 1.5 GB / 375 MB | 768 dimensions, 64 text tokens, multilingual pretraining, Apache-2.0 |
+
+The default pair is about 340M parameters: 1.4 GB in f32, 340 MB in int8
+where the runtime quantizes. A session only searches, so it loads the two
+text encoders (about 250M); the image encoder is needed only while
+indexing. Most of a multilingual model is its vocabulary table, and with
+the weights memory-mapped the rows of words never seen stay on disk, so
+what is resident is less than the file. The vectors themselves are small:
+100,000 chunks at 384 dimensions in int8 are 38 MB.
+
+With little memory, one model alone: multilingual CLIP for both documents
+and images (225M parameters, 225 MB in int8), at the cost of weak document
+matches. `jinaai/jina-clip-v2` is one model that does both well (89
+languages, 8192 tokens, 512×512 images), but it is not the lighter
+choice: 865M parameters, 1.7 GB in f16, a ViT-L over 1,369 patches per
+image, and a non-commercial license (CC BY-NC 4.0).
 
 - **Indexing offline.** A command (such as `fff index ROOTS`) would embed
   overlapping chunks of each file's text, from the text cache the contents
@@ -219,10 +242,10 @@ would each be searched and their rankings fused.
   milliseconds, so no approximate index (FAISS, HNSW) is needed unless the
   store grows past a million or so. The model loads lazily on a worker
   thread, so starting fff stays instant.
-- **Ranking.** Text-to-text similarities run systematically higher than
-  text-to-image ones even in a shared space, so scores would be fused by
-  rank per modality (reciprocal rank fusion), and with the fuzzy and
-  contents matches, rather than compared directly.
+- **Ranking.** The two models' scores are not comparable, and even within
+  one shared space text-to-text similarities run systematically higher than
+  text-to-image ones, so results would be fused by rank (reciprocal rank
+  fusion), with the fuzzy and contents matches too, rather than by score.
 - **In the interface.** A query of its own, beside the name and contents
   queries, with one row per matching chunk (its lines) or image. Unlike the
   contents query, it is a ranking of the closest, not every match.
