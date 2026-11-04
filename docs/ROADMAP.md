@@ -3,7 +3,7 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
-- Content search beyond `fff grep` (below).
+- Content search follow-ups (below).
 - Using fff while a long file operation runs. Operations and their checks
   already run on another thread with their progress shown and Ctrl+c to stop
   them; meanwhile only Ctrl+c is heard. Keeping navigation, marks and other
@@ -50,8 +50,8 @@ starts a preprocessor for every file on every search (1.85 s and about 25 CPU-se
 - **More formats.** Office documents and archives could fill the same cache
   through `rga-preproc`, one run per file.
 - **A `/regex/` form** of the contents query.
-- **E at the match.** E would open `$EDITOR` at a text match's line when
-  the editor accepts `+N`, and a document at its page where the viewer
+- **`e` at the match.** `e` (`edit_files`) would open `$EDITOR` at a text
+  match's line when the editor accepts `+N`, and a document at its page where the viewer
   takes one (`zathura --page`).
 - **A viewer that follows the highlight.** Extracted text loses
   formulas: subscripts, fractions and symbols come out as scattered
@@ -132,7 +132,7 @@ way, and how the screen should settle after the size changes.
 A key would show each entry's permissions, owner and group, the way `nnn`
 does, beside its name (`-rw-r--r--  frank  users`), toggled on and off. The
 `permissions` [column](CONFIGURATION.md#result-details) exists and the footer
-shows the highlighted entry's `user:group`; this would make them a quick
+shows the highlighted entry's permissions and owner; this would make them a quick
 toggle for every row rather than a configuration change, with owner and
 group as columns of their own, and could show octal modes too.
 
