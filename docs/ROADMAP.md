@@ -194,5 +194,5 @@ number of paths: a scan within about twice the time of `fd | fzf` looks
 reachable, where it is several times today. Matching fzf exactly is not
 the aim; what is lost to the features above is the price of them.
 
-The current release is 0.15.0. Version 1.0 is planned once the roadmap before
+The current release is 0.16.0. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.
