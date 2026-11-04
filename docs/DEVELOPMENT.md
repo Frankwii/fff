@@ -42,6 +42,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
 | `src/sizes.rs` | Folders' sizes: the files below each added up by a worker per mount, the folders a frame wants first (`Sizes::commit` after each drawn frame), read on several threads. A tree of folders with their own files' bytes and stamps (inode, mtime, ctime), saved to `$XDG_CACHE_HOME/fff/sizes` at exit and read at the first frame; only folders whose stamp changed (or that a watch or F5 marked) are read again. |
+| `src/mounts.rs` | The mount table (`/proc/self/mounts`), read by name and again after each scan: a path's mount point and filesystem kind (kernel, local, other). Kernel filesystems are not added up, entered by scans from outside, searched, watched, or read past 4 KiB for the preview. |
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |

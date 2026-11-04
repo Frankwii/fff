@@ -82,7 +82,21 @@ impl Scan {
         let depth = app.depth;
         let generation = app.generation;
         let policy = app.policy.clone();
-        thread::spawn(move || walk(roots, current, depth, policy, generation, tx, stopped));
+        let mounts = crate::mounts::current();
+        thread::spawn(move || {
+            walk(
+                Bounds {
+                    roots,
+                    current,
+                    max: depth,
+                    policy,
+                    mounts,
+                },
+                generation,
+                tx,
+                stopped,
+            )
+        });
         Self {
             events,
             cancel,
@@ -501,19 +515,27 @@ impl EventSender {
 
 /// Threads reading one depth's folders at once.
 const WALKERS: usize = 8;
-/// Walk breadth first, one depth after another: shallower entries arrive
-/// first, so `max_paths` stops at the shallowest. A depth's folders are
-/// read on several threads, its subfolders kept in the order a single
-/// thread would meet them.
-fn walk(
+/// What a walk lists: below `roots` (`current` among them or not), down
+/// to `max`, as `policy` allows, kept out of kernel filesystems by `mounts`.
+struct Bounds {
     roots: Vec<PathBuf>,
     current: PathBuf,
     max: usize,
     policy: Policy,
-    generation: u64,
-    tx: EventSender,
-    cancel: Arc<AtomicBool>,
-) {
+    mounts: Arc<crate::mounts::Mounts>,
+}
+/// Walk breadth first, one depth after another: shallower entries arrive
+/// first, so `max_paths` stops at the shallowest. A depth's folders are
+/// read on several threads, its subfolders kept in the order a single
+/// thread would meet them.
+fn walk(bounds: Bounds, generation: u64, tx: EventSender, cancel: Arc<AtomicBool>) {
+    let Bounds {
+        roots,
+        current,
+        max,
+        policy,
+        mounts,
+    } = bounds;
     let empty = fs::read_dir(&current)
         .ok()
         .is_some_and(|mut r| r.next().is_none());
@@ -522,6 +544,8 @@ fn walk(
         current: &current,
         max,
         policy: &policy,
+        kernel_roots: roots.iter().map(|r| mounts.kernel(r)).collect(),
+        mounts: &mounts,
         generation,
         tx: &tx,
         cancel: &cancel,
@@ -569,6 +593,10 @@ struct Walk<'a> {
     current: &'a std::path::Path,
     max: usize,
     policy: &'a Policy,
+    mounts: &'a crate::mounts::Mounts,
+    /// Which roots are on a kernel filesystem: a walk from one goes on
+    /// through it, a walk from elsewhere does not enter one.
+    kernel_roots: Vec<bool>,
     generation: u64,
     tx: &'a EventSender,
     cancel: &'a AtomicBool,
@@ -637,8 +665,13 @@ impl Walk<'_> {
             if since.elapsed() >= BATCH_AGE && !flush(&mut batch, &mut since) {
                 return None;
             }
+            // On a kernel filesystem, entries come and go with what they
+            // describe (processes): one gone meanwhile is no error.
+            let kernel = self.mounts.kernel(directory);
+            let gone = |e: &std::io::Error| kernel && vanished(e);
             let entries = match fs::read_dir(directory) {
                 Ok(e) => e,
+                Err(e) if gone(&e) => continue,
                 Err(e) => {
                     let error = format!("{}: {e}", directory.display());
                     if self.tx.send(Event::Error(generation, error)).is_err() {
@@ -654,6 +687,7 @@ impl Walk<'_> {
                 }
                 let entry = match entry {
                     Ok(e) => e,
+                    Err(e) if gone(&e) => continue,
                     Err(e) => {
                         let _ = self.tx.send(Event::Error(generation, e.to_string()));
                         continue;
@@ -668,6 +702,7 @@ impl Walk<'_> {
                 }
                 let kind = match entry.file_type() {
                     Ok(t) => t,
+                    Err(e) if gone(&e) => continue,
                     Err(e) => {
                         let _ = self.tx.send(Event::Error(generation, e.to_string()));
                         continue;
@@ -675,7 +710,10 @@ impl Walk<'_> {
                 };
                 // Symlink directories are selectable, but never followed during traversal.
                 let directory = kind.is_dir() || (kind.is_symlink() && path.is_dir());
-                if kind.is_dir() && depth < self.max {
+                if kind.is_dir()
+                    && depth < self.max
+                    && (self.kernel_roots[root] || !self.mounts.kernel_point(&path))
+                {
                     subfolders.push((path.clone(), root));
                 }
                 let Some((depth, root)) = self.attribute(&path, depth, root) else {
@@ -699,6 +737,11 @@ impl Walk<'_> {
         }
         flush(&mut batch, &mut since).then_some(found)
     }
+}
+
+/// An error that means the entry is no longer there.
+fn vanished(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
 }
 
 #[cfg(test)]
@@ -726,8 +769,14 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(false));
         let current = root.join("d1");
         let walker = {
-            let roots = roots.clone();
-            thread::spawn(move || walk(roots, current, 3, Policy::default(), 7, tx, cancel))
+            let bounds = Bounds {
+                roots: roots.clone(),
+                current,
+                max: 3,
+                policy: Policy::default(),
+                mounts: Arc::default(),
+            };
+            thread::spawn(move || walk(bounds, 7, tx, cancel))
         };
         let mut found = Vec::new();
         for event in events {
@@ -767,6 +816,57 @@ mod tests {
         assert!(expected.contains(&(root.join("d1/e0"), 1, 1)));
         // Six folders, thirty below them, two entries in each; not d1.
         assert_eq!(app.known.len(), 6 + 30 + 60 - 1);
+        fs::remove_dir_all(&root).unwrap();
+    }
+    /// The paths a walk from `roots` down to `max` lists, with `mounts`.
+    fn walked(roots: Vec<PathBuf>, max: usize, mounts: crate::mounts::Mounts) -> Vec<PathBuf> {
+        let (events_tx, events) = mpsc::sync_channel(1024);
+        let tx = EventSender {
+            events: events_tx,
+            wake: None,
+        };
+        let bounds = Bounds {
+            current: roots[0].clone(),
+            roots,
+            max,
+            policy: Policy::default(),
+            mounts: Arc::new(mounts),
+        };
+        let walker = thread::spawn(move || walk(bounds, 1, tx, Arc::default()));
+        let mut found = Vec::new();
+        for event in events {
+            match event {
+                Event::Batch(_, batch) => found.extend(batch.into_iter().map(|c| c.path)),
+                Event::Done(..) => break,
+                Event::Error(_, e) => panic!("{e}"),
+                Event::Found(..) => {}
+            }
+        }
+        walker.join().unwrap();
+        found.sort();
+        found
+    }
+    #[test]
+    fn walks_do_not_enter_kernel_filesystems_from_outside() {
+        let root = std::env::temp_dir().join(format!("fff-kernel-walk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("proc/1/fd")).unwrap();
+        fs::create_dir_all(root.join("home/me")).unwrap();
+        let table = format!(
+            "/dev/sda1 / ext4 rw 0 0\nproc {} proc rw 0 0\n",
+            root.join("proc").display()
+        );
+        let mounts = || crate::mounts::Mounts::parse(&table);
+        // From outside, the mount point is listed but not entered.
+        assert_eq!(
+            walked(vec![root.clone()], 3, mounts()),
+            [root.join("home"), root.join("home/me"), root.join("proc")]
+        );
+        // From inside it, the walk goes on as anywhere.
+        assert_eq!(
+            walked(vec![root.join("proc")], 3, mounts()),
+            [root.join("proc/1"), root.join("proc/1/fd")]
+        );
         fs::remove_dir_all(&root).unwrap();
     }
     #[test]

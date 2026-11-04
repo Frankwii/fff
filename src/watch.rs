@@ -71,8 +71,10 @@ impl Watch {
             | WatchFlags::CLOSE_WRITE
             | WatchFlags::ONLYDIR
             | WatchFlags::EXCL_UNLINK;
+        // Kernel filesystems tell inotify nothing of their changes.
+        let mounts = crate::mounts::current();
         for (i, &dir) in dirs.iter().enumerate() {
-            if self.descriptors.contains_key(dir) {
+            if self.descriptors.contains_key(dir) || mounts.kernel(dir) {
                 continue;
             }
             let flags = if i < roots {

@@ -189,7 +189,9 @@ pub(super) fn footer_details(app: &App, path: &Path) -> Vec<Vec<Span<'static>>> 
             };
             values.push(vec![styled(text, theme.success)]);
         }
-    } else if info.link.is_none() {
+    } else if info.link.is_none() && !app.details.on_kernel(path) {
+        // A kernel filesystem's sizes are made up (/proc/kcore's is the
+        // address space): none is shown.
         let exact = details::exact(info.size);
         values.push(if info.size < 1000 {
             vec![bold(exact, theme.success), styled(" B", theme.success)]

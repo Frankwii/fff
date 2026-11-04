@@ -231,10 +231,12 @@ fn text_of(path: &Path, cache: Option<&Path>) -> Result<Text, Skip> {
     let meta = fs::metadata(path).map_err(|_| Skip::NoText)?;
     read_text(path, &meta, cache)
 }
-/// The text of `path`, whose metadata is `meta`.
+/// The text of `path`, whose metadata is `meta`. Files on kernel
+/// filesystems (`/proc`, `/sys`) have none: reading them may block, change
+/// what they say, or act on hardware.
 fn read_text(path: &Path, meta: &fs::Metadata, cache: Option<&Path>) -> Result<Text, Skip> {
     let kind = kind(path);
-    if !meta.is_file() {
+    if !meta.is_file() || crate::mounts::kernel_file(path) {
         return Err(Skip::NoText);
     }
     if kind == Kind::Text {
@@ -1436,6 +1438,20 @@ mod tests {
         let words: Vec<&str> = text.split_whitespace().collect();
         assert_eq!(words, ["First", "&", "foremost", "Second", "café"]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn kernel_files_are_never_searched() {
+        if !crate::mounts::current().kernel(Path::new("/proc/self")) {
+            return;
+        }
+        let pattern = Pattern::new("Name").unwrap();
+        let files = Files {
+            cache: None,
+            index: None,
+        };
+        let status = Path::new("/proc/self/status");
+        assert_eq!(search_file(status, &pattern, files), Err(Skip::NoText));
+        assert!(lines(status).is_none());
     }
     #[test]
     fn the_index_rules_files_out_before_they_are_read() {

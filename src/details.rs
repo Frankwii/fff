@@ -108,8 +108,8 @@ pub struct Details {
     counts: RefCell<HashMap<PathBuf, Found<Count>>>,
     info_workers: Workers<Option<Info>>,
     count_workers: Workers<Count>,
-    /// Mount points, longest first, read again after each `forget`.
-    mounts: RefCell<Option<Vec<PathBuf>>>,
+    /// The mount table, read again after each `forget`.
+    mounts: RefCell<Option<Arc<crate::mounts::Mounts>>>,
     /// Requests made before the last `forget` are skipped by the workers.
     generation: Arc<AtomicU64>,
     /// Account names; `None` while being looked up.
@@ -160,12 +160,23 @@ impl Details {
     /// A folder's size: the bytes of the files below it on its filesystem,
     /// as far as a worker has added them up; asked for in this frame.
     pub fn size(&self, path: &Path) -> Option<crate::sizes::Size> {
+        if self.on_kernel(path) {
+            return None;
+        }
         self.want_size(path);
         self.sizes.get(path)
     }
-    /// A folder near the view whose size is added up after those drawn.
+    /// A folder near the view whose size is added up after those drawn;
+    /// never one on a kernel filesystem, whose sizes are made up.
     pub fn want_size(&self, path: &Path) {
-        self.sizes.want(path, self.mount_of(path));
+        if !self.on_kernel(path) {
+            self.sizes.want(path, self.mount_of(path));
+        }
+    }
+    /// `path` is on a kernel filesystem (`/proc`, `/sys`, `/dev`): it has
+    /// no size, by its name (drawing never reads a link).
+    pub fn on_kernel(&self, path: &Path) -> bool {
+        self.mounts().kernel(path)
     }
     /// A frame was drawn: workers add up the sizes it asked for, in order,
     /// and give up on others.
@@ -199,19 +210,13 @@ impl Details {
     /// The mount point `path` is under, by its name: reading the mount table
     /// never waits for a mount.
     fn mount_of(&self, path: &Path) -> PathBuf {
-        let mut mounts = self.mounts.borrow_mut();
-        let mounts = mounts.get_or_insert_with(|| {
-            let mut mounts = fs::read_to_string("/proc/self/mounts")
-                .map(|table| mount_points(&table))
-                .unwrap_or_default();
-            mounts.sort_by_key(|m| std::cmp::Reverse(m.as_os_str().len()));
-            mounts
-        });
-        mounts
-            .iter()
-            .find(|m| path.starts_with(m))
-            .cloned()
-            .unwrap_or_else(|| PathBuf::from("/"))
+        self.mounts().point(path)
+    }
+    fn mounts(&self) -> Arc<crate::mounts::Mounts> {
+        self.mounts
+            .borrow_mut()
+            .get_or_insert_with(crate::mounts::current)
+            .clone()
     }
     fn spawn<K: Send + 'static, T: Send + 'static>(
         &self,
@@ -263,6 +268,7 @@ impl Details {
     pub fn forget(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
         *self.mounts.borrow_mut() = None;
+        crate::mounts::refresh();
         let mut infos = self.infos.borrow_mut();
         if infos.len() > COUNT_CACHE {
             infos.clear();
@@ -329,36 +335,6 @@ fn drain_into<T: PartialEq>(
         }
     }
     changed
-}
-
-/// The mount points in a `/proc/self/mounts` table, whose fields escape
-/// spaces, tabs, newlines and backslashes in octal.
-fn mount_points(table: &str) -> Vec<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
-    table
-        .lines()
-        .filter_map(|line| line.split(' ').nth(1))
-        .map(|field| {
-            let (mut bytes, mut rest) = (Vec::new(), field.as_bytes());
-            while let Some((&b, tail)) = rest.split_first() {
-                let code = tail
-                    .get(..3)
-                    .and_then(|d| std::str::from_utf8(d).ok())
-                    .and_then(|d| u8::from_str_radix(d, 8).ok());
-                match code {
-                    Some(c) if b == b'\\' => {
-                        bytes.push(c);
-                        rest = &tail[3..];
-                    }
-                    _ => {
-                        bytes.push(b);
-                        rest = tail;
-                    }
-                }
-            }
-            PathBuf::from(std::ffi::OsString::from_vec(bytes))
-        })
-        .collect()
 }
 
 fn count_entries(path: &Path) -> Count {
@@ -649,22 +625,23 @@ mod tests {
     }
     #[test]
     fn entries_are_read_by_their_mounts_workers() {
-        let table = "proc /proc proc rw 0 0\n/dev/sda1 / ext4 rw 0 0\n\
-                     share /mnt/my\\040disk\\134x nfs rw 0 0\n";
-        assert_eq!(
-            mount_points(table),
-            [PathBuf::from("/proc"), "/".into(), "/mnt/my disk\\x".into()]
-        );
         let details = Details::default();
-        *details.mounts.borrow_mut() = Some(vec!["/mnt/a b".into(), "/mnt".into(), "/".into()]);
+        let table = "/dev/sda1 / ext4 rw 0 0\nproc /proc proc rw 0 0\n\
+                     a /mnt ext4 rw 0 0\nb /mnt/a\\040b ext4 rw 0 0\n";
+        *details.mounts.borrow_mut() = Some(Arc::new(crate::mounts::Mounts::parse(table)));
         assert_eq!(
             details.mount_of(Path::new("/mnt/a b/c")),
             Path::new("/mnt/a b")
         );
         assert_eq!(details.mount_of(Path::new("/mnt/a bc")), Path::new("/mnt"));
         assert_eq!(details.mount_of(Path::new("/home")), Path::new("/"));
+        // Kernel filesystems have no sizes to add up.
+        assert!(details.on_kernel(Path::new("/proc/1")));
+        details.want_size(Path::new("/proc"));
+        details.want_size(Path::new("/home"));
+        assert_eq!(details.sizes.wanted(), [PathBuf::from("/home")]);
         // Without a table, everything is on `/`.
-        *details.mounts.borrow_mut() = Some(Vec::new());
+        *details.mounts.borrow_mut() = Some(Arc::default());
         assert_eq!(details.mount_of(Path::new("/home")), Path::new("/"));
     }
 }

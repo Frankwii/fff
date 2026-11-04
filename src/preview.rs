@@ -366,6 +366,8 @@ pub fn build(path: &Path, hidden: bool, cancel: &AtomicBool) -> Preview {
         preview.kind = "character device".into();
     } else if kind.is_block_device() {
         preview.kind = "block device".into();
+    } else if let Some(fstype) = kernel_fstype(path, link.is_some()) {
+        kernel_file(path, &fstype, &mut preview);
     } else {
         file(path, &meta, cancel, &mut preview);
     }
@@ -464,6 +466,69 @@ fn file(path: &Path, meta: &fs::Metadata, cancel: &AtomicBool, preview: &mut Pre
             None => preview.kind = "binary data".into(),
         },
     }
+}
+
+/// The kernel filesystem `path` is on, or what it links to (`link`), if
+/// it is one.
+fn kernel_fstype(path: &Path, link: bool) -> Option<String> {
+    let mounts = crate::mounts::current();
+    let kernel = |p: &Path| {
+        mounts
+            .of(p)
+            .filter(|m| m.kind() == crate::mounts::Kind::Kernel)
+            .map(|m| m.fstype.clone())
+    };
+    kernel(path).or_else(|| kernel(&fs::canonicalize(path).ok().filter(|_| link)?))
+}
+
+/// Bytes read of a file on a kernel filesystem.
+const KERNEL_HEAD: usize = 4096;
+
+/// A file the kernel makes up: its first bytes, read without waiting (a
+/// file that would block, such as `/proc/kmsg`, has nothing to show), as
+/// text; on `devtmpfs`, nothing is read.
+fn kernel_file(path: &Path, fstype: &str, preview: &mut Preview) {
+    preview.kind = format!("kernel file ({fstype})");
+    if fstype == "devtmpfs" {
+        preview.note("A device's file: not read.");
+        return;
+    }
+    let head = kernel_head(path).unwrap_or_default();
+    if head.is_empty() {
+        preview.note("Nothing to read right now.");
+        return;
+    }
+    match text(&head) {
+        Some(text) => {
+            let whole = head.len() < KERNEL_HEAD;
+            lines(&text, whole, preview);
+            if !whole {
+                preview.kind = format!("text · first {} KiB", KERNEL_HEAD / 1024);
+            }
+            preview.kind = format!("kernel file ({fstype}) · {}", preview.kind);
+        }
+        None => preview.kind = format!("kernel file ({fstype}) · binary data"),
+    }
+}
+fn kernel_head(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)?;
+    let mut head = vec![0; KERNEL_HEAD];
+    let mut filled = 0;
+    while filled < KERNEL_HEAD {
+        match file.read(&mut head[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            // Would block: what was read so far.
+            Err(_) => break,
+        }
+    }
+    head.truncate(filled);
+    Ok(head)
 }
 
 fn read_head(path: &Path) -> std::io::Result<Vec<u8>> {
@@ -1215,6 +1280,25 @@ mod tests {
         p.lines.iter().map(|(l, _)| l.as_str()).collect()
     }
 
+    #[test]
+    fn kernel_files_show_their_first_bytes_without_waiting() {
+        let mounts = crate::mounts::current();
+        if mounts.of(Path::new("/proc/self")).map(|m| m.fstype.as_str()) != Some("proc") {
+            return;
+        }
+        let p = preview(Path::new("/proc/self/status"));
+        assert!(p.kind.starts_with("kernel file (proc)"), "{}", p.kind);
+        assert!(texts(&p).iter().any(|l| l.starts_with("Name:")), "{p:?}");
+        // A file read whole would wait for more (or cannot be opened):
+        // nothing, at once.
+        let p = preview(Path::new("/proc/kmsg"));
+        assert_eq!(p.kind, "kernel file (proc)");
+        assert!(p.lines.is_empty() || p.lines.len() <= KERNEL_HEAD);
+        if mounts.of(Path::new("/dev/null")).map(|m| m.fstype.as_str()) == Some("devtmpfs") {
+            // Device nodes are told by their kind, never opened.
+            assert_eq!(preview(Path::new("/dev/null")).kind, "character device");
+        }
+    }
     #[test]
     fn text_is_shown_safely_and_binary_is_summarized() {
         let dir = scratch("text");

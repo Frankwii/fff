@@ -177,7 +177,7 @@ fn read_seed(
     let start = Instant::now();
     // Never follow symlinks, cross a mount, or touch a remote/unknown filesystem.
     if cancel.load(Ordering::Relaxed)
-        || !local_same_mount(parent, target)
+        || !crate::mounts::current().local_same_mount(parent, target)
         || start.elapsed() >= WORK_BUDGET
     {
         return None;
@@ -242,57 +242,6 @@ fn read_seed(
     })
 }
 
-#[cfg(target_os = "linux")]
-fn local_same_mount(parent: &Path, target: &Path) -> bool {
-    // /proc metadata only; reject remote/unknown mounts before probing the target.
-    let Ok(mounts) = fs::read_to_string("/proc/self/mountinfo") else {
-        return false;
-    };
-    local_mounts(&mounts, parent, target)
-}
-#[cfg(any(target_os = "linux", test))]
-fn local_mounts(mounts: &str, parent: &Path, target: &Path) -> bool {
-    let mut parent_mount = None;
-    let mut target_mount = None;
-    for line in mounts.lines() {
-        let Some((fields, tail)) = line.split_once(" - ") else {
-            continue;
-        };
-        let Some(mount) = fields.split_whitespace().nth(4) else {
-            continue;
-        };
-        // Conservatively disable prefetch when mount paths cannot be interpreted.
-        if mount.contains('\\') {
-            return false;
-        }
-        let mount = Path::new(mount);
-        let id = fields.split_whitespace().next().unwrap_or("");
-        let kind = tail.split_whitespace().next().unwrap_or("");
-        for (path, best) in [(parent, &mut parent_mount), (target, &mut target_mount)] {
-            if path.starts_with(mount)
-                && best
-                    .as_ref()
-                    .is_none_or(|(len, _, _)| mount.as_os_str().len() > *len)
-            {
-                *best = Some((mount.as_os_str().len(), id, kind));
-            }
-        }
-    }
-    parent_mount == target_mount
-        && matches!(
-            target_mount,
-            Some((
-                _,
-                _,
-                "ext2" | "ext3" | "ext4" | "btrfs" | "xfs" | "tmpfs" | "overlay" | "f2fs" | "zfs"
-            ))
-        )
-}
-#[cfg(not(target_os = "linux"))]
-fn local_same_mount(_: &Path, _: &Path) -> bool {
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,37 +290,10 @@ mod tests {
         }
     }
     #[test]
-    fn mount_policy_rejects_remote_unknown_bind_and_escaped_mounts() {
-        let root = "1 0 0:1 / / rw - ext4 /dev/root rw\n";
-        assert!(local_mounts(
-            root,
-            Path::new("/home"),
-            Path::new("/home/child")
-        ));
-        for kind in ["nfs", "cifs", "fuse.sshfs", "unknown", "ext4"] {
-            let mounts = format!("{root}2 1 0:1 / /home/child rw - {kind} source rw\n");
-            assert!(!local_mounts(
-                &mounts,
-                Path::new("/home"),
-                Path::new("/home/child")
-            ));
-        }
-        assert!(!local_mounts(
-            "1 0 0:1 / / rw - nfs server rw\n",
-            Path::new("/home"),
-            Path::new("/home/child")
-        ));
-        assert!(!local_mounts(
-            &format!("{root}2 1 0:1 / /a\\040b rw - ext4 source rw\n"),
-            Path::new("/home"),
-            Path::new("/home/child")
-        ));
-    }
-    #[test]
     fn stable_highlight_prefetches_first_visit_and_respects_cooldown_and_focus() {
         let f = Fixture::new();
         let app = f.app();
-        if !local_same_mount(&f.0, &f.0.join("child")) {
+        if !crate::mounts::current().local_same_mount(&f.0, &f.0.join("child")) {
             return;
         }
         fs::write(f.0.join("child/file"), "").unwrap();
@@ -399,7 +321,7 @@ mod tests {
     fn policy_symlinks_depth_and_entry_budget_keep_prefixes_provisional() {
         let f = Fixture::new();
         let mut app = f.app();
-        if !local_same_mount(&f.0, &f.0.join("child")) {
+        if !crate::mounts::current().local_same_mount(&f.0, &f.0.join("child")) {
             return;
         }
         for name in ["file", "skip.log", ".hidden"] {
@@ -479,7 +401,7 @@ mod tests {
         let f = Fixture::new();
         let file = f.0.join("child/file");
         fs::write(&file, "").unwrap();
-        if !local_same_mount(&f.0, &f.0.join("child")) {
+        if !crate::mounts::current().local_same_mount(&f.0, &f.0.join("child")) {
             return;
         }
         let mut app = f.app();
@@ -521,7 +443,7 @@ mod tests {
         }
         fs::create_dir_all(&target).unwrap();
         let parent = target.parent().unwrap();
-        if !local_same_mount(parent, &target) {
+        if !crate::mounts::current().local_same_mount(parent, &target) {
             return;
         }
         for n in 0..1000 {

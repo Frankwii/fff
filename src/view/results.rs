@@ -372,6 +372,8 @@ pub(super) fn row_details(
         let value = match (column, info) {
             (_, None) => String::new(),
             (Column::Permissions, Some(i)) => details::permissions(i.mode),
+            // Kernel filesystems make their sizes up.
+            (Column::Size, Some(_)) if app.details.on_kernel(&candidate.path) => "—".into(),
             (Column::Size, Some(i)) if candidate.directory || i.directory => app
                 .details
                 .size(&candidate.path)

@@ -270,6 +270,35 @@ folder again. A total is checked again after ten minutes. Until the new total
 arrives, the old one is shown. Deleting the file only makes the next session
 add everything up again.
 
+### Kernel filesystems
+
+`/proc`, `/sys`, `/dev` and the kernel's other filesystems hold no files of
+their own: their sizes are made up (`/proc/kcore` claims the whole address
+space, every `/sys` attribute 4 KiB), their contents change as they are read,
+their entries come and go with the processes they describe, and some reads
+wait forever or act on hardware. fff knows them by the type the mount table
+gives them, wherever they are mounted, not by their paths: `proc`, `sysfs`,
+`devtmpfs`, `devpts`, `cgroup`, `cgroup2`, `debugfs`, `tracefs`,
+`securityfs`, `pstore`, `bpf`, `configfs`, `efivarfs`, `fusectl`, `mqueue`,
+`hugetlbfs`, `binfmt_misc`, `nsfs` and `rpc_pipefs`. There:
+
+- **Browsing works as anywhere**: `/sys/class` or `/proc/1` list their
+  entries.
+- **No sizes.** The size column shows `—` for their folders and files, and the
+  footer leaves the size out; nothing there is added up, and the folders
+  above them leave them out, as any other mount.
+- **Scans do not enter them from outside.** At a depth past 1, `fff pick` and
+  `fff seek` from `/` list `proc/` and `sys/` but not what is below; started
+  inside one (`fff pick /sys/class`), the scan goes on as anywhere.
+- **The contents query does not read their files.**
+- **The preview reads at most 4 KiB**, without waiting: `/proc/cpuinfo` shows,
+  and a file with nothing to read now (`/proc/kmsg`) says so. A file on
+  `devtmpfs` is not read at all.
+- **No live updates**: inotify hears nothing from them. F5 and the usual
+  [freshness](#discovery-cache-and-performance) rules still apply.
+- **An entry gone while it was listed is no error**: a process that ended
+  between listing `/proc` and reading its folder is simply left out.
+
 ## Mouse
 
 With `[ui] mouse = true` (the default), the mouse works in the results, the
@@ -372,7 +401,8 @@ listed folders, leaving the system's inotify watches (often 8192 per user) to
 other programs too; folders beyond that, or past the system's limit, follow the
 [freshness](#discovery-cache-and-performance) rules and F5. Where inotify is
 unavailable or a directory cannot be watched, fff works as with
-`watch = false`.
+`watch = false`. Folders on [kernel filesystems](#kernel-filesystems) are not
+watched.
 
 ## Preview pane
 

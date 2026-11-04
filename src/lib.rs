@@ -18,6 +18,7 @@ pub mod known;
 pub mod location;
 pub mod marks;
 mod matching;
+pub mod mounts;
 pub mod notify;
 pub mod open;
 pub mod operations;

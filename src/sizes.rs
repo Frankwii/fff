@@ -495,6 +495,11 @@ impl Sizes {
     pub fn want(&self, path: &Path, mount: PathBuf) {
         self.frame.borrow_mut().push((path.to_path_buf(), mount));
     }
+    /// The folders the frame being drawn wants so far.
+    #[cfg(test)]
+    pub fn wanted(&self) -> Vec<PathBuf> {
+        self.frame.borrow().iter().map(|(p, _)| p.clone()).collect()
+    }
     /// What the workers found for `path`: its total, the last one while it
     /// is added up again, else its growing total; `None` before either.
     pub fn get(&self, path: &Path) -> Option<Size> {
@@ -758,7 +763,12 @@ impl Walk<'_> {
                 return Some(below);
             }
         }
-        let read = stamp.and_then(|stamp| Some((stamp, fs::read_dir(&path).ok()?)));
+        // A link to a folder on a kernel filesystem (whose sizes are made
+        // up) is not added up: it shows as unreadable.
+        let kernel = path == self.root && crate::mounts::kernel_file(&path);
+        let read = stamp
+            .filter(|_| !kernel)
+            .and_then(|stamp| Some((stamp, fs::read_dir(&path).ok()?)));
         let mut listing = Listing::default();
         if let Some((stamp, entries)) = read {
             listing.stamp = stamp;
