@@ -29,6 +29,7 @@ pub mod preview;
 pub mod program;
 mod ranking;
 pub mod reload;
+pub mod rows;
 pub mod run;
 pub mod setup;
 pub mod sizes;
@@ -85,29 +86,6 @@ pub const PROGRESS_SHOWN: std::time::Duration = std::time::Duration::from_secs(3
 const MERGE_ROUND: usize = 512;
 const MERGE_SPREAD: usize = 1024;
 
-/// Result order: depth, directories first, best score, root order, then
-/// pathname bytes, which break every tie. `by_score` (`fff pick` and
-/// `fff seek`) puts the best score first, then depth.
-fn rank(
-    by_score: bool,
-    a: &Candidate,
-    score_a: i64,
-    b: &Candidate,
-    score_b: i64,
-) -> std::cmp::Ordering {
-    let score = score_b.cmp(&score_a);
-    let depth = a.depth.cmp(&b.depth).then(b.directory.cmp(&a.directory));
-    let (first, second) = if by_score {
-        (score, depth)
-    } else {
-        (depth, score)
-    };
-    first
-        .then(second)
-        .then(a.root.cmp(&b.root))
-        .then(a.path.as_os_str().cmp(b.path.as_os_str()))
-}
-
 /// Everything except the query that decides which known paths become rows.
 #[derive(Clone, PartialEq)]
 struct RefreshBasis {
@@ -123,7 +101,7 @@ struct RefreshBasis {
     navigates: bool,
     kinds: Kinds,
     short_labels: bool,
-    by_score: bool,
+    order: rows::Order,
 }
 impl RefreshBasis {
     fn of(app: &App) -> Self {
@@ -140,7 +118,7 @@ impl RefreshBasis {
             navigates: app.program().navigates(),
             kinds: app.kinds,
             short_labels: app.short_labels,
-            by_score: app.by_score(),
+            order: app.order(),
         }
     }
 }
@@ -617,8 +595,10 @@ impl App {
         self.poll_grep();
         false
     }
-    fn by_score(&self) -> bool {
-        self.program().by_score()
+    /// The order rows are ranked in: the program's. A sorting picker
+    /// would choose another here.
+    pub fn order(&self) -> rows::Order {
+        self.program().order()
     }
     /// The rows on screen: the ranked rows, or with a contents query, one
     /// row per match in their files' order.
@@ -1095,7 +1075,7 @@ impl App {
                     listing: Some(self.listing()),
                     query: folded.clone(),
                     labels: Some(self.short_labels),
-                    by_score: self.by_score(),
+                    order: self.order(),
                 };
                 // This job takes over the additions and removals discarded
                 // above, so the rows on screen cannot be narrowed after it.
@@ -1109,14 +1089,14 @@ impl App {
                 listing: None,
                 query: folded.clone(),
                 labels: None,
-                by_score: self.by_score(),
+                order: self.order(),
             },
             None => ranking::Job {
                 base: Arc::new(self.known.values().cloned().collect()),
                 listing: Some(self.listing()),
                 query: folded.clone(),
                 labels: None,
-                by_score: self.by_score(),
+                order: self.order(),
             },
         };
         self.start_ranking(job, basis, folded, shown);
@@ -1292,7 +1272,7 @@ impl App {
         known::discard(stale, len);
         let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
-        let by_score = self.by_score();
+        let order = self.order();
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {
@@ -1320,7 +1300,7 @@ impl App {
                 .into_iter()
                 .filter_map(|c| Some((score_of(&c)?, c)))
                 .collect();
-            added.sort_unstable_by(|(sa, a), (sb, b)| rank(by_score, a, *sa, b, *sb));
+            added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
             if !added.is_empty() {
                 self.rows_version += 1;
                 let rows = Arc::make_mut(&mut self.rows);
@@ -1336,7 +1316,7 @@ impl App {
                 // their end in growing steps, as each insertion lands near the
                 // one after it, then halving.
                 let before = |rows: &[Arc<Candidate>], scores: &[i64], c: &Candidate, s: i64| {
-                    let lt = |i: usize| rank(by_score, &rows[i], scores[i], c, s).is_lt();
+                    let lt = |i: usize| order.cmp(&rows[i], scores[i], c, s).is_lt();
                     let (mut lo, mut hi, mut step) = (rows.len(), rows.len(), 1);
                     while lo > 0 && !lt(lo - 1) {
                         hi = lo - 1;

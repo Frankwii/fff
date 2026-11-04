@@ -164,7 +164,7 @@ copies the run being merged, as it did before.
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before depth (`Program::by_score`). Query edits do not restart discovery. Scans merge
+  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before depth (`Program::order`). Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget, in place and with the
   rows' kept scores: rows ranked before every new path are not touched, so a
   breadth-first scan's merge costs about what it inserts. The input thread never
