@@ -4,6 +4,15 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Opening and editing files work while typing the query.** Alt+o opens
+  the current or marked files in this terminal from Insert mode, as `o`
+  does in Normal mode; `edit_files` and `open_and_quit` work in Insert mode
+  too, for keys you bind on the Keys screen.
+
 ## 0.16.2 — 2026-11-04
 
 The query box names exclusions only when they differ from the

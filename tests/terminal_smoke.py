@@ -3145,6 +3145,12 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("viewer finished")
         self.assertEqual(sorted(log.read_text().splitlines()),
                          [str(self.root / "a.pdf"), str(self.root / "b.pdf")])
+        # Alt+o does the same while typing the query.
+        log.unlink()
+        s.send(b"i", "Query · INSERT")
+        s.send(b"\x1b[111;3u")
+        self.wait_file(log, [str(self.root / "a.pdf"), str(self.root / "b.pdf")])
+        s.wait_ui("Query · INSERT")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

@@ -406,7 +406,7 @@ key says which one.
 | gg / G | First / last row in Normal-mode lists |
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l / l in Normal | Enter the highlighted directory, or open the highlighted file in the background |
-| o in Normal | Open the current or marked files with their openers in this terminal, then come back |
+| Alt+o / o in Normal | Open the current or marked files with their openers in this terminal, then come back |
 | Alt+g / `g/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
 | Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
@@ -446,7 +446,7 @@ key says which one.
 | `:` in Normal | Pick a function that works here by name and run it (Enter), or go back (Esc) |
 | F5 | Force fresh discovery, bypassing cache replay |
 | gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
-| e in Normal | Open the current or marked paths in `$EDITOR`, then come back |
+| e in Normal | Open the current or marked paths in `$EDITOR`, then come back (`edit_files`; it works in Insert mode too, with a key of your own) |
 | gm in Normal | [Switch](#switching-programs) to `fff roam`, `pick` or `seek`, keeping the session |
 | gc in Normal | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
 | q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |

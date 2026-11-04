@@ -750,9 +750,11 @@ impl Function {
             | ReloadPalette
             | OpenRow
             | ConfirmRow => both(results),
-            HighlightFirst | HighlightLast | MarkAll | InvertMarks | OpenInTerminal | Run
-            | RunAndQuit | EditFiles | MoveMarked | CopyMarked | LinkMarked | Trash | Delete
-            | Extract | Undo | Restore | Quit | EditConfig => only_normal(lists),
+            // Opening files has no letter for a key in Insert mode, so it can work there.
+            OpenInTerminal | EditFiles => both(lists_or_results),
+            HighlightFirst | HighlightLast | MarkAll | InvertMarks | Run | RunAndQuit
+            | MoveMarked | CopyMarked | LinkMarked | Trash | Delete | Extract | Undo | Restore
+            | Quit | EditConfig => only_normal(lists),
             Rename | Create | ClearQuery | SearchToDepth => only_normal(results),
             SwitchQuery => both(scope(&CONTENTS, &[Results], &[])),
             GoToParent | GoToPath | ShowBookmarks | GoToTrash | GoBack | GoForward
@@ -762,7 +764,8 @@ impl Function {
             GoToHighlighted if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
             GoToHighlighted => both(scope(&NAVIGATE, &[Results], &[H::Dir, H::File])),
             OpenInBackground => both(scope(&[], &[Results], &file)),
-            OpenAndQuit => only_normal(scope(&[Roam, Window], &[], &file)),
+            OpenAndQuit if normal => vec![scope(&[Roam, Window], &[], &file)],
+            OpenAndQuit => vec![scope(&[Roam, Window], &[Results], &file)],
             SaveHere => both(scope(&[ExplorerSave], &[Results], &[])),
             SaveOver => only_normal(scope(&[ExplorerSave], &[], &file)),
             PrintHighlighted if normal => vec![
@@ -843,6 +846,7 @@ impl Function {
             GoToNextTab => &[("<M-Up>", all)],
             GoToPreviousTab => &[("<M-Down>", all)],
             OpenInBackground => &[("<M-l>", all)],
+            OpenInTerminal => &[("<M-o>", all)],
             OpenRow => &[("<M-#>", all)],
             ConfirmRow => &[("<C-#>", all)],
             ToggleMark => &[("<S-Space>", all)],
