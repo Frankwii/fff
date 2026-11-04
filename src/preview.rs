@@ -484,6 +484,17 @@ enum Sniff {
     Sqlite,
     Other(&'static str),
 }
+/// An MPEG audio frame header: its sync bits, then a version, layer,
+/// bitrate and sample rate that exist. UTF-16LE text, whose byte-order mark
+/// `FF FE` has the sync bits, is not one.
+fn mpeg_frame(head: &[u8]) -> bool {
+    let [0xff, b, c, ..] = *head else {
+        return false;
+    };
+    let (version, layer) = ((b >> 3) & 3, (b >> 1) & 3);
+    let (bitrate, rate) = (c >> 4, (c >> 2) & 3);
+    b & 0xe0 == 0xe0 && b != 0xfe && version != 1 && layer != 0 && bitrate != 15 && rate != 3
+}
 fn sniff(head: &[u8], path: &Path) -> Option<Sniff> {
     let at = |offset: usize, magic: &[u8]| head.get(offset..offset + magic.len()) == Some(magic);
     let extension = path
@@ -520,7 +531,7 @@ fn sniff(head: &[u8], path: &Path) -> Option<Sniff> {
         } else {
             "Matroska"
         })
-    } else if at(0, b"ID3") || (head.len() > 1 && head[0] == 0xff && head[1] & 0xe0 == 0xe0) {
+    } else if at(0, b"ID3") || mpeg_frame(head) {
         Sniff::Media("MP3")
     } else if at(0, b"fLaC") {
         Sniff::Media("FLAC")
@@ -1239,6 +1250,11 @@ mod tests {
         assert_eq!(p.lines[0].1, Tone::Muted);
         fs::write(&binary, b"").unwrap();
         assert_eq!(preview(&binary).kind, "empty file");
+        // UTF-16 text starts like an MPEG frame, which it is not.
+        fs::write(&binary, b"\xff\xfeH\x00i\x00\n\x00").unwrap();
+        assert_eq!(preview(&binary).kind, "binary data");
+        assert!(mpeg_frame(b"\xff\xfb\x90\x64"));
+        assert!(!mpeg_frame(b"\xff\xfb\xf0\x64"));
         fs::remove_dir_all(dir).unwrap();
     }
 

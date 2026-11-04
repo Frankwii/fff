@@ -4,6 +4,44 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Fixed
+
+- **A match no longer loses its highlight in the rows.** With a contents
+  query, a match a little past the start of a long line was shown without
+  its highlight (and a debug build stopped there); in the preview too, with
+  wrapping off.
+- **Alt+number opens a file at the match of that row** (`at_grep_match`),
+  not at the file's first match or the one highlighted before.
+- **The highlighted match stays put while matches arrive.** Matches found
+  later in files above it no longer move the highlight to another match.
+- **Read-only folders can be moved and restored from the trash**, as they
+  could already be trashed, deleted and copied: `v` and `R` no longer fail
+  with "Permission denied".
+- **Keys bound on the Keys screen always load again.** Alt+`>`, Insert,
+  F13 and up and Ctrl+Shift+letter were saved in a form keys.toml could
+  not read, which dropped every key of yours at the next start (Alt+`>` is
+  now written `<M-gt>`, Ctrl+Shift+a `<C-S-A>`); keys.toml also takes
+  `<gt>`, `<hash>`, `<Insert>` and `<F13>` up. A key that still cannot be
+  written is refused when you bind it, and keys.toml is written whole or
+  not at all.
+- **A marked link to a missing target can be the answer** of `fff pick`
+  and file dialogs, as Enter in the marked list already allowed, rather
+  than blocking it as a missing path.
+- **A longer contents query finds every match** when it narrows one that
+  had just reached its match limit; a file could be left out before.
+- **Contents searches read EPUBs whose package names documents with `../`**,
+  and stop reading a book that inflates without end.
+- **UTF-16 text files are no longer previewed as MP3.**
+- **Confirmation sheets never wait for the filesystem** to color the paths
+  they list, and a contents match whose file has gone no longer keeps fff
+  busy re-reading it.
+- **A damaged contents index is ignored** rather than stopping searches.
+- Messages name the keys you bound, not Space and Esc, for unmarking a
+  missing mark and clearing the query; `fff --help` no longer mentions a
+  `--map-key` option.
+
 ## 0.16.0 — 2026-11-04
 
 The contents query moves into `fff roam`, `pick` and `seek`, on Tab, with

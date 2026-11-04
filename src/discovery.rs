@@ -207,6 +207,9 @@ impl Scan {
     /// is partial, so it is neither reconciled nor kept as complete.
     fn truncate(&mut self, app: &mut App) {
         self.cancel.store(true, Ordering::Relaxed);
+        // Nothing is read from the walker again: dropping its channel ends
+        // the threads waiting to send, with what they hold.
+        self.events = mpsc::sync_channel(1).1;
         self.failed = true;
         self.completed = true;
         self.pending = true;

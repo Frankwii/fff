@@ -359,10 +359,12 @@ pub(super) fn lead_window(
         }
         cut = i;
     }
-    let shift = cut - '…'.len_utf8();
+    // The parts lie past `cut`, which may be nearer the start than the
+    // ellipsis is long.
+    let moved = |at: usize| at.saturating_sub(cut) + '…'.len_utf8();
     let moved = parts
         .iter()
-        .map(|p| p.start.saturating_sub(shift)..p.end.saturating_sub(shift))
+        .map(|p| moved(p.start)..moved(p.end))
         .collect();
     (format!("…{}", &text[cut..]), moved)
 }

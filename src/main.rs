@@ -102,8 +102,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   bash  <cyan>source <<(fff setup --completions bash)</cyan>   in ~/.bashrc
   zsh   <cyan>source <<(fff setup --completions zsh)</cyan>    in ~/.zshrc
   fish  <cyan>fff setup --completions fish | source</cyan>    in ~/.config/fish/config.fish
-  Completions cover options, root and config paths, palettes
-  (including custom ones from the configuration) and --map-key chords."
+  Completions cover options, root and config paths, and palettes
+  (including custom ones from the configuration)."
 );
 
 #[derive(Parser)]

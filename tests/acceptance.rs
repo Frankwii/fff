@@ -432,7 +432,12 @@ fn marks_confirmation_and_missing_paths() {
     assert_eq!(app.confirm(None), None);
     assert!(app.status.contains("Missing"));
     app.toggle(a);
-    assert_eq!(app.confirm(None), Some(vec![b]));
+    assert_eq!(app.confirm(None), Some(vec![b.clone()]));
+    // A marked link whose target is gone is still an entry to answer with.
+    let dangling = f.0.join("dangling");
+    std::os::unix::fs::symlink(f.0.join("nowhere"), &dangling).unwrap();
+    app.toggle(dangling.clone());
+    assert_eq!(app.confirm(None), Some(vec![b, dangling]));
 }
 #[test]
 fn policy_toggles_prune_and_preserve_marks() {
@@ -1311,4 +1316,47 @@ fn switching_program_keeps_the_session_and_follows_default_depths() {
             assert!(!Function::SwitchProgram.works(mode, cell), "{program:?}");
         }
     }
+}
+#[test]
+fn the_highlighted_match_stays_as_matches_arrive_above_it() {
+    let root = std::env::temp_dir().join(format!("fff-grep-held-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    for name in ["a.txt", "b.txt"] {
+        std::fs::write(root.join(name), "canard\nno\ncanard\n").unwrap();
+    }
+    let mut app = App::new(vec![root.clone()], 6, Policy::default());
+    app.grep.cache = Some(root.join("cache"));
+    let file = |name: &str| Candidate {
+        path: root.join(name),
+        directory: false,
+        depth: 1,
+        root: 0,
+    };
+    let settle = |app: &mut App| {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(10) {
+            app.poll_grep();
+            if app.grep.progress().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the search did not finish");
+    };
+    app.insert(0, file("b.txt"));
+    app.refresh();
+    app.set_contents("canard".into());
+    settle(&mut app);
+    app.move_by(1);
+    assert_eq!(app.highlighted_hit().unwrap().line, 3);
+    // a.txt, found later, lists its matches above b.txt's.
+    app.insert(0, file("a.txt"));
+    app.refresh();
+    settle(&mut app);
+    assert_eq!(app.shown().len(), 4);
+    assert_eq!(app.highlighted(), Some(3));
+    assert_eq!(app.highlight, Some(root.join("b.txt")));
+    assert_eq!(app.highlighted_hit().unwrap().line, 3);
+    std::fs::remove_dir_all(&root).unwrap();
 }

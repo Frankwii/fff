@@ -3096,6 +3096,24 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_alt_number_opens_a_file_at_the_match_of_its_row(self):
+        for name in ("one.txt", "two.txt"):
+            (self.root / name).write_text("canard\nmiddle\ncanard\n")
+        env, config, log = self.opener_setup(
+            rules="[[open.rules]]\ncommand = 'viewer'\npatterns = ['*']\nat_grep_match = '+{line}'\n")
+        s = self.start("--config", str(config), implicit_root=True, environment=env, typing=True)
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"icanard", "❯ canard")
+        s.wait_ui("4 matches in 2 files")
+        # Each row's own match, not the first of its file's.
+        s.send(b"\x1b[50;3u", "Opened one.txt with viewer")  # CSI-u Alt+2
+        self.wait_file(log, ["+3", str(self.root / "one.txt")])
+        s.send(b"\x1b[52;3u", "Opened two.txt with viewer")  # Alt+4
+        self.wait_file(log, ["+3", str(self.root / "two.txt")])
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
     def test_failing_background_opener_posts_a_notice(self):
         (self.root / "a.pdf").touch()
         env, config, log = self.opener_setup(body="exit 3\n")

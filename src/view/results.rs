@@ -321,8 +321,10 @@ pub(super) fn info_color(
         _ => theme.text,
     }
 }
-pub(super) fn path_color(theme: Palette, path: &Path, directory: bool) -> Color {
-    info_color(theme, crate::details::Info::read(path).as_ref(), directory)
+/// A listed path's color, from the details read in the background: drawing
+/// never waits for the filesystem.
+pub(super) fn path_color(app: &App, path: &Path, directory: bool) -> Color {
+    info_color(app.palette, app.details.info(path).as_ref(), directory)
 }
 /// Each column's width, so that columns line up from row to row.
 pub(super) fn column_width(column: Column) -> usize {

@@ -840,11 +840,12 @@ impl Session {
         if app.rendered.is_empty() {
             return;
         }
-        let path = app.numbered(digit);
-        let Some(target) = app.shown().iter().find(|c| c.path == path).cloned() else {
+        // That row, rather than the first of its path: a contents query
+        // shows a file once per match, and opens it at the row's.
+        app.highlight_numbered(digit);
+        let Some(target) = app.highlighted_row().cloned() else {
             return;
         };
-        app.highlight = Some(target.path.clone());
         app.highlight_top = false;
         app.wanted = None;
         if target.directory {

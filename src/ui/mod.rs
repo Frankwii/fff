@@ -618,7 +618,13 @@ impl Session {
         if let Some((reading, lines)) = &self.match_lines
             && let Ok(lines) = lines.try_recv()
         {
-            app.match_text = lines.map(|l| (reading.clone(), std::sync::Arc::new(l)));
+            // A file with no lines to read (gone, say) is remembered as
+            // such, rather than read again on every pass.
+            let lines = lines.unwrap_or(crate::grep::Lines {
+                text: Vec::new(),
+                starts: Vec::new(),
+            });
+            app.match_text = Some((reading.clone(), std::sync::Arc::new(lines)));
             app.preview.more_match_lines();
             self.match_lines = None;
             self.dirty = true;

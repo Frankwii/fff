@@ -645,6 +645,12 @@ impl App {
     /// like a new names query, highlights the first match until the user
     /// moves.
     pub fn poll_grep(&mut self) -> bool {
+        // The highlighted match, by its file's results and its place among
+        // them: rows arriving above it move it down.
+        let held = self
+            .highlighted()
+            .and_then(|i| self.grep.shown_hits.get(i))
+            .map(|(hits, at)| (Arc::clone(hits), *at));
         let rows = Arc::clone(&self.rows);
         if !self.grep.poll(&rows, self.rows_version) {
             return false;
@@ -653,6 +659,14 @@ impl App {
         if self.highlight_top || self.highlighted().is_none() {
             self.highlight = first;
             self.highlight_hint.set(0);
+        } else if let Some((hits, at)) = held
+            && let Some(i) = self
+                .grep
+                .shown_hits
+                .iter()
+                .position(|(h, a)| *a == at && Arc::ptr_eq(h, &hits))
+        {
+            self.highlight_hint.set(i);
         }
         true
     }
@@ -1648,8 +1662,8 @@ impl App {
         self.status = if self.scanning {
             "Nothing listed yet; still searching".into()
         } else if !self.filter().is_empty() {
-            match self.key("esc") {
-                Some(esc) => format!("Nothing matches {:?}; {esc} clears the query", self.query),
+            match self.bound(keymap::Function::ClearQuery) {
+                Some(key) => format!("Nothing matches {:?}; {key} clears the query", self.query),
                 None => format!("Nothing matches {:?}", self.query),
             }
         } else {
@@ -1662,7 +1676,8 @@ impl App {
         self.running.returns_marks()
     }
     pub fn confirm(&mut self, target: Option<PathBuf>) -> Option<Vec<PathBuf>> {
-        if self.marks.iter().any(|p| !p.exists()) {
+        // A link counts as the entry it is, even when its target is gone.
+        if self.marks.iter().any(|p| p.symlink_metadata().is_err()) {
             self.status =
                 "Missing marked paths: unmark them in the marked list before confirming".into();
             return None;

@@ -203,7 +203,8 @@ impl Store {
         if decoded != next {
             return Err("Bookmark serialization did not preserve the requested values".into());
         }
-        atomic_write(path, before.as_deref(), &updated)?;
+        atomic_write(path, before.as_deref(), &updated)
+            .map_err(|e| format!("Cannot save bookmarks to {}: {e}", path.display()))?;
         self.expected = next.clone();
         Ok(next)
     }
@@ -347,7 +348,10 @@ fn set(table: &mut dyn TableLike, key: &str, text: &str) {
         table.insert(key, toml_edit::value(text));
     }
 }
-fn atomic_write(path: &Path, before: Option<&str>, text: &str) -> Result<(), String> {
+/// Writes `text` to `path` whole or not at all, if the file still holds
+/// `before`: a temporary file beside it, renamed over it, keeping its
+/// permissions and a symlink to it.
+pub(crate) fn atomic_write(path: &Path, before: Option<&str>, text: &str) -> Result<(), String> {
     // Follow an existing config symlink, preserving dotfile-manager links.
     let target = match fs::symlink_metadata(path) {
         Ok(_) => path.canonicalize().map_err(|e| e.to_string())?,
@@ -360,7 +364,7 @@ fn atomic_write(path: &Path, before: Option<&str>, text: &str) -> Result<(), Str
     fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let temporary = parent.join(format!(
-        ".fff-bookmarks-{}-{}.tmp",
+        ".fff-save-{}-{}.tmp",
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -381,12 +385,12 @@ fn atomic_write(path: &Path, before: Option<&str>, text: &str) -> Result<(), Str
             .and_then(|_| file.sync_all())
             .map_err(|e| e.to_string())?;
         if read(path)?.as_deref() != before {
-            return Err("Configuration changed while saving; try again".into());
+            return Err("the file changed while saving; try again".into());
         }
         fs::rename(&temporary, &target).map_err(|e| e.to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
-    result.map_err(|e| format!("Cannot save bookmarks to {}: {e}", path.display()))
+    result
 }

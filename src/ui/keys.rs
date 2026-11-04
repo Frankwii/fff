@@ -700,6 +700,17 @@ fn editor_key(app: &mut App, editor: &mut Editor, key: KeyEvent) -> bool {
                 K::Backspace => {
                     keys.pop();
                 }
+                // Saved, it would read back as other keys, or none.
+                K::Enter if !crate::keymap::writable(keys) => {
+                    editor.message = Some((
+                        format!(
+                            "{} cannot be written to keys.toml",
+                            crate::keymap::display(keys)
+                        ),
+                        true,
+                    ));
+                    editor.step = EditStep::Browse;
+                }
                 K::Enter if replaces.is_some() => {
                     let keys = std::mem::take(keys);
                     let place = replaces.take().unwrap();

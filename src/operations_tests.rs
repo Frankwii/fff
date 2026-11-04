@@ -1183,6 +1183,22 @@ fn readonly_directories_can_be_deleted_and_overwritten() {
     assert_eq!(fs::read_dir(&f.dest).unwrap().count(), 1);
 }
 #[test]
+fn readonly_directories_move_to_another_folder_with_their_mode() {
+    let f = Fixture::new();
+    let ro = f.work.join("ro");
+    locked_dir(&ro);
+    let plan = TransferPlan::new(Transfer::Move, vec![ro.clone()], f.dest.clone()).unwrap();
+    let result = f.engine().execute(plan.request().unwrap());
+    let moved = f.dest.join("ro");
+    let mode = fs::metadata(&moved).map(|m| m.mode() & 0o7777);
+    unlock(&moved);
+    unlock(&ro);
+    assert!(result.unwrap().warning.is_none());
+    assert!(!ro.exists());
+    assert_eq!(mode.unwrap(), 0o555);
+    assert_eq!(fs::read(moved.join("x")).unwrap(), b"x");
+}
+#[test]
 fn a_cancelled_delete_puts_readonly_directories_back_with_their_mode() {
     let f = Fixture::new();
     let ro = f.work.join("ro");

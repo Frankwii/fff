@@ -977,10 +977,11 @@ or a list of keys and tables with `keys` and any of `program`, `place` and
 `highlight`. Keys use Vim's notation: printable keys stand for themselves
 (`gg`, `g/`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),
 `M-` (Alt) and `S-` (Shift) before them: `<CR>`, `<Esc>`, `<Tab>`, `<BS>`,
-`<Del>`, `<Space>`, `<lt>` (`<`), `<Up>`, `<Down>`, `<Left>`, `<Right>`,
-`<PageUp>`, `<PageDown>`, `<Home>`, `<End>`, `<F1>` to `<F12>`, or one
-character (`<M-h>`, `<C-w>`, `<M-P>`). `<#>` is the digits 1–9, and `<M-#>`
-and `<C-#>` Alt or Ctrl with any digit. A sequence is several keys (`gx`,
+`<Del>`, `<Insert>`, `<Space>`, `<lt>` (`<`), `<gt>` (`>`), `<hash>`
+(`#`), `<Up>`, `<Down>`, `<Left>`, `<Right>`, `<PageUp>`, `<PageDown>`,
+`<Home>`, `<End>`, `<F1>` and up, or one character (`<M-h>`, `<C-w>`,
+`<M-P>`; with Ctrl, a capital needs `S-` too: `<C-S-P>`). `<#>` is the
+digits 1–9, and `<M-#>` and `<C-#>` Alt or Ctrl with any digit. A sequence is several keys (`gx`,
 `<M-g>u`); one cannot be the start of another where both apply, since a
 waiting prefix has no timeout. Unbound keys and unfinished prefixes reach
 Neovim.

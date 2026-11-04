@@ -182,7 +182,7 @@ pub(super) fn size_lines(
                     spans.push(styled(name[..split].to_string(), theme.muted));
                     spans.push(styled(
                         name[split..].to_string(),
-                        path_color(theme, &path, directory),
+                        path_color(app, &path, directory),
                     ));
                 }
                 crate::operations::Listed::More(n) => {
@@ -753,7 +753,7 @@ pub(super) fn path_lines(
                 styled(name[..split].to_string(), theme.muted),
                 styled(
                     name[split..].to_string(),
-                    path_color(theme, path, directory),
+                    path_color(app, path, directory),
                 ),
             ])
         })

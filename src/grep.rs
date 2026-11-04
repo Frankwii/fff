@@ -374,11 +374,13 @@ fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec
 /// stripped, one paragraph per line.
 fn epub_text(path: &Path) -> Option<Vec<u8>> {
     let mut archive = zip::ZipArchive::new(fs::File::open(path).ok()?).ok()?;
+    // Each document is read up to the size a text file may have, so that
+    // a book that inflates without end is cut rather than read whole.
     let mut read = |name: &str| -> Option<String> {
-        let mut entry = archive.by_name(name).ok()?;
-        let mut text = String::new();
-        entry.read_to_string(&mut text).ok()?;
-        Some(text)
+        let entry = archive.by_name(name).ok()?;
+        let mut bytes = Vec::new();
+        entry.take(TEXT_LIMIT).read_to_end(&mut bytes).ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
     };
     let container = read("META-INF/container.xml")?;
     let opf = attribute(&container, "rootfile", "full-path")?;
@@ -400,17 +402,31 @@ fn epub_text(path: &Path) -> Option<Vec<u8>> {
         else {
             continue;
         };
-        let name = if base.is_empty() {
-            href.clone()
-        } else {
-            format!("{base}/{href}")
-        };
-        if let Some(document) = read(&percent_decoded(&name)) {
+        if let Some(document) = read(&percent_decoded(&joined(base, href))) {
             out.push_str(&html_text(&document));
             out.push('\n');
+            if out.len() as u64 > TEXT_LIMIT {
+                break;
+            }
         }
     }
     Some(out.into_bytes())
+}
+/// `href`, relative to the folder `base` of the archive, as the archive
+/// names it: `.` and `..` resolved, a `#fragment` dropped.
+fn joined(base: &str, href: &str) -> String {
+    let href = href.split('#').next().unwrap_or_default();
+    let mut parts: Vec<&str> = base.split('/').filter(|p| !p.is_empty()).collect();
+    for part in href.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    parts.join("/")
 }
 /// Each `<name ...>` tag of `xml`, from `<` to `>`.
 fn tags<'a>(xml: &'a str, name: &str) -> Vec<&'a str> {
@@ -936,9 +952,10 @@ impl Grep {
             };
             let previous = self.search.take();
             // Past `TOTAL`, files counted as searched were not all read:
-            // a search that reached it cannot narrow.
+            // a search whose workers reached it cannot narrow, even before
+            // every match they found has arrived here.
             let narrowing = previous
-                .filter(|p| narrows(&p.query, &query) && p.kept < TOTAL)
+                .filter(|p| narrows(&p.query, &query) && p.matched.load(Ordering::Relaxed) < TOTAL)
                 .map(|_| std::mem::take(&mut self.hits));
             self.hits.clear();
             let (sender, found) = mpsc::channel();
@@ -1306,6 +1323,13 @@ mod tests {
         // A bare ampersand before wide characters, as in "R&D · más".
         assert_eq!(entities("R&D ··········"), "R&D ··········");
         assert_eq!(entities("&unknown; x"), "&unknown; x");
+    }
+    #[test]
+    fn epub_documents_are_found_from_the_package_folder() {
+        assert_eq!(joined("OEBPS", "one.xhtml"), "OEBPS/one.xhtml");
+        assert_eq!(joined("", "one.xhtml"), "one.xhtml");
+        assert_eq!(joined("OPS/package", "../Text/two.xhtml#ch2"), "OPS/Text/two.xhtml");
+        assert_eq!(joined("OEBPS", "./a/./b.xhtml"), "OEBPS/a/b.xhtml");
     }
     #[test]
     fn epub_documents_read_in_spine_order() {

@@ -274,7 +274,12 @@ impl Key {
                 modifiers -= M::SHIFT;
                 KeyCode::Char(c)
             }
+            // Shift+Tab as a legacy terminal sends it, however reported.
             KeyCode::BackTab => {
+                modifiers -= M::SHIFT;
+                KeyCode::BackTab
+            }
+            KeyCode::Tab if modifiers.contains(M::SHIFT) => {
                 modifiers -= M::SHIFT;
                 KeyCode::BackTab
             }
@@ -379,6 +384,9 @@ impl Key {
             Some(KeyCode::Char(' ')) => "Space".into(),
             Some(KeyCode::Char('<')) => "lt".into(),
             Some(KeyCode::Char(c)) if m.is_empty() => return c.to_string(),
+            // Inside `<...>`, these would end the name or stand for digits.
+            Some(KeyCode::Char('>')) => "gt".into(),
+            Some(KeyCode::Char('#')) => "hash".into(),
             Some(KeyCode::Char(c)) => c.to_string(),
             Some(KeyCode::Enter) => "CR".into(),
             Some(KeyCode::Esc) => "Esc".into(),
@@ -404,7 +412,10 @@ impl Key {
         if m.contains(M::ALT) {
             prefix += "M-";
         }
-        if m.contains(M::SHIFT) {
+        // Ctrl reads a letter as lowercase unless Shift is written too.
+        let shifted = matches!(code, Some(KeyCode::Char(c)) if c.is_ascii_uppercase())
+            && m.contains(M::CONTROL);
+        if m.contains(M::SHIFT) || shifted {
             prefix += "S-";
         }
         format!("<{prefix}{name}>")
@@ -429,11 +440,18 @@ pub fn display(keys: &[Key]) -> String {
 pub fn notation(keys: &[Key]) -> String {
     keys.iter().map(|k| k.notation()).collect()
 }
+/// Whether `keys.toml` can hold `keys`: their notation reads back as them,
+/// and is not `none`, which stands for no key.
+pub fn writable(keys: &[Key]) -> bool {
+    let text = notation(keys);
+    text != "none" && parse(&text).is_ok_and(|read| read == keys)
+}
 /// Vim's key notation: printable characters stand for themselves; `<...>`
 /// names a key with optional `C-`, `M-` (or `A-`) and `S-` modifiers:
-/// `<CR>`, `<Esc>`, `<Tab>`, `<BS>`, `<Del>`, `<Space>`, `<lt>`, arrows
-/// (`<Up>`), `<PageUp>`, `<PageDown>`, `<Home>`, `<End>`, `<F1>` to
-/// `<F12>`, one character (`<M-h>`), or `#` for a digit family (`<C-#>`).
+/// `<CR>`, `<Esc>`, `<Tab>`, `<BS>`, `<Del>`, `<Insert>`, `<Space>`,
+/// `<lt>`, `<gt>`, `<hash>`, arrows (`<Up>`), `<PageUp>`, `<PageDown>`,
+/// `<Home>`, `<End>`, `<F1>` and up, one character (`<M-h>`; Ctrl keeps a
+/// capital only with `S-`), or `#` for a digit family (`<C-#>`).
 pub fn parse(text: &str) -> Result<Vec<Key>, String> {
     let mut keys = Vec::new();
     let mut rest = text;
@@ -503,7 +521,10 @@ fn parse_named(inner: &str) -> Result<Key, String> {
         "del" | "delete" => KeyCode::Delete,
         "space" => KeyCode::Char(' '),
         "lt" => KeyCode::Char('<'),
+        "gt" => KeyCode::Char('>'),
+        "hash" => KeyCode::Char('#'),
         "bar" => KeyCode::Char('|'),
+        "insert" | "ins" => KeyCode::Insert,
         "up" => KeyCode::Up,
         "down" => KeyCode::Down,
         "left" => KeyCode::Left,
@@ -513,7 +534,7 @@ fn parse_named(inner: &str) -> Result<Key, String> {
         "home" => KeyCode::Home,
         "end" => KeyCode::End,
         other => match other.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) {
-            Some(n @ 1..=12) => KeyCode::F(n),
+            Some(n @ 1..) => KeyCode::F(n),
             _ => return Err(format!("unknown key <{inner}>")),
         },
     };
@@ -1387,12 +1408,14 @@ impl Keymap {
     /// Writes the custom bindings to `path`, keeping its comments and
     /// layout where they still apply.
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        let before = match std::fs::read_to_string(path) {
+            Ok(text) => Some(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(format!("{}: {e}", path.display())),
         };
-        let mut document: toml_edit::DocumentMut = text
+        let mut document: toml_edit::DocumentMut = before
+            .as_deref()
+            .unwrap_or_default()
             .parse()
             .map_err(|e| format!("{}: {e}", path.display()))?;
         for mode in Mode::ALL {
@@ -1430,10 +1453,9 @@ impl Keymap {
                 }
             }
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
-        std::fs::write(path, document.to_string()).map_err(|e| format!("{}: {e}", path.display()))
+        // Whole or not at all: a keys.toml cut short would lose every key.
+        crate::bookmarks::atomic_write(path, before.as_deref(), &document.to_string())
+            .map_err(|e| format!("{}: {e}", path.display()))
     }
 }
 /// Rules a binding's keys follow wherever it applies.
@@ -1650,6 +1672,34 @@ mod tests {
         assert_eq!(Key::press(alt_shift), parse("<M-P>").unwrap()[0]);
     }
     #[test]
+    fn every_key_pressed_is_written_as_it_reads_back() {
+        // What the Keys screen may capture is saved in keys.toml.
+        let mut codes: Vec<KeyCode> = "aZ0#<>-|\" é"
+            .chars()
+            .map(KeyCode::Char)
+            .chain([KeyCode::Insert, KeyCode::F(5), KeyCode::F(13), KeyCode::BackTab])
+            .collect();
+        codes.extend([KeyCode::Enter, KeyCode::Esc, KeyCode::Tab, KeyCode::Delete]);
+        let all = [M::NONE, M::SHIFT, M::CONTROL, M::ALT, M::CONTROL | M::SHIFT];
+        for code in codes {
+            for &m in &all {
+                let key = Key::press(KeyEvent::new(code, m));
+                let text = notation(&[key]);
+                assert_eq!(parse(&text), Ok(vec![key]), "{code:?} {m:?} as {text}");
+                assert!(writable(&[key]), "{text}");
+            }
+        }
+        // `>` inside `<...>` ends the name: Alt+> is written `<M-gt>`.
+        assert!(parse("<M->>").is_err());
+        assert_eq!(parse("<M-gt>").unwrap(), [Key::Press(KeyCode::Char('>'), M::ALT)]);
+        assert_eq!(parse("<C-S-A>").unwrap(), [Key::Press(KeyCode::Char('A'), M::CONTROL)]);
+        // A sequence spelling "none" would read back as no key.
+        let none: Vec<Key> = "none".chars().map(|c| parse(&c.to_string()).unwrap()[0]).collect();
+        assert!(!writable(&none));
+        // A key without a name in the notation is refused.
+        assert!(!writable(&[Key::Press(KeyCode::CapsLock, M::NONE)]));
+    }
+    #[test]
     fn tab_switches_queries_and_space_m_and_shift_m_mark() {
         let keymap = Keymap::default();
         let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
@@ -1842,6 +1892,20 @@ mod tests {
             .save(&path)
             .unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("hidden"));
+        // A keys.toml linked from elsewhere (a dotfiles folder) is written
+        // whole in its place, keeping the link and its mode.
+        use std::os::unix::fs::PermissionsExt;
+        let real = dir.join("dotfiles-keys.toml");
+        std::fs::rename(&path, &real).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::os::unix::fs::symlink(&real, &path).unwrap();
+        next.save(&path).unwrap();
+        assert!(path.symlink_metadata().unwrap().is_symlink());
+        assert!(std::fs::read_to_string(&real).unwrap().contains("hidden"));
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        let leftovers = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(leftovers, 2, "only the file and its link");
         let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]

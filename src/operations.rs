@@ -825,7 +825,7 @@ impl Engine {
             self.checkpoint(i);
             let result = tree(s).and_then(|now| {
                 if now == before[i] {
-                    rename(&s.parent, &s.name, &d.parent, &d.name)
+                    reparent(&s.parent, &s.name, &d.parent, &d.name)
                 } else {
                     Err("Source changed before move".into())
                 }
@@ -838,7 +838,7 @@ impl Engine {
                     // Only move back the entry this operation published.
                     let root = &before[j][Path::new("")];
                     rollback &= identity(&b.parent, &b.name) == Some((root.0, root.1))
-                        && rename(&b.parent, &b.name, &a.parent, &a.name).is_ok();
+                        && reparent(&b.parent, &b.name, &a.parent, &a.name).is_ok();
                 }
                 rollback &= over.restore();
                 return Err(format!(

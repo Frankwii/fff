@@ -1979,3 +1979,16 @@ fn the_contents_bar_sits_right_of_the_names_and_the_typed_one_gives_way_last() {
     assert!(line.contains("❯ a names query much longer…"), "{line}");
     assert!(line.contains("❯ …yyyy"), "{line}");
 }
+#[test]
+fn a_cut_line_keeps_its_match_marked_wherever_the_cut_falls() {
+    // Every cut before the match, the nearest ones included: the ellipsis
+    // can be longer than what it replaces.
+    let line = "0123456789abcdef needle and more";
+    let at = line.find("needle").unwrap();
+    let parts = vec![at..at + 6, line.len() - 4..line.len()];
+    for width in 0..=80 {
+        let (text, parts) = lead_window(line, &parts, width);
+        assert_eq!(&text[parts[0].clone()], "needle", "{width}: {text}");
+        assert_eq!(&text[parts[1].clone()], "more", "{width}: {text}");
+    }
+}

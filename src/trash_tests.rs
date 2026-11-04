@@ -912,6 +912,26 @@ fn restored_entries_go_back_even_after_a_rename_in_the_trash() {
     assert_eq!(plan.entries[0].1, a);
 }
 #[test]
+fn readonly_directories_are_restored_with_their_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let ro = f.work.join("ro");
+    fs::create_dir(&ro).unwrap();
+    fs::write(ro.join("x"), b"x").unwrap();
+    fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+    trash_all(&f, vec![ro.clone()]);
+    let files = bin(&f).join("files");
+    let plan = restore_plan(&f, vec![files.join("ro")]).unwrap();
+    let result = engine(&f).execute(plan.request(Taken::Replace));
+    let mode = fs::metadata(&ro).map(|m| m.permissions().mode() & 0o7777);
+    for dir in [&ro, &files.join("ro")] {
+        let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o755));
+    }
+    result.unwrap();
+    assert_eq!(mode.unwrap(), 0o555);
+    assert_eq!(fs::read(ro.join("x")).unwrap(), b"x");
+}
+#[test]
 fn a_taken_place_is_overwritten_into_the_trash_or_kept_beside() {
     let f = Fixture::new();
     let a = f.file("notes.md", b"old");

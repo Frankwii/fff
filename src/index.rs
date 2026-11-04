@@ -354,14 +354,26 @@ impl Main {
         if word(0) != MAIN_MAGIC {
             return None;
         }
+        // A damaged file is no index, rather than a vast allocation.
         let length = file.metadata().ok()?.len();
-        let data = 16 + (count * ROW * 8) as u64;
+        let table_bytes = count.checked_mul(ROW * 8)?;
+        let data = 16u64.checked_add(table_bytes as u64)?;
         if data > length {
             return None;
         }
-        let mut bytes = vec![0u8; count * ROW * 8];
+        let mut bytes = vec![0u8; table_bytes];
         file.read_exact_at(&mut bytes, 16).ok()?;
         let table = words_of(&bytes);
+        let filters = length - data;
+        let inside = |i: usize| {
+            let (at, words) = (table[i * ROW + 7], table[i * ROW + 8]);
+            at.checked_add(words)
+                .and_then(|end| end.checked_mul(8))
+                .is_some_and(|end| end <= filters)
+        };
+        if !(0..count).all(inside) {
+            return None;
+        }
         Some(Self {
             file: Some(file),
             table,
@@ -434,7 +446,10 @@ fn read_segment(path: &Path) -> Vec<Record> {
     let mut at = 1;
     while at + 8 <= words.len() {
         let length = words[at + 7] as usize;
-        let Some(filter) = words.get(at + 8..at + 8 + length) else {
+        let Some(filter) = (at + 8)
+            .checked_add(length)
+            .and_then(|end| words.get(at + 8..end))
+        else {
             break;
         };
         records.push(Record {
@@ -932,6 +947,30 @@ mod tests {
         assert!(may_match(&words, &trigrams("canard")));
         assert_eq!(index.lookup(&key(2)), Some(Entry::Binary));
         assert_eq!(index.lookup(&key(3)), None);
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn a_damaged_main_is_no_index() {
+        let root = std::env::temp_dir().join(format!("fff-index-damaged-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("main");
+        let main = |words: &[u64]| {
+            let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+            fs::write(&path, bytes).unwrap();
+            Main::open(&path).len()
+        };
+        // A table that cannot fit, or a filter past the end of the file.
+        assert_eq!(main(&[MAIN_MAGIC, u64::MAX / 2]), 0);
+        let row = [1, 2, 3, 4, 5, 6, FILTER << 32, 0];
+        let mut words = vec![MAIN_MAGIC, 1];
+        words.extend(row);
+        words.push(u64::MAX / 4);
+        assert_eq!(main(&words), 0);
+        // The same entry with its one word of filter loads.
+        *words.last_mut().unwrap() = 1;
+        words.push(0);
+        assert_eq!(main(&words), 1);
         fs::remove_dir_all(&root).unwrap();
     }
     #[test]

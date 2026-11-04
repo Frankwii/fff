@@ -144,7 +144,7 @@ and always in the marked list, which has no text field:
 | --- | --- | --- | --- |
 | `j` / `k` | Next / previous result | Next / previous entry | Next / previous mark |
 | `h` | Parent directory | Neovim motion | No action |
-| `l` | Enter the highlighted directory, or open the file in the background | Neovim motion | No action |
+| `l` | Enter the highlighted directory, or open the file in the background | Neovim motion | Enter the highlighted directory (on a file, no action) |
 | `gg` / `G` | First / last result | First / last entry | First / last mark |
 | `m` / `M` | Mark all results / invert their marks | Neovim command | Mark all rows / invert their marks |
 | `gc` | [Edit the configuration](CONFIGURATION.md#editing-while-fff-runs), then apply it | Neovim command | Edit the configuration, then apply it |

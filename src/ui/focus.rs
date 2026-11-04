@@ -716,7 +716,21 @@ pub(super) fn chosen(
             return Ok(None);
         };
         if std::fs::symlink_metadata(&mark).is_err() {
-            app.status = "This mark no longer exists; Space unmarks it".into();
+            // The marked list reads keys in Normal mode, on a file.
+            let cell = crate::keymap::Cell {
+                program: app.program(),
+                place: crate::keymap::Place::Marks,
+                highlight: crate::keymap::Highlight::File,
+            };
+            let unmark = app
+                .keymap
+                .first(Function::ToggleMark, crate::keymap::Mode::Normal, Some(cell))
+                .filter(|b| b.applies(cell))
+                .map(|b| b.display());
+            app.status = match unmark {
+                Some(key) => format!("This mark no longer exists; {key} unmarks it"),
+                None => "This mark no longer exists".into(),
+            };
             return Err(());
         }
         let directory = mark.is_dir();
