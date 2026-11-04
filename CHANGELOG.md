@@ -15,7 +15,6 @@ history.
   [desktop guide](docs/DESKTOP.md#qt-applications-telegram-) say so.
 - **The docs say where zsh looks for `_fff`**: in a directory that is in
   `$fpath` when `compinit` runs, not one added later.
-
 - **`fff setup --check-config` checks the desktop integration.** When `fff
   setup --desktop` or `--file-chooser` was run, it warns about files they
   wrote that are missing, out of date or run another fff binary, and about an
@@ -25,18 +24,6 @@ history.
 
 - **Manual pages.** `fff setup --man ~/.local/share/man/man1` writes `fff.1`
   and a page per command (`man fff-pick`, `man fff-explorer-save`).
-
-### Fixed
-
-- **`/proc`, `/sys` and `/dev` no longer flood fff with work.** Their sizes
-  were made up (`/proc` showed 128T, `/sys` 900M), and as root, adding them
-  up or scanning into them read every process's folders while the
-  processes came and went. The kernel's own filesystems, known by their type
-  in the mount table, now show `—` for sizes, are not entered by scans from
-  outside them, are not searched by the contents query nor watched, and the
-  preview reads only their first 4 KiB, without waiting. Browsing them works
-  as before. See [kernel
-  filesystems](docs/CONFIGURATION.md#kernel-filesystems).
 
 ### Removed
 
@@ -53,6 +40,15 @@ history.
 
 ### Fixed
 
+- **`/proc`, `/sys` and `/dev` no longer flood fff with work.** Their sizes
+  were made up (`/proc` showed 128T, `/sys` 900M), and as root, adding them
+  up or scanning into them read every process's folders while the
+  processes came and went. The kernel's own filesystems, known by their type
+  in the mount table, now show `—` for sizes, are not entered by scans from
+  outside them, are not searched by the contents query nor watched, and the
+  preview reads only their first 4 KiB, without waiting. Browsing them works
+  as before. See [kernel
+  filesystems](docs/CONFIGURATION.md#kernel-filesystems).
 - **Emptying old trash never deletes the wrong entry.** When an entry renamed
   in the trash left its old name to another entry put there by hand, the
   purge deleted the newcomer once the renamed entry's time was up, and kept
