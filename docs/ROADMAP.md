@@ -151,6 +151,15 @@ What remains is the interface thread:
   in view, the count, the progress marker), would leave that time to the
   scan. Frames read only the rows in view from the runs, so they no longer
   grow with the listing.
+- **A contents query set while a large tree is listed.** Each time a
+  batch changes the rows, the contents search goes over every listed row
+  to queue the files it has not read yet and, at most every 50 ms, over
+  every row again to list the matches in order: with `/usr` listing, about
+  11 seconds of the interface thread in `fff roam` and 18 in `fff pick`.
+  Queueing only the rows a batch added (in their order, as now) would take
+  out the first; the second needs the matches kept in the rows' order as
+  rows arrive among them, which is the delicate part (the first 20,000
+  matches are the ones kept, so the order decides which).
 
 How close this can come to fzf. Once a tree is listed, nothing in fff
 needs a slower algorithm than fzf's: each keystroke scores the same names
