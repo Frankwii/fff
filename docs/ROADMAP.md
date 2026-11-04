@@ -9,60 +9,15 @@ not implemented features or commitments:
   operations usable would need rules for what a second operation may touch and
   how live-update rescans interact. Archive validation before the extraction
   prompt still runs on the interface thread.
-- Opening folders from other applications (below): every way a program
-  asks for a folder should reach `fff window`.
+- Two leftovers of opening folders from other applications: `fff setup
+  --check-config` could warn when `xdg-mime query default inode/directory`
+  is not fff.desktop, and the D-Bus service could drop a request for a
+  folder that a recent fff window already shows, for programs that ask more
+  than one way or retry.
 - An AUR package once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
-
-## Opening folders from other applications
-
-`fff setup --desktop` makes fff the desktop's file manager (`fff window`),
-but Telegram's "Show in folder" on a download does not open it yet. Programs
-ask for a folder in one of three ways, and Telegram (lib_base's
-`ShowInFolder`, in `base_file_utilities_linux.cpp`) tries all three in turn,
-moving on only when a call fails:
-
-1. **`org.freedesktop.FileManager1.ShowItems`** on the session bus, with the
-   file's URI. `fff setup --desktop` installs a D-Bus service for it (`fff
-   dbus-file-manager`), which opens fff with the file highlighted. Setups
-   from before that service existed lack it, and then the call fails because
-   no one owns the name, and Telegram moves on. On the machine this was
-   looked at, `~/.local/share/dbus-1/services/` did not exist: setup had not
-   been run again since. Running it again may be the whole fix.
-2. **The portal's `org.freedesktop.portal.OpenURI.OpenDirectory`**, with a
-   file descriptor of the file. xdg-desktop-portal opens the default
-   application for `inode/directory` (fff.desktop, through GIO, which reads
-   `mimeapps.list`) on the file's folder, or asks through the AppChooser
-   portal (gtk here) when it thinks it should. The call succeeds once the
-   portal has accepted it, so a launch that fails afterwards (in the portal
-   service's environment, which needs `DISPLAY`) stops Telegram from trying
-   the third way. The folder opens without the file highlighted.
-3. **`QDesktopServices::openUrl`** on the folder, which ends in `xdg-open`
-   (or GIO) and so in fff.desktop. This is what `xdg-open ~/Downloads` does
-   from a shell, and it works.
-
-What remains:
-
-- **Find which way fails.** With the D-Bus service installed, watch
-  `dbus-monitor --session "interface='org.freedesktop.FileManager1'"
-  "interface='org.freedesktop.portal.OpenURI'"` while choosing "Show in
-  folder" in Telegram, and `journalctl --user -u xdg-desktop-portal` for
-  the portal's side. If ShowItems arrives and fff opens, the fix was to run
-  setup again, and the rest is to make that hard to miss.
-- **Say when fff.desktop is not the default.** `fff setup --check-config`
-  warns about generated files that are missing, out of date or run another
-  binary; it could also check `xdg-mime query default inode/directory`.
-- **Make the portal's way reach fff.** If OpenDirectory is what Telegram
-  ends up using, check that the portal launches fff.desktop rather than
-  asking (`xdg-mime` default set, no AppChooser dialog) and that the launch
-  works from the portal service, whose environment is the systemd user
-  manager's (`systemctl --user show-environment`: `DISPLAY` and `PATH` must
-  reach the terminal in `[open] fff_terminal`).
-- **One window per request.** ShowItems and OpenDirectory may both be tried
-  by other programs, or retried; a second request for the folder already
-  open in a recent fff window could be dropped rather than opening another.
 
 ## Post-launch
 
@@ -146,6 +101,23 @@ workspaces are kept in the configuration with bookmarks or in the state
 directory beside the session, which they resemble more; whether opening one
 saves changes back to it or leaves it as saved until saved again; and how the
 chooser tells a workspace from a bookmark.
+
+### Shell integration
+
+fff lists what it scans; other programs could supply the list instead, the
+way `fzf` reads its candidates: `ls | fff`, `git ls-files | fff pick`, `rg
+-l TODO | fff seek`, `locate -i thesis | fff`. Rows would still be paths
+(marks, previews, operations and opening would work on them) but the
+program, not a folder scan, would decide which. To explore before designing
+anything: whether a list comes in on stdin (fff then reads keys from
+`/dev/tty`, as `fzf` does) or as a command fff runs and can run again on
+reload; which commands accept one (`pick` and `seek` naturally, `roam`
+perhaps not, since navigating leaves the list); whether lines that are not
+existing paths are allowed, and how relative ones resolve; whether the list
+streams in while fff is open; and what live updates, depth and exclusions
+mean for it. Other integrations to weigh alongside: a key binding for zsh
+that inserts `fff pick`'s choice at the cursor (`fzf`'s Ctrl+t), and a
+`cd` into the folder `fff roam` ended in.
 
 ### Faster scanning
 
