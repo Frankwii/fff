@@ -205,12 +205,16 @@ deferred signals, source changes, permissions, byte paths, links, malicious arch
 archive limits. `src/ui/jobs_stress.rs` runs random operations on generated
 trees side by side on real threads (slowed down so that they overlap), stops
 and undoes them, and checks that nothing is lost, half written or left in a
-staging folder, and that undoing everything restores the trees exactly. It runs
-one round per test by default; for more, and to replay a failure by its seed:
+staging folder, and that undoing everything restores the trees exactly. They
+are heavy (gigabytes of disk traffic), so `cargo test` skips them; run them
+after changing file operations, the jobs list, the trash or undo
+(`src/operations.rs`, `src/undo.rs`, `src/trash.rs`, `src/ui/jobs.rs`), one
+round per test, or more before a release, and replay a failure by its seed:
 
 ```sh
-FFF_STRESS_ROUNDS=30 cargo test --offline --lib stress -- --nocapture --test-threads=1
-FFF_STRESS_SEED=<seed from the failure> cargo test --offline --lib stress
+cargo test --offline --lib stress -- --ignored
+FFF_STRESS_ROUNDS=30 cargo test --offline --lib stress -- --ignored --nocapture --test-threads=1
+FFF_STRESS_SEED=<seed from the failure> cargo test --offline --lib stress -- --ignored
 ```
 
 The PTY suite also kills fff with SIGKILL at several moments of a copy and a

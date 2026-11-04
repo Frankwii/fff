@@ -2,7 +2,9 @@
 //! operations on generated trees start, collide, stop and are undone, on real
 //! threads, and no data may be lost, half written or left in a staging
 //! folder. Each test runs `FFF_STRESS_ROUNDS` rounds (1 by default) from
-//! `FFF_STRESS_SEED` (else the clock); a failure names its seed.
+//! `FFF_STRESS_SEED` (else the clock); a failure names its seed. They write
+//! and read gigabytes, so `cargo test` skips them: run them with `--ignored`
+//! after changing operations, jobs, the trash or undo.
 use super::*;
 use std::{collections::BTreeMap, fs, path::Path};
 
@@ -284,6 +286,7 @@ fn check(ok: bool, seed: u64, what: impl FnOnce() -> String) {
 }
 
 #[test]
+#[ignore = "stress test: run with --ignored after changing operations"]
 fn a_stopped_operation_puts_everything_back() {
     let _slow = Slow::new();
     let mut seed = first_seed();
@@ -330,6 +333,7 @@ fn a_stopped_operation_puts_everything_back() {
 }
 
 #[test]
+#[ignore = "stress test: run with --ignored after changing operations"]
 fn operations_side_by_side_lose_nothing_and_undo_in_order() {
     let _slow = Slow::new();
     let mut seed = first_seed();

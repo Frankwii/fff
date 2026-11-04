@@ -15,6 +15,9 @@ coverage. Preserve existing behavior unless the user asks for a change. Read
 Before finishing a change, run the [verification](docs/DEVELOPMENT.md#verification)
 commands: `cargo test --offline`, `cargo clippy --offline --all-targets -- -D warnings`
 and, after building, `python3 tests/terminal_smoke.py` for anything the terminal shows.
+The stress tests are skipped by default because they are heavy; run them
+(`cargo test --offline --lib stress -- --ignored`) only when a change touches
+file operations, the jobs list, the trash or undo.
 
 Documentation describes current behavior. When it disagrees with the code,
 verify the behavior and correct it; when behavior changes, update the relevant
