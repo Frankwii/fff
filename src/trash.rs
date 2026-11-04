@@ -155,18 +155,25 @@ impl Trash {
                     continue;
                 }
                 let slot = OsStr::from_bytes(slot);
-                // Undated entries are never deleted.
-                let Some(deleted) = fs::read(item.path())
-                    .ok()
-                    .and_then(|text| deletion_date(&text))
-                else {
+                let Ok(text) = fs::read(item.path()) else {
                     continue;
+                };
+                // Undated entries are never deleted.
+                let Some(deleted) = deletion_date(&text) else {
+                    continue;
+                };
+                // The record's entry, by its inode when the record has one:
+                // another entry may have taken the slot after a rename.
+                let recorded = record_inode(&text);
+                let ours = |slot: &OsStr| {
+                    bin.inode(slot)
+                        .map(|held| held.is_some_and(|i| recorded.is_none_or(|r| r == i)))
                 };
                 // An entry renamed in the trash takes its record along.
                 let mut slot = slot.to_owned();
                 let mut info = info.clone();
-                if let Ok(false) = bin.contains(&slot)
-                    && let Some(inode) = fs::read(item.path()).ok().and_then(|t| record_inode(&t))
+                if let Ok(false) = ours(&slot)
+                    && let Some(inode) = recorded
                     && let Some(renamed) = bin.renamed(inode)
                     && bin.follow(&slot, &renamed).is_ok()
                 {
@@ -175,7 +182,9 @@ impl Trash {
                 }
                 let slot = slot.as_os_str();
                 if now.duration_since(deleted).is_ok_and(|waited| waited > age) {
-                    let gone = match bin.contains(slot) {
+                    // A record whose entry is gone goes; an entry in its
+                    // slot that is another stays.
+                    let gone = match ours(slot) {
                         Ok(true) => bin.expunge(slot),
                         Ok(false) => Ok(()),
                         Err(e) => Err(e),
@@ -305,9 +314,13 @@ impl Bin {
         remove_tree(&expunged, &name)
     }
     fn contains(&self, slot: &OsStr) -> Result<bool> {
+        Ok(self.inode(slot)?.is_some())
+    }
+    /// The inode of the entry in `slot`, if there is one.
+    fn inode(&self, slot: &OsStr) -> Result<Option<u64>> {
         match sys::statat(&self.files, slot, AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(_) => Ok(true),
-            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Ok(st) => Ok(Some(st.st_ino)),
+            Err(rustix::io::Errno::NOENT) => Ok(None),
             Err(e) => Err(err(e)),
         }
     }

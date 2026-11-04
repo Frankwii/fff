@@ -340,7 +340,8 @@ when the current entry is unmarked while others are marked). The place comes
 from the entry's record in `info/`. fff records the entry's inode there too,
 which a rename keeps, so an entry renamed in the trash, by fff or by hand,
 still goes back to its original path and name; the purge follows renamed
-entries the same way. Only entries at the top of a trash have records;
+entries the same way, and never deletes another entry that took a renamed
+one's name: only the entry with the recorded inode goes. Only entries at the top of a trash have records;
 restoring is refused for what lies inside them, for entries without a
 record, when the folder they came from is gone (restore that folder first),
 and when two entries came from the same place.

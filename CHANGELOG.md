@@ -26,6 +26,13 @@ history.
   forgotten, and setup no longer replaces files written by `fff --setup`
   (0.8).
 
+### Fixed
+
+- **Emptying old trash never deletes the wrong entry.** When an entry renamed
+  in the trash left its old name to another entry put there by hand, the
+  purge deleted the newcomer once the renamed entry's time was up, and kept
+  the old one. It now deletes only the entry its record names.
+
 ## 0.16.4 — 2026-11-04
 
 Folder sizes are kept between sessions and added up faster, a window of its
