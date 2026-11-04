@@ -1,2 +1,6 @@
 /target/
 /tests/__pycache__/
+/packaging/aur/src/
+/packaging/aur/pkg/
+/packaging/aur/*.tar.gz
+/packaging/aur/*.pkg.tar.*

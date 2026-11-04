@@ -21,6 +21,20 @@ cargo build --release
 ./target/release/fff pick --relative --null > paths.bin
 ```
 
+On Arch Linux, install a release as a package instead (the binary, manual
+pages and completions, removed with `pacman -R`), built from its tag on
+GitHub:
+
+```sh
+cd packaging/aur
+makepkg -si
+```
+
+`fff setup --desktop` and `--browser` record the path of the `fff` that ran
+them: after switching to the package, run them again as `/usr/bin/fff`.
+Each release updates `packaging/aur`; run `makepkg -si` there again to update
+(see [packaging](docs/DEVELOPMENT.md#packaging)).
+
 Run in a Linux/Unix terminal with `/dev/tty`. The interface uses the controlling
 terminal, never stdout. Put the binary on your PATH as `fff` and add the
 [shell integration](#shell-integration) line so that leaving fff can change your

@@ -336,8 +336,34 @@ measurements. Slow storage and large trees still require progressive updates.
 release tag `v$pkgver` on GitHub: the binary, the manual pages and the bash,
 zsh and fish completions (generated with `fff setup`, run as plain `fff` so
 that they call the installed binary), and the documentation. It conflicts
-with the AUR's `fff`, which also installs `/usr/bin/fff`. For a release,
-after pushing its tag: set `pkgver`, reset `pkgrel` to 1, fill `sha256sums`
-with `updpkgsums`, regenerate `.SRCINFO` with `makepkg --printsrcinfo >
-.SRCINFO`, and build it once with `makepkg -si` before pushing both files to
-the AUR repository.
+with the AUR's `fff`, which also installs `/usr/bin/fff`. It is not on the
+AUR yet; until then it is installed from this repository.
+
+Installing it, from `packaging/aur` (the build's files there are ignored by
+git):
+
+```sh
+makepkg -si      # builds, runs the tests, asks for sudo to install
+```
+
+The package's `/usr/bin/fff` comes before `~/.local/bin` and other folders
+of your own on a usual `PATH`; remove any `fff` of your own there (a link to
+`target/release/fff`, a `cargo install` in `~/.cargo/bin`) and manual pages
+`fff setup --man` wrote to `~/.local/share/man`, which `man` would read
+before the package's. `fff setup --desktop` and `--browser` write the path
+of the `fff` that ran them into their files: run them again with
+`/usr/bin/fff`, once.
+
+On each release, after its commit is tagged `v$pkgver` and the tag pushed:
+
+1. In `PKGBUILD`, set `pkgver` to the release and `pkgrel` to 1 (a change to
+   the package alone, for the same release, raises `pkgrel` instead).
+2. `updpkgsums` fills `sha256sums` from the release's tarball.
+3. `makepkg --printsrcinfo > .SRCINFO`.
+4. `makepkg -si` builds and installs it (`makepkg -sci` also removes the
+   build's files after).
+5. Commit `PKGBUILD` and `.SRCINFO`, and once the package is on the AUR,
+   push both to its repository too.
+
+The desktop, D-Bus and file chooser files keep pointing at `/usr/bin/fff`
+across updates; nothing else needs running again.
