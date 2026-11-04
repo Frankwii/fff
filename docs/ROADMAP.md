@@ -201,6 +201,37 @@ find the notes and papers about it in Spanish, Catalan or English, and the
 photos and figures of it, ranked together. Models run locally on the CPU,
 and images are embedded directly, never captioned into text first.
 
+The case to aim at: the name query `brezis` and the semantic query
+`boundary conditions in the weak formulation` list the sections of Brezis's
+book that cover it first, the right one at the top, and Enter opens zathura
+on its page with its title highlighted. The two queries do different work:
+an author's name says little to an embedding, and the passage may not
+contain it, so the name query picks the files (as it does for the contents
+query) and the semantic query ranks passages within them. Within one book
+that is a few hundred chunks, ranked at once; a cross-encoder reranker
+(such as the multilingual `bge-reranker-v2-m3`) could reorder the best
+twenty in a second or two. The contents query already lists every page
+saying "boundary condition", dozens of them; what this adds is the section
+*about* it ranked above the pages that only mention it.
+
+- **Sections as chunks.** A PDF's outline (`mutool show FILE outline`)
+  gives its sections' titles and pages, so a chunk is a section, split
+  further if long, and a row reads `brezis.pdf  §8.4  Examples of boundary
+  value problems  p. 2xx` rather than a page somewhere. Without an outline,
+  headings found in the text or page windows instead.
+- **Opening at the section.** `at_grep_match` already opens zathura on a
+  contents match's page with the query found. A semantic match has no
+  literal text to find, so `{query}` would be the section's title or the
+  chunk's sentence closest to the query; the preview shows the chunk with
+  those sentences highlighted.
+- **Formulas.** `pdftotext` mangles them and embedders do not read
+  mathematics, so a query described in prose works; a query by formula
+  (`‖u‖ ≤ C‖∇u‖`) does not.
+- **Trying it first.** Before any of this is built, a throwaway script
+  embedding one real folder of notes and papers with e5-small, asked the
+  searches actually made lately, would show whether it finds what the
+  contents query misses. This query is the first to try.
+
 Two models by default: a multilingual text embedder for documents, and a
 multilingual CLIP-style model whose image and text encoders share a space,
 for images. A query is embedded by both text encoders, each store searched,
