@@ -298,8 +298,8 @@ enum Command {
     ///
     /// A static file choice: only files are listed, from every folder down to
     /// --depth; the current directory cannot change, and the query starts in
-    /// Insert mode, ready to type. Rows show bare names; files sharing a name
-    /// gain the shortest distinguishing parents. Enter leaves into the chosen
+    /// Insert mode, ready to type. Rows show their path below the folder
+    /// searched; gd switches to bare names. Enter leaves into the chosen
     /// file's folder. q and ! leave without choosing anything. To print files, use fff pick:
     /// with --glob it too lists only matching files.
     Seek(SeekArgs),

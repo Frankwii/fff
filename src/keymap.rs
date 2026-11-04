@@ -618,7 +618,7 @@ functions! {
     RunAndQuit "run_and_quit" Open "Run a program on the current or marked paths in place of fff, which quits; the program's exit status becomes fff's.";
     PrintHighlighted "print_highlighted" Finish "Print the highlighted path and quit, ignoring the marks: the answer of fff pick, or of a file dialog (fff explorer).";
     PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted file, then quit: the answer where you may choose several paths.";
-    PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer can be several paths (fff pick, and dialogs for several files). Elsewhere it says why it does nothing.";
+    PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer can be several paths (fff pick, fff grep, and dialogs for several files). Elsewhere it says why it does nothing.";
     SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or else the suggested one (fff explorer --save).";
     SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (fff explorer --save).";
     QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the directory holding the highlighted file; with nothing highlighted, into the current directory. Your shell follows (fff roam, with the shell integration); fff pick prints it.";
@@ -655,7 +655,7 @@ functions! {
     Trash "trash" Files "Move the current or marked entries to the trash, from where restore puts them back. Asks only about very large ones.";
     Delete "delete" Files "Delete the current or marked entries for good, after showing their sizes for a review.";
     Rename "rename" Files "Rename the listed results by editing their names in a buffer; writing the buffer renames them.";
-    Extract "extract" Files "Extract the current or marked archives into the current directory; asks where when an archive's layout is ambiguous.";
+    Extract "extract" Files "Extract the current or marked archives into a folder a prompt asks for.";
     Create "create" Files "Create a new file or directory in the current directory: choose which, then type its name.";
     Undo "undo" Files "Undo the last file operation of this session; pressed again, the one before it.";
     Restore "restore" Files "In the trash: put the current or marked entries back where they were deleted from.";

@@ -64,6 +64,10 @@ history.
 
 ### Fixed
 
+- **Descriptions that had fallen behind**: `extract` on the Keys screen
+  says it asks where to extract (it always does), `print_marks` names
+  `fff grep` among the programs that return marks, and `fff seek --help`
+  says rows show their paths.
 - **A longer contents query no longer misses matches** in files that the
   shorter one, having reached its 20,000 matches, had only counted.
 
