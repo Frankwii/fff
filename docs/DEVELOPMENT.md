@@ -14,7 +14,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
-| `src/grep.rs` | The contents query (`App::grep`, in every program but the dialogs): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
+| `src/grep.rs` | The contents query (the `App::grep` field, in every program but the dialogs): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
@@ -60,6 +60,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/dbus.rs` | `fff dbus-file-manager`: a minimal D-Bus client answering `org.freedesktop.FileManager1` ("Show in folder") with the open-folder launcher. |
 | `src/setup.rs`, `src/setup/` | `fff setup --desktop` and `--file-chooser`: the desktop entry, the D-Bus service file, the termfilechooser wrapper script and the configuration keys selecting them. |
 | `src/completion.rs`, `src/icons.rs` | Dynamic shell completion and filetype glyphs. |
+| `src/ui/tests.rs`, `src/view/tests.rs`, `src/operations_tests.rs`, `src/trash_tests.rs` | Unit tests of the session's keys, of drawn frames, and of the file operations and trash (see [verification](#verification)). |
 
 ## Design choices
 
@@ -77,7 +78,7 @@ listed separately in the [roadmap](ROADMAP.md).
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
-  (`fff pick`), the chosen directory (`fff roam` and `fff seek` without
+  (`fff pick`, `fff grep`: `Program::prints_paths`), the chosen directory (`fff roam` and `fff seek` without
   `--cd-file`) or a file dialog's answer (`fff explorer`), by the program
   the session ends as (`gm` switches; `Program::default_depth` holds each
   one's depth);
@@ -86,7 +87,7 @@ listed separately in the [roadmap](ROADMAP.md).
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before depth. Query edits do not restart discovery. Scans merge
+  absolute pathname bytes; `fff pick`, `fff seek` and `fff grep` put fuzzy score before depth (`Program::by_score`). Query edits do not restart discovery. Scans merge
   new paths into the ranked rows within a time budget, in place and with the
   rows' kept scores: rows ranked before every new path are not touched, so a
   breadth-first scan's merge costs about what it inserts. The input thread never
@@ -140,7 +141,10 @@ Where a change usually has to touch, so that none is missed:
   in `src/keymap.rs` (name, group, description in `functions!`), where it
   works (`available`, a design choice per mode), what it does (its arm in
   `run_function` in `src/ui/dispatch.rs`, which may call a method in
-  `src/ui/focus.rs` or on `App`) and its default keys (`defaults`). The tests check
+  `src/ui/focus.rs` or on `App`) and its default keys (`defaults`). One
+  acting on the current entry or the marks is a `ScopedAction`
+  (`src/ui/actions.rs`), run through `Session::scoped`, which asks which
+  when the two differ. The tests check
   that defaults never clash and each applies somewhere. Then the README key
   table, [EDITING.md](EDITING.md) and a PTY test.
 - **A key named on screen** (hints, messages): never as a literal. Name a

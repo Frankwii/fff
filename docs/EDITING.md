@@ -87,7 +87,8 @@ Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
 mode. Space in Normal mode marks/unmarks like Shift+Space; in Insert mode it
 types a space. Shift+Space needs a terminal that tells it from Space (the kitty
 keyboard protocol); elsewhere it types a space, so Tab marks while typing too (in `fff grep` Tab switches queries instead).
-In Normal-mode results Tab does nothing.
+In Normal-mode results Tab switches between the names and contents queries
+(not in the file dialogs).
 The marked list always accepts Space because it has no text field. In Normal mode `m` marks every
 listed row (all filtered results, not only those on screen, or every row of the
 marked list) and `M` inverts the listed rows' marks, like nnn's `a` and `A`;

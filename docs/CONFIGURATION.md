@@ -83,7 +83,7 @@ startup error naming the file. Explicit bookmark saves/deletions update the acti
 config; a missing default file is created on the first save. Startup alone never
 writes it. With `--no-config`, bookmark edits last only for the session.
 Palette edits reload live; external bookmark edits reload with r in the
-bookmark chooser. Cache/editor edits take effect on the next invocation.
+bookmark chooser. Editor edits take effect on the next invocation.
 CLI discovery/output options are independent of this file.
 
 ## Color palettes
@@ -615,7 +615,8 @@ A rough estimate of 100–150 bytes per path gives about 8 MiB at defaults; long
 paths can cost considerably more. This is a count limit, not an exact byte cap.
 The current view's index, result rows and BFS queue are separate and scale with
 the tree being browsed, up to `[performance] max_paths` (about 450 bytes per
-path, more in `fff pick` and `fff seek`, which keep labels: roughly 450–550 MB
+path, more while rows are labelled by name, as in `fff pick` and `fff grep`
+(see `gd`), which keeps labels: roughly 450–550 MB
 at the default); lowering depth reduces that working set. Prefetch has its
 own small allocation budgets and cannot evict visited snapshots.
 
@@ -673,8 +674,8 @@ tree takes longer instead of delaying keys; it completes only after its last
 paths are merged. The index of known paths is sharded so it grows without
 rehashing everything at once, a scan marks the paths it delivers instead of
 keeping a separate reconciliation set, and large listings are freed on another
-thread. `fff pick` and `fff seek` relabel only basenames that changed, with
-the time left over, so a scan completes once its labels catch up.
+thread. With rows labelled by name (`fff pick`, `fff grep`, or after `gd`),
+only basenames that changed are relabelled, with the time left over, so a scan completes once its labels catch up.
 
 Ranking every known path again (changing depth, hidden files, exclusions,
 filters or directories-hidden, or a query that no kept result narrows) and
@@ -692,6 +693,16 @@ bounded terminal-input reader waking it immediately alongside discovery.
 Navigation performance can be measured with the manual PTY benchmark; see
 [development verification](DEVELOPMENT.md#verification). Measurements depend on
 storage, tree size, build mode and terminal scheduling.
+
+### Contents cache
+
+The contents query keeps documents' extracted text in `~/.cache/fff/text`
+and an index of what files contain in `~/.cache/fff/index` (both under
+`$XDG_CACHE_HOME` when it is set). Neither has settings: once a day each
+prunes the entries unused for 90 to 135 days, then the least recently used
+while the text cache passes 2 GiB or the index 512 MiB. Deleting either is
+safe; it is rebuilt as searches read the files again. See [searching
+contents](../README.md#searching-contents-fff-grep).
 
 ## Openers
 

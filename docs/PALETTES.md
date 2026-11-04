@@ -48,8 +48,8 @@ invocation. Query, cursor, marks, discovery, and numbered targets are preserved.
 
 | Key | Action |
 | --- | --- |
-| Alt+p | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Press `i` to fuzzy-filter names (the chooser starts in Normal mode); a highlight held for at least 100 ms previews it across the whole interface. Moving again restarts the wait. Enter applies it immediately for this session; Escape (or Alt+p again) restores the previous colors. |
-| Alt+P | Re-read the config file now and apply its palette, discarding any Alt+p session choice. With `--palette NAME`, re-read that name's definition instead. |
+| Alt+p, `gp` in Normal | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Press `i` to fuzzy-filter names (the chooser starts in Normal mode); a highlight held for at least 100 ms previews it across the whole interface. Moving again restarts the wait. Enter applies it immediately for this session; Escape (or Alt+p again) restores the previous colors. |
+| Alt+P, `gP` in Normal | Re-read the config file now and apply its palette, discarding any Alt+p session choice. With `--palette NAME`, re-read that name's definition instead. |
 
 The chooser never writes the config file. After Enter, background reload keeps
 following the *chosen* palette's definition (editing `[palettes.NAME]` still

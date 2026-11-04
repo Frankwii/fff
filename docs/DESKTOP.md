@@ -111,7 +111,8 @@ service file setup writes lets the session bus start
 `fff dbus-file-manager LAUNCHER` on the first such call; it runs the
 `open-folder` launcher on each item, so fff opens in a new window in the
 item's folder with the item highlighted. Folders asked for with
-`ShowFolders` open themselves; several items in one folder open one window,
+`ShowFolders` open themselves (`ShowItemProperties` is answered like
+`ShowItems`); several items in one folder open one window,
 highlighting the first. The service exits after ten minutes without calls,
 and the bus starts it again when needed.
 

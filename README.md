@@ -110,8 +110,8 @@ Without root arguments, browsing starts in the invocation directory (or, with
 those of the current directory. Overlapping paths appear once at their minimum
 depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek` and `fff grep`); immediate children are depth
 1. Shallower matches come first, followed within each depth by directories
-and fuzzy ranking; `fff pick` and `fff seek` rank by fuzzy score first, then
-depth. The depth is shown on the results' bottom border, under the count.
+and fuzzy ranking; `fff pick`, `fff seek` and `fff grep` rank by fuzzy score
+first, then depth. The depth is shown on the results' bottom border, under the count.
 Matching is a case-insensitive ordered subsequence of the basename, scored as
 fzf does: the best alignment of the query's letters, so runs and word starts
 (after `_`, `-`, `.`, a space or a lowercase-to-uppercase step) beat letters
@@ -125,7 +125,8 @@ order, and the last part matches the basename: `pde/` lists everything inside
 folders matching `pde`, and a leading `/` (`/stab`) only switches to path
 ranking. Parts naming whole components, and parts on consecutive components,
 rank higher; the matched letters are highlighted along the whole label. Depth
-and directories still sort first, except in `fff pick` and `fff seek`.
+and directories still sort first, except in `fff pick`, `fff seek` and
+`fff grep`.
 
 Enter depends on the editing mode:
 
@@ -157,7 +158,7 @@ The keys that open or finish fit together:
 | `o` | The current or marked files, opened in this terminal | fff comes back |
 | Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
 | `!` | The folder you are browsing | fff leaves into it |
-| Ctrl+w | The marks, returned (`fff pick` only) | fff leaves |
+| Ctrl+w | The marks, returned (`fff pick` and `fff grep` only) | fff leaves |
 | `q` | Nothing | fff leaves where you started |
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
@@ -173,7 +174,8 @@ while typing (for terminals that cannot tell Shift+Space from Space);
 marks survive navigation and filtering. Escape twice in Normal mode, with the
 query empty, clears every mark. Ctrl+w finishes
 with the marks only, and only where the answer can be several paths: `fff
-pick` returns them (as does `fff explorer --multiple`). Elsewhere (`fff roam`,
+pick` and `fff grep` return them (as does `fff explorer --multiple`).
+Elsewhere (`fff roam`,
 `fff seek`, other dialogs) it does nothing but say so; there the marks are for
 file operations, `o`, `e` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
 plus that directory; a no-match query in a nonempty directory stays open, and
@@ -250,8 +252,9 @@ fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura
 ```
 
 Discovery still traverses directories within the depth limit, and the query
-starts in Insert mode, ready to type. Result rows show bare file names, with
-only the parents that tell same-named files apart, as in `fff pick`.
+starts in Insert mode, ready to type. Result rows show their path below the
+folder searched; `gd` switches to bare file names, with only the parents
+that tell same-named files apart, as in `fff pick`.
 
 ### Searching contents: `fff grep`
 
@@ -378,8 +381,9 @@ function fff has, with its keys in Insert and Normal mode and where each
 applies. Type to search names and descriptions; Tab switches to the Keys
 view, a row per key with what it does and where (in Normal mode, `r` then a
 key searches for it there); your own keys move through the list. Space goes a level deeper, Enter is done and Escape goes
-back: Space on a function opens its keys, to add (`n`), delete or reset
-them, and Space on a key opens where it applies, as checklists of modes,
+back: Space on a function opens its keys, to add (`n`), replace the
+highlighted one with the next key pressed (`R`), delete (`d`) or restore the
+defaults (`D`, after asking), and Space on a key opens where it applies, as checklists of modes,
 programs, lists and highlights; Enter then saves them to `keys.toml`.
 Keys that would leave you no way to open the screen or to leave fff are
 refused. F1 closes the screen. See [keys](docs/CONFIGURATION.md#keys). F2
@@ -413,14 +417,14 @@ key says which one.
 | Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
 | Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
 | Alt+b / b in Normal | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
-| Alt+p | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
-| Alt+P | Reload the configured palette, clearing a session choice |
+| Alt+p / `gp` in Normal | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
+| Alt+P / `gP` in Normal | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (`+` / `-` in Normal-mode results) |
 | 1 … 9 in Normal | Search results to that depth |
 | Shift+Space / Space in Normal / Tab while typing | Toggle mark; advance in results (Shift+Space needs a terminal with the kitty keyboard protocol) |
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | Alt+Space | Focus / leave the marked list |
-| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer --multiple`; nothing elsewhere) |
+| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff grep`, `fff explorer --multiple`; nothing elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
 | Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
