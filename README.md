@@ -359,9 +359,10 @@ pane](docs/CONFIGURATION.md#preview-pane).
 
 ### Details and live updates
 
-Each result row ends with the entry's size (a directory's entry count) and the
-time since it was modified; the footer adds the highlighted entry's exact size,
-date, permissions and owner, and a symbolic link's target. Links show `→ target`
+Each result row ends with the entry's size (a directory's: every file below it,
+added up in the background for the folders on screen and near it) and the time
+since it was modified; the footer adds the highlighted entry's exact size (and a
+folder's entry count), date, permissions and owner, and a symbolic link's target. Links show `→ target`
 after their name, broken ones in the error color. When files appear, disappear
 or change anywhere in the results, the results follow without F5. See
 [result details](docs/CONFIGURATION.md#result-details) for `[ui] columns`,

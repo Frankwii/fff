@@ -108,7 +108,10 @@ fn rows_and_footer_show_details_that_fit() {
     let root = std::env::temp_dir().join(format!("fff-columns-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("folder/inner")).unwrap();
-    std::fs::write(root.join("folder/one"), b"").unwrap();
+    std::fs::write(root.join("folder/one"), vec![0u8; 100]).unwrap();
+    std::fs::write(root.join("folder/inner/two"), vec![0u8; 1500]).unwrap();
+    // A file's second link adds nothing.
+    std::fs::hard_link(root.join("folder/inner/two"), root.join("folder/again")).unwrap();
     std::fs::write(root.join("data.bin"), vec![0u8; 4300]).unwrap();
     let mut app = App::browse(root.clone(), 1, crate::Policy::default());
     for (name, directory) in [("data.bin", false), ("folder", true)] {
@@ -136,13 +139,17 @@ fn rows_and_footer_show_details_that_fit() {
             .unwrap();
         text(terminal.backend().buffer())
     };
-    // The entry count arrives from the worker; until then the column is blank.
+    // Details and folders' sizes arrive from workers, asked for by a drawn
+    // frame; until then the column is blank.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let _ = draw(&mut app, 100);
-    while !app.details.drain() && std::time::Instant::now() < deadline {
+    let mut wide = draw(&mut app, 100);
+    assert!(!wide.contains("1.6K"), "{wide}");
+    while !wide.contains("1.6K") && std::time::Instant::now() < deadline {
+        app.details.commit_sizes();
         std::thread::sleep(std::time::Duration::from_millis(5));
+        app.details.drain();
+        wide = draw(&mut app, 100);
     }
-    let wide = draw(&mut app, 100);
     let row = |shown: &str, name: &str| {
         shown
             .lines()
@@ -155,9 +162,23 @@ fn rows_and_footer_show_details_that_fit() {
     assert!(data.contains(" 4.2K   now"), "{data}");
     let folder = row(&wide, "folder/");
     assert!(folder.contains("drwx"), "{folder}");
-    assert!(folder.contains("     2   now"), "{folder}");
+    assert!(folder.contains("  1.6K   now"), "{folder}");
     let footer = wide.lines().last().unwrap();
     assert!(footer.contains("data.bin  4.2K (4,300 B)  "), "{footer}");
+    // The footer has a folder's exact size, then its entries.
+    app.highlight = Some(root.join("folder"));
+    let mut shown = draw(&mut app, 120);
+    while !shown.contains("entries") && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        app.details.drain();
+        shown = draw(&mut app, 120);
+    }
+    let folder_footer = shown.lines().last().unwrap();
+    assert!(
+        folder_footer.contains("1.6K (1,600 B)  3 entries"),
+        "{folder_footer}"
+    );
+    app.highlight = Some(root.join("data.bin"));
     assert!(footer.contains("-rw"), "{footer}");
     // Colored by kind as eza -l colors them, in the palette's roles.
     let mut terminal = Terminal::new(TestBackend::new(100, 1)).unwrap();

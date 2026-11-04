@@ -8,6 +8,11 @@ history.
 
 ### Changed
 
+- **Folders show their size.** The size column gives a folder the sizes of
+  every file below it added up, rather than its number of entries, which
+  the footer keeps beside the exact size. They are added up in the
+  background for the folders on screen first, then those a page away; a
+  large folder shows its running total with `…` until it is done.
 - **Opening and editing files work while typing the query.** Alt+o opens
   the current or marked files in this terminal from Insert mode, as `o`
   does in Normal mode; `edit_files` and `open_and_quit` work in Insert mode

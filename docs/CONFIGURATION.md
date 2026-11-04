@@ -210,14 +210,16 @@ columns = ["size", "modified"]   # any of "permissions", "size", "modified"; [] 
 ```
 
 - `permissions`: like `ls -l`, `drwxr-xr-x`.
-- `size`: a file's size (`812B`, `4.2K`, `13M`); a directory's number of
-  entries (`12`, `9999+` past ten thousand, `?` when unreadable).
+- `size`: a file's size (`812B`, `4.2K`, `13M`); a directory's, the sizes
+  of every file below it added up (`1.3G`; `2.1G…` while still adding up, `?`
+  when unreadable). See [folder sizes](#folder-sizes).
 - `modified`: time since the last change: `now`, `5m`, `3h`, `2d`, `3w`,
   `4mo`, `2y`.
 
 Names come first: in a narrow pane, columns are dropped from the left until a
 name has room. The footer shows the highlighted entry's path followed by a
-link's target, its size (exact bytes) or entry count, modification date,
+link's target, its size (exact bytes; a folder's, then its number of
+entries, `9999+` past ten thousand), modification date,
 permissions and `user:group`, dropping the last ones first when space runs out.
 It colors them by kind as `eza -l` does, in the palette's roles: the name as
 its row, the size or count in `success`, the date in `accent`, the owner in
@@ -228,8 +230,28 @@ links use the `error` color.
 
 Only rows on screen are inspected, so discovery does no extra work:
 one `lstat` per visible row, read again after each scan. Directory entry counts
-come from a background thread, so a huge or slow directory never delays a frame;
-the column stays blank until its count arrives.
+and sizes come from background threads, so a huge or slow directory never
+delays a frame; the column stays blank until they arrive.
+
+### Folder sizes
+
+A folder's size is the sum of the sizes of the files below it, at any depth,
+as `du --apparent-size` adds them: files with several links count once,
+symbolic links are not followed, and folders on another filesystem (a mount
+point below it) are left out, so an empty folder is `0B`. When some folders
+below cannot be read, the footer says `(some unreadable)` after what could be.
+
+Sizes are added up by a background thread per mount, so a stuck mount holds up
+only its own folders, and only for the folders that matter now: those on
+screen first, from the top, then those a page below and above the view.
+A folder that scrolls away is given up, but the totals of the folders inside
+it that were finished are kept, so coming back to it, or opening one of
+them, is quick. A large folder shows its running total with `…` (and `so far`
+in the footer) until it is done.
+
+A total stays for ten minutes; a change in a watched folder (see [live
+updates](#live-updates)) adds up the folders above it again, and F5 adds every
+folder up again. Until the new total arrives, the old one is shown.
 
 ## Mouse
 
@@ -324,7 +346,7 @@ well. Entries created, removed or renamed in any of them trigger a quiet
 rescan after a short pause (bursts such as an extraction are coalesced, and a
 change during a rescan waits for it to finish), keeping the rows and highlight
 while it reconciles; entries written to update their details in place, and a
-folder's entry count follows what is added to or removed from it. Folders that
+folder's entry count and size follow what is added to or removed from it. Folders that
 appear are watched once the rescan lists them.
 
 At most 4096 folders are watched, the roots first and then the shallowest

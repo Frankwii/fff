@@ -473,7 +473,10 @@ impl Session {
                     app.refresh();
                 }
             }
-            Rescan => self.discovery.force_refresh(app),
+            Rescan => {
+                app.details.refresh_sizes();
+                self.discovery.force_refresh(app);
+            }
             TogglePreview => app.preview.shown = !app.preview.shown,
             ToggleLabels => app.toggle_labels(),
             TogglePreviewWrap => {

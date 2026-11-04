@@ -675,6 +675,7 @@ impl Session {
         drawn?;
         ended?;
         let completed = completed.expect("terminal draw callback completes");
+        app.details.commit_sizes();
         // Only publish targets after Terminal::draw has flushed the frame.
         if matches!(self.focus, Focus::Results) {
             app.rendered = completed.targets;

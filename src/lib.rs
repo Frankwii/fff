@@ -27,6 +27,7 @@ mod prefetch;
 pub mod preview;
 pub mod program;
 mod ranking;
+pub mod sizes;
 pub mod reload;
 pub mod run;
 pub mod setup;

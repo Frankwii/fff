@@ -263,6 +263,15 @@ pub(super) fn results_pane(
                 row,
             );
         }
+        // Folders a page below and above come next, ready when scrolled to.
+        if columns.contains(&Column::Size) && !app.grep.active() {
+            let shown = app.shown();
+            let below = shown.iter().skip(app.offset + page).take(page);
+            let above = shown[..app.offset.min(shown.len())].iter().rev().take(page);
+            for c in below.chain(above).filter(|c| c.directory) {
+                app.details.want_size(&c.path);
+            }
+        }
     }
     Rendered {
         targets: visible.iter().map(|c| c.path.clone()).collect(),
@@ -365,8 +374,8 @@ pub(super) fn row_details(
             (Column::Permissions, Some(i)) => details::permissions(i.mode),
             (Column::Size, Some(i)) if candidate.directory || i.directory => app
                 .details
-                .count(&candidate.path)
-                .map(details::entries)
+                .size(&candidate.path)
+                .map(details::folder_size)
                 .unwrap_or_default(),
             (Column::Size, Some(i)) if i.broken() => String::new(),
             (Column::Size, Some(i)) => details::size(i.size),

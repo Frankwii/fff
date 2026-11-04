@@ -163,6 +163,24 @@ pub(super) fn footer_details(app: &App, path: &Path) -> Vec<Vec<Span<'static>>> 
         }]);
     }
     if info.directory {
+        // The size of the files below it, then its own entries.
+        if let Some(size) = app.details.size(path).filter(|s| !s.unreadable) {
+            let exact = details::exact(size.bytes);
+            let mut spans = if size.bytes < 1000 {
+                vec![bold(exact, theme.success), styled(" B", theme.success)]
+            } else {
+                vec![
+                    bold(details::size(size.bytes), theme.success),
+                    styled(format!(" ({exact} B)"), theme.muted),
+                ]
+            };
+            if size.counting {
+                spans.push(styled(" so far", theme.muted));
+            } else if size.partial {
+                spans.push(styled(" (some unreadable)", theme.muted));
+            }
+            values.push(spans);
+        }
         if let Some(count) = app.details.count(path) {
             let text = match count {
                 details::Count::Entries(1) => "1 entry".into(),

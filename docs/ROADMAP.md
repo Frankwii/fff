@@ -104,7 +104,8 @@ sorting picker, a chooser like the others: type or move to choose the
 criterion, Tab switches between ascending and descending. Criteria:
 
 - name, alphabetically (and naturally, so `file2` comes before `file10`);
-- size (a folder by its entry count, as the size column shows it);
+- size (a folder by the files below it, as the size column shows it, once
+  added up);
 - last modification, last access, and creation where the filesystem records
   it;
 - extension, then name;

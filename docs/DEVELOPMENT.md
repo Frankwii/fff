@@ -41,6 +41,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
+| `src/sizes.rs` | Folders' sizes: the files below each added up by a worker per mount, the folders a frame wants first (`Sizes::commit` after each drawn frame), finished subfolders' totals kept. |
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
@@ -109,7 +110,9 @@ listed separately in the [roadmap](ROADMAP.md).
   from `Details`, whose workers read it in the background, one set per mount
   so that a stuck mount holds up only its own entries; until they answer,
   the frame shows what they found before. Owner names, possibly from a
-  network directory, are looked up in the background too.
+  network directory, are looked up in the background too, and folders'
+  sizes are added up by workers that a frame only tells which folders it
+  wants (`Details::size`, `want_size`).
 - Generation checks and cancellation prevent obsolete work from changing the view.
   Reuse recomputes attribution. Partial or truncated snapshots cannot establish
   completeness, and cached empty directories require verification before Enter.

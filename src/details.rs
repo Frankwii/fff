@@ -27,7 +27,7 @@ use std::{
 pub enum Column {
     /// Permissions, like `ls -l`: `drwxr-xr-x`.
     Permissions,
-    /// A file's size (`4.2K`), or a directory's entry count.
+    /// A file's size (`4.2K`), or the size of the files in a directory.
     Size,
     /// Time since the last modification (`3d`).
     Modified,
@@ -115,11 +115,14 @@ pub struct Details {
     /// Account names; `None` while being looked up.
     names: RefCell<HashMap<Account, Option<String>>>,
     name_worker: RefCell<Option<Worker<Account, String>>>,
+    /// Folders' sizes, added up by workers of their own.
+    sizes: crate::sizes::Sizes,
     wake: Option<SyncSender<()>>,
 }
 impl Details {
     /// Coalesced notification for arriving counts, shared with terminal input.
     pub fn set_waker(&mut self, wake: SyncSender<()>) {
+        self.sizes.set_waker(wake.clone());
         self.wake = Some(wake);
     }
     /// The entry's details, or `None` while unknown or missing.
@@ -153,6 +156,25 @@ impl Details {
             self.request(&self.count_workers, path, |p| count_entries(p));
         }
         entry.0
+    }
+    /// A folder's size: the bytes of the files below it on its filesystem,
+    /// as far as a worker has added them up; asked for in this frame.
+    pub fn size(&self, path: &Path) -> Option<crate::sizes::Size> {
+        self.want_size(path);
+        self.sizes.get(path)
+    }
+    /// A folder near the view whose size is added up after those drawn.
+    pub fn want_size(&self, path: &Path) {
+        self.sizes.want(path, self.mount_of(path));
+    }
+    /// A frame was drawn: workers add up the sizes it asked for, in order,
+    /// and give up on others.
+    pub fn commit_sizes(&self) {
+        self.sizes.commit();
+    }
+    /// F5: folders' sizes are added up again.
+    pub fn refresh_sizes(&self) {
+        self.sizes.refresh();
     }
     /// Asks the worker for `path`'s mount to `read` it.
     fn request<T: Send + 'static>(
@@ -222,6 +244,7 @@ impl Details {
         for worker in self.count_workers.borrow().values() {
             changed |= drain_into(worker, &self.counts, current);
         }
+        changed |= self.sizes.drain();
         if let Some(worker) = self.name_worker.borrow().as_ref() {
             let mut names = self.names.borrow_mut();
             while let Ok((_, account, name)) = worker.results.try_recv() {
@@ -259,6 +282,7 @@ impl Details {
         if let Some(entry) = self.counts.borrow_mut().get_mut(path) {
             entry.1 = false;
         }
+        self.sizes.touched(path);
     }
     /// `user:group`, by name where the system knows one; by number while
     /// the name is being looked up.
@@ -429,7 +453,19 @@ pub fn size(bytes: u64) -> String {
     unreachable!()
 }
 
-/// A directory's entry count for the size column.
+/// A folder's size for the size column: `…` while it is added up, `?`
+/// when it cannot be read.
+pub fn folder_size(size: crate::sizes::Size) -> String {
+    if size.unreadable {
+        "?".into()
+    } else if size.counting {
+        self::size(size.bytes) + "…"
+    } else {
+        self::size(size.bytes)
+    }
+}
+
+/// A directory's entry count for the footer.
 pub fn entries(count: Count) -> String {
     match count {
         Count::Entries(n) if n >= COUNT_LIMIT => format!("{}+", COUNT_LIMIT - 1),
