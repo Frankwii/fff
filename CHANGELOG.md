@@ -8,6 +8,12 @@ history.
 
 ### Changed
 
+- **Folder sizes are kept between sessions and added up faster.** fff
+  remembers what it added up, so sizes show as soon as it starts, and checks
+  them in the background by reading again only the folders that changed.
+  Adding a folder up the first time reads its folders on several threads,
+  about five times faster. A file that grows in place without its folder
+  changing counts once a watched folder sees it, or after F5.
 - **A window of its own and each file dialog are commands.** `fff roam
   --window` is now `fff window [PATH]`, starting at PATH (a file's folder,
   with the file highlighted), and `fff explorer` takes the kind of dialog:

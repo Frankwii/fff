@@ -176,6 +176,10 @@ impl Details {
     pub fn refresh_sizes(&self) {
         self.sizes.refresh();
     }
+    /// Folders' sizes are kept in `path` between sessions.
+    pub fn keep_sizes(&mut self, path: PathBuf) {
+        self.sizes.keep(path);
+    }
     /// Asks the worker for `path`'s mount to `read` it.
     fn request<T: Send + 'static>(
         &self,

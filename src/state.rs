@@ -86,7 +86,7 @@ pub fn save(path: &Path, state: &State) -> std::io::Result<()> {
 
 /// Writes atomically: a private temporary file (mode 0600: marks, queries
 /// and folders are nobody else's business) renamed over the old one.
-fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     fs::create_dir_all(dir)?;

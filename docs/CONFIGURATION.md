@@ -249,9 +249,22 @@ it that were finished are kept, so coming back to it, or opening one of
 them, is quick. A large folder shows its running total with `…` (and `so far`
 in the footer) until it is done.
 
-A total stays for ten minutes; a change in a watched folder (see [live
-updates](#live-updates)) adds up the folders above it again, and F5 adds every
-folder up again. Until the new total arrives, the old one is shown.
+What was found is kept for the next session in `$XDG_CACHE_HOME/fff/sizes`
+(`~/.cache/fff/sizes`), so sizes show as soon as fff starts and are then
+checked in the background. Checking reads again only the folders that
+changed: a folder whose modification and change times are as they were
+keeps the bytes of its files, and only its subfolders are looked at, one
+`stat` each, so checking a home folder of 270,000 folders takes a fraction of
+a second where adding it up took several. Several threads read each folder
+being added up.
+
+A file that grows in place (a log, a database, a virtual machine's disk)
+leaves its folder's times alone, so its new size counts once something says
+it changed: a change in a watched folder (see [live updates](#live-updates))
+reads that folder again and adds up the folders above it, and F5 reads every
+folder again. A total is checked again after ten minutes. Until the new total
+arrives, the old one is shown. Deleting the file only makes the next session
+add everything up again.
 
 ## Mouse
 
@@ -755,6 +768,11 @@ prunes the entries unused for 90 to 135 days, then the least recently used
 while the text cache passes 2 GiB or the index 512 MiB. Deleting either is
 safe; it is rebuilt as searches read the files again. See [searching
 contents](../README.md#searching-contents).
+
+Folders' sizes are kept in `~/.cache/fff/sizes` (see [folder
+sizes](#folder-sizes)): a record per folder added up, about 100 bytes each,
+written when a session ends. Past a million folders it starts again from
+the folders on screen. Deleting it is safe.
 
 ## Openers
 

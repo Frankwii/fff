@@ -226,6 +226,20 @@ class TerminalTests(unittest.TestCase):
         self.session = None
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_folder_sizes_are_kept_for_the_next_session(self):
+        (self.root / "big" / "in").mkdir(parents=True)
+        (self.root / "big" / "in" / "file").write_bytes(b"\0" * 3 * 1024 * 1024)
+        kept = Path(str(self.root) + "-cache") / "fff" / "sizes"
+        for _ in range(2):
+            s = self.start("--depth", "1", implicit_root=True)
+            s.send(b"", "3.0M")
+            s.send(b"q")
+            self.assertEqual(s.finish(), (0, b""))
+            self.session.close()
+            self.assertTrue(kept.is_file())
+        self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_normal_quit_current_uses_relative_nul_and_insert_keeps_text(self):
         (self.root / "child").mkdir()
         (self.root / "child" / "file").touch()

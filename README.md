@@ -514,7 +514,8 @@ views refresh about every 3 seconds and can prefetch a child after a 500 ms
 highlight dwell; recursive views reuse known descendants and refresh every
 60 seconds by default. F5 forces freshness. All caches of listings are
 session-local RAM (only contents searches keep a [cache on
-disk](#searching-contents)).
+disk](#searching-contents), and [folders'
+sizes](docs/CONFIGURATION.md#folder-sizes) a record of what was added up).
 
 The interface shows the current directory on the `@` line and pinned roots by
 name. Marks sit to the right on wide terminals and stack on narrow ones.
