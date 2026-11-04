@@ -1,0 +1,57 @@
+# Maintainer: Frank Hammond <frank dot william dot hammond at gmail dot com>
+pkgname=fuzzy-file-finder
+pkgver=0.18.0
+pkgrel=1
+pkgdesc='Terminal file finder and manager with fuzzy filtering, content search and Neovim editing (fff)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Frankwii/fff'
+license=('GPL-3.0-only')
+depends=('neovim' 'libarchive' 'libgcc' 'glibc')
+makedepends=('cargo')
+optdepends=(
+  'xdg-utils: make fff the default for folders (fff setup --desktop)'
+  'xdg-desktop-portal-termfilechooser: pick files with fff in file dialogs (fff setup --browser)'
+  'zoxide: frequent folders in the go-to prompt'
+  'poppler: search and preview PDF text'
+  'ffmpeg: preview audio and video details'
+  'st: the terminal fff windows open in by default'
+)
+# Both install /usr/bin/fff.
+conflicts=('fff')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "fff-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "fff-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "fff-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen
+}
+
+package() {
+  cd "fff-$pkgver"
+  install -Dm755 target/release/fff "$pkgdir/usr/bin/fff"
+  # Run as plain `fff`, so the completion scripts call the installed one.
+  local fff=(env PATH="$PWD/target/release:$PATH" fff)
+  "${fff[@]}" setup --man "$pkgdir/usr/share/man/man1"
+  "${fff[@]}" setup --completions bash |
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/bash-completion/completions/fff"
+  "${fff[@]}" setup --completions zsh |
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/zsh/site-functions/_fff"
+  "${fff[@]}" setup --completions fish |
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/fish/vendor_completions.d/fff.fish"
+  install -Dm644 README.md CHANGELOG.md -t "$pkgdir/usr/share/doc/$pkgname"
+  install -Dm644 docs/*.md docs/config.example.toml -t "$pkgdir/usr/share/doc/$pkgname/docs"
+}

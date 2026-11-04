@@ -2514,6 +2514,56 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(os.listdir(target), ["tree"])
         self.assertEqual(len(os.listdir(target / "tree")), 80000)
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_killed_mid_operation_nothing_is_half_there(self):
+        # SIGKILL cannot be held: whenever it lands, every entry is either
+        # whole under its name or not there, and what was left in a staging
+        # folder is pointed out by the next session there.
+        tree = self.tree("tree", 20000)
+        target = self.root / "target"
+        target.mkdir()
+        for delay in (0.05, 0.4, 1.0, 2.5):
+            s = self.start(implicit_root=True)
+            s.send(b"itree", "❯ tree")
+            s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
+            s.send(b"\x1b[27uitarget", "❯ target")
+            s.send(b"\x1b[27ul", ("cwd", target))
+            s.send(b"p")
+            time.sleep(delay)
+            os.kill(s.pid, signal.SIGKILL)
+            os.waitpid(s.pid, 0)
+            s.status = -signal.SIGKILL
+            self.assertEqual(len(os.listdir(tree)), 20000)
+            names = os.listdir(target)
+            if "tree" in names:
+                self.assertEqual(len(os.listdir(target / "tree")), 20000, delay)
+                self.assertEqual((target / "tree" / "f19999").read_bytes(), b"x" * 64)
+            left = [n for n in names if n.startswith(".fff-stage-")]
+            self.assertEqual(sorted(set(names) - set(left)), ["tree"] if "tree" in names else [], delay)
+            if left:
+                s = self.start(implicit_root=True, cwd=target)
+                s.wait_ui("An interrupted operation left data in .fff-stage-")
+                s.send(b"\x03")
+                s.finish()
+                for name in left:
+                    shutil.rmtree(target / name)
+            if "tree" in names:
+                shutil.rmtree(target / "tree")
+        # A permanent deletion killed partway leaves the tree whole under its
+        # name or gone from it, never partly deleted there.
+        for delay in (0.3, 1.5):
+            victim = self.tree(f"victim{delay}", 20000)
+            s = self.start(implicit_root=True)
+            s.send(f"ivictim{delay}".encode(), f"❯ victim{delay}")
+            s.send(b"\x1b[27uX", "Delete permanently")
+            s.send(b"\r")
+            time.sleep(delay)
+            os.kill(s.pid, signal.SIGKILL)
+            os.waitpid(s.pid, 0)
+            s.status = -signal.SIGKILL
+            if victim.exists():
+                self.assertEqual(len(os.listdir(victim)), 20000, delay)
+
     def hang_up(self, s, timeout=5):
         """Closes the terminal under `s` and returns how fff ended."""
         os.close(s.master)

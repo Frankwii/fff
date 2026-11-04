@@ -202,7 +202,19 @@ races and rollback, mount points (bind mounts in a user namespace via `unshare`)
 the trash, undo, purge, progress and stopping (`src/trash_tests.rs`, with
 per-filesystem bins on tmpfs mounts in a namespace),
 deferred signals, source changes, permissions, byte paths, links, malicious archives and
-archive limits. PTY tests cover Normal-only operation keys, prompts, save/discard
+archive limits. `src/ui/jobs_stress.rs` runs random operations on generated
+trees side by side on real threads (slowed down so that they overlap), stops
+and undoes them, and checks that nothing is lost, half written or left in a
+staging folder, and that undoing everything restores the trees exactly. It runs
+one round per test by default; for more, and to replay a failure by its seed:
+
+```sh
+FFF_STRESS_ROUNDS=30 cargo test --offline --lib stress -- --nocapture --test-threads=1
+FFF_STRESS_SEED=<seed from the failure> cargo test --offline --lib stress
+```
+
+The PTY suite also kills fff with SIGKILL at several moments of a copy and a
+deletion, and checks that nothing is ever partly there under its name. PTY tests cover Normal-only operation keys, prompts, save/discard
 and mark reconciliation. Some safety tests create temporary Unix sockets and
 need an environment that permits them.
 
@@ -227,3 +239,15 @@ python3 tests/navigation_benchmark.py --binary target/release/fff
 This measures first in-app visits at depth 1 with warm OS metadata, Neovim editing
 and no icons. Report the workload and build mode alongside latency or memory
 measurements. Slow storage and large trees still require progressive updates.
+
+## Packaging
+
+`packaging/aur/PKGBUILD` builds the Arch package `fuzzy-file-finder` from the
+release tag `v$pkgver` on GitHub: the binary, the manual pages and the bash,
+zsh and fish completions (generated with `fff setup`, run as plain `fff` so
+that they call the installed binary), and the documentation. It conflicts
+with the AUR's `fff`, which also installs `/usr/bin/fff`. For a release,
+after pushing its tag: set `pkgver`, reset `pkgrel` to 1, fill `sha256sums`
+with `updpkgsums`, regenerate `.SRCINFO` with `makepkg --printsrcinfo >
+.SRCINFO`, and build it once with `makepkg -si` before pushing both files to
+the AUR repository.

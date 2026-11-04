@@ -165,6 +165,8 @@ fn inventory(
         ));
     }
     out.insert(relative.to_owned(), stamp(&m));
+    #[cfg(test)]
+    slow();
     if m.is_dir() {
         let dir = child_dir(parent, name)?;
         let mut total = 0u64;
@@ -489,6 +491,17 @@ pub struct Progress {
     /// The chosen trees are being checked; nothing has changed yet.
     pub checking: AtomicBool,
 }
+/// Tests that need operations to overlap slow every step down by this many
+/// microseconds.
+#[cfg(test)]
+pub(crate) static SLOW_MICROS: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+fn slow() {
+    let micros = SLOW_MICROS.load(Ordering::Relaxed);
+    if micros > 0 {
+        std::thread::sleep(std::time::Duration::from_micros(micros));
+    }
+}
 /// The error of an operation stopped with Ctrl+c.
 pub const CANCELLED: &str = "Stopped";
 #[derive(Default)]
@@ -511,6 +524,8 @@ impl Engine {
     }
     fn checkpoint(&self, _index: usize) {
         #[cfg(test)]
+        slow();
+        #[cfg(test)]
         if let Some(hook) = &self.hook {
             hook(_index);
         }
@@ -518,6 +533,8 @@ impl Engine {
     /// Counts `n` more units done; an error once Ctrl+c asked to stop, while
     /// stopping is allowed.
     fn tick(&self, n: u64) -> Result<()> {
+        #[cfg(test)]
+        slow();
         let Some(p) = &self.progress else {
             return Ok(());
         };

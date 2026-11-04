@@ -1202,3 +1202,6 @@ mod tests {
         app.jobs.clear();
     }
 }
+#[cfg(test)]
+#[path = "jobs_stress.rs"]
+mod stress;

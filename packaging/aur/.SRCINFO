@@ -1,0 +1,24 @@
+pkgbase = fuzzy-file-finder
+	pkgdesc = Terminal file finder and manager with fuzzy filtering, content search and Neovim editing (fff)
+	pkgver = 0.18.0
+	pkgrel = 1
+	url = https://github.com/Frankwii/fff
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-only
+	makedepends = cargo
+	depends = neovim
+	depends = libarchive
+	depends = libgcc
+	depends = glibc
+	optdepends = xdg-utils: make fff the default for folders (fff setup --desktop)
+	optdepends = xdg-desktop-portal-termfilechooser: pick files with fff in file dialogs (fff setup --browser)
+	optdepends = zoxide: frequent folders in the go-to prompt
+	optdepends = poppler: search and preview PDF text
+	optdepends = ffmpeg: preview audio and video details
+	optdepends = st: the terminal fff windows open in by default
+	conflicts = fff
+	source = fuzzy-file-finder-0.18.0.tar.gz::https://github.com/Frankwii/fff/archive/refs/tags/v0.18.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = fuzzy-file-finder
