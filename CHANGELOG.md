@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.18.0 — 2026-11-04
+
+fff stays usable while file operations run, `fff setup` reports read more
+easily, and folders still being written stand out.
 
 ### Added
 
