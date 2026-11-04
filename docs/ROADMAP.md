@@ -230,12 +230,41 @@ languages, 8192 tokens, 512×512 images), but it is not the lighter
 choice: 865M parameters, 1.7 GB in f16, a ViT-L over 1,369 patches per
 image, and a non-commercial license (CC BY-NC 4.0).
 
+Measured on one P-core of an Intel Core Ultra 7 155H (4.8 GHz), with
+PyTorch's reference implementations in f32; int8 quantizes the linear
+layers dynamically. Weights were read cold from the NVMe disk. The query is
+a short Spanish sentence, the chunk 512 tokens, the image 1024×768 resized
+to the model's input.
+
+| Model | Load, cold / warm | Query, f32 / int8 | Chunk, f32 / int8 | Image |
+| --- | --- | --- | --- | --- |
+| multilingual-e5-small | 4.8 s / 0.39 s | 20 / 7 ms | 251 / 175 ms | |
+| gte-multilingual-base | 3.1 s / 0.94 s | 76 / 21 ms | 1,140 / 720 ms | |
+| multilingual CLIP, text | 3.1 s / 0.19 s | 28 / 8 ms | 434 / 281 ms | |
+| CLIP ViT-B/32, image | 0.8 s / 0.43 s | | | 140 ms |
+| SigLIP 2 base | 3.1 s / 0.29 s | 128 / 64 ms (64 tokens) | | 360 ms |
+| jina-clip-v2 | 5.8 s / 4.4 s | 1,160 ms | 4,700 ms (800 tokens) | 10.3 s |
+
+- The cold loads are mostly Python and transformers starting up: reading
+  the weights themselves took 0.25 to 1.2 seconds for whole repositories
+  (about 4 GB/s), which hold the weights in several formats. Memory-mapped
+  safetensors in Rust would load the default pair in well under a second.
+- A query costs the default pair under 50 ms on one core (e5 and
+  multilingual CLIP's text encoder), under 20 ms in int8: fine after a pause
+  in typing.
+- Indexing is the slow part. At 175 ms per chunk in int8, 100,000 chunks
+  take about 5 core-hours, half an hour on all cores; 10,000 images take
+  about 25 core-minutes. gte-multilingual-base is four times slower per
+  chunk than e5-small, and jina-clip-v2 is 25 to 70 times slower than the
+  default pair (without its GPU-only attention kernels), which settles it
+  out for a CPU.
+
 - **Indexing offline.** A command (such as `fff index ROOTS`) would embed
   overlapping chunks of each file's text, from the text cache the contents
   query already fills, with the path, and each image whole. Entries would be
   keyed by file identity as the contents index's are, so running it again
-  embeds only what changed, and pruned the same way. Minutes to tens of
-  minutes for a large tree the first time.
+  embeds only what changed, and pruned the same way. Half an hour or so for
+  a large tree the first time (see above).
 - **Searching.** The query is embedded once, after a pause in typing or on
   Enter (partial words embed badly), and compared with every stored vector
   exactly: at personal scale, about 100,000 int8 vectors, that takes a few
