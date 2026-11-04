@@ -420,11 +420,7 @@ impl Session {
             }
             PrintMarks => return Ok(leave_with_marks(app)),
             ClearQuery => self.clear_query(app),
-            SwitchQuery => {
-                if app.program().searches_contents() {
-                    app.grep.editing = !app.grep.editing;
-                }
-            }
+            SwitchQuery => app.grep.editing = !app.grep.editing,
             SearchShallower | SearchDeeper => {
                 app.depth = if function == SearchDeeper {
                     app.depth.saturating_add(1)

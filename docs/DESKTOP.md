@@ -309,6 +309,16 @@ highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (in
 File operations (move, copy, delete, rename, new file or folder, extract)
 remain available, so a dialog can also make the folder to save into.
 
+### Searching contents in a dialog
+
+Tab (or Alt+/) opens the [contents query](../README.md#searching-contents)
+here too, so a file can be found by what it contains: Enter on a match
+chooses its file (when saving, offers to replace it). In a save dialog the
+name saved under is always the names query's (or the suggested name), never
+the contents query's: the names bar keeps its `Save as NAME` title, and `!`,
+Ctrl+s and Enter while typing save under that name whichever query is typed
+into.
+
 ### Hints
 
 The query line, while empty, says how to choose instead of `type to filter

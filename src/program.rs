@@ -61,11 +61,6 @@ impl Program {
             Self::ExplorerOpen | Self::ExplorerMultiple | Self::ExplorerFolder | Self::ExplorerSave
         )
     }
-    /// It has a contents query beside the names query: all but the file
-    /// dialogs, whose query is their question's.
-    pub fn searches_contents(self) -> bool {
-        !self.dialog()
-    }
     /// It starts ready to type: a choice of files, or a save dialog's name.
     pub fn starts_typing(self) -> bool {
         matches!(self, Self::Pick | Self::Seek | Self::ExplorerSave)

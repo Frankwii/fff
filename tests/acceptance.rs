@@ -1328,7 +1328,7 @@ fn switching_program_keeps_the_session_and_follows_default_depths() {
     app.grep.text = "canard".into();
     app.switch_program(Program::Roam);
     assert!(app.program().navigates() && !app.program().prints_paths());
-    assert!(app.contents_shown() && app.contents().is_some_and(|g| g.active()));
+    assert!(app.contents_shown() && app.grep.active());
     app.switch_program(Program::Seek);
     assert_eq!(app.grep.text, "canard");
     // The query, marks and policies were never touched.

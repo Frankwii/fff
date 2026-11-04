@@ -2788,6 +2788,28 @@ class TerminalTests(unittest.TestCase):
             s.send(key)
             self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
             s.close()
+        # Dialogs search contents too; the name saved is the names query's,
+        # never the contents query's.
+        (docs / "notes.txt").write_text("a canard here\n")
+        s = save()
+        s.send(b"inew.pdf", "Save as new.pdf · INSERT")
+        s.send(b"\t", "Contents · NORMAL")
+        self.assertIn("Save as new.pdf", s.screen.text)
+        s.send(b"icanard", "❯ canard")
+        s.wait_ui("Matches · 1")
+        s.send(b"\x13")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
+        s.close()
+        # Enter on a match chooses its file.
+        s = self.session = Session(self.root, "explorer", "open", "docs",
+                                   implicit_root=True, output_paths=False)
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"icanard", "❯ canard")
+        s.wait_ui("Matches · 1")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "notes.txt") + b"\n"))
+        s.close()
+        (docs / "notes.txt").unlink()
         # A folder dialog takes the folder being browsed.
         s = self.session = Session(self.root, "explorer", "folder", "docs",
                                    implicit_root=True, output_paths=False)

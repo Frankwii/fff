@@ -700,8 +700,6 @@ use Highlight as H;
 use Place::{Marks, Results};
 use Program::*;
 const EXPLORERS: [Program; 4] = [ExplorerOpen, ExplorerMultiple, ExplorerFolder, ExplorerSave];
-/// Programs with a contents query: all but the file dialogs.
-const CONTENTS: [Program; 4] = [Roam, Window, Pick, Seek];
 /// Programs that navigate: all but seek.
 const NAVIGATE: [Program; 7] = [
     Roam,
@@ -756,7 +754,7 @@ impl Function {
             | MoveMarked | CopyMarked | LinkMarked | Trash | Delete | Extract | Undo | Restore
             | Quit | EditConfig => only_normal(lists),
             Rename | Create | ClearQuery | SearchToDepth => only_normal(results),
-            SwitchQuery => both(scope(&CONTENTS, &[Results], &[])),
+            SwitchQuery => both(scope(&[], &[Results], &[])),
             GoToParent | GoToPath | ShowBookmarks | GoToTrash | GoBack | GoForward
             | GoToNextTab | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
                 both(scope(&NAVIGATE, &[Results], &[]))
@@ -1722,7 +1720,7 @@ mod tests {
         let keymap = Keymap::default();
         let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
         let shift_space = KeyEvent::new(KeyCode::Char(' '), M::SHIFT);
-        for program in CONTENTS {
+        for program in <Program as Dimension>::ALL.iter().copied() {
             let here = cell(program, H::File);
             for mode in Mode::ALL {
                 assert_eq!(
@@ -1740,11 +1738,6 @@ mod tests {
             assert_eq!(normal(press('m')), Step::Run(Function::MarkAll, None));
             let shift_m = KeyEvent::new(KeyCode::Char('M'), M::SHIFT);
             assert_eq!(normal(shift_m), Step::Run(Function::InvertMarks, None));
-        }
-        // Tab never marks, not even in a dialog, which has no contents query.
-        for mode in Mode::ALL {
-            let dialog = cell(ExplorerMultiple, H::File);
-            assert_eq!(run(&keymap, mode, dialog, &[tab]), Step::Pass);
         }
     }
     #[test]

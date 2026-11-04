@@ -644,9 +644,7 @@ impl Session {
     /// `clear_query`: the query; pressed again with none, the marks. With
     /// a contents query, the query being typed into, else the other one.
     pub(super) fn clear_query(&mut self, app: &mut App) {
-        if let Some(grep) = app.contents()
-            && !grep.text.is_empty()
-            && (grep.editing || app.query.is_empty())
+        if !app.grep.text.is_empty() && (app.grep.editing || app.query.is_empty())
         {
             app.set_contents(String::new());
         } else if !app.query.is_empty() {

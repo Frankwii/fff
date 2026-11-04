@@ -56,7 +56,10 @@ pub(super) fn open_in_background(app: &mut App, path: &std::path::Path) {
         .highlighted()
         .filter(|_| app.highlight.as_deref() == Some(path))
         .and_then(|row| {
-            let grep = app.contents().filter(|g| g.active())?;
+            let grep = &app.grep;
+            if !grep.active() {
+                return None;
+            }
             let (hits, i) = grep.shown_hits.get(row)?;
             let hit = &hits[*i];
             Some(crate::open::GrepMatch {

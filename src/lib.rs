@@ -546,19 +546,10 @@ impl App {
             self.short_labels = running.program().short_labels();
         }
         self.running = running;
-        if !self.program().searches_contents() {
-            self.grep.text.clear();
-            self.grep.editing = false;
-        }
-    }
-    /// The contents query and its search, in a program that has them.
-    pub fn contents(&self) -> Option<&grep::Grep> {
-        self.program().searches_contents().then_some(&self.grep)
     }
     /// The contents query's bar is drawn: while it is typed into or set.
     pub fn contents_shown(&self) -> bool {
-        self.contents()
-            .is_some_and(|g| g.editing || !g.text.is_empty())
+        self.grep.editing || !self.grep.text.is_empty()
     }
     /// Rows show short labels (`labels`) rather than paths: `short_labels`,
     /// once a ranking has labelled the rows for it.
@@ -567,7 +558,7 @@ impl App {
     }
     /// Typing goes into the contents query, not the names query.
     pub fn typing_contents(&self) -> bool {
-        self.contents().is_some_and(|g| g.editing)
+        self.grep.editing
     }
     /// The program the session runs as.
     pub fn program(&self) -> crate::program::Program {
@@ -624,9 +615,10 @@ impl App {
     /// The rows on screen: the ranked rows, or with a contents query, one
     /// row per match in their files' order.
     pub fn shown(&self) -> &[Arc<Candidate>] {
-        match self.contents() {
-            Some(grep) if grep.active() => &grep.shown,
-            _ => &self.rows,
+        if self.grep.active() {
+            &self.grep.shown
+        } else {
+            &self.rows
         }
     }
     /// The shown rows' paths, each once (a contents query shows a file once
@@ -641,7 +633,10 @@ impl App {
     }
     /// The match shown at row `i`, with a contents query.
     pub fn hit(&self, i: usize) -> Option<&grep::Hit> {
-        self.contents().filter(|g| g.active())?.hit(i)
+        if !self.grep.active() {
+            return None;
+        }
+        self.grep.hit(i)
     }
     /// The highlighted row's match, with a contents query.
     pub fn highlighted_hit(&self) -> Option<&grep::Hit> {
@@ -678,9 +673,6 @@ impl App {
     }
     /// The contents query changed to `text`.
     pub fn set_contents(&mut self, text: String) {
-        if !self.program().searches_contents() {
-            return;
-        }
         self.grep.text = text;
         self.highlight_top = true;
         self.offset = 0;
@@ -1405,7 +1397,7 @@ impl App {
             self.highlight_query = query.to_owned();
             // A contents query's matches stream in after the files: follow
             // the first.
-            self.highlight_top |= self.contents().is_some_and(|g| g.active());
+            self.highlight_top |= self.grep.active();
         }
         // Rows share the known candidates: look for the wanted one's address.
         // A row to restore takes the highlight off the first row once listed.

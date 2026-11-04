@@ -261,8 +261,8 @@ that tell same-named files apart, as in `fff pick`.
 
 ### Searching contents
 
-`fff roam`, `fff pick` and `fff seek` search what files contain as well as
-their names. Tab (or Alt+/) opens a second query, **Contents**, beside the
+Every program, [file dialogs](docs/DESKTOP.md#searching-contents-in-a-dialog)
+included, searches what files contain as well as their names. Tab (or Alt+/) opens a second query, **Contents**, beside the
 names query, which moves to the left as **Names**; Tab or Alt+/ switches
 between them, in either mode, each keeping its own. While the contents query
 is set, the rows are the files listed that contain it, with **one row per

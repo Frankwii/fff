@@ -731,12 +731,18 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         summary.push(Span::raw(" "));
         let summary = Line::from(summary);
         let status = status_line(app, names.saturating_sub(4) as usize).right_aligned();
+        // A save dialog's names query is the name it saves under.
+        let saving = app.running.dialog().filter(|d| d.save.is_some());
+        let (title, hint) = match saving {
+            Some(dialog) => (dialog.title(&app.query), "type a custom name…"),
+            None => ("Names".into(), "type to filter names…"),
+        };
         field_box(
             frame,
             names_area,
             app,
-            (Field::Query, "Names", &app.query),
-            "type to filter names…".into(),
+            (Field::Query, &title, &app.query),
+            hint.into(),
             focused && !grep.editing,
             vec![status],
         );

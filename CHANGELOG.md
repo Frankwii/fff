@@ -22,6 +22,11 @@ history.
 
 ### Added
 
+- **File dialogs search contents.** `fff explorer` has the contents query
+  too (Tab or Alt+/), as every other program does. In a save dialog the name
+  saved under still comes only from the names query, whose bar keeps its
+  `Save as NAME` title. See [searching contents in a
+  dialog](docs/DESKTOP.md#searching-contents-in-a-dialog).
 - **Manual pages.** `fff setup --man ~/.local/share/man/man1` writes `fff.1`
   and a page per command (`man fff-pick`, `man fff-explorer-save`).
 
