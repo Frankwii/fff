@@ -13,9 +13,22 @@ history.
   `QT_QPA_PLATFORMTHEME=xdgdesktopportal` in their environment; outside a
   desktop environment they draw Qt's own dialog instead. Setup and the
   [desktop guide](docs/DESKTOP.md#qt-applications-telegram-) say so.
+- **The docs say where zsh looks for `_fff`**: in a directory that is in
+  `$fpath` when `compinit` runs, not one added later.
+
+- **`fff setup --check-config` checks the desktop integration.** When `fff
+  setup --desktop` or `--file-chooser` was run, it warns about files they
+  wrote that are missing, out of date or run another fff binary, and about an
+  environment in which Qt applications draw their own file dialog.
+
+### Added
+
+- **Manual pages.** `fff setup --man ~/.local/share/man/man1` writes `fff.1`
+  and a page per command (`man fff-pick`, `man fff-explorer-save`).
 
 ### Removed
 
+- **`fff setup --browser`**, another name for `--file-chooser`.
 - **What earlier versions accepted only to say where it went, or to ignore
   it.** Options that became commands (`--no-dir`, `--output-paths`,
   `--init`, `--completions`, `--setup`, `--check-config` before a command,

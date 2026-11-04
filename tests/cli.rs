@@ -40,7 +40,7 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
         "--completions <SHELL>",
         "[possible values: bash, elvish, fish, powershell, zsh]",
         "--file-chooser",
-        "[alias: --browser]",
+        "--man <DIR>",
         "--check-config",
     ] {
         assert!(setup.contains(text), "missing {text:?}");
@@ -265,4 +265,19 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
     .unwrap();
     assert_eq!(run().status.code(), Some(1));
     std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn setup_writes_a_manual_page_per_command() {
+    let dir = std::env::temp_dir().join(format!("fff-man-{}", std::process::id()));
+    let output = fff(&["setup", "--man", dir.join("man1").to_str().unwrap()], None);
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty(), "stdout stays empty");
+    for page in ["fff.1", "fff-roam.1", "fff-window.1", "fff-pick.1", "fff-seek.1", "fff-explorer-open.1", "fff-setup.1"] {
+        let text = std::fs::read_to_string(dir.join("man1").join(page)).unwrap();
+        assert!(text.starts_with(".ie") || text.contains(".TH"), "{page}");
+        assert!(!text.contains('\x1b'), "{page} has escape codes");
+    }
+    assert!(!dir.join("man1/fff-dbus-file-manager.1").exists());
+    std::fs::remove_dir_all(dir).unwrap();
 }

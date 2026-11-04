@@ -51,13 +51,9 @@ What remains:
   folder" in Telegram, and `journalctl --user -u xdg-desktop-portal` for
   the portal's side. If ShowItems arrives and fff opens, the fix was to run
   setup again, and the rest is to make that hard to miss.
-- **Say when the service is missing.** `fff setup --check-config` (or a
-  `fff setup --check-desktop`) could report a desktop setup that is out of
-  date: fff.desktop the default without the D-Bus service, launchers or the
-  portal wrapper calling options from earlier versions (as 0.16.4's `fff
-  window` and `fff explorer open` made them), or a binary path that no longer
-  exists. Generated files carry the marker, and could carry the version that
-  wrote them.
+- **Say when fff.desktop is not the default.** `fff setup --check-config`
+  warns about generated files that are missing, out of date or run another
+  binary; it could also check `xdg-mime query default inode/directory`.
 - **Make the portal's way reach fff.** If OpenDirectory is what Telegram
   ends up using, check that the portal launches fff.desktop rather than
   asking (`xdg-mime` default set, no AppChooser dialog) and that the launch

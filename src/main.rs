@@ -101,7 +101,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 <bold><green>Shell completions:</green></bold>
   bash  <cyan>source <<(fff setup --completions bash)</cyan>   in ~/.bashrc
   zsh   <cyan>source <<(fff setup --completions zsh)</cyan>    in ~/.zshrc, or once:
-        <cyan>fff setup --completions zsh > DIR/_fff</cyan>   for a DIR in $fpath
+        <cyan>fff setup --completions zsh > DIR/_fff</cyan>   for a DIR in $fpath before compinit
   fish  <cyan>fff setup --completions fish | source</cyan>    in ~/.config/fish/config.fish
   Completions cover options, root and config paths, and palettes
   (including custom ones from the configuration)."
@@ -210,8 +210,7 @@ struct RoamArgs {
     /// Browse from the one ROOT given instead of pinning it
     ///
     /// A directory is where browsing starts; a file starts in its folder with
-    /// the file highlighted. Without a ROOT it is plain browsing. The desktop
-    /// entry installed by fff setup --desktop starts fff this way.
+    /// the file highlighted. Without a ROOT it is plain browsing.
     #[arg(long, help_heading = "Search")]
     browse: bool,
     /// Continue the last fff roam session where it ended
@@ -402,7 +401,7 @@ struct SetupArgs {
     /// Sets up xdg-desktop-portal-termfilechooser to run fff explorer, for
     /// every application using the desktop portal. Files fff generated before
     /// are replaced; other files are never overwritten.
-    #[arg(long, visible_alias = "browser")]
+    #[arg(long)]
     file_chooser: bool,
     /// Print a shell function that changes directory when fff exits
     ///
@@ -415,13 +414,25 @@ struct SetupArgs {
     ///
     /// Load it from your shell's startup file, e.g. `source <(fff setup
     /// --completions bash)`. The script only calls fff back, so it can also
-    /// be saved once: zsh's as `_fff` in a directory of $fpath, fish's as
+    /// be saved once: zsh's as `_fff` in a directory that is in $fpath
+    /// when compinit runs, fish's as
     /// ~/.config/fish/completions/fff.fish. `COMPLETE=SHELL fff` prints the
     /// same script.
     #[arg(long, value_name = "SHELL",
         value_parser = clap::builder::PossibleValuesParser::new(completion::shells()))]
     completions: Option<String>,
+    /// Write the manual pages to DIR: fff.1, and fff-COMMAND.1 for each command
+    ///
+    /// For example `fff setup --man ~/.local/share/man/man1`, which man
+    /// searches when ~/.local/bin is on PATH; then `man fff`, `man fff-pick`.
+    /// Run it again after upgrading. Files there are replaced.
+    #[arg(long, value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
+    man: Option<PathBuf>,
     /// Validate the configuration (and --palette) and report the result
+    ///
+    /// Also warns about the desktop integration, if set up: files fff setup
+    /// wrote that are missing, out of date or run another fff binary, and an
+    /// environment in which Qt applications draw their own file dialog.
     #[arg(long)]
     check_config: bool,
 }
@@ -838,6 +849,10 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         completion::write_registration(shell, &program, &mut io::stdout().lock())?;
         return Ok(true);
     }
+    if let Some(dir) = &setup.man {
+        write_man_pages(dir)?;
+        return Ok(true);
+    }
     let settings = Settings::load(
         args.config.as_deref(),
         args.no_config,
@@ -859,6 +874,19 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
             Some(path) => eprintln!("fff: configuration valid: {}", path.display()),
             None => eprintln!("fff: no configuration file; using built-in settings"),
         }
+        // The desktop integration, if set up: warnings, since the
+        // configuration itself is valid.
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        if let (Ok(terminal), Ok(dirs), Ok(fff)) = (
+            fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref()),
+            fuzzy_file_finder::setup::Dirs::from_env(),
+            std::env::current_exe(),
+        ) {
+            let var = |name: &str| std::env::var(name).ok();
+            for problem in fuzzy_file_finder::setup::check(&dirs, &fff, &terminal, var) {
+                eprintln!("fff: warning: {problem}");
+            }
+        }
         return Ok(true);
     }
     let target = if setup.desktop {
@@ -873,6 +901,27 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
     let fff = std::env::current_exe()?;
     fuzzy_file_finder::setup::run(target, &dirs, &fff, &terminal, &mut io::stderr())?;
     Ok(true)
+}
+
+/// fff setup --man: a page per command, as clap_mangen names them (fff.1,
+/// fff-pick.1, ...), each reported on stderr.
+fn write_man_pages(dir: &Path) -> io::Result<()> {
+    fn pages(command: &clap::Command, all: &mut Vec<clap::Command>) {
+        for sub in command.get_subcommands().filter(|s| !s.is_hide_set()) {
+            pages(sub, all);
+        }
+        all.push(command.clone());
+    }
+    std::fs::create_dir_all(dir)?;
+    let mut command = Args::command().disable_help_subcommand(true);
+    command.build();
+    let mut all = Vec::new();
+    pages(&command, &mut all);
+    for page in all.into_iter().rev() {
+        let path = clap_mangen::Man::new(page).generate_to(dir)?;
+        eprintln!("fff: wrote {}", path.display());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

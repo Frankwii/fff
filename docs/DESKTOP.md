@@ -10,14 +10,13 @@ fff setup --desktop        # open directories in fff
 fff setup --file-chooser   # pick files with fff in Firefox and other apps
 ```
 
-`--browser` is another name for `--file-chooser`.
-
 Both run fff in a new terminal window using `[open] fff_terminal` from the
 configuration (`st -c fff-picker -e` by default; see
 [openers](CONFIGURATION.md#openers)), which a window manager can
 [float](#floating-windows). Set it before running setup, and run setup again
 after changing it or after moving the fff binary: the files it writes name
-both.
+both. `fff setup --check-config` warns when they are missing, out of date, or
+run another fff binary than the one checking.
 
 ## Floating windows
 

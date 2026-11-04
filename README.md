@@ -36,7 +36,7 @@ and exit codes.
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
 | `fff window [PATH]` | Browse in a terminal window of its own, as the desktop's file manager ([details](docs/DESKTOP.md#opening-directories)). |
 | `fff explorer open\|open-multiple\|folder\|save [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
-| `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--desktop`, `--file-chooser`, `--check-config`. |
+| `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--man`, `--desktop`, `--file-chooser`, `--check-config`. |
 
 The command only chooses how a session starts: `gm` turns a running session
 into `roam`, `pick` or `seek` without losing your place (see
@@ -539,9 +539,25 @@ Or save the script once where the shell finds completions, and nothing goes in
 its startup file:
 
 ```sh
-fff setup --completions zsh > ~/.config/zsh/completions/_fff   # any directory in $fpath, before compinit
+fff setup --completions zsh > ~/.config/zsh/completions/_fff
 fff setup --completions fish > ~/.config/fish/completions/fff.fish
 ```
+
+zsh finds `_fff` only in a directory that is in `$fpath` **when `compinit`
+runs**: compinit registers the completion files it sees then, and nothing added
+to `$fpath` afterwards (by a plugin manager's `--completion`, say) is noticed
+until the next shell that runs compinit with it. So in `~/.zshrc`:
+
+```sh
+fpath=(~/.config/zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+or save the file in a directory zsh always searches, such as
+`/usr/local/share/zsh/site-functions` (as root). compinit keeps what it found in
+its dump file (`~/.zcompdump`, or the file `compinit -d` names) and rebuilds it
+when the number of completion files changes, so a new `_fff` is picked up by the
+next shell; `print $_comps[fff]` in it says `_fff` once it is.
 
 The script only calls `fff` back (the binary on PATH, as named when the script
 was printed), so it needs no update when fff is upgraded.
@@ -549,6 +565,17 @@ was printed), so it needs no update when fff is upgraded.
 Elvish and PowerShell are supported too. Completion calls the running binary and
 covers options, root/config paths, editors, built-in/custom palettes and key
 chords. `COMPLETE=SHELL fff` prints the same registration script.
+
+## Manual pages
+
+```sh
+fff setup --man ~/.local/share/man/man1
+```
+
+writes `fff.1` and a page per command (`fff-pick.1`, `fff-explorer-save.1`,
+...), from the same text as `--help`. `man` searches `~/.local/share/man` when
+`~/.local/bin` is on PATH; then `man fff` or `man fff-pick`. Run it again after
+upgrading.
 
 ## Exit status
 
