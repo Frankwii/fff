@@ -13,7 +13,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/matching.rs` | Fuzzy scoring of names (nucleo, fzf's algorithm) and of paths below their roots, and the matched characters to highlight. |
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
-| `src/discovery.rs` | Cancellable breadth-first traversal, batches, backpressure, the path limit, freshness and scan reconciliation. |
+| `src/discovery.rs` | Cancellable breadth-first traversal, each depth's folders read on several threads and its paths attributed to their roots there, batches, backpressure, the path limit, freshness and scan reconciliation. |
 | `src/grep.rs` | The contents query (`App::grep`, in every program but the dialogs): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |

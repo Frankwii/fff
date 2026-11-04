@@ -1,7 +1,6 @@
 //! Bounded background traversal. Replacing a scan cancels its predecessor.
 use crate::{App, Candidate, Policy};
 use std::{
-    collections::VecDeque,
     fs,
     path::PathBuf,
     sync::{
@@ -156,7 +155,7 @@ impl Scan {
                 Event::Batch(g, batch) if g == app.generation => {
                     self.found += batch.len();
                     for c in batch {
-                        app.insert(g, c);
+                        app.insert_attributed(g, c);
                     }
                     self.pending = true;
                 }
@@ -497,6 +496,12 @@ impl EventSender {
     }
 }
 
+/// Threads reading one depth's folders at once.
+const WALKERS: usize = 8;
+/// Walk breadth first, one depth after another: shallower entries arrive
+/// first, so `max_paths` stops at the shallowest. A depth's folders are
+/// read on several threads, its subfolders kept in the order a single
+/// thread would meet them.
 fn walk(
     roots: Vec<PathBuf>,
     current: PathBuf,
@@ -509,92 +514,258 @@ fn walk(
     let empty = fs::read_dir(&current)
         .ok()
         .is_some_and(|mut r| r.next().is_none());
-    let mut batch = Vec::with_capacity(BATCH_SIZE);
-    let mut since = Instant::now();
-    // Hand the batch over; false when the receiver is gone (cancelled).
-    let flush = |batch: &mut Vec<Candidate>, since: &mut Instant| {
-        *since = Instant::now();
-        batch.is_empty()
-            || tx
-                .send(Event::Batch(generation, std::mem::take(batch)))
-                .is_ok()
+    let walk = Walk {
+        roots: &roots,
+        current: &current,
+        max,
+        policy: &policy,
+        generation,
+        tx: &tx,
+        cancel: &cancel,
     };
-    let mut queue: VecDeque<_> = roots
+    let mut level: Vec<(PathBuf, usize)> = roots
         .iter()
         .enumerate()
-        .map(|(i, p)| (p.clone(), i, 1))
+        .map(|(i, p)| (p.clone(), i))
         .collect();
-    while let Some((directory, root, depth)) = queue.pop_front() {
-        if cancel.load(Ordering::Relaxed) {
-            return;
-        }
-        // Do not hold results back while a slow directory is opened.
-        if since.elapsed() >= BATCH_AGE && !flush(&mut batch, &mut since) {
-            return;
-        }
-        let entries = match fs::read_dir(&directory) {
-            Ok(e) => e,
-            Err(e) => {
-                if tx
-                    .send(Event::Error(
-                        generation,
-                        format!("{}: {e}", directory.display()),
-                    ))
-                    .is_err()
-                {
-                    return;
-                }
-                continue;
-            }
+    let mut depth = 1;
+    while !level.is_empty() {
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(WALKERS)
+            .min(level.len());
+        let next = if threads <= 1 {
+            // A single folder, as every depth-1 visit: no threads to start.
+            walk.read(&level, &AtomicUsize::new(0), depth)
+        } else {
+            let taken = AtomicUsize::new(0);
+            thread::scope(|scope| {
+                let readers: Vec<_> = (0..threads)
+                    .map(|_| scope.spawn(|| walk.read(&level, &taken, depth)))
+                    .collect();
+                readers
+                    .into_iter()
+                    .map(|r| r.join().unwrap_or(None))
+                    .collect::<Option<Vec<_>>>()
+                    .map(|found| found.into_iter().flatten().collect())
+            })
         };
-        for entry in entries {
-            if cancel.load(Ordering::Relaxed) {
-                return;
+        let Some(mut next) = next else {
+            return;
+        };
+        // In the order of the folders they are in.
+        next.sort_unstable_by_key(|(at, _)| *at);
+        level = next.into_iter().flat_map(|(_, dirs)| dirs).collect();
+        depth += 1;
+    }
+    let _ = tx.send(Event::Done(generation, empty));
+}
+/// What every reader of a walk shares.
+struct Walk<'a> {
+    roots: &'a [PathBuf],
+    current: &'a std::path::Path,
+    max: usize,
+    policy: &'a Policy,
+    generation: u64,
+    tx: &'a EventSender,
+    cancel: &'a AtomicBool,
+}
+impl Walk<'_> {
+    /// The depth and root `path` is listed at, as `App::place` attributes
+    /// it: the root it is shallowest below, within the depth and allowed;
+    /// `None` for the current folder itself. Found `depth` deep below
+    /// `root`, which allows it, a path with one root is simply there.
+    fn attribute(
+        &self,
+        path: &std::path::Path,
+        depth: usize,
+        root: usize,
+    ) -> Option<(usize, usize)> {
+        if path == self.current {
+            return None;
+        }
+        if self.roots.len() == 1 {
+            return Some((depth, root));
+        }
+        self.roots
+            .iter()
+            .enumerate()
+            .filter_map(|(root, base)| {
+                let relative = path.strip_prefix(base).ok()?;
+                let depth = relative.components().count();
+                (depth > 0 && depth <= self.max && self.policy.allows(relative))
+                    .then_some((depth, root))
+            })
+            .min()
+    }
+    /// Read the folders of `level` (at `depth`) not yet `taken`, sending
+    /// their entries in batches; the subfolders found, by the position of
+    /// the folder they are in. `None` once cancelled.
+    #[allow(clippy::type_complexity)]
+    fn read(
+        &self,
+        level: &[(PathBuf, usize)],
+        taken: &AtomicUsize,
+        depth: usize,
+    ) -> Option<Vec<(usize, Vec<(PathBuf, usize)>)>> {
+        let generation = self.generation;
+        let mut batch = Vec::with_capacity(BATCH_SIZE);
+        let mut since = Instant::now();
+        // Hand the batch over; false when the receiver is gone (cancelled).
+        let flush = |batch: &mut Vec<Candidate>, since: &mut Instant| {
+            *since = Instant::now();
+            batch.is_empty()
+                || self
+                    .tx
+                    .send(Event::Batch(generation, std::mem::take(batch)))
+                    .is_ok()
+        };
+        let mut found = Vec::new();
+        loop {
+            let at = taken.fetch_add(1, Ordering::Relaxed);
+            let Some((directory, root)) = level.get(at) else {
+                break;
+            };
+            let root = *root;
+            if self.cancel.load(Ordering::Relaxed) {
+                return None;
             }
-            let entry = match entry {
+            // Do not hold results back while a slow directory is opened.
+            if since.elapsed() >= BATCH_AGE && !flush(&mut batch, &mut since) {
+                return None;
+            }
+            let entries = match fs::read_dir(directory) {
                 Ok(e) => e,
                 Err(e) => {
-                    let _ = tx.send(Event::Error(generation, e.to_string()));
+                    let error = format!("{}: {e}", directory.display());
+                    if self.tx.send(Event::Error(generation, error)).is_err() {
+                        return None;
+                    }
                     continue;
                 }
             };
-            let path = entry.path();
-            if !policy.allows(path.strip_prefix(&roots[root]).unwrap()) {
-                continue;
-            }
-            let kind = match entry.file_type() {
-                Ok(t) => t,
-                Err(e) => {
-                    let _ = tx.send(Event::Error(generation, e.to_string()));
+            let mut subfolders = Vec::new();
+            for entry in entries {
+                if self.cancel.load(Ordering::Relaxed) {
+                    return None;
+                }
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(e) => {
+                        let _ = self.tx.send(Event::Error(generation, e.to_string()));
+                        continue;
+                    }
+                };
+                let path = entry.path();
+                if !self
+                    .policy
+                    .allows(path.strip_prefix(&self.roots[root]).unwrap())
+                {
                     continue;
                 }
-            };
-            // Symlink directories are selectable, but never followed during traversal.
-            let directory = kind.is_dir() || (kind.is_symlink() && path.is_dir());
-            if kind.is_dir() && depth < max {
-                queue.push_back((path.clone(), root, depth + 1));
+                let kind = match entry.file_type() {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = self.tx.send(Event::Error(generation, e.to_string()));
+                        continue;
+                    }
+                };
+                // Symlink directories are selectable, but never followed during traversal.
+                let directory = kind.is_dir() || (kind.is_symlink() && path.is_dir());
+                if kind.is_dir() && depth < self.max {
+                    subfolders.push((path.clone(), root));
+                }
+                let Some((depth, root)) = self.attribute(&path, depth, root) else {
+                    continue;
+                };
+                batch.push(Candidate {
+                    path,
+                    directory,
+                    depth,
+                    root,
+                });
+                if (batch.len() >= BATCH_SIZE || since.elapsed() >= BATCH_AGE)
+                    && !flush(&mut batch, &mut since)
+                {
+                    return None;
+                }
             }
-            batch.push(Candidate {
-                path,
-                directory,
-                depth,
-                root,
-            });
-            if (batch.len() >= BATCH_SIZE || since.elapsed() >= BATCH_AGE)
-                && !flush(&mut batch, &mut since)
-            {
-                return;
+            if !subfolders.is_empty() {
+                found.push((at, subfolders));
             }
         }
-    }
-    if flush(&mut batch, &mut since) {
-        let _ = tx.send(Event::Done(generation, empty));
+        flush(&mut batch, &mut since).then_some(found)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_walk_goes_by_depth_and_attributes_paths_as_the_rows_do() {
+        let root = std::env::temp_dir().join(format!("fff-walk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for a in 0..6 {
+            for b in 0..5 {
+                let dir = root.join(format!("d{a}/e{b}"));
+                fs::create_dir_all(dir.join("f")).unwrap();
+                fs::write(dir.join("file"), "").unwrap();
+                fs::write(dir.join(".hidden"), "").unwrap();
+            }
+        }
+        // Overlapping roots: d1 is a root of its own, and the current folder.
+        let roots = vec![root.clone(), root.join("d1")];
+        let (events_tx, events) = mpsc::sync_channel(1024);
+        let tx = EventSender {
+            events: events_tx,
+            wake: None,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let current = root.join("d1");
+        let walker = {
+            let roots = roots.clone();
+            thread::spawn(move || walk(roots, current, 3, Policy::default(), 7, tx, cancel))
+        };
+        let mut found = Vec::new();
+        for event in events {
+            match event {
+                Event::Batch(7, batch) => found.extend(batch),
+                Event::Done(7, _) => break,
+                _ => panic!("unexpected event"),
+            }
+        }
+        walker.join().unwrap();
+        // Shallower entries arrive first (those of the second root, which
+        // the first reaches deeper, are attributed to it as found).
+        let depths: Vec<usize> = found
+            .iter()
+            .filter(|c| c.root == 0)
+            .map(|c| c.depth)
+            .collect();
+        assert!(depths.is_sorted(), "{depths:?}");
+        // Each path once per root that reached it, attributed as the rows
+        // attribute it; hidden entries and the current folder are not.
+        let mut app = App::new(roots.clone(), 3, Policy::default());
+        app.cwd = root.join("d1");
+        let expected: std::collections::HashSet<_> = found
+            .iter()
+            .map(|c| {
+                app.insert(app.generation, c.clone());
+                (c.path.clone(), c.depth, c.root)
+            })
+            .collect();
+        for (path, depth, root) in &expected {
+            let row = &app.known[path];
+            assert_eq!((row.depth, row.root), (*depth, *root), "{path:?}");
+        }
+        assert!(found.iter().all(|c| !c.path.ends_with(".hidden")));
+        assert!(found.iter().all(|c| c.path != root.join("d1")));
+        // d1's own entries come from its root, at depth 1.
+        assert!(expected.contains(&(root.join("d1/e0"), 1, 1)));
+        // Six folders, thirty below them, two entries in each; not d1.
+        assert_eq!(app.known.len(), 6 + 30 + 60 - 1);
+        fs::remove_dir_all(&root).unwrap();
+    }
     #[test]
     fn late_events_neither_restore_deeper_rows_nor_complete_a_new_generation() {
         let mut app = App::browse("/fixture".into(), 1, Policy::default());
