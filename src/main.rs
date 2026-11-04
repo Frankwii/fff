@@ -979,7 +979,8 @@ fn write_man_pages(dir: &Path) -> io::Result<()> {
     pages(&command, &mut all);
     for page in all.into_iter().rev() {
         let path = clap_mangen::Man::new(page).generate_to(dir)?;
-        eprintln!("fff: wrote {}", path.display());
+        // Not eprintln!, which panics when stderr is closed.
+        let _ = writeln!(io::stderr(), "fff: wrote {}", path.display());
     }
     Ok(())
 }
