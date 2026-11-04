@@ -32,9 +32,9 @@ use std::{
 };
 
 /// Matches kept per file; a file with more shows these.
-const PER_FILE: usize = 200;
+pub const PER_FILE: usize = 200;
 /// Matches kept per search, over every file.
-const TOTAL: usize = 20_000;
+pub const TOTAL: usize = 20_000;
 /// Lines kept on each side of a match, for the preview.
 pub const CONTEXT: usize = 8;
 /// Characters kept of a line around its match.
@@ -705,13 +705,14 @@ impl Pattern {
     pub fn matches(&self, text: &[u8]) -> bool {
         self.regex.is_match(text)
     }
-    /// The matches in `text`, up to `PER_FILE`.
+    /// The matches in `text`, up to `PER_FILE`, and one more when it holds
+    /// more.
     fn hits(&self, text: &[u8], units: Units) -> Vec<Hit> {
         let mut hits = Vec::new();
         // Pages and lines are counted on from the previous match.
         let (mut counted, mut page, mut line) = (0, 1u32, 1u32);
         for found in self.regex.find_iter(text) {
-            if hits.len() == PER_FILE {
+            if hits.len() > PER_FILE {
                 break;
             }
             let start = found.start();
@@ -897,10 +898,14 @@ pub struct Grep {
     search: Option<Search>,
     /// The current query's results by file; empty when it does not match.
     hits: HashMap<Row, Arc<[Hit]>>,
+    /// Files with more than `PER_FILE` matches, the rest left out.
+    cut: HashSet<Row>,
     /// Shown rows: one per match, files in the rows' order, and each one's
     /// match.
     pub shown: Vec<Arc<Candidate>>,
     pub shown_hits: Vec<(Arc<[Hit]>, usize)>,
+    /// A shown file has more matches than it shows.
+    shown_cut: bool,
     /// The rows and results `shown` was built from, and when.
     shown_from: Option<(u64, usize)>,
     built: Option<Instant>,
@@ -942,8 +947,10 @@ impl Grep {
             let had = !self.shown.is_empty() || self.search.is_some();
             self.search = None;
             self.hits.clear();
+            self.cut.clear();
             self.shown.clear();
             self.shown_hits.clear();
+            self.shown_cut = false;
             self.shown_from = None;
             return had;
         }
@@ -960,6 +967,7 @@ impl Grep {
                 .filter(|p| narrows(&p.query, &query) && p.matched.load(Ordering::Relaxed) < TOTAL)
                 .map(|_| std::mem::take(&mut self.hits));
             self.hits.clear();
+            self.cut.clear();
             let (sender, found) = mpsc::channel();
             self.search = Some(Search {
                 query,
@@ -1019,7 +1027,11 @@ impl Grep {
             search.done += 1;
             changed = true;
             match found {
-                Found::Hits(row, hits) => {
+                Found::Hits(row, mut hits) => {
+                    if hits.len() > PER_FILE {
+                        hits = Arc::from(&hits[..PER_FILE]);
+                        self.cut.insert(row.clone());
+                    }
                     // Past the total, files still count as searched.
                     let room = TOTAL.saturating_sub(search.kept).min(hits.len());
                     rebuild |= room > 0;
@@ -1101,8 +1113,11 @@ impl Grep {
             self.built = Some(Instant::now());
             self.shown.clear();
             self.shown_hits.clear();
+            self.shown_cut = false;
             for c in rows {
-                if let Some(hits) = self.hits.get(&Row(Arc::clone(c))) {
+                let row = Row(Arc::clone(c));
+                if let Some(hits) = self.hits.get(&row) {
+                    self.shown_cut |= self.cut.contains(&row);
                     for i in 0..hits.len() {
                         self.shown.push(Arc::clone(c));
                         self.shown_hits.push((Arc::clone(hits), i));
@@ -1134,6 +1149,7 @@ impl Grep {
                 search.again.insert(row.clone());
                 continue;
             };
+            self.cut.remove(row);
             search.done -= 1;
             search.kept -= hits.len();
             let _ = search
@@ -1159,6 +1175,15 @@ impl Grep {
             .filter(|(c, next)| next.is_none_or(|n| !Arc::ptr_eq(c, n)))
             .count();
         (self.shown.len(), files)
+    }
+    /// Why the shown matches are not all there are: a shown file has more
+    /// than `PER_FILE`, and the search stopped reading files at `TOTAL`.
+    pub fn cut(&self) -> (bool, bool) {
+        let stopped = self
+            .search
+            .as_ref()
+            .is_some_and(|s| s.matched.load(Ordering::Relaxed) >= TOTAL);
+        (self.shown_cut, stopped)
     }
     /// The match shown at row `i`.
     pub fn hit(&self, i: usize) -> Option<&Hit> {

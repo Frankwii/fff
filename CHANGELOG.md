@@ -36,6 +36,10 @@ history.
   edited, or replaced, in a watched folder kept the matches found before the
   change until the query changed; it is now searched again, and the preview
   reads its lines again.
+- **A contents search says when it shows only some matches.** A file shows
+  its first 200 matches and a search stops at 20000, which the count beside
+  the query did not tell: it now reads `200+ matches`, followed by
+  `first 200 per file` or `stopped at 20000`.
 
 ## 0.16.4 — 2026-11-04
 

@@ -297,6 +297,9 @@ through their text, extracted once with `pdftotext` (poppler) and `djvutxt`
 the first search through many documents takes a while, the next ones are
 immediate. A scanned document without a text layer has nothing to find
 (`ocrmypdf` adds one); a missing extractor is named in the query box.
+A file shows its first 200 matches, and a search stops reading files once
+20000 are found: the count beside the query then ends in `+` and says
+which (`first 200 per file`, `stopped at 20000`). A longer query finds fewer.
 
 Every file a search reads is also remembered in an index beside the cache
 (`~/.cache/fff/index`): the trigrams of its text, folded as the query

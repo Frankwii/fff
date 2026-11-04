@@ -703,14 +703,26 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
             summary.push(styled(format!("searching {done}/{total}"), theme.marked));
         } else if grep.active() {
             let (matches, files) = grep.summary();
+            // More than shown, and why: only the first matches of a file are
+            // kept, and a search stops reading files after enough of them.
+            let (per_file, stopped) = grep.cut();
             summary.push(styled(
                 format!(
-                    "{matches} match{} in {files} file{}",
+                    "{matches}{} match{} in {files} file{}",
+                    if per_file || stopped { "+" } else { "" },
                     if matches == 1 { "" } else { "es" },
                     if files == 1 { "" } else { "s" }
                 ),
                 theme.muted,
             ));
+            if per_file {
+                let note = format!(" · first {} per file", crate::grep::PER_FILE);
+                summary.push(styled(note, theme.muted));
+            }
+            if stopped {
+                let note = format!(" · stopped at {}", crate::grep::TOTAL);
+                summary.push(styled(note, theme.marked));
+            }
         }
         for tool in &grep.missing {
             summary.push(styled(" · ", theme.muted));

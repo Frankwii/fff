@@ -360,6 +360,13 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual((status, out), (0, str(self.root / "notes.txt").encode() + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_a_file_with_more_matches_than_are_kept_says_so(self):
+        (self.root / "many.txt").write_text("canard\n" * 250)
+        s = self.start(implicit_root=True, typing=True)
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"icanard", "200+ matches in 1 file · first 200 per file")
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_space_on_a_match_marks_its_file_and_moves_to_the_next_file(self):
         for name in ("one", "two"):
             (self.root / name).write_text("hello world\nhello again\n")

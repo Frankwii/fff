@@ -1447,3 +1447,48 @@ fn files_changed_during_a_contents_query_are_searched_again() {
     assert_eq!(app.grep.summary(), (2, 1));
     std::fs::remove_dir_all(&root).unwrap();
 }
+#[test]
+fn a_file_with_too_many_matches_says_it_shows_only_the_first() {
+    let root = std::env::temp_dir().join(format!("fff-grep-cut-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let limit = fuzzy_file_finder::grep::PER_FILE;
+    std::fs::write(root.join("many.txt"), "canard\n".repeat(limit + 50)).unwrap();
+    std::fs::write(root.join("few.txt"), "canard\n".repeat(limit)).unwrap();
+    let mut app = App::new(vec![root.clone()], 6, Policy::default());
+    app.grep.cache = Some(root.join("cache"));
+    for name in ["many.txt", "few.txt"] {
+        app.insert(
+            0,
+            Candidate {
+                path: root.join(name),
+                directory: false,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    app.refresh();
+    let settle = |app: &mut App| {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(10) {
+            app.poll_grep();
+            if app.grep.progress().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the search did not finish");
+    };
+    app.set_contents("canard".into());
+    settle(&mut app);
+    assert_eq!(app.grep.summary(), (2 * limit, 2));
+    assert_eq!(app.grep.cut(), (true, false));
+    // Exactly the limit is all there is.
+    app.query = "few".into();
+    app.refresh();
+    settle(&mut app);
+    assert_eq!(app.grep.summary(), (limit, 1));
+    assert_eq!(app.grep.cut(), (false, false));
+    std::fs::remove_dir_all(&root).unwrap();
+}
