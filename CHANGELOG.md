@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.19.2 — 2026-11-06
+
+The contents cache is private, and file operations on many marks or on
+folders open in other tabs go ahead.
 
 ### Changed
 
