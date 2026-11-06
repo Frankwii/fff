@@ -13,6 +13,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/matching.rs` | Fuzzy scoring of names (nucleo, fzf's algorithm) and of paths below their roots, and the matched characters to highlight. |
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
+| `src/piped.rs` | `fff` with paths on stdin (`Program::Piped`): whether stdin is a list, reading it into rows (resolved, numbered in order, each path once, missing ones counted) and each path's line as spelled, which is what is printed. Discovery reads it once in place of a scan (`Scan::read`), and never rescans, caches or watches it. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, each depth's folders read on several threads and its paths attributed to their roots there, batches, backpressure, the path limit, freshness and scan reconciliation. |
 | `src/grep.rs` | The contents query (the `App::grep` field, in every program): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
@@ -55,7 +56,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |
 | `src/archive.rs` | Bounded libarchive reader; entry validation and private extraction staging. |
 | `src/editor.rs` | Clean embedded Neovim through MessagePack-RPC. |
-| `src/program.rs` | The program a session runs as: how programs differ (`Program`: what each lists, prints and starts in, its depth and labels) and what only one keeps (`Running`: a file dialog), swapped by `App::set_program`. |
+| `src/program.rs` | The program a session runs as: how programs differ (`Program`: what each lists, prints and starts in, its depth and labels) and what only one keeps (`Running`: a file dialog, a list read from stdin), swapped by `App::set_program`. |
 | `src/keymap.rs` | Functions, where they work (programs are one of its dimensions), their default keys, scopes, conflicts and lock-out checks, and `keys.toml`. |
 | `src/ui/keys.rs` | The Keys screen's state and keys: the picker (your own list keys through the keymap), key searches, and the editor's staged changes, scopes and saving. |
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
@@ -89,7 +90,8 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   ranking (`Program::rank`): `Rank::Depth` (depth, folders first, best
   match, root order, then the path's bytes, which break every tie) or
   `Rank::Score` (`fff pick` and `fff seek`: best match first, then as
-  `Depth`); with a sort chosen in the sorting picker (`App::sort`, `gs`,
+  `Depth`) or `Rank::Listed` (a list read from stdin: best match first,
+  then the list's order, `Candidate::order`); with a sort chosen in the sorting picker (`App::sort`, `gs`,
   `[ui] sort`), the `Sort`'s criterion first and the ranking for its ties.
   `App::order` puts the two together. The order is part of what the rows
   were ranked for (`RefreshBasis`), so another order ranks them again.
@@ -170,7 +172,8 @@ share runs, so merging a run they share copies it, as it did before.
 ## Behavior to preserve
 
 - UI output uses `/dev/tty`. Stdout carries only selected-path bytes
-  (`fff pick`: `Program::prints_paths`), the chosen directory (`fff roam` and `fff seek` without
+  (`fff pick`: `Program::prints_paths`; with paths on stdin, the chosen
+  lines as read, `piped::Spellings`), the chosen directory (`fff roam` and `fff seek` without
   `--cd-file`) or a file dialog's answer (`fff explorer`), by the program
   the session ends as (`gm` switches; `Program::default_depth` holds each
   one's depth);
@@ -180,7 +183,8 @@ share runs, so merging a run they share copies it, as it did before.
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
   absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before
-  depth (`Program::rank`); a sort from the sorting picker comes before
+  depth (`Program::rank`), and a list read from stdin keeps its order after
+  the score; a sort from the sorting picker comes before
   either, which then breaks its ties (see [how rows are kept](#how-rows-are-kept-and-ordered)).
   Query edits do not restart discovery. Scans merge new paths into the ranked
   rows within a time budget, as sorted runs of their own: no row already
@@ -266,7 +270,7 @@ Where a change usually has to touch, so that none is missed:
   started as a job from `src/ui/actions.rs`, and the
   [OPERATIONS.md](OPERATIONS.md) guarantees it keeps.
 - **Something that differs between programs** (roam, pick, seek, a
-  window, the file dialogs): a method on `Program` in `src/program.rs`
+  window, the file dialogs, a list read from stdin): a method on `Program` in `src/program.rs`
   (`navigates`, `prints_paths`, `dialog`, `short_labels`, ...) read as
   `app.program()`, rather than a flag of its own; state only one program
   keeps goes in its `Running` variant. Where keys apply is the scopes'

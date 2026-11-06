@@ -16,6 +16,7 @@ fn candidate(name: &str, directory: bool, depth: usize) -> Candidate {
         directory,
         depth,
         root: 0,
+        order: 0,
     }
 }
 #[test]
@@ -79,6 +80,7 @@ fn workspace_jump_keeps_the_highlight_on_the_first_row_until_moved() {
         directory: dir,
         depth,
         root: 0,
+        order: 0,
     };
     // Better-ranked rows streaming in later take over the highlight.
     for (name, dir, depth) in [
@@ -158,6 +160,7 @@ fn overlap_and_root_order() {
                 directory: false,
                 depth,
                 root,
+                order: 0,
             },
         );
     }
@@ -168,6 +171,7 @@ fn overlap_and_root_order() {
             directory: false,
             depth: 1,
             root: 1,
+            order: 0,
         },
     );
     app.refresh();
@@ -1188,6 +1192,7 @@ fn a_contents_query_shows_one_row_per_match_in_the_files_names_choose() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -1327,6 +1332,7 @@ fn the_highlighted_match_stays_as_matches_arrive_above_it() {
         directory: false,
         depth: 1,
         root: 0,
+        order: 0,
     };
     let settle = |app: &mut App| {
         let start = std::time::Instant::now();
@@ -1372,6 +1378,7 @@ fn files_changed_during_a_contents_query_are_searched_again() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -1419,6 +1426,7 @@ fn a_file_with_too_many_matches_says_it_shows_only_the_first() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }

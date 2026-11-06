@@ -148,7 +148,7 @@ impl Session {
                 key: enter,
                 on_row: false,
             },
-            ListMouse::Open(_) if app.program().dialog() => Click::Key {
+            ListMouse::Open(_) if app.program().clicks_enter() => Click::Key {
                 key: enter,
                 on_row: false,
             },
@@ -657,9 +657,9 @@ impl Session {
                     format!("{name} ({}) does nothing here", function.name())
                 } else {
                     format!(
-                        "{name} ({}) does not work in fff {}",
+                        "{name} ({}) does not work in {}",
                         function.name(),
-                        cell.program.title()
+                        cell.program.described()
                     )
                 };
                 return;

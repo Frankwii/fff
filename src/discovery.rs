@@ -18,6 +18,8 @@ pub enum Event {
     Found(u64, Candidate),
     Batch(u64, Vec<Candidate>),
     Error(u64, String),
+    /// Lines of a list read from stdin that name no file or folder.
+    Skipped(u64, usize),
     Done(u64, bool),
 }
 
@@ -111,6 +113,61 @@ impl Scan {
             pending: false,
         }
     }
+    /// Reads the list `input` (`fff` with paths on stdin) as a scan: its
+    /// paths arrive in batches, as a walk's do, until it ends.
+    fn read(
+        app: &mut App,
+        input: Box<dyn std::io::Read + Send>,
+        wake: Option<SyncSender<()>>,
+    ) -> Self {
+        Self::reset(app, true);
+        let (events_tx, events) = mpsc::sync_channel(16);
+        let tx = EventSender {
+            events: events_tx,
+            wake,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let stopped = cancel.clone();
+        let generation = app.generation;
+        let cwd = app.cwd.clone();
+        let (null, spelled) = match &app.running {
+            crate::program::Running::Piped(piped) => (piped.null, piped.spelled.clone()),
+            _ => (false, Default::default()),
+        };
+        thread::spawn(move || {
+            let mut empty = true;
+            crate::piped::read(input, null, &cwd, &spelled, |read| {
+                if stopped.load(Ordering::Relaxed) {
+                    return false;
+                }
+                let event = match read {
+                    crate::piped::Read::Paths(batch) => {
+                        empty = false;
+                        Event::Batch(generation, batch)
+                    }
+                    crate::piped::Read::Skipped(n) => Event::Skipped(generation, n),
+                    crate::piped::Read::Failed(e) => {
+                        Event::Error(generation, format!("Could not read the list: {e}"))
+                    }
+                };
+                tx.send(event).is_ok()
+            });
+            let _ = tx.send(Event::Done(generation, empty));
+        });
+        Self {
+            events,
+            cancel,
+            failed: false,
+            completed: false,
+            done: None,
+            max_paths: usize::MAX,
+            found: 0,
+            input: None,
+            refresh_every: Duration::ZERO,
+            last_refresh: None,
+            pending: false,
+        }
+    }
     fn reset(app: &mut App, clear: bool) {
         app.generation += 1;
         app.scanning = true;
@@ -177,6 +234,13 @@ impl Scan {
                     self.failed = true;
                     app.status = s;
                 }
+                Event::Skipped(g, n) if g == app.generation => {
+                    app.status = if n == 1 {
+                        "Skipped 1 line that names no file or folder".into()
+                    } else {
+                        format!("Skipped {n} lines that name no file or folder")
+                    };
+                }
                 Event::Done(g, empty) if g == app.generation => {
                     self.done = Some(empty);
                     self.pending = true;
@@ -230,10 +294,17 @@ impl Scan {
         app.scanning = false;
         app.cache_pending = false;
         app.truncated = true;
-        app.status = format!(
-            "Stopped listing at {} paths ([performance] max_paths); lower the depth to see the rest",
-            self.max_paths
-        );
+        app.status = if app.program().scans() {
+            format!(
+                "Stopped listing at {} paths ([performance] max_paths); lower the depth to see the rest",
+                self.max_paths
+            )
+        } else {
+            format!(
+                "Stopped reading the list at {} paths ([performance] max_paths)",
+                self.max_paths
+            )
+        };
     }
     /// A re-sort is waiting for `refresh_every` to pass, or the rows are
     /// catching up with what was found.
@@ -309,6 +380,11 @@ impl Discovery {
         })
     }
     fn restart(&mut self, app: &mut App, clear: bool, force: bool) {
+        // A list is read once, and nothing else is listed.
+        if !app.program().scans() {
+            self.read(app);
+            return;
+        }
         self.scan.take(); // Disconnect a cancelled sender before its successor.
         let now = Instant::now();
         let key = crate::cache::Key::of(app);
@@ -386,9 +462,32 @@ impl Discovery {
         self.key = Some(key);
         self.stored = fresh;
     }
+    /// Starts reading the list of `fff` with paths on stdin, the first
+    /// time; it is never cached, rescanned or prefetched.
+    fn read(&mut self, app: &mut App) {
+        let crate::program::Running::Piped(piped) = &mut app.running else {
+            return;
+        };
+        let Some(input) = piped.take() else {
+            return;
+        };
+        let mut scan = Scan::read(app, input, self.wake.clone());
+        scan.max_paths = self.max_paths;
+        scan.input = self.input.clone();
+        scan.refresh_every = self.refresh_every;
+        self.scan = Some(scan);
+        self.key = None;
+        self.stored = true;
+        self.started = true;
+        self.verified_at = None;
+        self.refresh_at = None;
+    }
     /// The current directory changed on disk: reconcile with a quiet rescan
     /// that keeps the rows, and stop replaying the outdated snapshot.
     pub fn changed(&mut self, app: &App) {
+        if !app.program().scans() {
+            return;
+        }
         let key = crate::cache::Key::of(app);
         self.cache.invalidate(&key);
         self.prefetch.invalidate(&key);
@@ -724,6 +823,7 @@ impl Walk<'_> {
                     directory,
                     depth,
                     root,
+                    order: 0,
                 });
                 if (batch.len() >= BATCH_SIZE || since.elapsed() >= BATCH_AGE)
                     && !flush(&mut batch, &mut since)
@@ -839,7 +939,7 @@ mod tests {
                 Event::Batch(_, batch) => found.extend(batch.into_iter().map(|c| c.path)),
                 Event::Done(..) => break,
                 Event::Error(_, e) => panic!("{e}"),
-                Event::Found(..) => {}
+                Event::Found(..) | Event::Skipped(..) => {}
             }
         }
         walker.join().unwrap();
@@ -897,6 +997,7 @@ mod tests {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         ))
         .unwrap();
@@ -912,6 +1013,7 @@ mod tests {
                 directory: false,
                 depth: 2,
                 root: 0,
+                order: 0,
             },
         ))
         .unwrap();
@@ -931,6 +1033,7 @@ mod tests {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
         app.refresh();

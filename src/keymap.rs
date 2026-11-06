@@ -80,6 +80,7 @@ impl Dimension for Program {
         Self::ExplorerMultiple,
         Self::ExplorerFolder,
         Self::ExplorerSave,
+        Self::Piped,
     ];
     fn name(self) -> &'static str {
         match self {
@@ -91,6 +92,7 @@ impl Dimension for Program {
             Self::ExplorerMultiple => "explorer-open-multiple",
             Self::ExplorerFolder => "explorer-folder",
             Self::ExplorerSave => "explorer-save",
+            Self::Piped => "piped",
         }
     }
 }
@@ -702,7 +704,7 @@ use Highlight as H;
 use Place::{Marks, Results};
 use Program::*;
 const EXPLORERS: [Program; 4] = [ExplorerOpen, ExplorerMultiple, ExplorerFolder, ExplorerSave];
-/// Programs that navigate: all but seek.
+/// Programs that navigate: all but seek and a list read from stdin.
 const NAVIGATE: [Program; 7] = [
     Roam,
     Window,
@@ -712,6 +714,17 @@ const NAVIGATE: [Program; 7] = [
     ExplorerFolder,
     ExplorerSave,
 ];
+/// Programs listing folders as well as files: all but seek.
+const BOTH_KINDS: [Program; 8] = [
+    Roam,
+    Window,
+    Pick,
+    ExplorerOpen,
+    ExplorerMultiple,
+    ExplorerFolder,
+    ExplorerSave,
+    Piped,
+];
 fn scope(programs: &[Program], places: &[Place], highlights: &[Highlight]) -> Scope {
     Scope::of(programs, places, highlights)
 }
@@ -719,6 +732,61 @@ impl Function {
     /// Where it works in `mode`, as boxes; none where it does not. This is
     /// a design choice, not configuration.
     pub fn available(self, mode: Mode) -> Vec<Scope> {
+        let boxes = self.boxes(mode);
+        if self.works_piped() {
+            return boxes;
+        }
+        boxes
+            .into_iter()
+            .map(|s| Scope {
+                programs: s.programs & !Piped.bit(),
+                ..s
+            })
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+    /// Whether it works on a list read from stdin (`Program::Piped`), which
+    /// neither navigates, changes files, opens them nor lists anything
+    /// else: moving the highlight, the marks and queries, the view, and
+    /// printing or leaving.
+    fn works_piped(self) -> bool {
+        use Function::*;
+        matches!(
+            self,
+            HighlightPrevious
+                | HighlightNext
+                | HighlightPreviousPage
+                | HighlightNextPage
+                | HighlightFirst
+                | HighlightLast
+                | ConfirmRow
+                | PrintHighlighted
+                | PrintHighlightedAndMarks
+                | PrintMarks
+                | Quit
+                | Cancel
+                | ToggleMark
+                | MarkAll
+                | InvertMarks
+                | ToggleMarkedList
+                | ClearQuery
+                | SwitchQuery
+                | ToggleDirectories
+                | ToggleFiles
+                | TogglePreview
+                | TogglePreviewWrap
+                | ScrollPreviewDown
+                | ScrollPreviewUp
+                | ToggleLabels
+                | ShowPalettes
+                | ShowSorting
+                | ReloadPalette
+                | ShowKeys
+                | ShowSession
+        )
+    }
+    /// `available`, before what does not work on a list is taken out.
+    fn boxes(self, mode: Mode) -> Vec<Scope> {
         use Function::*;
         let normal = mode == Mode::Normal;
         let both = |s: Scope| vec![s];
@@ -759,9 +827,8 @@ impl Function {
             // A workspace can switch program, so it opens in every one.
             SwitchQuery | ShowWorkspaces => both(scope(&[], &[Results], &[])),
             GoToParent | GoToPath | GoToTrash | GoBack | GoForward | GoToNextTab
-            | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
-                both(scope(&NAVIGATE, &[Results], &[]))
-            }
+            | GoToPreviousTab => both(scope(&NAVIGATE, &[Results], &[])),
+            ToggleDirectories | ToggleFiles => both(scope(&BOTH_KINDS, &[Results], &[])),
             GoToHighlighted if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
             GoToHighlighted => both(scope(&NAVIGATE, &[Results], &[H::Dir, H::File])),
             OpenInBackground => both(scope(&[], &[Results], &file)),
@@ -771,6 +838,7 @@ impl Function {
             SaveOver => only_normal(scope(&[ExplorerSave], &[], &file)),
             PrintHighlighted if normal => vec![
                 scope(&[Pick, ExplorerOpen, ExplorerFolder], &[], &file),
+                scope(&[Piped], &[], &[H::Dir, H::File]),
                 scope(&[ExplorerMultiple], &[Marks], &file),
                 scope(&EXPLORERS, &[Marks], &[H::Dir]),
             ],
@@ -780,6 +848,7 @@ impl Function {
             }
             PrintHighlightedAndMarks => vec![
                 scope(&[Pick], &[Results], &file),
+                scope(&[Piped], &[Results], &[H::Dir, H::File]),
                 scope(&[ExplorerMultiple], &[Results], &file),
             ],
             QuitIntoHighlighted if normal => vec![
@@ -904,13 +973,13 @@ impl Function {
             HighlightPrevious => &[
                 ("k", all),
                 ("<M-k>", all),
-                ("<Up>", scope(&[Seek], &[], &[])),
+                ("<Up>", scope(&[Seek, Piped], &[], &[])),
                 ("<Up>", scope(&[], &[Marks], &[])),
             ],
             HighlightNext => &[
                 ("j", all),
                 ("<M-j>", all),
-                ("<Down>", scope(&[Seek], &[], &[])),
+                ("<Down>", scope(&[Seek, Piped], &[], &[])),
                 ("<Down>", scope(&[], &[Marks], &[])),
             ],
             HighlightPreviousPage => &[("<PageUp>", all)],

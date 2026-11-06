@@ -444,6 +444,7 @@ fn partial_visits_and_current_query_are_checkpointed_and_replay_before_drain() {
             directory: false,
             depth: 1,
             root: 0,
+            order: 0,
         },
     );
     app.refresh();
@@ -485,6 +486,7 @@ fn report_warm_replay_cost_for_large_directory_without_waiting_for_worker() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -684,6 +686,7 @@ fn a_ranking_on_another_thread_leaves_the_loop_idle_until_it_is_done() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }

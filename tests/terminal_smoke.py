@@ -28,7 +28,12 @@ BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 class Session:
     # Every text field is an embedded Neovim (fff requires it). Tests pin
     # fff pick (the picker mode) unless they pass output_paths=False to exercise the default directory-changing mode.
-    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True, cwd=None, hangup=True, typing=False):
+    # With stdin (bytes), fff runs without a command and reads them from a
+    # pipe, the terminal still its controlling one.
+    def __init__(self, root, *args, size=(30, 160), implicit_root=False, environment=None, output_paths=True, ready=True, cwd=None, hangup=True, typing=False, stdin=None):
+        if stdin is not None:
+            implicit_root, output_paths = True, False
+            listed, feed = os.pipe()
         master, slave = pty.openpty()
         self.master = master
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", *size, 0, 0))
@@ -40,7 +45,12 @@ class Session:
             os.close(reader)
             os.setsid()
             fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-            os.dup2(slave, 0)
+            if stdin is not None:
+                os.close(feed)
+                os.dup2(listed, 0)
+                os.close(listed)
+            else:
+                os.dup2(slave, 0)
             os.dup2(writer, 1)
             os.dup2(slave, 2)
             os.close(slave)
@@ -78,6 +88,10 @@ class Session:
             os.execv(BINARY, [BINARY, *command, *([] if implicit_root else [str(root)]), *args])
         os.close(slave)
         os.close(writer)
+        if stdin is not None:
+            os.close(listed)
+            os.write(feed, stdin)
+            os.close(feed)
         self.ui = b""
         self.screen = Screen(*size)
         self.status = None
@@ -1181,6 +1195,46 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(s.finish(), (0, os.fsencode(deep) + b"\n"))
             s.close()
         self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_paths_on_stdin_are_listed_in_order_and_printed_as_spelled(self):
+        (self.root / "src").mkdir()
+        (self.root / "src" / "main.rs").write_text("fn main() {}\n// a canard\n")
+        (self.root / "notes.txt").write_text("nothing\n")
+        elsewhere = Path(self.tmp.name + "-state")
+        elsewhere.mkdir()
+        (elsewhere / "far.txt").touch()
+        listed = b"notes.txt\n./src/main.rs\nmissing\nsrc/\nnotes.txt\n" + os.fsencode(elsewhere / "far.txt") + b"\n"
+        s = self.start(stdin=listed, ready=False)
+        s.wait_ui("Skipped 1 line that names no file or folder")
+        s.wait_ui("paths from stdin")
+        # In the order read, each once; one from elsewhere is shown whole.
+        rows = [l for l in s.screen.text.splitlines() if "│" in l and any(n in l for n in ("notes.txt", "main.rs", "src/", "far.txt"))]
+        names = [next(n for n in ("notes.txt", "src/main.rs", "src/", str(elsewhere / "far.txt")) if n in r) for r in rows]
+        self.assertEqual(names, ["notes.txt", "src/main.rs", "src/", str(elsewhere / "far.txt")], s.screen.text)
+        self.assertIn("INSERT", s.screen.text)
+        # Nothing navigates, changes or opens files.
+        for key, function in ((b"\x1bh", "go_to_parent"), (b"\x1b[15~", "rescan"), (b"\x1bw", "show_workspaces")):
+            s.send(key, f"({function}) does not work in fff reading paths from stdin")
+        # The contents query searches the listed files; Enter prints the
+        # chosen one as the list spelled it.
+        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"i", "Contents · INSERT")
+        s.send(b"canard", "1 match in 1 file")
+        s.send(b"\x1b[27u", "Contents · NORMAL")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, b"./src/main.rs\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_nul_separated_paths_on_stdin_return_the_marks_nul_terminated(self):
+        for name in ("b.txt", "a txt\nnewline"):
+            (self.root / name).touch()
+        s = self.start("-0", stdin=b"b.txt\0a txt\nnewline\0", ready=False)
+        s.wait_ui("✓ complete")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"m", "Marks (2)")
+        s.send(b"\x17")
+        self.assertEqual(s.finish(), (0, b"b.txt\0a txt\nnewline\0"))
 
     def test_no_dir_has_no_tabs_so_normal_arrows_move_the_highlight(self):
         (self.root / "folder").mkdir()

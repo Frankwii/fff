@@ -242,6 +242,7 @@ fn typing_over_a_pending_ranking_narrows_the_rows_shown() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }

@@ -159,6 +159,7 @@ fn clicks_highlight_drags_mark_double_clicks_enter_and_the_wheel_only_scrolls() 
                 directory: name == "dir",
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -235,6 +236,7 @@ fn a_drag_held_past_an_edge_scrolls_and_marks_on() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -452,6 +454,7 @@ fn buttons_do_what_their_keys_do() {
                 directory,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -650,6 +653,7 @@ fn normal_enter_on_a_cached_entry_that_is_gone_stays() {
                 directory,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
         app.refresh();

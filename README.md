@@ -48,6 +48,7 @@ and exit codes.
 | `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. |
 | `fff pick [ROOTS]` | Browse and print the chosen paths, for scripts and `$(...)`. |
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
+| `COMMAND \| fff` | Choose among the paths another program writes to stdin, and print the choice ([details](#choosing-from-another-programs-paths-command--fff)). |
 | `fff window [PATH]` | Browse in a terminal window of its own, as the desktop's file manager ([details](docs/DESKTOP.md#opening-directories)). |
 | `fff explorer open\|open-multiple\|folder\|save [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
 | `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--man`, `--desktop`, `--browser`, `--check-config`. |
@@ -57,9 +58,10 @@ into `roam`, `pick` or `seek` without losing your place (see
 [switching programs](#switching-programs)). Each can also search what files
 contain, PDFs included: Tab opens the [contents query](#searching-contents).
 
-`fff` without a command is `fff roam`. The search, interface and
-configuration options (`--depth`, `--glob`, `--palette`, `--config`, ...) work
-with every command, before or after its name.
+`fff` without a command is `fff roam`, unless paths come in on stdin. The
+search, interface and configuration options (`--depth`, `--glob`,
+`--palette`, `--config`, ...) work with every command, before or after its
+name.
 
 ## Shell integration
 
@@ -71,7 +73,9 @@ opens the marked ones in this terminal and comes back.
 
 `fff pick` prints the selection instead, for scripts and command substitution,
 as described under [returning paths](#browsing-and-returning-paths):
-`nvim "$(fff pick)"`, `fff pick -0 | xargs -0 ls -ld`.
+`nvim "$(fff pick)"`, `fff pick -0 | xargs -0 ls -ld`. Scripts that already
+list paths can [pipe them in](#choosing-from-another-programs-paths-command--fff)
+instead: `nvim "$(rg -l TODO | fff)"`.
 
 A program cannot change its parent shell's directory, so the shell does it, as
 with nnn's quitcd scripts and zoxide. Add one line to your shell's startup file:
@@ -100,8 +104,8 @@ fff can also be the desktop's file manager and file chooser: `fff setup
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
 except prompts made for typing (new names, the go-to prompt, the gx/gX command,
 the workspace form)
-and the query of `fff pick`, `fff seek` and `fff explorer save`, which start
-in **Insert mode**.
+and the query of `fff pick`, `fff seek`, `fff explorer save` and a list read
+from stdin, which start in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
 preserves your current editing mode. See [editing](docs/EDITING.md).
 
@@ -285,6 +289,50 @@ Discovery still traverses directories within the depth limit, and the query
 starts in Insert mode, ready to type. Result rows show their path below the
 folder searched; `gd` switches to bare file names, with only the parents
 that tell same-named files apart, as in `fff pick`.
+
+### Choosing from another program's paths: `COMMAND | fff`
+
+With stdin a pipe or a redirected file, `fff` without a command chooses among
+the paths written there, one per line, instead of browsing, and prints the
+choice to stdout, so a script that already lists paths gains fff's choice of
+them:
+
+```sh
+nvim "$(rg -l TODO | fff)"
+git ls-files | fff | xargs -r nvim
+zoxide query -l | fff
+fd -0 -e pdf | fff -0 | xargs -0r zathura
+```
+
+- **The rows** are the paths as the list orders them, best matches first once
+  you type. Relative paths are below the current directory and shown that
+  way; others are shown whole. Lines naming no existing file or folder are
+  skipped and counted on the status line, and a path named again is listed
+  once. Paths appear as they are read, so a slow command can still be
+  writing while you type. `-0` reads NUL-separated paths, for `fd -0`,
+  `find -print0` and names with newlines.
+- **Choosing** prints paths as the list spelled them (`./src/main.rs` stays
+  `./src/main.rs`), NUL-terminated with `-0`: Enter prints the highlighted
+  path (while typing, the marks and it), Ctrl+number does the same for its
+  row, and Ctrl+w prints the marks. A double click is Enter. `q` prints
+  nothing and Ctrl+c exits with 130, as in `fff pick`.
+- **What works** is the choice and how it looks: the names and
+  [contents](#searching-contents) queries, marks, the preview, sorting
+  (`gs`), labels (`gd`), hiding folders or files, palettes, F1 and F2. Nothing
+  navigates or lists anything else: no folders to go to, depth, hidden-entry,
+  filter or exclusion keys, rescans or live updates; no file operations,
+  undo, opening or running programs; no switching program (`gm`) or opening
+  a workspace. Their keys say so.
+- **The command line** takes only the interface and configuration options
+  (`--palette`, `--no-icons`, `--config`, `--no-config`) besides `-0`: ROOTS,
+  `--browse`, `--depth`, `--glob`, `--exclude`, `--hidden`,
+  `--no-exclusions` and `--workspace` are usage errors (exit 2), since the
+  list is listed as read; filter in the command that writes it. So is a
+  command (`fff pick`, `fff seek`, ...) with paths on stdin, which would
+  leave them unread; `fff setup` reads nothing and ignores stdin. A terminal,
+  `/dev/null` or a closed stdin is no list: `fff` browses as usual.
+- The [shell function](#shell-integration) passes through unchanged: the
+  session changes no directory.
 
 ### Searching contents
 

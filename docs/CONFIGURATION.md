@@ -1010,14 +1010,15 @@ A place is a combination of three things, fixed by design:
 
 | Dimension | Values |
 | --- | --- |
-| program | `roam`, `window`, `pick`, `seek`, `explorer-open`, `explorer-open-multiple`, `explorer-folder`, `explorer-save` (`fff explorer open`, `open-multiple`, `folder` with or without `--multiple`, and `save`) |
+| program | `roam`, `window`, `pick`, `seek`, `explorer-open`, `explorer-open-multiple`, `explorer-folder`, `explorer-save` (`fff explorer open`, `open-multiple`, `folder` with or without `--multiple`, and `save`), `piped` (`fff` with [paths on stdin](../README.md#choosing-from-another-programs-paths-command--fff)) |
 | list | `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 
 Each function works only in some places, which may be several:
 `quit_into_highlighted` works in `roam` and `pick` on a directory, or in
-`seek` on a file; `go_to_parent` everywhere but `seek`; `restore` in the
-results and the marked list. Insert mode exists only in the results.
+`seek` on a file; `go_to_parent` everywhere but `seek` and `piped`; `restore`
+in the results and the marked list. In `piped` only moving the highlight, the
+marks, the queries, the view, printing and quitting work. Insert mode exists only in the results.
 
 Keys are bound per mode, Insert or Normal, and each key applies in one place
 you choose: some programs, some lists, some highlights, all of them unless

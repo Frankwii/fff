@@ -29,6 +29,17 @@ history.
   `fff pick` with its own roots and globs can be a workspace instead.
   `fff window` and `fff explorer` apply all but the program.
 
+- **Paths from other programs**: with paths on stdin, `fff` without a
+  command chooses among them and prints the choice, as the lines spelled it,
+  for scripts that already list paths: `nvim "$(rg -l TODO | fff)"`,
+  `git ls-files | fff | xargs -r nvim`, `fd -0 | fff -0 | xargs -0r ls -ld`.
+  The rows keep the list's order (best matches first once you type), lines
+  naming nothing are skipped and counted, and the names and contents queries,
+  marks, the preview and sorting work as in `fff pick`. Nothing navigates,
+  rescans, changes or opens files there, and the options choosing what is
+  listed (`--depth`, `--glob`, ROOTS, ...) are usage errors, as is a command
+  with paths on stdin. `-0` reads and prints NUL-separated paths.
+
 ### Changed
 
 - **Bookmarks are workspaces**: `[[bookmarks]]` tables are now

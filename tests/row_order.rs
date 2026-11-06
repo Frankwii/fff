@@ -14,6 +14,7 @@ fn candidate(name: &str, directory: bool, depth: usize, root: usize) -> Candidat
         directory,
         depth,
         root,
+        order: 0,
     }
 }
 fn app(program: Program) -> App {
@@ -596,6 +597,7 @@ fn sizes_dates_and_kinds_are_read_from_the_filesystem() {
                 directory,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }

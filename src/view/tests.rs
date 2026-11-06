@@ -16,6 +16,7 @@ fn fixture() -> App {
                 directory,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -71,6 +72,7 @@ fn result_names_are_colored_by_file_kind() {
                 directory,
                 depth: name.split('/').count(),
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -161,6 +163,7 @@ fn rows_and_footer_show_details_that_fit() {
                 directory,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -261,6 +264,7 @@ fn a_wheel_scroll_keeps_its_view_until_the_highlight_moves() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -492,6 +496,7 @@ fn narrow_tiny_unicode_and_resize_frames_have_only_visible_targets() {
             directory: false,
             depth: 1,
             root: 0,
+            order: 0,
         },
     );
     app.refresh();
@@ -615,6 +620,7 @@ fn relative_labels_compact_parents_without_changing_targets() {
             directory: false,
             depth: 1,
             root: 1,
+            order: 0,
         },
     );
     app.refresh();
@@ -654,6 +660,7 @@ fn short_labels_show_names_with_only_the_parents_that_tell_them_apart() {
                 directory: false,
                 depth,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -698,6 +705,7 @@ fn match_rows_fit_their_labels_and_keep_them_until_relabelled() {
             directory: false,
             depth: 3,
             root: 0,
+            order: 0,
         },
     );
     app.scanning = false;
@@ -752,6 +760,7 @@ fn pick_rows_show_names_folders_included_and_follow_navigation() {
                 directory,
                 depth,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -773,6 +782,7 @@ fn pick_rows_show_names_folders_included_and_follow_navigation() {
                 directory,
                 depth,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -1548,6 +1558,7 @@ fn icons_keep_columns_elision_and_numbered_targets_aligned() {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -1706,6 +1717,7 @@ fn path_queries_highlight_letters_along_the_whole_label() {
                 directory,
                 depth,
                 root: 0,
+                order: 0,
             },
         );
     }
@@ -1793,6 +1805,7 @@ fn long_names_elided_to_fit_still_highlight_without_panicking() {
             directory: false,
             depth: 2,
             root: 0,
+            order: 0,
         },
     );
     app.scanning = false;
@@ -2221,6 +2234,7 @@ fn frames_drawn_while_a_scan_adds_paths_show_what_a_fresh_ranking_would() {
                     directory: n.is_multiple_of(5),
                     depth,
                     root: 0,
+                    order: 0,
                 });
             }
         }

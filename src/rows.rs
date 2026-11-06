@@ -15,6 +15,9 @@ pub enum Rank {
     Depth,
     /// The best score first, then as `Depth` (`fff pick` and `fff seek`).
     Score,
+    /// The best score first, then the order a list read from stdin gave
+    /// (`Candidate::order`), so that an empty query keeps it.
+    Listed,
 }
 impl Rank {
     fn cmp(self, a: &Candidate, score_a: i64, b: &Candidate, score_b: i64) -> Ordering {
@@ -23,6 +26,8 @@ impl Rank {
         let (first, second) = match self {
             Self::Depth => (depth, score),
             Self::Score => (score, depth),
+            // Each listed path has its own place: no tie is left.
+            Self::Listed => (score, a.order.cmp(&b.order)),
         };
         first
             .then(second)
@@ -634,6 +639,7 @@ mod tests {
                 directory: n.is_multiple_of(3),
                 depth: 1 + (n % 4) as usize,
                 root: (n % 2) as usize,
+                order: 0,
             },
         )
     }
@@ -651,6 +657,24 @@ mod tests {
         orders
     }
     #[test]
+    fn a_list_keeps_its_order_among_matches_as_good() {
+        let row = |path: &str, order| Candidate {
+            path: path.into(),
+            directory: path.ends_with('/'),
+            depth: 1,
+            root: 0,
+            order,
+        };
+        let key = |score| Key { score, value: 0 };
+        let listed = Order::from(Rank::Listed);
+        // Neither the name, the depth nor being a folder comes before it.
+        let (z, a, folder) = (row("/r/z", 0), row("/r/a", 1), row("/r/d/", 2));
+        assert!(listed.cmp(&z, key(0), &a, key(0)).is_lt());
+        assert!(listed.cmp(&a, key(0), &folder, key(0)).is_lt());
+        // The best match first.
+        assert!(listed.cmp(&folder, key(9), &z, key(1)).is_lt());
+    }
+    #[test]
     fn names_compare_naturally() {
         let mut names = ["file10", "File2", "file2", "a", "file02", "B", "file1b", ""];
         names.sort_by(|a, b| natural(a, b));
@@ -666,6 +690,7 @@ mod tests {
             directory: false,
             depth,
             root: 0,
+            order: 0,
         };
         let key = |score: i64, value: i64| Key { score, value };
         let (a, b, c) = (row("/r/a", 2), row("/r/b", 1), row("/r/c", 1));

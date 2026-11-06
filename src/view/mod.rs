@@ -655,6 +655,8 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     let theme = app.palette;
     let (scan, color) = if app.cache_pending && app.scanning && !app.quiet_scan {
         (["◌ cached, refreshing", "◌ incomplete"], theme.marked)
+    } else if app.scanning && !app.program().scans() {
+        (["◌ reading, incomplete", "◌ incomplete"], theme.marked)
     } else if app.scanning && !app.quiet_scan {
         (["◌ scanning, incomplete", "◌ incomplete"], theme.marked)
     } else if app.ranking_pending() {
@@ -675,7 +677,8 @@ fn status_line(app: &App, width: usize) -> Line<'static> {
     if app.policy.filtering() {
         optional.push(styled("filters on", theme.accent));
     }
-    if app.policy.hidden {
+    // A list read from stdin hides nothing, which is no setting of yours.
+    if app.policy.hidden && app.program().scans() {
         optional.push(styled("hidden shown", theme.accent));
     }
     // The configuration's own exclusions, unchanged, are not news.

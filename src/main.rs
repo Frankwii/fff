@@ -26,6 +26,8 @@ navigate with Enter, Alt+h and Alt+l, mark several paths with Space, and confirm
 The interface draws on /dev/tty. Without a command (fff roam), leaving fff
 changes your shell's directory, with the shell function from fff setup --init;
 fff pick prints the selected paths instead, for pipes and command substitution.
+With paths on stdin (rg -l TODO | fff), fff chooses among them and prints the
+choice instead, as the lines spelled it.
 
 With no ROOTS, browsing starts in the invocation directory and follows
 navigation. Each ROOT is pinned: its descendants stay in the results wherever
@@ -36,6 +38,7 @@ const AFTER_HELP: &str = color_print::cstr!(
   <cyan>fff</cyan>                             browse; ! or Enter on a file changes directory
   <cyan>eval \"$(fff setup --init zsh)\"</cyan>  shell integration line for ~/.zshrc
   <cyan>vim \"$(fff pick)\"</cyan>               open one picked file
+  <cyan>vim \"$(rg -l TODO | fff)\"</cyan>       choose among the paths another program lists
 
 Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 );
@@ -56,6 +59,10 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Act on every marked path with NUL-separated records.
   <cyan>fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura</cyan>
       Choose PDFs from anywhere below ~/papers and open them.
+  <cyan>git ls-files | fff | xargs -r nvim</cyan>
+      Choose among the paths another program lists, printed as it wrote them.
+  <cyan>fd -0 -e pdf | fff -0 | xargs -0r zathura</cyan>
+      The same with NUL-separated paths, read and printed.
   <cyan>fff setup --desktop; fff setup --browser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
   <cyan>fff explorer save ~/Downloads/paper.pdf</cyan>
@@ -203,6 +210,12 @@ struct Args {
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath,
         help_heading = "Shell integration")]
     cd_file: Option<PathBuf>,
+    /// Read NUL-separated paths from stdin, and print the choice NUL-terminated
+    ///
+    /// Only with paths on stdin and no command: for fd -0, find -print0 and
+    /// xargs -0. fff pick -0 prints NUL-terminated paths of its own.
+    #[arg(short = '0', long = "null", help_heading = "Paths from stdin")]
+    null_stdin: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -493,12 +506,23 @@ fn usage(flag: &str, error: &dyn std::fmt::Display) -> ! {
 }
 fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let mut args = Args::parse();
+    let piped = fuzzy_file_finder::piped::stdin_lists() && args.command.is_none();
+    if !piped {
+        refuse_stdin(&args);
+    } else {
+        refuse_for_list(&args);
+    }
     // fff roam's options before another command would be ignored.
     let roam = std::mem::take(&mut args.roam);
     if !matches!(args.command, None | Some(Command::Roam(_))) && !roam.is_empty() {
         conflict("roots and --browse belong to fff roam");
     }
     let mut mode = match args.command.take() {
+        None if piped => Mode {
+            program: fuzzy_file_finder::program::Program::Piped,
+            null: args.null_stdin,
+            ..Mode::default()
+        },
         None => Mode {
             roots: roam.roots,
             browse: roam.browse,
@@ -631,7 +655,13 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let depth = args
         .depth
         .map_or(mode.program.default_depth(), |depth| depth as usize);
-    let mut app = if let Some((start, _)) = &browse_from {
+    let mut app = if piped {
+        let input = Box::new(io::stdin());
+        App::piped(
+            invocation.clone(),
+            fuzzy_file_finder::piped::Piped::new(input, mode.null),
+        )
+    } else if let Some((start, _)) = &browse_from {
         App::browse(start.clone(), depth, policy)
     } else if roots.is_empty() {
         App::browse(invocation.clone(), depth, policy)
@@ -680,9 +710,8 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.details.keep_sizes(path);
     }
     app.no_icons = args.no_icons;
-    app.trash = settings
-        .trash
-        .enabled
+    // A list read from stdin changes no files, the trash's purge included.
+    app.trash = (settings.trash.enabled && !piped)
         .then(|| {
             fuzzy_file_finder::trash::Trash::from_env(settings.trash.days, settings.trash.ask_above)
         })
@@ -707,11 +736,72 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         app.workspaces.clone(),
         app.home.clone(),
     );
+    let spelled = match &app.running {
+        fuzzy_file_finder::program::Running::Piped(piped) => Some(piped.spelled.clone()),
+        _ => None,
+    };
     let (finish, program) = ui::run(app, settings.cache, watcher, settings.performance)?;
+    if let Some(spelled) = spelled {
+        return report_list(finish, &spelled, mode.null);
+    }
     // A session switched to another program leaves as that one does: fff
     // pick prints paths, roam and seek change directory.
     mode.program = program;
     report(finish, &mode, dialog, args.cd_file.as_deref(), &invocation)
+}
+/// Paths on stdin are read by fff without a command; one with a command
+/// exits with a usage error rather than leave them unread. `fff setup`
+/// and the D-Bus service read nothing, so stdin is theirs to ignore.
+fn refuse_stdin(args: &Args) {
+    let session = !matches!(
+        args.command,
+        None | Some(Command::Setup(_) | Command::DbusFileManager(_))
+    );
+    if session && fuzzy_file_finder::piped::stdin_lists() {
+        conflict(
+            "stdin is a pipe or file: fff reads paths from it only without a command (rg -l TODO | fff)",
+        );
+    }
+    if args.null_stdin {
+        conflict(
+            "-0 reads NUL-separated paths from stdin, which fff does without a command; fff pick -0 prints NUL-terminated paths",
+        );
+    }
+}
+/// What chooses which paths are listed has no say over a list read from
+/// stdin: it is listed as read, so those options are usage errors.
+fn refuse_for_list(args: &Args) {
+    let given = [
+        (!args.roam.roots.is_empty(), "ROOTS"),
+        (args.roam.browse, "--browse"),
+        (args.depth.is_some(), "--depth"),
+        (!args.glob.is_empty(), "--glob"),
+        (!args.exclusions.is_empty(), "--exclude"),
+        (args.hidden, "--hidden"),
+        (args.no_exclusions, "--no-exclusions"),
+        (args.workspace.is_some(), "--workspace"),
+    ];
+    if let Some((_, flag)) = given.iter().find(|(given, _)| *given) {
+        conflict(&format!(
+            "{flag} does not apply to paths read from stdin, which are listed as read"
+        ));
+    }
+}
+/// What a session choosing among paths read from stdin prints: the chosen
+/// ones, as the list spelled them. False when nothing was chosen.
+fn report_list(
+    finish: ui::Finish,
+    spelled: &fuzzy_file_finder::piped::Spellings,
+    null: bool,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let paths = match finish {
+        ui::Finish::Cancelled | ui::Finish::Exec(_) => return Ok(false),
+        ui::Finish::Paths(paths) => paths,
+        ui::Finish::Folder(folder) => vec![folder],
+    };
+    let spelled = spelled.of(&paths);
+    write_paths(io::stdout().lock(), &spelled, Path::new(""), false, null)?;
+    Ok(true)
 }
 /// --browse and fff explorer: the folder to start in and the file to
 /// highlight there, and explorer's dialog. `None` starts in the roots.

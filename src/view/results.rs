@@ -61,7 +61,11 @@ pub(super) fn results_pane(
         block
             .title_top(tab_strip(app))
             .title_bottom(Line::from(styled(
-                format!(" depth {}{order} ", app.depth),
+                if app.program().scans() {
+                    format!(" depth {}{order} ", app.depth)
+                } else {
+                    format!(" paths from stdin{order} ")
+                },
                 theme.text,
             )))
             .title_bottom(Line::from(styled(range, theme.muted)).right_aligned()),
@@ -82,6 +86,25 @@ pub(super) fn results_pane(
                 "No matches",
                 "No listed file contains the contents query; the names query chooses which are read."
                     .to_string(),
+            )
+        } else if app.scanning && !app.program().scans() {
+            (
+                "Reading the list…",
+                "Paths appear as they are read from stdin; you can keep typing.".to_string(),
+            )
+        } else if !app.program().scans() && app.query.is_empty() && app.kinds == crate::Kinds::All {
+            (
+                "No paths listed",
+                [
+                    Some("No line read from stdin names a file or folder".to_string()),
+                    does(app.bound(Function::Cancel), "leaves without a selection"),
+                ]
+                .into_iter()
+                .flatten()
+                .map(|clause| format!("{clause}. "))
+                .collect::<String>()
+                .trim_end()
+                .to_string(),
             )
         } else if app.scanning {
             (
@@ -168,6 +191,9 @@ pub(super) fn results_pane(
         let name_of = |c: &crate::Candidate| {
             let mut name = if short {
                 short_label(app, &c.path)
+            } else if !app.program().scans() && !c.path.starts_with(&app.cwd) {
+                // A listed path from elsewhere is shown whole.
+                tilde(&c.path, app.home.as_deref())
             } else {
                 display_path(&c.path, &app.cwd)
             };

@@ -11,6 +11,7 @@ fn listed(app: &mut App, names: &[&str]) {
                 directory: true,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
     }

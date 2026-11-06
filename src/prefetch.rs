@@ -223,6 +223,7 @@ fn read_seed(
             directory: kind.is_dir(),
             depth: 1,
             root: 0,
+            order: 0,
         });
     }
     if cancel.load(Ordering::Relaxed) {
@@ -268,6 +269,7 @@ mod tests {
                     directory: true,
                     depth: 1,
                     root: 0,
+                    order: 0,
                 },
             );
             app.refresh();

@@ -60,17 +60,25 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         (safe(app.cwd.display().to_string()), theme.text),
         (String::new(), theme.text),
         (
-            if app.query.is_empty() {
-                format!("Depth {} · no query", app.depth)
-            } else {
-                format!("Depth {} · query “{}”", app.depth, safe(&app.query))
+            match (app.program().scans(), app.query.is_empty()) {
+                (true, true) => format!("Depth {} · no query", app.depth),
+                (true, false) => format!("Depth {} · query “{}”", app.depth, safe(&app.query)),
+                (false, true) => "Paths read from stdin · no query".into(),
+                (false, false) => format!("Paths read from stdin · query “{}”", safe(&app.query)),
             },
             theme.muted,
         ),
-        (String::new(), theme.text),
-        ("DISCOVERY SCOPES".into(), theme.accent),
     ];
-    for (i, path) in app.scope.iter().enumerate() {
+    if app.program().scans() {
+        sections.push((String::new(), theme.text));
+        sections.push(("DISCOVERY SCOPES".into(), theme.accent));
+    }
+    for (i, path) in app
+        .scope
+        .iter()
+        .enumerate()
+        .filter(|_| app.program().scans())
+    {
         sections.push((
             format!(
                 "{} · {}",
@@ -91,6 +99,7 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
         if let Some(candidate) = app
             .shown_position(|c| &c.path == path)
             .and_then(|i| app.shown_row(i))
+            .filter(|_| app.program().scans())
         {
             let root = &app.scope[candidate.root];
             sections.push((
@@ -130,44 +139,58 @@ pub(super) fn session_lines(app: &App, width: usize) -> Vec<Line<'static>> {
     }
     sections.push((String::new(), theme.text));
     sections.push(("POLICIES".into(), theme.accent));
-    sections.push((
-        format!(
-            "Hidden entries {} · exclusions {}{}",
-            if app.policy.hidden {
-                "shown"
-            } else {
-                "not shown"
-            },
-            if app.policy.ignore { "enforced" } else { "off" },
-            if !app.program().navigates() {
-                " · files only (fff seek)"
-            } else {
+    if !app.program().scans() {
+        sections.push((
+            format!(
+                "Listed as read: nothing hidden or excluded{}",
                 match app.kinds {
                     crate::Kinds::Files => " · directories hidden",
                     crate::Kinds::Directories => " · files hidden",
                     crate::Kinds::All => "",
                 }
-            }
-        ),
-        theme.text,
-    ));
-    if app.policy.filters.is_empty() {
-        sections.push(("Filters: none".into(), theme.text));
-    } else if app.policy.filters_off {
-        sections.push(("Filters: off".into(), theme.text));
+            ),
+            theme.text,
+        ));
+    } else {
+        sections.push((
+            format!(
+                "Hidden entries {} · exclusions {}{}",
+                if app.policy.hidden {
+                    "shown"
+                } else {
+                    "not shown"
+                },
+                if app.policy.ignore { "enforced" } else { "off" },
+                if app.program().files_only() {
+                    " · files only (fff seek)"
+                } else {
+                    match app.kinds {
+                        crate::Kinds::Files => " · directories hidden",
+                        crate::Kinds::Directories => " · files hidden",
+                        crate::Kinds::All => "",
+                    }
+                }
+            ),
+            theme.text,
+        ));
+        if app.policy.filters.is_empty() {
+            sections.push(("Filters: none".into(), theme.text));
+        } else if app.policy.filters_off {
+            sections.push(("Filters: off".into(), theme.text));
+        }
+        sections.extend(
+            app.policy
+                .filters
+                .iter()
+                .map(|f| (format!("Filter: {}", safe(f)), theme.muted)),
+        );
+        sections.extend(
+            app.policy
+                .rules
+                .iter()
+                .map(|r| (format!("Exclude: {}", safe(r)), theme.muted)),
+        );
     }
-    sections.extend(
-        app.policy
-            .filters
-            .iter()
-            .map(|f| (format!("Filter: {}", safe(f)), theme.muted)),
-    );
-    sections.extend(
-        app.policy
-            .rules
-            .iter()
-            .map(|r| (format!("Exclude: {}", safe(r)), theme.muted)),
-    );
     sections.push((String::new(), theme.text));
     sections.push(("PALETTE".into(), theme.accent));
     sections.push((safe(&app.palette_name), theme.text));

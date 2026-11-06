@@ -184,6 +184,7 @@ mod tests {
                 directory: false,
                 depth: 1,
                 root: 0,
+                order: 0,
             },
         );
         app.refresh();

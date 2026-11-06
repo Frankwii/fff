@@ -186,6 +186,63 @@ fn output_formatting_needs_the_output_paths_mode() {
     }
 }
 
+/// fff run with `args` and `list` on stdin, through a pipe.
+fn fff_reading(args: &[&str], list: &[u8]) -> Output {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fff"))
+        .args(args)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("NO_COLOR", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // A refusal may exit before reading it.
+    let _ = child.stdin.take().unwrap().write_all(list);
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn paths_on_stdin_are_read_only_without_a_command_or_search_options() {
+    let refused = |args: &[&str], why: &str| {
+        let output = fff_reading(args, b"Cargo.toml\n");
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(why), "{args:?}: {stderr}");
+        assert!(output.stdout.is_empty());
+    };
+    for command in [
+        &["roam"][..],
+        &["pick"],
+        &["seek"],
+        &["window"],
+        &["explorer", "open"],
+    ] {
+        refused(command, "only without a command");
+    }
+    for args in [
+        &["src"][..],
+        &["--browse"],
+        &["--depth", "2"],
+        &["--glob", "*.rs"],
+        &["--exclude", "target"],
+        &["--hidden"],
+        &["--no-exclusions"],
+        &["--workspace", "papers"],
+    ] {
+        refused(args, "does not apply to paths read from stdin");
+    }
+    // -0 reads a list: without one it is refused.
+    let output = fff(&["--no-config", "-0"], None);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("-0 reads NUL-separated paths"));
+    // fff setup reads nothing, so what stdin holds does not matter.
+    let output = fff_reading(&["setup", "--init", "zsh"], b"Cargo.toml\n");
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("fff()"));
+}
+
 #[test]
 fn browse_takes_at_most_one_path() {
     assert_eq!(

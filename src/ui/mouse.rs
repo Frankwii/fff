@@ -88,7 +88,7 @@ pub(super) fn mouse_results(
             app.wanted = None;
             if double {
                 mouse.anchor = None;
-                if app.program().dialog() {
+                if app.program().clicks_enter() {
                     return true;
                 }
                 discovery.checkpoint(app);
@@ -404,9 +404,12 @@ impl Button {
         match self {
             Self::Back => app.program().navigates() && !app.back.is_empty(),
             Self::Up => app.program().navigates() && app.cwd.parent().is_some(),
-            Self::Open | Self::Mark => app.highlight.is_some(),
+            // A list read from stdin opens nothing and is listed as given.
+            Self::Open => app.program().scans() && app.highlight.is_some(),
+            Self::Mark => app.highlight.is_some(),
             Self::Select => !app.marks.is_empty() || app.highlight.is_some(),
-            Self::Hidden | Self::Cancel | Self::Dismiss | Self::Confirm => true,
+            Self::Hidden => app.program().scans(),
+            Self::Cancel | Self::Dismiss | Self::Confirm => true,
         }
     }
 }

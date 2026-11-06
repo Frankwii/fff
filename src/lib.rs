@@ -22,6 +22,7 @@ pub mod notify;
 pub mod open;
 pub mod operations;
 mod palettes;
+pub mod piped;
 mod policy;
 mod prefetch;
 pub mod preview;
@@ -63,6 +64,9 @@ pub struct Candidate {
     pub directory: bool,
     pub depth: usize,
     pub root: usize,
+    /// Its place in a list read from stdin (`Program::Piped`), whose order
+    /// ranks the rows a query scores alike; 0 elsewhere.
+    pub order: u32,
 }
 
 /// A ranking running on another thread, for this basis and query.
@@ -315,6 +319,19 @@ pub struct App {
 }
 
 impl App {
+    /// Choose among the paths `piped` reads, relative ones below `cwd`.
+    /// Every path is below `/`, the one root, and none is hidden or
+    /// excluded: the list is listed as given.
+    pub fn piped(cwd: PathBuf, piped: piped::Piped) -> Self {
+        let policy = Policy {
+            hidden: true,
+            ..Policy::default()
+        };
+        let mut app = Self::browse(cwd, program::Program::Piped.default_depth(), policy);
+        app.scope = vec![PathBuf::from("/")];
+        app.run(program::Running::Piped(Box::new(piped)));
+        app
+    }
     /// Browse freely when the caller supplied no fixed search roots.
     pub fn browse(cwd: PathBuf, depth: usize, policy: Policy) -> Self {
         let mut app = Self::new(vec![cwd], depth, policy);
@@ -440,16 +457,23 @@ impl App {
             .flatten()
     }
     /// Records the current directory's highlight, as most recently used.
+    /// A list's rows are not the directory's, so its highlight is not.
     pub fn remember(&mut self) {
         let Some(highlight) = self.highlight.clone() else {
             return;
         };
+        if self.program() == program::Program::Piped {
+            return;
+        }
         self.positions.retain(|(dir, _)| *dir != self.cwd);
         self.positions.push((self.cwd.clone(), highlight));
         let excess = self.positions.len().saturating_sub(state::CAPACITY);
         self.positions.drain(..excess);
     }
     pub fn remembered(&self, dir: &Path) -> Option<PathBuf> {
+        if self.program() == program::Program::Piped {
+            return None;
+        }
         self.positions
             .iter()
             .rev()
@@ -935,7 +959,7 @@ impl App {
     }
     /// The kinds listed: `fff seek` lists only files whatever `kinds` says.
     pub fn listed_kinds(&self) -> Kinds {
-        if !self.program().navigates() {
+        if self.program().files_only() {
             Kinds::Files
         } else {
             self.kinds

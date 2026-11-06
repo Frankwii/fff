@@ -385,7 +385,10 @@ impl Session {
         discovery.max_paths = performance.max_paths;
         app.cached_queries = performance.cached_queries;
         app.details.set_waker(wake.clone());
-        let watch = app.watch.then(crate::watch::Watch::new).flatten();
+        // A list read from stdin is not followed: its rows are the list's.
+        let watch = (app.watch && app.program().scans())
+            .then(crate::watch::Watch::new)
+            .flatten();
         let details_generation = app.generation;
         // Starting a scan clears the status; keep a startup notice (resuming).
         let notice = std::mem::take(&mut app.status);

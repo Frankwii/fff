@@ -94,36 +94,6 @@ number of paths: a scan within about twice the time of `fd | fzf` looks
 reachable, where it is several times today. Matching fzf exactly is not
 the aim; what is lost to the features above is the price of them.
 
-### Shell integration
-
-`fff seek` lists the files below its roots; another program could supply
-the list instead, the way `fzf` reads its candidates, so that a script
-already producing paths gains fff's choice of them: `rg -l TODO | fff seek
--`, `git ls-files | fff seek -`, `locate -i thesis | fff seek -`. Only
-`fff seek` would take a list at first, being already a static choice that
-never navigates.
-
-- **The list.** `-` as the only root reads it from stdin, one path per line
-  (NUL-separated with `--read0`, for `fd -0` and names with newlines);
-  without `-` stdin is never read, so a `fff seek` run in a loop reading
-  stdin keeps behaving as now. Keys come from `/dev/tty`, as they already
-  do. Paths stream in as the producer writes them, as a scan's batches do,
-  and the progress marker shows until stdin closes.
-- **Lines.** Relative paths resolve against the current directory, and rows
-  are labelled by their path below it. Lines naming no existing file or
-  folder are skipped and counted on the status line; repeats are listed
-  once.
-- **Options.** `--glob` and `--exclude` filter the list as they filter a
-  scan; `--depth` and `--hidden` decide what a scan reads, so they do not
-  apply. The program chose the paths, and its choice is kept.
-- **The session.** Rows are the list's, so nothing that would replace them
-  works: no live updates, no reload, no switching program with `gm` and no
-  opening a [workspace](../README.md#workspaces), since the list cannot be
-  read again. Marks, previews,
-  opening, the contents query, sorting and file operations work on the rows
-  as they do in `fff seek`; an operation's result shows in the rows only
-  for the paths listed (a deleted file leaves, a renamed one is renamed).
-
 ### The README
 
 Last, once the rest is done: the README polished into a guide a newcomer
