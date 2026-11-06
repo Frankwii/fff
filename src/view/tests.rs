@@ -862,7 +862,13 @@ fn the_sorting_picker_names_the_direction_and_the_border_the_order() {
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    assert!(screen.contains("Sort descending · Tab ascending · Enter sorts · Esc cancels"));
+    // The direction it sorts in, alone; the keys on the bottom border.
+    assert!(screen.contains("╭ Sort descending ─"), "{screen}");
+    assert!(!screen.contains("ascending"), "{screen}");
+    assert!(
+        screen.contains("Enter: Sort ─── Tab: Toggle ─── Esc: Cancel"),
+        "{screen}"
+    );
     assert!(screen.contains("↓ type a criterion's name"), "{screen}");
     assert!(screen.contains("› name        current ↓   Names alphabetically"));
     assert!(screen.contains("ranking"));

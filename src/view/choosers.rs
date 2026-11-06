@@ -648,36 +648,35 @@ pub(super) fn picker(
     let width = area.width.saturating_sub(4).min(110);
     let height = area.height.saturating_sub(4).min(24).min(every + 4);
     let dialog = centered(area, width, height);
-    let (enter, esc) = (app.key_or_none("enter"), app.key_or_none("esc"));
-    let (title, prompt, placeholder, name_width) = match kind {
+    let (title, keys, prompt, placeholder, name_width): (_, &[_], _, _, _) = match kind {
         Picker::Commands(_) => (
-            format!("Commands · {enter} runs · {esc} cancels"),
-            ":".to_string(),
+            "Commands",
+            &[("enter", "Run"), ("esc", "Cancel")],
+            ":",
             "type a function's name or words of what it does…",
             28,
         ),
-        Picker::Sort { descending } => {
-            let (now, other, arrow) = if descending {
-                ("descending", "ascending", "↓")
+        Picker::Sort { descending } => (
+            if descending {
+                "Sort descending"
             } else {
-                ("ascending", "descending", "↑")
-            };
-            let tab = app.key_or_none("tab");
-            (
-                format!("Sort {now} · {tab} {other} · {enter} sorts · {esc} cancels"),
-                arrow.to_string(),
-                "type a criterion's name or words of what it does…",
-                12,
-            )
-        }
+                "Sort ascending"
+            },
+            &[("enter", "Sort"), ("tab", "Toggle"), ("esc", "Cancel")],
+            if descending { "↓" } else { "↑" },
+            "type a criterion's name or words of what it does…",
+            12,
+        ),
     };
+    let hints = border_hints(app, keys, theme.accent, width.saturating_sub(4) as usize);
     let block = panel(
         theme,
-        mode_title(app, Field::Picker, &title),
+        mode_title(app, Field::Picker, title),
         true,
         theme.accent,
     )
-    .padding(Padding::horizontal(1));
+    .padding(Padding::horizontal(1))
+    .title_bottom(Line::from(hints).centered());
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);

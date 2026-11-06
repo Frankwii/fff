@@ -999,7 +999,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         (self.root / ".secret").touch()
         s = self.start(implicit_root=True, output_paths=False)
-        s.send(b":", "Esc cancels · INSERT")
+        s.send(b":", "Commands · INSERT")
         # Only what works here: fff roam answers no dialog.
         self.assertNotIn("save_here", s.screen.text)
         s.send(b"toggle_hid", "toggle_hidden")
@@ -1007,7 +1007,7 @@ class TerminalTests(unittest.TestCase):
         self.assertNotIn("Commands ·", s.screen.text)
         self.assertIn("Query · NORMAL", s.screen.text)
         # Escape goes back without running anything.
-        s.send(b":", "Esc cancels · INSERT")
+        s.send(b":", "Commands · INSERT")
         s.send(b"rescan")
         s.send(b"\x1b[27u")
         s.wait_absent("Commands ·")
@@ -1030,14 +1030,15 @@ class TerminalTests(unittest.TestCase):
                 found += [n for n in names if n in words and n not in found]
             return found
 
-        s.send(b"gs", "Sort ascending · Tab descending")
+        s.send(b"gs", "Sort ascending · INSERT")
+        self.assertIn("Tab: Toggle", s.screen.text)
         s.send(b"name", "Names alphabetically")
         s.send(b"\r", "sorted by name ↑")
         self.assertNotIn("Sort ascending", s.screen.text)
         self.assertEqual(order(), ["file1", "file2", "file10"])
         # Tab reverses; the picker opens at the current order.
         s.send(b"gs", "Sort ascending")
-        s.send(b"\t", "Sort descending · Tab ascending")
+        s.send(b"\t", "Sort descending · INSERT")
         s.send(b"\r", "sorted by name ↓")
         self.assertEqual(order(), ["file10", "file2", "file1"])
         s.send(b"gs", "Sort descending")
@@ -1788,7 +1789,7 @@ class TerminalTests(unittest.TestCase):
         # u undoes file operations; : opens the command picker, not
         # Neovim's command line.
         s.send(b"u", "Nothing to undo")
-        s.send(b":", "Esc cancels · INSERT")
+        s.send(b":", "Commands · INSERT")
         s.send(b"\x1b[27u")
         s.wait_absent("Commands ·")
         self.assertIn("❯ world", s.screen.text)
