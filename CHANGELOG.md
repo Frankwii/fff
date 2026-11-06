@@ -65,6 +65,10 @@ history.
   order Tab, Enter, Space, Esc. Space is there only where it does
   something, saying what (`Choose icon`, `Keep`, `Don't keep`), instead of
   grey text in the form.
+- **The `:` and sorting pickers have a Normal mode**, as the choosers do:
+  Escape while typing goes to Normal mode, where `j`, `k`, `gg` and `G` move
+  through the choices, and Escape there closes the picker (it used to close
+  it at once). The top border counts the commands or orders.
 - **Enter in a save dialog saves under the typed name** (or the suggested
   one), in Normal mode too and whatever is highlighted: it no longer enters
   the highlighted folder or offers to replace the highlighted file (`l`

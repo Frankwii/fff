@@ -1022,9 +1022,15 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r", "hidden shown")
         self.assertNotIn("Commands ·", s.screen.text)
         self.assertIn("Query · NORMAL", s.screen.text)
-        # Escape goes back without running anything.
+        # Escape leaves typing for Normal mode, where j, k, gg and G move,
+        # and a second Escape goes back without running anything.
         s.send(b":", "Commands · INSERT")
-        s.send(b"rescan")
+        s.send(b"toggle", "toggle_hidden")
+        s.send(b"\x1b[27u", "Commands · NORMAL")
+        first = next(l for l in s.screen.text.splitlines() if "› " in l and "toggle" in l)
+        s.send(b"j")
+        s.wait_absent(first)
+        s.send(b"gg", first)
         s.send(b"\x1b[27u")
         s.wait_absent("Commands ·")
         s.send(b"\x03")
@@ -1057,6 +1063,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\t", "Sort descending · INSERT")
         s.send(b"\r", "sorted by name ↓")
         self.assertEqual(order(), ["file10", "file2", "file1"])
+        # In Normal mode j and k move: the next order after name is size.
+        s.send(b"gs", "Sort descending · INSERT")
+        s.send(b"\x1b[27uj")
+        s.send(b"\r", "sorted by size ↓")
         s.send(b"gs", "Sort descending")
         s.send(b"size", "Sizes")
         s.send(b"\r", "sorted by size ↓")
@@ -1064,6 +1074,8 @@ class TerminalTests(unittest.TestCase):
         # Escape leaves the order as it is; ranking goes back to the
         # program's order, named nowhere.
         s.send(b"gs", "Sort descending")
+        s.send(b"\x1b[27u", "Sort descending · NORMAL")
+        self.assertIn("9 orders", s.screen.text)
         s.send(b"\x1b[27u")
         s.wait_absent("Sort descending")
         self.assertIn("sorted by size ↓", s.screen.text)
@@ -1907,6 +1919,7 @@ class TerminalTests(unittest.TestCase):
         # Neovim's command line.
         s.send(b"u", "Nothing to undo")
         s.send(b":", "Commands · INSERT")
+        s.send(b"\x1b[27u", "Commands · NORMAL")
         s.send(b"\x1b[27u")
         s.wait_absent("Commands ·")
         self.assertIn("❯ world", s.screen.text)
@@ -1943,9 +1956,12 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         s = self.start("--exclude", "build")
         s.send(b"ifile", "file")
-        s.send(b"\x1b[27u:q!\r", "Query · NORMAL")
+        # : opens the command picker, so :q! only types there.
+        s.send(b"\x1b[27u:q!\r", "Commands · INSERT")
         self.assertNotIn("Using basic editing", s.screen.text)
-        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"\x1b[27u", "Commands · NORMAL")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Commands ·")
         s.send(b"gE", "Edit exclusions")
         s.send(b"ggdGifile", "file")
         s.send(b"\x1b[27u", "NORMAL")

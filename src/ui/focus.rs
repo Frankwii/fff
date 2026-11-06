@@ -43,7 +43,8 @@ impl Session {
             Focus::WorkspaceEdit(_) => self.workspace_edit_key(app, key),
             Focus::WorkspaceIcons { .. } => self.workspace_icons_key(app, key),
             Focus::WorkspaceDelete { .. } => self.workspace_delete_key(app, key),
-            Focus::Info { .. } | Focus::Keys(_) | Focus::Picker { .. } => {}
+            Focus::Picker { .. } => return self.picker_key(app, key),
+            Focus::Info { .. } | Focus::Keys(_) => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
             // Keys never reach here while checks run, in the jobs list or

@@ -131,7 +131,10 @@ pub(super) fn chooser_key(
 ) -> ChooserKey {
     let list = matches!(
         focus,
-        Focus::Workspaces { .. } | Focus::Palettes { .. } | Focus::WorkspaceIcons { .. }
+        Focus::Workspaces { .. }
+            | Focus::Palettes { .. }
+            | Focus::WorkspaceIcons { .. }
+            | Focus::Picker { .. }
     );
     if !(list || matches!(focus, Focus::Location(_)))
         // Normal mode, also while a sequence begun there waits.
@@ -193,6 +196,9 @@ pub(super) fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
         Focus::Palettes { query, index, .. } => {
             *index = end(app.matching_palettes(query).len());
         }
+        Focus::Picker {
+            query, index, kind, ..
+        } => *index = end(kind.choices(query).len()),
         _ => {}
     }
 }

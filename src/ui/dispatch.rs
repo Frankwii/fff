@@ -229,7 +229,6 @@ impl Session {
                 return Ok(None);
             }
             Focus::Keys(_) => return self.keys_key(app, key),
-            Focus::Picker { .. } => return self.picker_key(app, key),
             Focus::Jobs { .. } => {
                 self.jobs_key(app, key);
                 return Ok(None);
@@ -560,12 +559,16 @@ impl Session {
     }
     /// A key in a picker: Enter takes the highlighted choice where the
     /// picker was opened (runs the function, sorts by the criterion),
-    /// Escape goes back there; the arrows, Alt+j and Alt+k move (and j and
-    /// k in Normal mode); in the sorting picker, Tab switches between
-    /// ascending and descending; other keys type.
-    fn picker_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
+    /// Escape goes back there from Normal mode (while typing it is Neovim's,
+    /// as in the choosers); the arrows, Alt+j and Alt+k move (and j and k in
+    /// Normal mode); in the sorting picker, Tab switches between ascending
+    /// and descending; other keys type.
+    pub(super) fn picker_key(
+        &mut self,
+        app: &mut App,
+        key: KeyEvent,
+    ) -> io::Result<Option<Finish>> {
         let page = self.drawn.page.max(1);
-        let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
         let Focus::Picker {
             query, index, kind, ..
         } = &mut self.focus
@@ -608,8 +611,8 @@ impl Session {
             }
             K::Down => *index = (*index + 1).min(last),
             K::Up => *index = index.saturating_sub(1),
-            K::Char('j') if alt || (plain && normal) => *index = (*index + 1).min(last),
-            K::Char('k') if alt || (plain && normal) => *index = index.saturating_sub(1),
+            K::Char('j') if alt => *index = (*index + 1).min(last),
+            K::Char('k') if alt => *index = index.saturating_sub(1),
             K::Char('n') if key.modifiers == M::CONTROL => *index = (*index + 1).min(last),
             K::Char('p') if key.modifiers == M::CONTROL => *index = index.saturating_sub(1),
             K::PageDown => *index = (*index + page).min(last),

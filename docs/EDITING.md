@@ -141,10 +141,11 @@ exclusions, filters and during command-line editing they go to Neovim.
 
 ## Normal-mode list keys
 
-These defaults apply in results, workspaces, workspace icons and palettes when the field is Normal,
-and always in the marked list, which has no text field:
+These defaults apply in results, workspaces, workspace icons, palettes and
+the `:` and sorting pickers when the field is Normal, and always in the marked
+list, which has no text field:
 
-| Key | Results | Workspace / palette chooser | Marked list |
+| Key | Results | Choosers and pickers | Marked list |
 | --- | --- | --- | --- |
 | `j` / `k` | Next / previous result | Next / previous entry | Next / previous mark |
 | `h` | Parent directory | Neovim motion | No action |

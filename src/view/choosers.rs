@@ -37,10 +37,7 @@ pub(super) fn workspaces(
     let height = area.height.saturating_sub(4).min(24).min(rows + 5);
     let dialog = centered(area, width, height);
     let hints = border_hints(app, &keys, theme.marked, width.saturating_sub(4) as usize);
-    let count = match app.workspaces.len() {
-        1 => "1 workspace".to_string(),
-        n => format!("{n} workspaces"),
-    };
+    let count = counted(app.workspaces.len(), "workspace", "workspaces");
     let block = panel(
         theme,
         mode_title(app, Field::Workspaces, "Workspaces"),
@@ -722,6 +719,13 @@ pub(super) fn palettes(
 /// A workspace's folder exists, from the details cache: drawing never waits
 /// for the filesystem, and one not read yet counts as available.
 /// The glyph of a workspace without an icon of its own.
+/// `1 one`, or `n many`.
+fn counted(n: usize, one: &str, many: &str) -> String {
+    match n {
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    }
+}
 fn folder_glyph() -> String {
     crate::icons::icon(Path::new(""), true).glyph.to_string()
 }
@@ -731,8 +735,7 @@ fn summary(app: &App, w: &crate::config::Workspace) -> String {
     use crate::config::Setting;
     let count = |n: usize, one: &str, many: &str| match n {
         0 => format!("no {many}"),
-        1 => format!("1 {one}"),
-        n => format!("{n} {many}"),
+        n => counted(n, one, many),
     };
     let show = |p: &Path| tilde(p, app.home.as_deref());
     w.path
@@ -813,6 +816,11 @@ pub(super) fn picker(
         ),
     };
     let hints = border_hints(app, keys, theme.accent, width.saturating_sub(4) as usize);
+    // How many there are, as the workspace chooser counts its own.
+    let count = match kind {
+        Picker::Commands(_) => counted(every.into(), "command", "commands"),
+        Picker::Sort { .. } => counted(every.into(), "order", "orders"),
+    };
     let block = panel(
         theme,
         mode_title(app, Field::Picker, title),
@@ -820,6 +828,7 @@ pub(super) fn picker(
         theme.accent,
     )
     .padding(Padding::horizontal(1))
+    .title_top(Line::from(styled(format!(" {count} "), theme.muted)).right_aligned())
     .title_bottom(Line::from(hints).centered());
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
