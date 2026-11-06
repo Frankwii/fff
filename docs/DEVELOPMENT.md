@@ -327,7 +327,10 @@ and mark reconciliation. Some safety tests create temporary Unix sockets and
 need an environment that permits them.
 
 The Rust tests cover state transitions, discovery, caching, configuration,
-completion, frames and exact output bytes. `tests/acceptance.rs` injects decoded
+completion, frames and exact output bytes. `tests/quick_operations.rs` times what
+a key waits for on 30 000 rows (each query key's ranking, `G`/`gg`, `m`/`M`,
+printing paths, scoring, natural ordering) against budgets generous enough
+for a debug build, so that only work growing out of proportion fails them. `tests/acceptance.rs` injects decoded
 input and discovery events; `tests/discovery_cache.rs` covers filesystem fixtures
 and snapshot reconciliation. Neovim tests use the installed engine and skip when
 it is unavailable.
