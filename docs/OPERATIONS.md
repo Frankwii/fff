@@ -51,9 +51,10 @@ they act on, which follow them to their new names.
 Operations preserve original filesystem paths independently of abbreviated labels
 and icons. Copy, move, symlink and delete support names containing non-UTF-8 bytes.
 Overlapping selections (a directory and one of its descendants) are refused;
-select each tree once. Moving/deleting the directory of any tab or its
-ancestors, and copying a directory into
-itself are refused. Moves across filesystems are refused; copy first instead.
+select each tree once. Moving or deleting the current directory or its
+ancestors, and copying a directory into itself, are refused; another tab's
+directory may go, and that tab follows it when it moves or falls back to the
+nearest existing parent when it is deleted. Moves across filesystems are refused; copy first instead.
 Trees containing a mount point are refused for every operation, so a mounted
 share is never copied or deleted through its parent. Mount points are detected
 with the kernel's mount-root flag, which also catches bind mounts from the same
@@ -415,7 +416,7 @@ Undoing changes nothing unless every entry is still the one the operation left
 an entry renamed, removed or replaced since, or a new file where the original
 was, stops the undo with a message, and the operation leaves the list. Steps
 are undone last to first; if one fails, those already undone are redone, so
-an undo happens completely or not at all. Undoing that would move a tab's
+an undo happens completely or not at all. Undoing that would move the current
 directory or one of its ancestors, or that collides with a running operation,
 is refused (and stays on the list): go up first, or wait. `u` undoes the
 operation that started last, so with several running or ended out of order,

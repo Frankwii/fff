@@ -2556,7 +2556,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"v", "Moved folder")
         s.send(b"ifolder", "❯ folder")
         s.send(b"\x1b[27ul", ("cwd", target / "folder"))
-        s.send(b"u", "Cannot undo: it would move a tab's directory")
+        s.send(b"u", "Cannot undo: it would move the current directory")
         s.send(b"h", ("cwd", target))
         s.send(b"u", "Undid: Moved folder")
         self.assertTrue((self.root / "folder").is_dir())

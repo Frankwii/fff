@@ -153,19 +153,15 @@ fn prepare(
         None => *focus = Focus::Busy(job),
     }
 }
-/// Whether moving `paths` away would move a tab's directory.
+/// Whether moving `paths` away would move the browsing directory. Other
+/// tabs' directories may go: a tab follows its moved directory, and one
+/// whose directory is gone falls back to the nearest existing parent.
 fn moves_cwd(app: &App, paths: impl IntoIterator<Item = impl AsRef<std::path::Path>>) -> bool {
     // Compare resolved paths too: the browsing path may run through a symlink.
-    let dirs: Vec<PathBuf> = app
-        .tab_dirs()
-        .into_iter()
-        .flat_map(|d| {
-            [
-                d.to_path_buf(),
-                d.canonicalize().unwrap_or_else(|_| d.to_path_buf()),
-            ]
-        })
-        .collect();
+    let dirs = [
+        app.cwd.clone(),
+        app.cwd.canonicalize().unwrap_or_else(|_| app.cwd.clone()),
+    ];
     paths.into_iter().any(|p| {
         let p = p.as_ref();
         let resolved = resolved(p);
@@ -592,7 +588,7 @@ fn progress_title(request: &crate::operations::Request) -> (String, bool) {
         Request::Restore { sources, .. } => (format!("Restoring {}", what(sources)), false),
     }
 }
-/// Starts `request` unless it would move a tab's directory or collide with
+/// Starts `request` unless it would move the browsing directory or collide with
 /// a running operation. The marked entries a move, copy, link, deletion or
 /// extraction acts on are unmarked as it starts, unless `keep_marks` (files
 /// dropped onto the terminal).
@@ -620,7 +616,7 @@ pub(super) fn perform_operation(
         _ => vec![],
     };
     if moves_cwd(app, &destructive) {
-        app.status = "Cannot change a tab's directory or its ancestors; go up first".into();
+        app.status = "Cannot change the current directory or its ancestors; go up first".into();
         return;
     }
     if refused(app, &Claim::of(&request)) {
@@ -684,7 +680,7 @@ pub(super) fn undo(app: &mut App, discovery: &mut Discovery) {
     };
     if moves_cwd(app, record.moving()) {
         app.status =
-            "Cannot undo: it would move a tab's directory or its ancestors; go up first".into();
+            "Cannot undo: it would move the current directory or its ancestors; go up first".into();
         return;
     }
     if refused(app, &Claim::of_undo(record)) {
@@ -839,20 +835,28 @@ fn ended(
                 .iter()
                 .map(|(from, to)| (from.as_path(), to))
                 .collect();
-            app.marks.update(|marked| {
-                // Nested renames report final paths; the deepest match wins.
-                if let Some((from, to)) = marked
+            // Nested renames report final paths; the deepest match wins.
+            let follow = |path: &mut PathBuf| {
+                if let Some((from, to)) = path
                     .ancestors()
                     .find_map(|a| moved.get(a).map(|to| (a, *to)))
                 {
-                    let suffix = marked.strip_prefix(from).expect("an ancestor");
-                    *marked = if suffix.as_os_str().is_empty() {
+                    let suffix = path.strip_prefix(from).expect("an ancestor");
+                    *path = if suffix.as_os_str().is_empty() {
                         to.clone()
                     } else {
                         to.join(suffix)
                     };
                 }
-            });
+            };
+            app.marks.update(&follow);
+            // The other tabs follow their moved directories too.
+            let active = app.tab;
+            for (i, tab) in app.tabs.iter_mut().enumerate() {
+                if i != active {
+                    follow(&mut tab.cwd);
+                }
+            }
             let removed: HashSet<&Path> = outcome.removed.iter().map(PathBuf::as_path).collect();
             app.marks
                 .retain(|p| !p.ancestors().any(|a| removed.contains(a)));
@@ -1245,6 +1249,48 @@ mod tests {
         }
         assert!(!dir.join("into/a").exists(), "{}", app.status);
         assert_eq!(app.marks.to_vec(), [dir.join("into"), dir.join("a")]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn other_tabs_follow_their_moved_directory_and_only_the_current_one_is_kept() {
+        let dir = scratch("tabs");
+        std::fs::create_dir_all(dir.join("folder/inner")).unwrap();
+        std::fs::create_dir(dir.join("into")).unwrap();
+        // Every tab starts in the folder fff started in; this one goes up.
+        let mut app = App::browse(dir.join("folder/inner"), 1, crate::Policy::default());
+        app.cwd = dir.clone();
+        let mut discovery = Discovery::new(Default::default());
+        let mut focus = Focus::Results;
+        let request = crate::operations::Request::Move {
+            sources: vec![dir.join("folder")],
+            directory: dir.join("into"),
+            replace: vec![],
+            confirmed: vec![],
+            into: None,
+        };
+        perform_operation(&mut app, &mut discovery, &mut focus, request, false);
+        while let Some(job) = app.jobs.first() {
+            let result = job.poll(Duration::from_secs(5)).unwrap();
+            let job = app.jobs.remove(0);
+            ended(&mut app, &mut discovery, job, result);
+        }
+        assert!(dir.join("into/folder/inner").is_dir(), "{}", app.status);
+        assert_eq!(app.tabs[1].cwd, dir.join("into/folder/inner"));
+        assert!(app.select_tab(1));
+        assert_eq!(app.cwd, dir.join("into/folder/inner"));
+        // The browsing directory itself is not moved away.
+        let request = crate::operations::Request::Delete {
+            sources: vec![dir.join("into")],
+            confirmed: vec![],
+            trash: vec![],
+        };
+        perform_operation(&mut app, &mut discovery, &mut focus, request, false);
+        assert_eq!(
+            app.status,
+            "Cannot change the current directory or its ancestors; go up first"
+        );
+        assert!(app.jobs.is_empty() && dir.join("into").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

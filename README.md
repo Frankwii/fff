@@ -198,8 +198,8 @@ switch to the next / previous tab, wrapping around; each tab keeps its own direc
 while marks, the query, depth, hidden entries, exclusions and filters are
 shared. Mark files in one tab, switch, browse somewhere far away, then move
 or copy them there with `v` / `p`. Switching to a tab in another directory lists
-it again with an empty query; a tab whose directory vanished falls back to the
-nearest existing parent. F2's session details list every tab's directory. `fff seek`, which cannot
+it again with an empty query; a tab whose directory is moved follows it, and one whose directory vanished falls
+back to the nearest existing parent. F2's session details list every tab's directory. `fff seek`, which cannot
 change directory, has no tabs: Up / Down in Normal mode move the highlight there.
 
 Ctrl+number is Enter on a visible row, exactly as if that row were highlighted

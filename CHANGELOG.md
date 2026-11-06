@@ -21,6 +21,11 @@ history.
 
 ### Fixed
 
+- **A folder open in another tab can be moved or deleted**: every tab starts
+  where fff started, so after going up from there, deleting that folder was
+  refused with "Cannot change a tab's directory" although no visible tab was
+  in it. Only the current tab's directory is protected now; another tab
+  follows its moved directory, or falls back to the nearest existing parent.
 - **A new extraction folder follows your umask**: it was always mode 0755,
   even under a stricter umask such as 077.
 - **An edited document is searched again** after an edit that kept its size
