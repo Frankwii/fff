@@ -771,6 +771,11 @@ impl Walk<'_> {
             let entries = match fs::read_dir(directory) {
                 Ok(e) => e,
                 Err(e) if gone(&e) => continue,
+                // A folder below the roots that is not ours to read (much
+                // of `/etc` and `/var`) is listed but not entered, as `fd`
+                // does: no error, and the scan still counts as complete. A
+                // root that cannot be read is an error.
+                Err(e) if depth > 1 && denied(&e) => continue,
                 Err(e) => {
                     let error = format!("{}: {e}", directory.display());
                     if self.tx.send(Event::Error(generation, error)).is_err() {
@@ -839,6 +844,10 @@ impl Walk<'_> {
     }
 }
 
+/// An error that means the entry may not be read.
+fn denied(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
+}
 /// An error that means the entry is no longer there.
 fn vanished(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
@@ -945,6 +954,21 @@ mod tests {
         walker.join().unwrap();
         found.sort();
         found
+    }
+    #[test]
+    fn folders_that_may_not_be_read_are_listed_without_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("fff-denied-walk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("locked/inside")).unwrap();
+        fs::create_dir_all(root.join("open")).unwrap();
+        fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
+        // `walked` fails on an error event.
+        let found = walked(vec![root.clone()], 3, crate::mounts::Mounts::default());
+        fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(found.contains(&root.join("locked")));
+        assert!(found.contains(&root.join("open")));
+        fs::remove_dir_all(&root).unwrap();
     }
     #[test]
     fn walks_do_not_enter_kernel_filesystems_from_outside() {

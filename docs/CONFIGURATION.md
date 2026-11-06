@@ -290,6 +290,13 @@ folder again. A total is checked again after ten minutes. Until the new total
 arrives, the old one is shown. Deleting the file only makes the next session
 add everything up again.
 
+### Folders you cannot read
+
+A folder below the one scanned that you may not read (much of `/etc`,
+`/var` and `/root` from `/`) is listed but not entered, as `fd` does: no
+error, and the scan still counts as complete, so its results are cached as
+any other. A scanned folder itself that cannot be read is an error.
+
 ### Kernel filesystems
 
 `/proc`, `/sys`, `/dev` and the kernel's other filesystems hold no files of

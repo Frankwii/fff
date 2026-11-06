@@ -4,6 +4,23 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Fixed
+
+- **Scanning from `/` no longer reports folders you may not read.** A
+  folder below the scanned one that is closed to you (`/etc/audit/plugins.d`,
+  say) is listed but not entered, without "Permission denied" in the status
+  line; the scan also counts as complete again, so `/` is cached and not
+  scanned afresh at each visit.
+- **A contents query over a huge tree no longer makes fff lag.** Working out
+  which files to search and in what order the matches go read every row on
+  each frame (hundreds of milliseconds per frame on a million paths); it now
+  happens on a thread of its own, the search's threads run below the
+  interface's priority, and each frame takes found matches for at most a few
+  milliseconds. Matches may appear a moment later; keys and scrolling stay
+  immediate.
+
 ## 0.19.2 — 2026-11-06
 
 The contents cache is private, and file operations on many marks or on

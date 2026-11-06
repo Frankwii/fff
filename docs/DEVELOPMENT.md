@@ -15,7 +15,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/piped.rs` | `fff` with paths on stdin (`Program::Piped`): whether stdin is a list, reading it into rows (resolved, numbered in order, each path once, missing ones counted) and each path's line as spelled, which is what is printed. Discovery reads it once in place of a scan (`Scan::read`), and never rescans, caches or watches it. |
 | `src/discovery.rs` | Cancellable breadth-first traversal, each depth's folders read on several threads and its paths attributed to their roots there, batches, backpressure, the path limit, freshness and scan reconciliation. |
-| `src/grep.rs` | The contents query (the `App::grep` field, in every program): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
+| `src/grep.rs` | The contents query (the `App::grep` field, in every program): extraction into the text cache, the search on worker threads, the planner (a thread per search that reads every row: queues the files not yet searched, in the rows' order, and finds each file's place) and the rows it shows (one per match), sorted by those places. A `poll` costs about the matches, not the rows. |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
 | `src/rows.rs` | The results' order (`Order`: the program's `Rank` or a chosen `Sort`), each row's key (`Key`: its score and a sort's value read from the filesystem), natural name comparison, and the ranked rows (`Rows`): sorted runs merged lazily, and the one way to read every row in order (`Rows::all`). |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
@@ -137,8 +137,9 @@ the rows; `App::refresh` decides when they are ranked again or merged.
     highlight;
   - the mouse: clicks (`highlight_row`), drags and the drag held at an edge
     (`ui/mouse.rs` `drag`, over `shown`);
-  - the contents query, which queues the listed files in order and lists
-    its matches by them (`poll_grep`);
+  - the contents query's planner, on its own thread and its own clone of
+    the rows (`grep::Planner`), which merges them there: the rows it is
+    given stay as runs here;
   - the discovery cache's snapshot of the first rows (`Cache::capture`) and
     the rows a new scan replays (`Discovery::restart`);
   - the F2 Session tab's highlighted path, the highlight's index
@@ -162,12 +163,12 @@ Where the features of the [roadmap](ROADMAP.md#post-launch) plug in:
   and `App::merge`; the order then sorts by that score.
 
 Risks this design carries: once anything reads past the first `LAZY` rows
-(the view scrolled that far, the highlight there, `G`, a contents query, a
-mouse drag), the rest of the scan merges as it did before runs, no slower
-and no faster. The first `LAZY` rows are copied into `head` and merged
-again with each round that ranks among them. `Rows::all` copies the row
-pointers when there is more than one run. Kept queries and pending rankings
-share runs, so merging a run they share copies it, as it did before.
+(the view scrolled that far, the highlight there, `G`, a mouse drag), the
+rest of the scan merges as it did before runs, no slower and no faster. The
+first `LAZY` rows are copied into `head` and merged again with each round
+that ranks among them. `Rows::all` copies the row pointers when there is
+more than one run. Kept queries, pending rankings and a contents query's
+planner share runs, so merging a run they share copies it, as it did before.
 
 ## Behavior to preserve
 

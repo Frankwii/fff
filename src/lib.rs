@@ -660,13 +660,7 @@ impl App {
             .highlighted()
             .and_then(|i| self.grep.shown_hits.get(i))
             .map(|(hits, at)| (Arc::clone(hits), *at));
-        // Its search queues the listed files in order: every row.
-        let rows: &[Arc<Candidate>] = if self.grep.active() {
-            self.rows.all()
-        } else {
-            &[]
-        };
-        if !self.grep.poll(rows, self.rows_version) {
+        if !self.grep.poll(&self.rows, self.rows_version) {
             return false;
         }
         let first = self.shown_row(0).map(|c| c.path.clone());

@@ -10,11 +10,13 @@
 //! which gives each match its page.
 //!
 //! Searching happens here, on worker threads, in the order of the rows: no
-//! program runs per search. The contents index (`index`) knows which files
+//! program runs per search. What reads every row (which files to search,
+//! where each one's matches go) runs on a planner thread, so that a frame
+//! costs about the matches however many rows there are. The contents index (`index`) knows which files
 //! cannot match, so that they are not read. A new query stops the old search, but an
 //! extraction already running finishes into the cache, since the next query
 //! needs the same text.
-use crate::{Candidate, index};
+use crate::{Candidate, index, rows::Rows};
 use regex_automata::meta::Regex;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -45,11 +47,17 @@ const TEXT_LIMIT: u64 = 64 << 20;
 /// Bytes of a text file checked for a NUL, which marks it binary.
 const SNIFF: usize = 8192;
 /// While matches stream in, the shown rows are built again at most this
-/// often: each time reads every row.
+/// often.
 const REBUILD: Duration = Duration::from_millis(50);
+/// How long a `poll` takes what the workers and the planner found; the
+/// rest waits for the next one, so that a frame is never held up.
+const TAKE_BUDGET: Duration = Duration::from_millis(4);
+/// Files the planner hands over at a time, for workers to start early.
+const PLAN_CHUNK: usize = 4096;
 /// How long an extraction may take before it is given up.
 const EXTRACT_TIME: Duration = Duration::from_secs(120);
-/// Extractions run at this niceness, below the interface.
+/// Extractions, the workers and the planner run at this niceness, below
+/// the interface.
 const NICENESS: i32 = 10;
 /// Worker threads across searches; a stopped search's workers finish the
 /// file they hold.
@@ -360,6 +368,13 @@ enum Extraction {
 }
 /// Runs an extractor without a shell or a terminal, at low priority, and
 /// returns its output; it is killed after `EXTRACT_TIME`.
+/// Run the calling thread at `NICENESS`: Linux keeps a niceness per thread.
+fn below_interface() {
+    // SAFETY: setpriority changes only the calling thread's priority.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, NICENESS);
+    }
+}
 fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec<u8>, Extraction> {
     let mut command = Command::new(program);
     command
@@ -892,14 +907,142 @@ impl PartialEq for Row {
 impl Eq for Row {}
 impl std::hash::Hash for Row {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        (Arc::as_ptr(&self.0) as usize).hash(state);
+        state.write_usize(Arc::as_ptr(&self.0) as usize);
     }
 }
-/// What a worker found in one file.
+/// Hashes a row's address by a folded multiplication, which spreads it to
+/// the low bits and the high ones alike: a search keeps maps of every row,
+/// which grow and are rebuilt often enough that SipHash shows.
+#[derive(Default)]
+struct ByAddress(u64);
+impl std::hash::Hasher for ByAddress {
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("rows hash only their address")
+    }
+    fn write_usize(&mut self, address: usize) {
+        let product = u128::from(address as u64) * 0x9e37_79b9_7f4a_7c15;
+        self.0 = product as u64 ^ (product >> 64) as u64;
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+type RowMap<V> = HashMap<Row, V, std::hash::BuildHasherDefault<ByAddress>>;
+type RowSet = HashSet<Row, std::hash::BuildHasherDefault<ByAddress>>;
+/// What a worker found in one file, or what the planner worked out.
 enum Found {
     Hits(Row, Arc<[Hit]>),
     /// No text: binary, unreadable, or its extractor (named) is missing.
     Skipped(Row, Option<&'static str>),
+    /// Files the narrowed query did not match: searched without reading.
+    Unmatched(Vec<Row>),
+    /// Files queued whose contents changed (none, possibly): searched again.
+    Touched(Vec<Row>),
+    /// Each listed file's place in the rows of this version.
+    Placed(u64, RowMap<usize>),
+}
+
+/// What the planner is asked: rows of a version to plan, or paths whose
+/// files changed.
+enum Plan {
+    Rows(Rows, u64),
+    Touched(Vec<PathBuf>),
+}
+
+/// The part of a search that reads every row, on a thread of its own so
+/// that frames never wait for it: it queues the files no earlier rows held
+/// (in the rows' order) and finds each file's place, by which the matches
+/// are shown. Through `found`, like the workers.
+struct Planner {
+    /// Every file queued, so that one is queued once.
+    queued: RowSet,
+    /// The previous query's results, when this one narrows it: files it
+    /// did not match cannot match now.
+    narrowing: Option<RowMap<Arc<[Hit]>>>,
+    queue: Arc<Mutex<VecDeque<Row>>>,
+    /// Files queued, counted before they are.
+    total: Arc<AtomicUsize>,
+    cancel: Arc<AtomicBool>,
+    sender: Sender<Found>,
+    waker: Option<SyncSender<()>>,
+}
+impl Planner {
+    fn plan(&mut self, plan: Plan) {
+        match plan {
+            Plan::Rows(rows, version) => self.place(&rows, version),
+            Plan::Touched(paths) => self.touched(&paths),
+        }
+    }
+    fn place(&mut self, rows: &Rows, version: u64) {
+        let mut places = RowMap::default();
+        let (mut fresh, mut unmatched) = (Vec::new(), Vec::new());
+        for (at, c) in rows.all().iter().enumerate() {
+            if c.directory {
+                continue;
+            }
+            let row = Row(Arc::clone(c));
+            if !self.queued.contains(&row) {
+                // Copies and extractions still being written are not searched.
+                if crate::operations::staged(&c.path) {
+                    continue;
+                }
+                self.queued.insert(row.clone());
+                // A file the shorter query searched without a match cannot
+                // match a longer one.
+                match self.narrowing.as_ref().and_then(|n| n.get(&row)) {
+                    Some(hits) if hits.is_empty() => unmatched.push(row.clone()),
+                    _ => fresh.push(row.clone()),
+                }
+                if fresh.len() + unmatched.len() >= PLAN_CHUNK {
+                    if self.cancel.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    self.hand(&mut fresh, &mut unmatched);
+                }
+            }
+            places.insert(row, at);
+        }
+        self.hand(&mut fresh, &mut unmatched);
+        let _ = self.sender.send(Found::Placed(version, places));
+        self.wake();
+    }
+    /// Queue `fresh` and report `unmatched`, counting both first.
+    fn hand(&self, fresh: &mut Vec<Row>, unmatched: &mut Vec<Row>) {
+        self.total
+            .fetch_add(fresh.len() + unmatched.len(), Ordering::Relaxed);
+        if !unmatched.is_empty() {
+            let _ = self
+                .sender
+                .send(Found::Unmatched(std::mem::take(unmatched)));
+        }
+        if !fresh.is_empty() {
+            let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+            queue.extend(fresh.drain(..));
+        }
+        self.wake();
+    }
+    fn touched(&self, paths: &[PathBuf]) {
+        let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        let rows: Vec<Row> = self
+            .queued
+            .iter()
+            .filter(|r| paths.contains(r.0.path.as_path()))
+            .cloned()
+            .collect();
+        let _ = self.sender.send(Found::Touched(rows));
+        self.wake();
+    }
+    fn wake(&self) {
+        if let Some(waker) = &self.waker {
+            let _ = waker.try_send(());
+        }
+    }
+}
+/// Where a search's planner runs: on its thread, or here if that could not
+/// start.
+enum Planning {
+    Thread(Sender<Plan>),
+    Here(Planner),
 }
 
 /// One query's search over the rows.
@@ -907,26 +1050,47 @@ struct Search {
     query: String,
     pattern: Arc<Pattern>,
     queue: Arc<Mutex<VecDeque<Row>>>,
-    /// Every file handed to this search, so that new rows are added once.
-    queued: HashSet<Row>,
     /// Files that changed before their results came: searched again then.
-    again: HashSet<Row>,
+    again: RowSet,
     cancel: Arc<AtomicBool>,
     /// Matches the workers found: past `TOTAL`, files are no longer read.
     matched: Arc<AtomicUsize>,
     found: Receiver<Found>,
     sender: Sender<Found>,
-    /// The previous query's results, when this one narrows it: files it
-    /// did not match cannot match now.
-    narrowing: Option<HashMap<Row, Arc<[Hit]>>>,
+    planning: Planning,
+    /// The rows version last handed to the planner, and the one it placed
+    /// last: one at a time.
+    sent: Option<u64>,
+    placed: Option<u64>,
+    /// Changed paths the planner has not answered yet.
+    touches: usize,
+    /// Each listed file's place in the rows `placed`.
+    places: RowMap<usize>,
     /// Matches kept so far, up to `TOTAL`.
     kept: usize,
-    total: usize,
+    /// Files queued, as the planner counts them.
+    total: Arc<AtomicUsize>,
     done: usize,
+}
+impl Search {
+    fn plan(&mut self, plan: Plan) {
+        match &mut self.planning {
+            Planning::Thread(plans) => {
+                let _ = plans.send(plan);
+            }
+            Planning::Here(planner) => planner.plan(plan),
+        }
+    }
+    fn total(&self) -> usize {
+        self.total.load(Ordering::Relaxed)
+    }
 }
 impl Drop for Search {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+        let places = std::mem::take(&mut self.places);
+        let len = places.len();
+        crate::known::discard(places, len);
     }
 }
 
@@ -939,20 +1103,26 @@ pub struct Grep {
     pub editing: bool,
     search: Option<Search>,
     /// The current query's results by file; empty when it does not match.
-    hits: HashMap<Row, Arc<[Hit]>>,
+    hits: RowMap<Arc<[Hit]>>,
+    /// The files among `hits` with matches kept.
+    matching: RowSet,
     /// Files with more than `PER_FILE` matches, the rest left out.
-    cut: HashSet<Row>,
+    cut: RowSet,
     /// Shown rows: one per match, files in the rows' order, and each one's
     /// match.
     pub shown: Vec<Arc<Candidate>>,
     pub shown_hits: Vec<(Arc<[Hit]>, usize)>,
     /// A shown file has more matches than it shows.
     shown_cut: bool,
-    /// The rows and results `shown` was built from, and when.
+    /// The rows (as placed) and results `shown` was built from, and when.
     shown_from: Option<(u64, usize)>,
     built: Option<Instant>,
     /// Matches came that `shown` does not show yet.
     stale: bool,
+    /// What was found waits to be taken, past a poll's budget.
+    backlog: bool,
+    /// The planner has not placed the latest rows yet.
+    behind: bool,
     generation: usize,
     /// Extractors met that are not installed.
     pub missing: Vec<&'static str>,
@@ -976,24 +1146,31 @@ impl Grep {
     pub fn active(&self) -> bool {
         !self.text.trim().is_empty()
     }
-    /// Files searched and to search, while a search runs.
+    /// Files searched and to search, while a search runs (or its files
+    /// are still being worked out).
     pub fn progress(&self) -> Option<(usize, usize)> {
         let search = self.search.as_ref()?;
-        (search.done < search.total).then_some((search.done, search.total))
+        let total = search.total();
+        (self.behind || search.done < total).then_some((search.done, total))
     }
-    /// Catch up: start a search for a new query, hand it rows not yet
-    /// searched (`rows`, changed when `rows_version` does), take what the
-    /// workers found and rebuild the shown rows. True when they changed.
-    pub fn poll(&mut self, rows: &[Arc<Candidate>], rows_version: u64) -> bool {
+    /// Catch up: start a search for a new query, hand its planner the rows
+    /// (changed when `rows_version` does), take what the workers and the
+    /// planner found and rebuild the shown rows. True when they changed.
+    /// What reads every row happens on the planner's thread: a poll costs
+    /// about the matches, whatever the number of rows.
+    pub fn poll(&mut self, rows: &Rows, rows_version: u64) -> bool {
         if !self.active() {
             let had = !self.shown.is_empty() || self.search.is_some();
             self.search = None;
-            self.hits.clear();
+            self.forget_hits();
+            self.matching.clear();
             self.cut.clear();
             self.shown.clear();
             self.shown_hits.clear();
             self.shown_cut = false;
             self.shown_from = None;
+            self.backlog = false;
+            self.behind = false;
             return had;
         }
         let query = self.text.trim().to_owned();
@@ -1008,22 +1185,67 @@ impl Grep {
             let narrowing = previous
                 .filter(|p| narrows(&p.query, &query) && p.matched.load(Ordering::Relaxed) < TOTAL)
                 .map(|_| std::mem::take(&mut self.hits));
-            self.hits.clear();
+            self.forget_hits();
+            self.matching.clear();
             self.cut.clear();
+            // The previous query's matches go now, not once the rows are placed.
+            self.shown.clear();
+            self.shown_hits.clear();
+            self.shown_cut = false;
             let (sender, found) = mpsc::channel();
+            let (queue, cancel, total) = (Arc::default(), Arc::default(), Arc::default());
+            let planner = Planner {
+                queued: RowSet::default(),
+                narrowing,
+                queue: Arc::clone(&queue),
+                total: Arc::clone(&total),
+                cancel: Arc::clone(&cancel),
+                sender: sender.clone(),
+                waker: self.waker.clone(),
+            };
+            let (plans, waiting) = mpsc::channel::<Plan>();
+            let slot = Arc::new(Mutex::new(Some(planner)));
+            let theirs = Arc::clone(&slot);
+            let spawned = std::thread::Builder::new()
+                .name("fff-grep-plan".into())
+                .spawn(move || {
+                    let Some(mut planner) = theirs.lock().ok().and_then(|mut p| p.take()) else {
+                        return;
+                    };
+                    below_interface();
+                    while let Ok(plan) = waiting.recv() {
+                        if planner.cancel.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        planner.plan(plan);
+                    }
+                });
+            let planning = match spawned {
+                Ok(_) => Planning::Thread(plans),
+                // Without its thread, the planner works here.
+                Err(_) => Planning::Here(
+                    slot.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take()
+                        .expect("its thread never started"),
+                ),
+            };
             self.search = Some(Search {
                 query,
                 pattern: Arc::new(pattern),
-                queue: Arc::default(),
-                queued: HashSet::new(),
-                again: HashSet::new(),
-                cancel: Arc::default(),
+                queue,
+                again: RowSet::default(),
+                cancel,
                 matched: Arc::default(),
                 found,
                 sender,
-                narrowing,
+                planning,
+                sent: None,
+                placed: None,
+                touches: 0,
+                places: RowMap::default(),
                 kept: 0,
-                total: 0,
+                total,
                 done: 0,
             });
             self.shown_from = None;
@@ -1031,49 +1253,74 @@ impl Grep {
         }
         let search = self.search.as_mut().expect("started above");
         let mut changed = false;
-        if self
-            .shown_from
-            .is_none_or(|(version, _)| version != rows_version)
-        {
-            let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
-            // Copies and extractions still being written are not searched.
-            for c in rows
-                .iter()
-                .filter(|c| !c.directory && !crate::operations::staged(&c.path))
-            {
-                let row = Row(Arc::clone(c));
-                if !search.queued.insert(row.clone()) {
+        let start = Instant::now();
+        self.backlog = false;
+        let mut rebuild = self.stale;
+        loop {
+            if start.elapsed() >= TAKE_BUDGET {
+                self.backlog = true;
+                break;
+            }
+            let Ok(found) = search.found.try_recv() else {
+                break;
+            };
+            changed = true;
+            let (row, outcome) = match found {
+                Found::Placed(version, places) => {
+                    search.placed = Some(version);
+                    let old = std::mem::replace(&mut search.places, places);
+                    let len = old.len();
+                    crate::known::discard(old, len);
+                    rebuild = true;
                     continue;
                 }
-                search.total += 1;
-                // A file the shorter query searched without a match cannot
-                // match a longer one.
-                match search.narrowing.as_ref().and_then(|n| n.get(&row)) {
-                    Some(hits) if hits.is_empty() => {
-                        self.hits.insert(row, Arc::from([]));
+                Found::Unmatched(rows) => {
+                    for row in rows {
+                        if search.again.remove(&row) {
+                            let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
+                            queue.push_back(row);
+                            continue;
+                        }
                         search.done += 1;
+                        self.hits.insert(row, Arc::from([]));
                     }
-                    _ => queue.push_back(row),
+                    continue;
                 }
-            }
-            changed = true;
-        }
-        // The shown rows change with the rows, or with a file that matched;
-        // files without a match change only the count.
-        let mut rebuild = self.stale || self.shown_from != Some((rows_version, self.generation));
-        while let Ok(found) = search.found.try_recv() {
-            let row = match &found {
-                Found::Hits(row, _) | Found::Skipped(row, _) => row,
+                Found::Touched(rows) => {
+                    search.touches -= 1;
+                    let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
+                    for row in rows {
+                        // One not searched yet may be read now, before the change.
+                        let Some(hits) = self.hits.remove(&row) else {
+                            search.again.insert(row);
+                            continue;
+                        };
+                        self.matching.remove(&row);
+                        self.cut.remove(&row);
+                        search.done -= 1;
+                        search.kept -= hits.len();
+                        let _ =
+                            search
+                                .matched
+                                .try_update(Ordering::Relaxed, Ordering::Relaxed, |m| {
+                                    Some(m.saturating_sub(hits.len()))
+                                });
+                        queue.push_back(row);
+                        rebuild = true;
+                    }
+                    continue;
+                }
+                Found::Hits(row, hits) => (row, Ok(hits)),
+                Found::Skipped(row, missing) => (row, Err(missing)),
             };
-            if search.again.remove(row) {
+            if search.again.remove(&row) {
                 let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
-                queue.push_back(row.clone());
+                queue.push_back(row);
                 continue;
             }
             search.done += 1;
-            changed = true;
-            match found {
-                Found::Hits(row, mut hits) => {
+            match outcome {
+                Ok(mut hits) => {
                     if hits.len() > PER_FILE {
                         hits = Arc::from(&hits[..PER_FILE]);
                         self.cut.insert(row.clone());
@@ -1087,9 +1334,12 @@ impl Grep {
                     } else {
                         hits
                     };
+                    if !hits.is_empty() {
+                        self.matching.insert(row.clone());
+                    }
                     self.hits.insert(row, hits);
                 }
-                Found::Skipped(row, missing) => {
+                Err(missing) => {
                     if let Some(tool) = missing
                         && !self.missing.contains(&tool)
                     {
@@ -1099,6 +1349,13 @@ impl Grep {
                 }
             }
         }
+        // The rows of a version go to the planner once it placed the last.
+        if search.sent != Some(rows_version) && search.sent == search.placed {
+            search.sent = Some(rows_version);
+            search.plan(Plan::Rows(rows.clone(), rows_version));
+            changed = true;
+        }
+        self.behind = search.placed != Some(rows_version) || search.touches > 0;
         // Workers start once the results are taken, for the files changed
         // while they were read to be searched again.
         let workers = std::thread::available_parallelism()
@@ -1125,6 +1382,7 @@ impl Grep {
             let spawned = std::thread::Builder::new()
                 .name("fff-grep".into())
                 .spawn(move || {
+                    below_interface();
                     let index = index.get_or_init(|| cache.as_deref().map(index::Index::open));
                     let files = Files {
                         cache: cache.as_deref(),
@@ -1141,17 +1399,24 @@ impl Grep {
                 break;
             }
         }
+        let finished = !self.behind && !self.backlog && search.done == search.total();
         // A search done, what it learned is written.
         if changed
-            && search.done == search.total
+            && finished
             && let Some(Some(index)) = self.index.get()
         {
             index.save();
         }
+        let Some(placed) = search.placed else {
+            return changed;
+        };
+        // The shown rows change with the rows, or with a file that matched;
+        // files without a match change only the count.
+        rebuild |= self.shown_from != Some((placed, self.generation));
         // Matches arriving wait a little, unless the search is done or none
         // are shown yet.
         let soon = self.shown.is_empty()
-            || search.done == search.total
+            || finished
             || self.built.is_none_or(|b| b.elapsed() >= REBUILD)
             || self.shown_from.is_none_or(|(_, g)| g != self.generation);
         self.stale = rebuild && !soon;
@@ -1160,55 +1425,50 @@ impl Grep {
             self.shown.clear();
             self.shown_hits.clear();
             self.shown_cut = false;
-            for c in rows {
-                let row = Row(Arc::clone(c));
-                if let Some(hits) = self.hits.get(&row) {
-                    self.shown_cut |= self.cut.contains(&row);
-                    for i in 0..hits.len() {
-                        self.shown.push(Arc::clone(c));
-                        self.shown_hits.push((Arc::clone(hits), i));
-                    }
+            // The files with matches, in the rows' order; those no longer
+            // listed are not shown.
+            let mut files: Vec<(usize, &Row)> = self
+                .matching
+                .iter()
+                .filter_map(|row| Some((*search.places.get(row)?, row)))
+                .collect();
+            files.sort_unstable_by_key(|(at, _)| *at);
+            for (_, row) in files {
+                let hits = &self.hits[row];
+                self.shown_cut |= self.cut.contains(row);
+                for i in 0..hits.len() {
+                    self.shown.push(Arc::clone(&row.0));
+                    self.shown_hits.push((Arc::clone(hits), i));
                 }
             }
-            self.shown_from = Some((rows_version, self.generation));
+            self.shown_from = Some((placed, self.generation));
+            changed = true;
         }
         changed
     }
+    /// Drop the results by file, away from this thread when there are many.
+    fn forget_hits(&mut self) {
+        let hits = std::mem::take(&mut self.hits);
+        let len = hits.len();
+        crate::known::discard(hits, len);
+    }
     /// Files whose contents changed (or that were replaced): their matches
-    /// go, and the next `poll` searches them again.
+    /// go, and a later `poll` searches them again.
     pub fn touched(&mut self, paths: &[PathBuf]) {
-        let Some(search) = self.search.as_mut() else {
-            return;
-        };
         if paths.is_empty() {
             return;
         }
-        let paths: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
-        let mut queue = search.queue.lock().unwrap_or_else(|e| e.into_inner());
-        for row in search
-            .queued
-            .iter()
-            .filter(|r| paths.contains(r.0.path.as_path()))
-        {
-            // One not searched yet may be read now, before the change.
-            let Some(hits) = self.hits.remove(row) else {
-                search.again.insert(row.clone());
-                continue;
-            };
-            self.cut.remove(row);
-            search.done -= 1;
-            search.kept -= hits.len();
-            let _ = search
-                .matched
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |m| {
-                    Some(m.saturating_sub(hits.len()))
-                });
-            queue.push_back(row.clone());
-            self.stale = true;
+        if let Some(search) = self.search.as_mut() {
+            search.touches += 1;
+            self.behind = true;
+            search.plan(Plan::Touched(paths.to_vec()));
         }
     }
     /// When matches wait to be shown: the next `poll` is due by then.
     pub fn due(&self) -> Option<Instant> {
+        if self.backlog {
+            return Some(Instant::now());
+        }
         self.stale
             .then(|| self.built.map_or_else(Instant::now, |b| b + REBUILD))
     }
