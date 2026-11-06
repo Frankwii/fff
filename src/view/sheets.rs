@@ -695,7 +695,7 @@ pub(super) fn run_prompt(frame: &mut Frame, main: Rect, app: &App, prompt: &crat
         command_line(frame, app, Field::Command, last);
     }
 }
-/// Alt+g: a typed path, or words picking a bookmark or a zoxide favorite.
+/// Alt+g: a typed path, or words picking a workspace or a zoxide favorite.
 pub(super) fn location_sheet(
     frame: &mut Frame,
     main: Rect,
@@ -709,7 +709,7 @@ pub(super) fn location_sheet(
         theme,
         theme.marked,
         &format!(
-            "Type a path, or words from a folder's path to pick one of your bookmarks or \
+            "Type a path, or words from a folder's path to pick one of your workspaces or \
              zoxide's frequent folders. *{}* choose, *{}* completes a path, *{}* goes.",
             keys_named(app, "up down").unwrap_or_else(|| "—".into()),
             app.key_or_none("tab"),
@@ -772,7 +772,7 @@ pub(super) fn location_sheet(
         .map(|(i, (path, source))| {
             let chosen = location.selected == Some(i);
             let name = match source {
-                Source::Bookmark(name) => format!("★ {name}  "),
+                Source::Workspace(name) => format!("★ {name}  "),
                 Source::Zoxide => "  ".into(),
             };
             let place = elide(

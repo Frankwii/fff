@@ -1,6 +1,6 @@
 use fuzzy_file_finder::config::{Palette, Settings, default_path};
 use ratatui::style::Color;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 fn parse(text: &str) -> Result<Settings, String> {
     Settings::parse(
         text,
@@ -33,32 +33,41 @@ fn defaults_builtin_palettes_custom_inheritance_and_cli_override() {
     assert_eq!(s.palette_name, "forest");
 }
 #[test]
-fn bookmarks_preserve_order_expand_home_and_resolve_relative_to_config() {
-    let s=parse("[[bookmarks]]\nname='Home'\npath='~'\n[[bookmarks]]\nname='Papers'\npath='~/My Papers'\n[[bookmarks]]\nname='Local'\npath='../notes'\n[[bookmarks]]\nname='Missing'\npath='/missing'\n").unwrap();
+fn workspaces_preserve_order_expand_home_and_resolve_relative_to_config() {
+    let s=parse("[[workspaces]]\nname='Home'\npath='~'\n[[workspaces]]\nname='Papers'\npath='~/My Papers'\n[[workspaces]]\nname='Local'\npath='../notes'\n[[workspaces]]\nname='Missing'\npath='/missing'\n").unwrap();
     assert_eq!(
-        s.bookmarks
+        s.workspaces
             .iter()
             .map(|b| b.name.as_str())
             .collect::<Vec<_>>(),
         ["Home", "Papers", "Local", "Missing"]
     );
-    assert_eq!(s.bookmarks[0].path, Path::new("/home/user"));
-    assert_eq!(s.bookmarks[1].path, Path::new("/home/user/My Papers"));
-    assert_eq!(s.bookmarks[2].path, Path::new("/config/fff/../notes"));
-    assert_eq!(s.bookmarks[3].path, Path::new("/missing"));
-    assert!(s.bookmarks.iter().all(|b| b.icon.is_none()));
+    assert_eq!(
+        s.workspaces[0].path.as_deref(),
+        Some(Path::new("/home/user"))
+    );
+    assert_eq!(
+        s.workspaces[1].path.as_deref(),
+        Some(Path::new("/home/user/My Papers"))
+    );
+    assert_eq!(
+        s.workspaces[2].path.as_deref(),
+        Some(Path::new("/config/fff/../notes"))
+    );
+    assert_eq!(s.workspaces[3].path.as_deref(), Some(Path::new("/missing")));
+    assert!(s.workspaces.iter().all(|b| b.icon.is_none()));
 }
 #[test]
-fn bookmark_icons_are_optional_short_labels() {
+fn workspace_icons_are_optional_short_labels() {
     let s = parse(
-        "[[bookmarks]]\nname='Downloads'\nicon='\u{f10e9}'\npath='/home/user/Downloads/'\n\
-         [[bookmarks]]\nname='Wide'\nicon=' 📁 '\npath='/w'",
+        "[[workspaces]]\nname='Downloads'\nicon='\u{f10e9}'\npath='/home/user/Downloads/'\n\
+         [[workspaces]]\nname='Wide'\nicon=' 📁 '\npath='/w'",
     )
     .unwrap();
-    assert_eq!(s.bookmarks[0].icon.as_deref(), Some("\u{f10e9}"));
-    assert_eq!(s.bookmarks[1].icon.as_deref(), Some("📁"));
+    assert_eq!(s.workspaces[0].icon.as_deref(), Some("\u{f10e9}"));
+    assert_eq!(s.workspaces[1].icon.as_deref(), Some("📁"));
     for icon in ["''", "'   '", "'abc'", "'📁📁'"] {
-        let text = format!("[[bookmarks]]\nname='A'\nicon={icon}\npath='/a'");
+        let text = format!("[[workspaces]]\nname='A'\nicon={icon}\npath='/a'");
         assert!(parse(&text).is_err(), "accepted icon {icon}");
     }
 }
@@ -85,9 +94,22 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
         "[performance]\nmax_paths=100000001",
         "[performance]\nrefresh=50",
         "[ui]\nmessage_seconds=-1",
-        "[[bookmarks]]\nname=''\npath='/tmp'",
-        "[[bookmarks]]\nname='A'\npath=''",
-        "[[bookmarks]]\nname='A'\npath='/a'\n[[bookmarks]]\nname='A'\npath='/b'",
+        "[[workspaces]]\nname=''\npath='/tmp'",
+        "[[workspaces]]\nname='A'\npath=''",
+        "[[workspaces]]\nname='A'\npath='/a'\n[[workspaces]]\nname='A'\npath='/b'",
+        "[[workspaces]]\nname='A'",
+        "[[workspaces]]\nname='A'\nicon='★'",
+        "[[workspaces]]\nname='A'\nprogram='window'",
+        "[[workspaces]]\nname='A'\nprogram='explorer open'",
+        "[[workspaces]]\nname='A'\ndepth=0",
+        "[[workspaces]]\nname='A'\nroots=['/a', '']",
+        "[[workspaces]]\nname='A'\nfilters=['[']",
+        "[[workspaces]]\nname='A'\nexclusions=['']",
+        "[[workspaces]]\nname='A'\nsort='colour'",
+        "[[workspaces]]\nname='A'\nsort_descending=true",
+        "[[workspaces]]\nname='A'\nkinds='links'",
+        "[[workspaces]]\nname='A'\nbookmark=true",
+        "[[bookmarks]]\nname='A'\npath='/a'",
         "[exclusions]\nrules=['[']",
         "[exclusions]\nrules=['']",
         "[exclusions]\nrule=['a']",
@@ -96,12 +118,42 @@ fn malformed_unknown_and_out_of_range_settings_fail_clearly() {
     }
     assert!(
         Settings::parse(
-            "[[bookmarks]]\nname='Home'\npath='~/notes'",
+            "[[workspaces]]\nname='Home'\npath='~/notes'",
             Path::new("/cfg"),
             None,
             None
         )
         .is_err()
+    );
+}
+#[test]
+fn workspaces_keep_any_of_the_settings_with_or_without_a_folder() {
+    let s = parse(
+        "[[workspaces]]\nname='findnotes'\nprogram='pick'\nroots=['~/phd', 'books']\n\
+         depth=10\nfilters=['*.pdf']\nsort='size'\nsort_descending=true\nkinds='files'\n\
+         [[workspaces]]\nname='ranked'\nsort='ranking'\nhidden=false",
+    )
+    .unwrap();
+    let w = &s.workspaces[0];
+    assert_eq!(w.path, None);
+    assert_eq!(w.program, Some(fuzzy_file_finder::program::Program::Pick));
+    assert_eq!(
+        w.roots.as_deref(),
+        Some(
+            &[
+                PathBuf::from("/home/user/phd"),
+                PathBuf::from("/config/fff/books")
+            ][..]
+        )
+    );
+    assert_eq!(
+        (w.depth, w.kinds),
+        (Some(10), Some(fuzzy_file_finder::Kinds::Files))
+    );
+    assert!(w.sort.unwrap().unwrap().descending);
+    assert_eq!(
+        (s.workspaces[1].sort, s.workspaces[1].hidden),
+        (Some(None), Some(false))
     );
 }
 #[test]
@@ -127,7 +179,8 @@ fn documented_keys_example_is_valid() {
 #[test]
 fn documented_example_is_valid() {
     let settings = parse(include_str!("../docs/config.example.toml")).unwrap();
-    assert_eq!(settings.bookmarks.len(), 3);
+    assert_eq!(settings.workspaces.len(), 4);
+    assert_eq!(settings.workspaces[3].depth, Some(10));
     assert_eq!(settings.cache.max_entries, 16);
 }
 #[test]

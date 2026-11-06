@@ -1288,18 +1288,19 @@ fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {
     assert_eq!((cursor.x, cursor.y), (6, 1));
 }
 #[test]
-fn bookmark_chooser_shows_configured_and_default_icons() {
+fn workspace_chooser_shows_configured_and_default_icons() {
     let mut app = fixture();
-    let bookmark = |name: &str, icon: Option<&str>| crate::config::Bookmark {
+    let workspace = |name: &str, icon: Option<&str>| crate::config::Workspace {
         name: name.into(),
-        path: "/tmp".into(),
+        path: Some("/tmp".into()),
         icon: icon.map(str::to_string),
+        ..Default::default()
     };
-    app.bookmarks = vec![
-        bookmark("Downloads", Some("\u{f10e9}")),
-        bookmark("Temp", None),
+    app.workspaces = vec![
+        workspace("Downloads", Some("\u{f10e9}")),
+        workspace("Temp", None),
     ];
-    let mut focus = Focus::Bookmarks {
+    let mut focus = Focus::Workspaces {
         query: String::new(),
         index: 0,
     };
@@ -1321,39 +1322,40 @@ fn bookmark_chooser_shows_configured_and_default_icons() {
     assert!(!screen.contains('\u{f07b}'), "{screen}");
 }
 #[test]
-fn bookmark_numbers_follow_visible_scrolled_and_filtered_rows() {
+fn workspace_numbers_follow_visible_scrolled_and_filtered_rows() {
     let mut app = fixture();
-    app.bookmarks = (0..12)
-        .map(|i| crate::config::Bookmark {
+    app.workspaces = (0..12)
+        .map(|i| crate::config::Workspace {
             name: format!("place{i:02}"),
-            path: "/tmp".into(),
+            path: Some("/tmp".into()),
             icon: None,
+            ..Default::default()
         })
         .collect();
-    let mut focus = Focus::Bookmarks {
+    let mut focus = Focus::Workspaces {
         query: String::new(),
         index: 11,
     };
     let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
     let mut targets = Vec::new();
     terminal
-        .draw(|f| targets = render(f, &mut app, &mut focus).bookmark_targets)
+        .draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
         .unwrap();
     assert_eq!(targets, vec![7, 8, 9, 10, 11]);
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("5/0"), "{screen}");
     assert!(screen.contains("place11"), "{screen}");
     assert!(!screen.contains("place06"), "{screen}");
-    focus = Focus::Bookmarks {
+    focus = Focus::Workspaces {
         query: "place1".into(),
         index: 0,
     };
     terminal
-        .draw(|f| targets = render(f, &mut app, &mut focus).bookmark_targets)
+        .draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
         .unwrap();
     assert_eq!(targets, vec![1, 10, 11]);
     let mut tiny = Terminal::new(TestBackend::new(35, 11)).unwrap();
-    tiny.draw(|f| targets = render(f, &mut app, &mut focus).bookmark_targets)
+    tiny.draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
         .unwrap();
     assert!(targets.is_empty());
 }

@@ -47,19 +47,30 @@ current_directory_text = "#fff3df"
 # link (symlink names), executable (default: success), empty (default: error)
 # and function (function names on the Keys screen; default: error).
 
-[[bookmarks]]
+[[workspaces]]
 name = "Home"
 path = "~"
 
-[[bookmarks]]
+[[workspaces]]
 name = "Notes"
 icon = "󰠮"   # Optional: 1-2 columns, e.g. a Nerd Font glyph; default is a folder.
 path = "~/notes"
 
-[[bookmarks]]
+[[workspaces]]
 name = "Project notes"
 # Relative to this config file's directory, not the invocation directory.
 path = "../../notes"
+
+# A workspace can keep more than a folder; what it leaves out stays as it is.
+# Opening this one is like `fff pick --depth 10 --glob '*.pdf' ~/phd ~/books`.
+[[workspaces]]
+name = "Papers"
+program = "pick"          # "roam", "pick" or "seek"
+roots = ["~/phd", "~/books"]
+depth = 10
+filters = ["*.pdf", "*.djvu"]
+# Also: query, contents, exclusions, sort and sort_descending, hidden,
+# kinds ("all", "files" or "directories"), preview, exclusions_on, filters_on.
 
 # In-memory snapshots; recent exhaustive views skip redundant scans.
 # See "Discovery cache and performance" in CONFIGURATION.md.

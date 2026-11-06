@@ -284,7 +284,7 @@ pub(super) fn results_pane(
     }
     Rendered {
         targets: visible.iter().map(|c| c.path.clone()).collect(),
-        bookmark_targets: Vec::new(),
+        workspace_targets: Vec::new(),
         page,
         results: inner,
         buttons: Vec::new(),

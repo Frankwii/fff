@@ -82,7 +82,7 @@ impl Matcher {
     pub fn paths(&self) -> bool {
         self.path.is_some()
     }
-    /// Score `name` as a whole: a basename, a bookmark or palette name.
+    /// Score `name` as a whole: a basename, a workspace or palette name.
     pub fn score(&self, name: &str) -> Option<i64> {
         if self.letters.is_empty() {
             return Some(0);

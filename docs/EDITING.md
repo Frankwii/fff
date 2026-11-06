@@ -7,9 +7,9 @@ error.
 
 ## Fields and modes
 
-The query, exclusions, file filters, bookmark and icon filters, and palette
+The query, exclusions, file filters, workspace and icon filters, and palette
 filter all initially start in **Normal mode**. New file/directory naming
-buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the bookmark
+buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the workspace
 form's name and path, and the query of `fff pick`, `fff seek` and
 `fff explorer save` start in **Insert mode**, ready for typing; rename and
 extraction buffers and the contents query start in Normal. Tab or Alt+/
@@ -31,7 +31,7 @@ action. Rename, exclusion and filter buffers retain multiline `o`, `O` and Enter
 
 In results Normal mode, `v`, `p`, `x`, `X`, `u`, `r`, `R`, `E`, `n` and `s` invoke file
 operations; Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
-edit, delete and reload bookmarks in the bookmark chooser's Normal mode (Alt+n,
+edit, delete and reload workspaces in the workspace chooser's Normal mode (Alt+n,
 Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers
 retain their editing keys.
 
@@ -106,21 +106,22 @@ bindings in Neovim: those keys go to Neovim, including its native `ZQ` (quit
 without writing). Escape in Normal mode leaves the editor open. Exclusions and
 file filters return to the main screen.
 
-Single-line editors (new names, extraction destinations and bookmark forms)
+Single-line editors (new names, extraction destinations and workspace forms)
 are not buffer-lifecycle editors: Enter applies and Escape in Normal mode
 cancels, like the location prompt. Validation errors keep them open. Escape from Insert/Visual mode
 and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
-and `ZQ`/`:q!` also apply or cancel. In bookmark forms, Tab/Shift+Tab or
-Up/Down switch fields and Space on the icon row opens the icon chooser.
+and `ZQ`/`:q!` also apply or cancel. In workspace forms, Tab/Shift+Tab or
+Up/Down switch fields and settings, Space on a setting ticks it, and Space
+on the icon row opens the icon chooser.
 
-Enter in results navigates or confirms; in locations/bookmarks it navigates; in
-bookmark forms it saves; in palettes it applies the selected palette. Pending Neovim input and command-line
+Enter in results navigates or confirms; in locations it navigates, in workspaces it opens one; in
+workspace forms it saves; in palettes it applies the selected palette. Pending Neovim input and command-line
 entry receive Enter instead. In exclusions and filters, Enter retains Neovim's behavior.
 
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
 Escape when already Normal clears the main query (with a contents query, the query
 being typed into, or the other one once it is empty), closes subordinate choosers
-or cancels the bookmark form; exclusion and operation buffers keep Escape inside
+or cancels the workspace form; exclusion and operation buffers keep Escape inside
 Neovim. With the query already empty, a second Escape in a row clears every
 mark.
 It never exits the session.
@@ -131,15 +132,15 @@ are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results,
 except in `fff seek`, which has no tabs, where they move the highlight too;
 Alt+Up/Alt+Down switch to the next/previous tab in every mode. Up/Down move
-choosers' highlights (in the bookmark chooser they reorder bookmarks); in
+choosers' highlights (in the workspace chooser they reorder workspaces); in
 exclusions, filters and during command-line editing they go to Neovim.
 
 ## Normal-mode list keys
 
-These defaults apply in results, bookmarks, bookmark icons and palettes when the field is Normal,
+These defaults apply in results, workspaces, workspace icons and palettes when the field is Normal,
 and always in the marked list, which has no text field:
 
-| Key | Results | Bookmark / palette chooser | Marked list |
+| Key | Results | Workspace / palette chooser | Marked list |
 | --- | --- | --- | --- |
 | `j` / `k` | Next / previous result | Next / previous entry | Next / previous mark |
 | `h` | Parent directory | Neovim motion | No action |

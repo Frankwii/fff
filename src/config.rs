@@ -1,4 +1,4 @@
-//! TOML configuration. Relative bookmark paths use the config directory.
+//! TOML configuration. Relative workspace paths use the config directory.
 use ratatui::style::Color;
 use serde::Deserialize;
 use std::{
@@ -236,19 +236,184 @@ impl RawTrash {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Bookmark {
+/// A saved name for some of a session's settings: opening it applies the
+/// ones it has and leaves the others as they are. One with only a folder is
+/// a place to go to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Workspace {
     pub name: String,
-    pub path: PathBuf,
     /// Optional label drawn before the name in the chooser, e.g. a Nerd Font glyph.
     pub icon: Option<String>,
+    /// The folder to browse.
+    pub path: Option<PathBuf>,
+    /// `fff roam`, `pick` or `seek`, as `switch_program` changes it.
+    pub program: Option<crate::program::Program>,
+    /// The pinned roots, replacing the session's (none unpins them).
+    pub roots: Option<Vec<PathBuf>>,
+    pub query: Option<String>,
+    /// The contents query.
+    pub contents: Option<String>,
+    pub depth: Option<usize>,
+    pub filters: Option<Vec<String>>,
+    /// The whole exclusion list, the configuration's rules included.
+    pub exclusions: Option<Vec<String>>,
+    /// `Some(None)` ranks as the program does.
+    pub sort: Option<Option<crate::rows::Sort>>,
+    pub hidden: Option<bool>,
+    pub kinds: Option<crate::Kinds>,
+    pub preview: Option<bool>,
+    /// Exclusions enforced (Alt+H).
+    pub exclusions_on: Option<bool>,
+    /// Filters applied (gf).
+    pub filters_on: Option<bool>,
+}
+impl Workspace {
+    /// Its settings other than the program: what a session that cannot
+    /// change program (a window of its own, a file dialog) still applies.
+    pub fn applies_beside_program(&self) -> bool {
+        Setting::ALL
+            .iter()
+            .any(|&s| s != Setting::Program && s.is_in(self))
+            || self.path.is_some()
+    }
+}
+/// The settings a workspace may keep, as its form ticks them: some are
+/// several keys that go together (both queries, the toggles).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Setting {
+    Program,
+    Roots,
+    Query,
+    Depth,
+    Filters,
+    Exclusions,
+    Sorting,
+    Toggles,
+}
+impl Setting {
+    pub const ALL: [Setting; 8] = [
+        Self::Program,
+        Self::Roots,
+        Self::Query,
+        Self::Depth,
+        Self::Filters,
+        Self::Exclusions,
+        Self::Sorting,
+        Self::Toggles,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Program => "program",
+            Self::Roots => "roots",
+            Self::Query => "queries",
+            Self::Depth => "depth",
+            Self::Filters => "filters",
+            Self::Exclusions => "exclusions",
+            Self::Sorting => "sorting",
+            Self::Toggles => "toggles",
+        }
+    }
+    /// `workspace` keeps any of its keys.
+    pub fn is_in(self, w: &Workspace) -> bool {
+        match self {
+            Self::Program => w.program.is_some(),
+            Self::Roots => w.roots.is_some(),
+            Self::Query => w.query.is_some() || w.contents.is_some(),
+            Self::Depth => w.depth.is_some(),
+            Self::Filters => w.filters.is_some(),
+            Self::Exclusions => w.exclusions.is_some(),
+            Self::Sorting => w.sort.is_some(),
+            Self::Toggles => {
+                w.hidden.is_some()
+                    || w.kinds.is_some()
+                    || w.preview.is_some()
+                    || w.exclusions_on.is_some()
+                    || w.filters_on.is_some()
+            }
+        }
+    }
+    /// Its keys in `to` become those of `from` (cleared when `from` has none).
+    pub fn copy(self, from: &Workspace, to: &mut Workspace) {
+        match self {
+            Self::Program => to.program = from.program,
+            Self::Roots => to.roots = from.roots.clone(),
+            Self::Query => {
+                to.query = from.query.clone();
+                to.contents = from.contents.clone();
+            }
+            Self::Depth => to.depth = from.depth,
+            Self::Filters => to.filters = from.filters.clone(),
+            Self::Exclusions => to.exclusions = from.exclusions.clone(),
+            Self::Sorting => to.sort = from.sort,
+            Self::Toggles => {
+                to.hidden = from.hidden;
+                to.kinds = from.kinds;
+                to.preview = from.preview;
+                to.exclusions_on = from.exclusions_on;
+                to.filters_on = from.filters_on;
+            }
+        }
+    }
+    pub fn clear(self, w: &mut Workspace) {
+        self.copy(&Workspace::default(), w);
+    }
+    /// Its value in `w`, in a few words, paths shown by `show`; empty when
+    /// `w` has none.
+    pub fn describe(self, w: &Workspace, show: impl Fn(&Path) -> String) -> String {
+        let list = |items: &[String]| {
+            if items.is_empty() {
+                "none".to_string()
+            } else {
+                items.join(", ")
+            }
+        };
+        let paths = |paths: &[PathBuf]| list(&paths.iter().map(|p| show(p)).collect::<Vec<_>>());
+        let flag = |on: Option<bool>, yes: &'static str, no: &'static str| {
+            on.map(|on| if on { yes } else { no })
+        };
+        match self {
+            Self::Program => w.program.map(|p| p.title().to_string()).unwrap_or_default(),
+            Self::Roots => w.roots.as_deref().map(paths).unwrap_or_default(),
+            Self::Query => [
+                w.query.as_ref().map(|q| format!("names {q:?}")),
+                w.contents.as_ref().map(|q| format!("contents {q:?}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
+            Self::Depth => w.depth.map(|d| d.to_string()).unwrap_or_default(),
+            Self::Filters => w.filters.as_deref().map(list).unwrap_or_default(),
+            Self::Exclusions => w.exclusions.as_deref().map(list).unwrap_or_default(),
+            Self::Sorting => match w.sort {
+                Some(Some(sort)) => sort.label(),
+                Some(None) => "ranking".into(),
+                None => String::new(),
+            },
+            Self::Toggles => [
+                flag(w.hidden, "hidden shown", "hidden off"),
+                w.kinds.map(|k| match k {
+                    crate::Kinds::All => "all kinds",
+                    crate::Kinds::Files => "files only",
+                    crate::Kinds::Directories => "folders only",
+                }),
+                flag(w.preview, "preview", "no preview"),
+                flag(w.exclusions_on, "exclusions on", "exclusions off"),
+                flag(w.filters_on, "filters on", "filters off"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
+        }
+    }
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawConfig {
     ui: UiConfig,
     palettes: BTreeMap<String, BTreeMap<String, String>>,
-    bookmarks: Vec<RawBookmark>,
+    workspaces: Vec<RawWorkspace>,
     cache: CacheConfig,
     performance: PerformanceConfig,
     open: crate::open::OpenConfig,
@@ -308,10 +473,24 @@ impl Default for UiConfig {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawBookmark {
+struct RawWorkspace {
     name: String,
-    path: String,
     icon: Option<String>,
+    path: Option<String>,
+    program: Option<String>,
+    roots: Option<Vec<String>>,
+    query: Option<String>,
+    contents: Option<String>,
+    depth: Option<usize>,
+    filters: Option<Vec<String>>,
+    exclusions: Option<Vec<String>>,
+    sort: Option<String>,
+    sort_descending: Option<bool>,
+    hidden: Option<bool>,
+    kinds: Option<String>,
+    preview: Option<bool>,
+    exclusions_on: Option<bool>,
+    filters_on: Option<bool>,
 }
 #[derive(Default)]
 pub struct Settings {
@@ -320,7 +499,7 @@ pub struct Settings {
     pub palette_name: String,
     /// Every selectable palette: built-ins in documented order, then custom ones.
     pub palettes: Vec<(String, Palette)>,
-    pub bookmarks: Vec<Bookmark>,
+    pub workspaces: Vec<Workspace>,
     pub cache: CacheConfig,
     pub performance: PerformanceConfig,
     /// Nerd Font filetype icons (`[ui] icons`); presentation only.
@@ -352,8 +531,8 @@ pub struct Settings {
     pub exclusions: Vec<String>,
     /// The file that was read; `None` without a config file.
     pub source: Option<PathBuf>,
-    /// Active bookmark save destination, including a missing default config.
-    pub bookmark_path: Option<PathBuf>,
+    /// Active workspace save destination, including a missing default config.
+    pub workspace_path: Option<PathBuf>,
     /// The configuration file's errors, when these settings come from the
     /// backup beside it (`load_or_backup`).
     pub broken: Option<String>,
@@ -382,19 +561,8 @@ impl Settings {
         if raw.ui.buttons_seconds > 3600 {
             return Err("ui.buttons_seconds must be 0..3600 (0 keeps the buttons)".into());
         }
-        let sort = match raw.ui.sort.as_str() {
-            "ranking" => None,
-            name => Some(crate::rows::Sort {
-                by: crate::rows::Criterion::named(name).ok_or_else(|| {
-                    let names: Vec<_> = crate::rows::Criterion::ALL.map(|c| c.name()).into();
-                    format!(
-                        "ui.sort must be \"ranking\" or one of {}, got {name:?}",
-                        names.join(", ")
-                    )
-                })?,
-                descending: raw.ui.sort_descending,
-            }),
-        };
+        let sort = sort_named(&raw.ui.sort, raw.ui.sort_descending)
+            .map_err(|names| format!("ui.sort must be {names}, got {:?}", raw.ui.sort))?;
         if raw.ui.buttons != Buttons::Off && !raw.ui.mouse {
             return Err("ui.buttons needs ui.mouse = true: buttons are clicked".into());
         }
@@ -440,7 +608,7 @@ impl Settings {
                     Palette::names().join(", ")
                 )
             })?;
-        let bookmarks = resolve_bookmarks(raw.bookmarks, base, home)?;
+        let workspaces = resolve_workspaces(raw.workspaces, base, home)?;
         let available = Palette::names()
             .iter()
             .map(|name| (name.to_string(), Palette::named(name).unwrap()))
@@ -450,7 +618,7 @@ impl Settings {
             palette,
             palette_name: chosen.to_string(),
             palettes: available,
-            bookmarks,
+            workspaces,
             cache: raw.cache,
             performance: raw.performance,
             icons: raw.ui.icons,
@@ -469,7 +637,7 @@ impl Settings {
             trash,
             exclusions: raw.exclusions.rules,
             source: None,
-            bookmark_path: None,
+            workspace_path: None,
             broken: None,
         })
     }
@@ -495,7 +663,7 @@ impl Settings {
                 palette_override,
             )
             .map_err(|e| format!("{}: {e}", absolute.display()))?;
-            settings.bookmark_path = Some(absolute.clone());
+            settings.workspace_path = Some(absolute.clone());
             settings.source = found.then_some(absolute);
             Ok(settings)
         } else {
@@ -529,7 +697,7 @@ impl Settings {
             palette_override,
         )
         .map_err(|_| error.clone())?;
-        settings.bookmark_path = Some(path.clone());
+        settings.workspace_path = Some(path.clone());
         settings.source = Some(path);
         settings.broken = Some(error);
         Ok(settings)
@@ -603,57 +771,142 @@ pub fn brief(error: &str) -> String {
         .join(": ")
 }
 #[derive(Deserialize)]
-struct BookmarkDocument {
+struct WorkspaceDocument {
     #[serde(default)]
-    bookmarks: Vec<RawBookmark>,
+    workspaces: Vec<RawWorkspace>,
 }
-pub(crate) fn bookmarks_from_text(
+pub(crate) fn workspaces_from_text(
     text: &str,
     base: &Path,
     home: Option<&Path>,
-) -> Result<Vec<Bookmark>, String> {
-    let raw: BookmarkDocument = toml::from_str(text).map_err(|e| e.to_string())?;
-    resolve_bookmarks(raw.bookmarks, base, home)
+) -> Result<Vec<Workspace>, String> {
+    let raw: WorkspaceDocument = toml::from_str(text).map_err(|e| e.to_string())?;
+    resolve_workspaces(raw.workspaces, base, home)
 }
-fn resolve_bookmarks(
-    raw: Vec<RawBookmark>,
+/// `[ui] sort` and a workspace's `sort`: `None` for the program's ranking.
+/// The error lists the names allowed.
+fn sort_named(name: &str, descending: bool) -> Result<Option<crate::rows::Sort>, String> {
+    if name == "ranking" {
+        return Ok(None);
+    }
+    match crate::rows::Criterion::named(name) {
+        Some(by) => Ok(Some(crate::rows::Sort { by, descending })),
+        None => {
+            let names: Vec<_> = crate::rows::Criterion::ALL.map(|c| c.name()).into();
+            Err(format!("\"ranking\" or one of {}", names.join(", ")))
+        }
+    }
+}
+fn resolve_workspaces(
+    raw: Vec<RawWorkspace>,
     base: &Path,
     home: Option<&Path>,
-) -> Result<Vec<Bookmark>, String> {
+) -> Result<Vec<Workspace>, String> {
     let mut names = HashSet::new();
-    let mut bookmarks = Vec::new();
-    for bookmark in raw {
-        if bookmark.name.trim().is_empty() || !names.insert(bookmark.name.clone()) {
+    let mut workspaces = Vec::new();
+    for raw in raw {
+        let name = raw.name;
+        if name.trim().is_empty() || !names.insert(name.clone()) {
             return Err(format!(
-                "Bookmark names must be nonempty and unique: {:?}",
-                bookmark.name
+                "Workspace names must be nonempty and unique: {name:?}"
             ));
         }
-        if bookmark.path.is_empty() {
-            return Err(format!(
-                "Bookmark {:?}: path must not be empty",
-                bookmark.name
-            ));
-        }
+        let error = |message: &str| format!("Workspace {name:?}: {message}");
         // One or two terminal columns keep the chooser's names aligned.
-        let icon = bookmark.icon.map(|icon| icon.trim().to_string());
+        let icon = raw.icon.map(|icon| icon.trim().to_string());
         if let Some(icon) = &icon
             && !(1..=2).contains(&unicode_width::UnicodeWidthStr::width(icon.as_str()))
         {
-            return Err(format!(
-                "Bookmark {:?}: icon must be one or two terminal columns wide, got {icon:?}",
-                bookmark.name
-            ));
+            return Err(error(&format!(
+                "icon must be one or two terminal columns wide, got {icon:?}"
+            )));
         }
-        bookmarks.push(Bookmark {
-            path: expand_path(&bookmark.path, base, home)?,
-            name: bookmark.name,
+        let path_of = |text: &String, what: &str| {
+            if text.is_empty() {
+                return Err(error(&format!("{what} must not be empty")));
+            }
+            expand_path(text, base, home)
+        };
+        let path = raw.path.as_ref().map(|p| path_of(p, "path")).transpose()?;
+        let roots = raw
+            .roots
+            .map(|roots| roots.iter().map(|r| path_of(r, "a root")).collect())
+            .transpose()?;
+        let program = raw
+            .program
+            .map(|text| {
+                crate::program::Program::SWITCHABLE
+                    .into_iter()
+                    .map(|(p, _)| p)
+                    .find(|p| p.title() == text)
+                    .ok_or_else(|| {
+                        error(&format!(
+                            "program must be \"roam\", \"pick\" or \"seek\", got {text:?}"
+                        ))
+                    })
+            })
+            .transpose()?;
+        if raw.depth == Some(0) {
+            return Err(error("depth must be at least 1"));
+        }
+        if let Some(filters) = &raw.filters {
+            crate::Policy::default()
+                .set_filters(filters.clone())
+                .map_err(|e| error(&format!("filters: {e}")))?;
+        }
+        if let Some(rules) = &raw.exclusions {
+            if rules.iter().any(String::is_empty) {
+                return Err(error("an exclusion is empty"));
+            }
+            crate::Policy::default()
+                .set_rules(rules.clone())
+                .map_err(|e| error(&format!("exclusions: {e}")))?;
+        }
+        let sort = match (&raw.sort, raw.sort_descending) {
+            (Some(sort), descending) => Some(
+                sort_named(sort, descending.unwrap_or(false))
+                    .map_err(|names| error(&format!("sort must be {names}, got {sort:?}")))?,
+            ),
+            (None, Some(_)) => return Err(error("sort_descending needs a sort")),
+            (None, None) => None,
+        };
+        let kinds = raw
+            .kinds
+            .map(|kinds| match kinds.as_str() {
+                "all" => Ok(crate::Kinds::All),
+                "files" => Ok(crate::Kinds::Files),
+                "directories" => Ok(crate::Kinds::Directories),
+                _ => Err(error(&format!(
+                    "kinds must be \"all\", \"files\" or \"directories\", got {kinds:?}"
+                ))),
+            })
+            .transpose()?;
+        let workspace = Workspace {
+            name: name.clone(),
             icon,
-        });
+            path,
+            program,
+            roots,
+            query: raw.query,
+            contents: raw.contents,
+            depth: raw.depth,
+            filters: raw.filters,
+            exclusions: raw.exclusions,
+            sort,
+            hidden: raw.hidden,
+            kinds,
+            preview: raw.preview,
+            exclusions_on: raw.exclusions_on,
+            filters_on: raw.filters_on,
+        };
+        if workspace.path.is_none() && !Setting::ALL.iter().any(|s| s.is_in(&workspace)) {
+            return Err(error("it keeps no setting; give it a path or another one"));
+        }
+        workspaces.push(workspace);
     }
-    Ok(bookmarks)
+    Ok(workspaces)
 }
-/// A bookmark's path as written: `~` and `~/…` are in the home folder, and
+/// A workspace's path as written: `~` and `~/…` are in the home folder, and
 /// a relative path is below `base`.
 pub fn expand_path(text: &str, base: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
     let home = || home.ok_or_else(|| format!("Cannot expand {text:?} without HOME"));

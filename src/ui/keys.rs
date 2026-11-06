@@ -5,7 +5,7 @@
 //! key writes that key's name into the query.
 //!
 //! Space goes a level deeper everywhere, Enter is done and Escape goes back:
-//! Space opens a function's keys, a sheet like the bookmark form, and Space
+//! Space opens a function's keys, a sheet like the workspace form, and Space
 //! on one of its keys opens where that key applies: a checklist for each of
 //! the mode, the program, the list and the highlight. Changes are staged
 //! until Enter saves them (refused when they would clash or lock you in).

@@ -282,43 +282,124 @@ fn navigation_only_action_never_confirms_files_or_empty_directories() {
 }
 
 #[test]
-fn bookmarks_filter_and_navigate_without_mutating_roots_depth_or_marks() {
+fn workspaces_filter_and_navigate_without_mutating_roots_depth_or_marks() {
     let f = Fixture::new();
     let file = f.file("notes folder/file");
     let directory = file.parent().unwrap().to_path_buf();
     let mut app = App::new(vec![f.0.clone()], 2, Policy::default());
     app.query = "old query".into();
     app.marks.push(file.clone());
-    app.bookmarks = vec![
-        fuzzy_file_finder::config::Bookmark {
+    app.workspaces = vec![
+        fuzzy_file_finder::config::Workspace {
             name: "My notes".into(),
-            path: directory.clone(),
+            path: Some(directory.clone()),
             icon: None,
+            ..Default::default()
         },
-        fuzzy_file_finder::config::Bookmark {
+        fuzzy_file_finder::config::Workspace {
             name: "File".into(),
-            path: file.clone(),
+            path: Some(file.clone()),
             icon: None,
+            ..Default::default()
         },
-        fuzzy_file_finder::config::Bookmark {
+        fuzzy_file_finder::config::Workspace {
             name: "Missing".into(),
-            path: f.0.join("missing"),
+            path: Some(f.0.join("missing")),
             icon: None,
+            ..Default::default()
         },
     ];
-    assert_eq!(app.matching_bookmarks("mnt"), vec![0]);
-    assert!(app.matching_bookmarks("zzzz").is_empty());
+    assert_eq!(app.matching_workspaces("mnt"), vec![0]);
+    assert!(app.matching_workspaces("zzzz").is_empty());
     let roots = app.roots.clone();
-    assert!(!app.open_bookmark(1));
-    assert!(!app.open_bookmark(2));
+    assert!(!app.open_workspace(1));
+    assert!(!app.open_workspace(2));
     assert_eq!(app.cwd, f.0);
     assert_eq!(app.query, "old query");
-    assert!(app.open_bookmark(0));
+    assert!(app.open_workspace(0));
     assert_eq!(app.cwd, directory);
-    assert!(app.query.is_empty());
+    // A folder-only workspace changes nothing else, the query included.
+    assert_eq!(app.query, "old query");
     assert_eq!(app.roots, roots);
     assert_eq!(app.depth, 2);
     assert_eq!(app.marks, vec![file]);
+}
+
+#[test]
+fn workspaces_apply_the_settings_they_keep_and_leave_out_missing_roots() {
+    use fuzzy_file_finder::{config::Workspace, program::Program};
+    let f = Fixture::new();
+    let papers = f.file("papers/a.pdf").parent().unwrap().to_path_buf();
+    let books = f.file("books/b.pdf").parent().unwrap().to_path_buf();
+    let mut app = App::browse(f.0.clone(), 1, Policy::default());
+    app.query = "kept".into();
+    let workspace = Workspace {
+        name: "findnotes".into(),
+        program: Some(Program::Pick),
+        roots: Some(vec![papers.clone(), f.0.join("gone"), books.clone()]),
+        filters: Some(vec!["*.pdf".into()]),
+        hidden: Some(true),
+        contents: Some("lemma".into()),
+        ..Default::default()
+    };
+    assert!(app.apply_workspace(&workspace));
+    assert_eq!(app.program(), Program::Pick);
+    // No depth kept: the new program's own.
+    assert_eq!(app.depth, Program::Pick.default_depth());
+    // Without a folder, the first root is where it starts.
+    assert_eq!(
+        (app.cwd.clone(), app.roots.clone()),
+        (papers.clone(), vec![papers.clone(), books.clone()])
+    );
+    assert!(app.scope.contains(&books));
+    assert_eq!(app.policy.filters, ["*.pdf"]);
+    assert!(app.policy.hidden);
+    assert_eq!(
+        (app.query.as_str(), app.grep.text.as_str()),
+        ("kept", "lemma")
+    );
+    assert!(
+        app.status.contains("left out missing roots"),
+        "{}",
+        app.status
+    );
+    // Nothing changes when none of the roots is there.
+    let gone = Workspace {
+        name: "gone".into(),
+        roots: Some(vec![f.0.join("gone")]),
+        depth: Some(5),
+        ..Default::default()
+    };
+    assert!(!app.apply_workspace(&gone));
+    assert_eq!(
+        (app.depth, app.roots.len()),
+        (Program::Pick.default_depth(), 2)
+    );
+    // A window of its own keeps its program and applies the rest; one
+    // that would only change the program is not offered there.
+    let mut window = App::browse(f.0.clone(), 1, Policy::default());
+    window.set_program(Program::Window);
+    window.workspaces = vec![
+        Workspace {
+            name: "only".into(),
+            program: Some(Program::Seek),
+            ..Default::default()
+        },
+        Workspace {
+            name: "deep".into(),
+            program: Some(Program::Seek),
+            depth: Some(4),
+            ..Default::default()
+        },
+    ];
+    assert_eq!(window.matching_workspaces(""), vec![1]);
+    assert!(window.open_workspace(1));
+    assert_eq!((window.program(), window.depth), (Program::Window, 4));
+    assert!(
+        window.status.contains("fff window stays"),
+        "{}",
+        window.status
+    );
 }
 
 #[test]

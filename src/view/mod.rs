@@ -42,7 +42,7 @@ use text::*;
 
 pub(crate) struct Rendered {
     pub targets: Vec<PathBuf>,
-    pub bookmark_targets: Vec<usize>,
+    pub workspace_targets: Vec<usize>,
     pub page: usize,
     /// Where the result rows were drawn, for mouse clicks; one row per target.
     pub results: Rect,
@@ -54,7 +54,7 @@ pub(crate) struct Rendered {
     /// its index in the list shown.
     pub marks_pane: Rect,
     pub marks: Vec<(Rect, usize)>,
-    /// The open chooser's rows (bookmarks, icons, palettes, go-to
+    /// The open chooser's rows (workspaces, icons, palettes, go-to
     /// suggestions) with the index each one selects.
     pub choices: Vec<(Rect, usize)>,
 }
@@ -236,7 +236,7 @@ fn too_small(frame: &mut Frame, app: &App, width: u16, height: u16) -> Rendered 
     frame.render_widget(Paragraph::new(text), area);
     Rendered {
         targets: Vec::new(),
-        bookmark_targets: Vec::new(),
+        workspace_targets: Vec::new(),
         page: 0,
         results: Rect::default(),
         buttons: Vec::new(),
@@ -275,7 +275,7 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
         let page = keys_screen(frame, area, app, screen);
         return Rendered {
             targets: Vec::new(),
-            bookmark_targets: Vec::new(),
+            workspace_targets: Vec::new(),
             page,
             results: Rect::default(),
             buttons: Vec::new(),
@@ -403,15 +403,16 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
         Focus::Filters(text) => {
             prompt(frame, app, area, Field::Filters, "Edit filters", text, true)
         }
-        Focus::Bookmarks { query, index } => {
-            (result.bookmark_targets, result.choices) = bookmarks(frame, area, app, query, *index);
-            result.page = result.bookmark_targets.len();
+        Focus::Workspaces { query, index } => {
+            (result.workspace_targets, result.choices) =
+                workspaces(frame, area, app, query, *index);
+            result.page = result.workspace_targets.len();
         }
-        Focus::BookmarkEdit(draft) => bookmark_form(frame, main, app, draft),
-        Focus::BookmarkIcons { query, index, .. } => {
-            result.choices = bookmark_icons(frame, area, app, query, *index)
+        Focus::WorkspaceEdit(draft) => workspace_form(frame, main, app, draft),
+        Focus::WorkspaceIcons { query, index, .. } => {
+            result.choices = workspace_icons(frame, area, app, query, *index)
         }
-        Focus::BookmarkDelete { target, .. } => bookmark_delete(frame, main, app, *target),
+        Focus::WorkspaceDelete { target, .. } => workspace_delete(frame, main, app, *target),
         Focus::Palettes { query, index, .. } => {
             result.choices = palettes(frame, area, app, query, *index)
         }

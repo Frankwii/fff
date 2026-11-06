@@ -1,6 +1,7 @@
 use fuzzy_file_finder::{
-    bookmarks::{Change, Draft, Store},
-    config::{Bookmark, Settings},
+    config::Setting,
+    config::{Settings, Workspace},
+    workspaces::{Change, Draft, Store},
 };
 use std::{fs, path::PathBuf};
 struct Fixture(PathBuf);
@@ -8,7 +9,7 @@ impl Fixture {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
-            "fff-bookmarks-{}-{}",
+            "fff-workspaces-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -18,16 +19,17 @@ impl Fixture {
     fn path(&self) -> PathBuf {
         self.0.join("config.toml")
     }
-    fn load(&self) -> Vec<Bookmark> {
+    fn load(&self) -> Vec<Workspace> {
         Settings::load(Some(&self.path()), false, None)
             .unwrap()
-            .bookmarks
+            .workspaces
     }
-    fn bookmark(&self, name: &str) -> Bookmark {
-        Bookmark {
+    fn workspace(&self, name: &str) -> Workspace {
+        Workspace {
             name: name.into(),
-            path: self.0.join(name),
+            path: Some(self.0.join(name)),
             icon: Some("\u{f015}".into()),
+            ..Default::default()
         }
     }
 }
@@ -40,7 +42,7 @@ impl Drop for Fixture {
 #[test]
 fn create_add_edit_and_delete_preserve_settings_comments_and_relative_paths() {
     let f = Fixture::new();
-    fs::write(f.path(), "# user config\n[ui]\npalette = 'nord' # keep colors\n\n[[bookmarks]] # favourite\nname = 'Old' # name note\npath = 'notes' # relative path\n\n[cache]\nmax_entries = 8 # memory\n").unwrap();
+    fs::write(f.path(), "# user config\n[ui]\npalette = 'nord' # keep colors\n\n[[workspaces]] # favourite\nname = 'Old' # name note\npath = 'notes' # relative path\n\n[cache]\nmax_entries = 8 # memory\n").unwrap();
     let initial = f.load();
     let mut store = Store::new(Some(f.path()), initial.clone(), None);
     let mut renamed = initial[0].clone();
@@ -51,7 +53,7 @@ fn create_add_edit_and_delete_preserve_settings_comments_and_relative_paths() {
             &initial,
             &Change::Put {
                 index: Some(0),
-                bookmark: renamed.clone(),
+                workspace: renamed.clone(),
             },
         )
         .unwrap();
@@ -67,22 +69,22 @@ fn create_add_edit_and_delete_preserve_settings_comments_and_relative_paths() {
         assert!(text.contains(kept), "lost {kept}: {text}");
     }
     assert_eq!(f.load(), vec![renamed]);
-    let second = f.bookmark("two");
+    let second = f.workspace("two");
     let next = store
         .commit(
             &next,
             &Change::Put {
                 index: None,
-                bookmark: second.clone(),
+                workspace: second.clone(),
             },
         )
         .unwrap();
     assert_eq!(f.load(), next);
-    fs::create_dir(&second.path).unwrap();
-    fs::write(second.path.join("file"), "keep").unwrap();
+    fs::create_dir(second.path.as_ref().unwrap()).unwrap();
+    fs::write(second.path.as_ref().unwrap().join("file"), "keep").unwrap();
     let next = store.commit(&next, &Change::Remove(1)).unwrap();
     assert_eq!(f.load(), next);
-    assert!(second.path.join("file").exists());
+    assert!(second.path.as_ref().unwrap().join("file").exists());
     let next = store.commit(&next, &Change::Remove(0)).unwrap();
     assert!(next.is_empty() && f.load().is_empty());
     assert!(fs::read_to_string(f.path()).unwrap().contains("# memory"));
@@ -92,13 +94,13 @@ fn create_add_edit_and_delete_preserve_settings_comments_and_relative_paths() {
 fn session_only_edits_validate_names_and_do_not_write_a_config() {
     let f = Fixture::new();
     let mut store = Store::default();
-    let first = f.bookmark("one");
+    let first = f.workspace("one");
     let next = store
         .commit(
             &[],
             &Change::Put {
                 index: None,
-                bookmark: first.clone(),
+                workspace: first.clone(),
             },
         )
         .unwrap();
@@ -109,7 +111,7 @@ fn session_only_edits_validate_names_and_do_not_write_a_config() {
                 &next,
                 &Change::Put {
                     index: None,
-                    bookmark: first
+                    workspace: first
                 }
             )
             .is_err()
@@ -121,7 +123,7 @@ fn session_only_edits_validate_names_and_do_not_write_a_config() {
                     &next,
                     &Change::Put {
                         index: None,
-                        bookmark: f.bookmark(name)
+                        workspace: f.workspace(name)
                     }
                 )
                 .is_err()
@@ -136,19 +138,19 @@ fn missing_default_destination_is_created_only_on_save() {
     let path = f.0.join("new/fff/config.toml");
     let mut store = Store::new(Some(path.clone()), vec![], None);
     assert!(!path.exists());
-    let bookmark = f.bookmark("one");
+    let workspace = f.workspace("one");
     store
         .commit(
             &[],
             &Change::Put {
                 index: None,
-                bookmark: bookmark.clone(),
+                workspace: workspace.clone(),
             },
         )
         .unwrap();
     assert_eq!(
-        Settings::load(Some(&path), false, None).unwrap().bookmarks,
-        vec![bookmark]
+        Settings::load(Some(&path), false, None).unwrap().workspaces,
+        vec![workspace]
     );
     #[cfg(unix)]
     {
@@ -161,9 +163,9 @@ fn missing_default_destination_is_created_only_on_save() {
 }
 
 #[test]
-fn inline_bookmarks_and_icon_removal_preserve_other_configuration() {
+fn inline_workspaces_and_icon_removal_preserve_other_configuration() {
     let f = Fixture::new();
-    fs::write(f.path(), "bookmarks = [{ name = 'One', path = 'one', icon = '★' }] # collection\n[ui]\nicons = false # plain\n").unwrap();
+    fs::write(f.path(), "workspaces = [{ name = 'One', path = 'one', icon = '★' }] # collection\n[ui]\nicons = false # plain\n").unwrap();
     let initial = f.load();
     let mut store = Store::new(Some(f.path()), initial.clone(), None);
     let mut edited = initial[0].clone();
@@ -174,7 +176,7 @@ fn inline_bookmarks_and_icon_removal_preserve_other_configuration() {
             &initial,
             &Change::Put {
                 index: Some(0),
-                bookmark: edited,
+                workspace: edited,
             },
         )
         .unwrap();
@@ -183,7 +185,7 @@ fn inline_bookmarks_and_icon_removal_preserve_other_configuration() {
             &next,
             &Change::Put {
                 index: None,
-                bookmark: f.bookmark("Two"),
+                workspace: f.workspace("Two"),
             },
         )
         .unwrap();
@@ -197,8 +199,8 @@ fn swapping_reorders_tables_with_their_comments_and_inline_arrays_in_place() {
     let f = Fixture::new();
     fs::write(
         f.path(),
-        "[ui]\npalette = 'nord'\n\n# first\n[[bookmarks]]\nname = 'One'\npath = 'one'\n\n\
-         # second\n[[bookmarks]]\nname = 'Two'\npath = 'two' # trailing\n\n[cache]\nenabled = true\n",
+        "[ui]\npalette = 'nord'\n\n# first\n[[workspaces]]\nname = 'One'\npath = 'one'\n\n\
+         # second\n[[workspaces]]\nname = 'Two'\npath = 'two' # trailing\n\n[cache]\nenabled = true\n",
     )
     .unwrap();
     let initial = f.load();
@@ -220,7 +222,7 @@ fn swapping_reorders_tables_with_their_comments_and_inline_arrays_in_place() {
     let f = Fixture::new();
     fs::write(
         f.path(),
-        "bookmarks = [\n  { name = 'One', path = 'one' },\n  { name = 'Two', path = 'two' },\n] # list\n",
+        "workspaces = [\n  { name = 'One', path = 'one' },\n  { name = 'Two', path = 'two' },\n] # list\n",
     )
     .unwrap();
     let initial = f.load();
@@ -229,12 +231,12 @@ fn swapping_reorders_tables_with_their_comments_and_inline_arrays_in_place() {
     assert_eq!(f.load(), next);
     assert_eq!(
         fs::read_to_string(f.path()).unwrap(),
-        "bookmarks = [\n  { name = 'Two', path = 'two' },\n  { name = 'One', path = 'one' },\n] # list\n"
+        "workspaces = [\n  { name = 'Two', path = 'two' },\n  { name = 'One', path = 'one' },\n] # list\n"
     );
 }
 
 #[test]
-fn unrelated_disk_edits_merge_but_changed_bookmarks_require_reload() {
+fn unrelated_disk_edits_merge_but_changed_workspaces_require_reload() {
     let f = Fixture::new();
     fs::write(f.path(), "[ui]\npalette = 'nord'\n").unwrap();
     let mut store = Store::new(Some(f.path()), vec![], None);
@@ -244,7 +246,7 @@ fn unrelated_disk_edits_merge_but_changed_bookmarks_require_reload() {
             &[],
             &Change::Put {
                 index: None,
-                bookmark: f.bookmark("one"),
+                workspace: f.workspace("one"),
             },
         )
         .unwrap();
@@ -253,10 +255,10 @@ fn unrelated_disk_edits_merge_but_changed_bookmarks_require_reload() {
             .unwrap()
             .contains("palette = 'forest' # external edit")
     );
-    let external = "[[bookmarks]]\nname='external'\npath='/external'\n";
+    let external = "[[workspaces]]\nname='external'\npath='/external'\n";
     fs::write(f.path(), external).unwrap();
     let error = store.commit(&next, &Change::Remove(0)).unwrap_err();
-    assert_eq!(error, fuzzy_file_finder::bookmarks::CHANGED);
+    assert_eq!(error, fuzzy_file_finder::workspaces::CHANGED);
     assert_eq!(fs::read_to_string(f.path()).unwrap(), external);
     let refreshed = store.reload().unwrap();
     assert_eq!(refreshed[0].name, "external");
@@ -275,7 +277,7 @@ fn invalid_config_or_write_failure_leaves_state_and_disk_untouched() {
                 &[],
                 &Change::Put {
                     index: None,
-                    bookmark: f.bookmark("one")
+                    workspace: f.workspace("one")
                 }
             )
             .is_err()
@@ -290,7 +292,7 @@ fn invalid_config_or_write_failure_leaves_state_and_disk_untouched() {
                 &[],
                 &Change::Put {
                     index: None,
-                    bookmark: f.bookmark("one")
+                    workspace: f.workspace("one")
                 }
             )
             .is_err()
@@ -313,7 +315,7 @@ fn saving_follows_config_symlinks_and_preserves_permissions() {
             &[],
             &Change::Put {
                 index: None,
-                bookmark: f.bookmark("one"),
+                workspace: f.workspace("one"),
             },
         )
         .unwrap();
@@ -334,36 +336,165 @@ fn saving_follows_config_symlinks_and_preserves_permissions() {
 #[test]
 fn draft_paths_expand_home_and_use_the_browsing_directory() {
     let f = Fixture::new();
-    let mut draft = Draft::new(&f.0, None, "find".into(), 2).unwrap();
+    let mut draft = Draft::new(&f.0, None, Workspace::default(), "find".into(), 2).unwrap();
     draft.path = "relative/notes".into();
     assert_eq!(
-        draft.bookmark(&f.0, None).unwrap().path,
-        f.0.join("relative/notes")
+        draft.workspace(&f.0, None).unwrap().path,
+        Some(f.0.join("relative/notes"))
     );
     draft.path = "~/notes".into();
     assert_eq!(
-        draft.bookmark(&f.0, Some(&f.0)).unwrap().path,
-        f.0.join("notes")
+        draft.workspace(&f.0, Some(&f.0)).unwrap().path,
+        Some(f.0.join("notes"))
     );
-    assert!(draft.bookmark(&f.0, None).is_err());
+    assert!(draft.workspace(&f.0, None).is_err());
 }
 #[test]
 fn drafts_refuse_line_breaks_and_control_characters() {
     let f = Fixture::new();
-    let mut draft = Draft::new(&f.0, None, String::new(), 0).unwrap();
+    let mut draft = Draft::new(&f.0, None, Workspace::default(), String::new(), 0).unwrap();
     draft.name = "Notes".into();
-    assert!(draft.bookmark(&f.0, None).is_ok());
+    assert!(draft.workspace(&f.0, None).is_ok());
     // Linewise Neovim edits (dd then P) leave a trailing line break.
     draft.name = "Notes\n".into();
     assert!(
         draft
-            .bookmark(&f.0, None)
+            .workspace(&f.0, None)
             .unwrap_err()
             .contains("line breaks")
     );
     draft.name = "Notes".into();
     draft.path = format!("{}\n", f.0.display());
-    assert!(draft.bookmark(&f.0, None).is_err());
+    assert!(draft.workspace(&f.0, None).is_err());
     draft.path = format!("{}/a\tb", f.0.display());
-    assert!(draft.bookmark(&f.0, None).is_err());
+    assert!(draft.workspace(&f.0, None).is_err());
+}
+#[test]
+fn drafts_keep_the_ticked_settings_and_an_empty_path_keeps_the_folder() {
+    let f = Fixture::new();
+    let now = Workspace {
+        path: Some(f.0.clone()),
+        roots: Some(vec![f.0.join("papers")]),
+        query: Some("thesis".into()),
+        contents: Some(String::new()),
+        depth: Some(4),
+        filters: Some(vec!["*.pdf".into()]),
+        hidden: Some(true),
+        kinds: Some(fuzzy_file_finder::Kinds::Files),
+        preview: Some(false),
+        exclusions_on: Some(true),
+        filters_on: Some(true),
+        ..Workspace::default()
+    };
+    let mut draft = Draft::new(&f.0, None, now.clone(), String::new(), 0).unwrap();
+    // A new workspace keeps the folder and nothing else.
+    let folder = draft.workspace(&f.0, None).unwrap();
+    assert_eq!(folder.path, Some(f.0.clone()));
+    assert!(!Setting::ALL.iter().any(|s| s.is_in(&folder)));
+    // A setting the session has no value for cannot be ticked.
+    assert!(!draft.toggle(Setting::Program));
+    assert!(draft.toggle(Setting::Depth) && draft.toggle(Setting::Toggles));
+    assert!(draft.toggle(Setting::Query));
+    draft.path.clear();
+    let kept = draft.workspace(&f.0, None).unwrap();
+    assert_eq!((kept.path, kept.depth), (None, Some(4)));
+    assert_eq!(kept.query.as_deref(), Some("thesis"));
+    assert_eq!(kept.contents.as_deref(), Some(""));
+    assert_eq!((kept.hidden, kept.preview), (Some(true), Some(false)));
+    assert_eq!((kept.roots, kept.filters), (None, None));
+    // Unticking drops it again; with nothing left there is nothing to save.
+    for setting in [Setting::Depth, Setting::Toggles, Setting::Query] {
+        assert!(draft.toggle(setting));
+    }
+    assert!(draft.workspace(&f.0, None).is_err());
+    // Editing offers the workspace's own values first, the session's for
+    // the rest.
+    let saved = Workspace {
+        name: "notes".into(),
+        depth: Some(9),
+        ..Workspace::default()
+    };
+    let mut draft = Draft::new(&f.0, Some((0, &saved)), now, String::new(), 0).unwrap();
+    assert!(draft.path.is_empty() && Setting::Depth.is_in(&draft.kept));
+    assert!(draft.toggle(Setting::Depth) && draft.toggle(Setting::Depth));
+    assert!(draft.toggle(Setting::Filters));
+    let edited = draft.workspace(&f.0, None).unwrap();
+    assert_eq!(edited.depth, Some(9));
+    assert_eq!(edited.filters, Some(vec!["*.pdf".to_string()]));
+}
+
+#[test]
+fn every_setting_is_saved_read_back_and_removed_with_its_keys() {
+    let f = Fixture::new();
+    fs::write(
+        f.path(),
+        "# notes\n[[workspaces]]\nname = 'plain' # just a folder\npath = 'p'\n",
+    )
+    .unwrap();
+    let initial = f.load();
+    let mut store = Store::new(Some(f.path()), initial.clone(), None);
+    let full = Workspace {
+        name: "findnotes".into(),
+        icon: None,
+        path: Some(f.0.join("phd")),
+        program: Some(fuzzy_file_finder::program::Program::Pick),
+        roots: Some(vec![f.0.join("phd"), f.0.join("books")]),
+        query: Some("lemma".into()),
+        contents: Some("compact".into()),
+        depth: Some(10),
+        filters: Some(vec!["*.pdf".into(), "*.djvu".into()]),
+        exclusions: Some(vec!["target".into()]),
+        sort: Some(Some(fuzzy_file_finder::rows::Sort {
+            by: fuzzy_file_finder::rows::Criterion::Modified,
+            descending: true,
+        })),
+        hidden: Some(false),
+        kinds: Some(fuzzy_file_finder::Kinds::Files),
+        preview: Some(true),
+        exclusions_on: Some(true),
+        filters_on: Some(false),
+    };
+    let next = store
+        .commit(
+            &initial,
+            &Change::Put {
+                index: None,
+                workspace: full.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(f.load(), next);
+    assert_eq!(next[1], full);
+    let text = fs::read_to_string(f.path()).unwrap();
+    for key in [
+        "program = \"pick\"",
+        "depth = 10",
+        "sort = \"modified\"",
+        "sort_descending = true",
+        "kinds = \"files\"",
+    ] {
+        assert!(text.contains(key), "{key} missing from {text}");
+    }
+    // Keeping fewer settings removes their keys and leaves the rest alone.
+    let fewer = Workspace {
+        name: "findnotes".into(),
+        path: None,
+        depth: Some(10),
+        ..Workspace::default()
+    };
+    let next = store
+        .commit(
+            &next,
+            &Change::Put {
+                index: Some(1),
+                workspace: fewer.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(f.load(), next);
+    let text = fs::read_to_string(f.path()).unwrap();
+    assert!(text.contains("# just a folder") && text.contains("depth = 10"));
+    for key in ["program", "roots", "sort", "kinds", "path = \"/"] {
+        assert!(!text.contains(key), "{key} left in {text}");
+    }
 }

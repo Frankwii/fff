@@ -99,7 +99,7 @@ fff can also be the desktop's file manager and file chooser: `fff setup
 
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
 except prompts made for typing (new names, the go-to prompt, the gx/gX command,
-the bookmark form)
+the workspace form)
 and the query of `fff pick`, `fff seek` and `fff explorer save`, which start
 in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
@@ -375,6 +375,35 @@ Dialogs (`fff explorer`) and `fff window` sessions do not switch: a dialog
 answers the application that opened it, and a window has no shell to change
 directory or print to.
 
+### Workspaces
+
+A workspace is a name for some of a session's settings: a folder, the
+program, roots, queries, depth, filters, exclusions, sorting and toggles. `gw`
+in Normal mode (Alt+w while typing) opens the chooser; Enter applies what the
+highlighted workspace keeps and leaves the rest, the query included. One that
+keeps only a folder is a place to go to. `n` there saves a new one: its name,
+its folder (the current one; empty leaves the folder alone), and Space ticks
+the other settings it keeps, as they are now.
+
+`fff --workspace NAME` starts in one, the command line winning over what it
+keeps. A workspace like this one replaces a script that starts
+`fff pick` with its own roots and globs:
+
+```toml
+[[workspaces]]
+name = "findnotes"
+program = "pick"
+roots = ["~/phd", "~/books"]
+depth = 10
+filters = ["*.pdf", "*.djvu"]
+```
+
+```sh
+fff pick -0 --workspace findnotes | xargs -0 -r zathura
+```
+
+See [workspaces](docs/CONFIGURATION.md#workspaces) for every key.
+
 ### Preview pane
 
 The preview pane shows the highlighted entry in the bottom half of the
@@ -419,7 +448,7 @@ F1 and says how to leave: `F1 keys  q quit` (`Ctrl+c quit` while typing,
 where `q` is text).
 
 The defaults: Alt keys that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space,
-Alt+digits) work in both modes. Alt keys for features (Alt+b, Alt+g, Alt+t,
+Alt+digits) work in both modes. Alt keys for features (Alt+w, Alt+g, Alt+t,
 Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p, Alt+P) work
 while typing; in Normal mode their letters do the work instead, and the Alt
 key says which one.
@@ -439,10 +468,10 @@ key says which one.
 | Alt+h | Parent directory; retain query and reset highlight/scroll |
 | Alt+l / l in Normal | Enter the highlighted directory, or open the highlighted file in the background |
 | Alt+o / o in Normal | Open the current or marked files with their openers in this terminal, then come back |
-| Alt+g / `g/` in Normal | Go to a typed path, or words picking a bookmark or one of zoxide's frequent folders |
+| Alt+g / `g/` in Normal | Go to a typed path, or words picking a workspace or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
 | Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
-| Alt+b / b in Normal | Bookmark chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
+| Alt+w / `gw` in Normal | [Workspace](#workspaces) chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | Alt+p / `gp` in Normal | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | Alt+P / `gP` in Normal | Reload the configured palette, clearing a session choice |
 | Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (`+` / `-` in Normal-mode results) |
@@ -499,7 +528,7 @@ to it in `fff roam`. `fff seek` makes either exit successfully without
 output. Insert mode keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 
-Normal-mode list keys apply to results, marks, bookmarks and palettes; the
+Normal-mode list keys apply to results, marks, workspaces and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
 Insert mode; in Normal-mode results 1–9 set the search depth
 (binding `search_to_depth` to nothing makes them Vim counts again). Keys are case-sensitive.
@@ -527,16 +556,17 @@ Optional TOML lives at `$XDG_CONFIG_HOME/fff/config.toml`, falling back to
 fff setup --config docs/config.example.toml --check-config
 ```
 
-- [Configuration guide](docs/CONFIGURATION.md): every setting, bookmarks, icons,
+- [Configuration guide](docs/CONFIGURATION.md): every setting, workspaces, icons,
   key mappings, cache limits and prefetch budgets.
 - [Commented example](docs/config.example.toml): a complete starting configuration.
 - [Palette catalog](docs/PALETTES.md): built-ins, live switching and color sources.
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 - [Desktop integration](docs/DESKTOP.md): fff as the file manager and Firefox's file chooser.
 
-In the bookmark editor, Enter saves and Escape cancels, Tab switches fields and
-Space on the icon row opens a searchable Nerd Font icon picker. In the chooser,
-Up/Down reorder bookmarks. Saves update the active TOML file; `--no-config`
+In the workspace editor, Enter saves and Escape cancels, Tab switches fields and
+settings, Space ticks a setting to keep, and Space on the icon row opens a
+searchable Nerd Font icon picker. In the chooser,
+Up/Down reorder workspaces. Saves update the active TOML file; `--no-config`
 keeps edits for this session only.
 
 Discovery is asynchronous and breadth first. Ready results wake the UI immediately;

@@ -632,7 +632,7 @@ functions! {
     HighlightLast "highlight_last" Highlight "Highlight the last row of the list in focus.";
     GoToParent "go_to_parent" GoTo "Go to the parent of the current directory. The query stays, so the results there are filtered by it too.";
     GoToHighlighted "go_to_highlighted" GoTo "Go to the highlighted entry: into it when it is a directory; when it is a file, to the directory holding it, with the file highlighted and the query cleared so that it shows.";
-    GoToPath "go_to_path" GoTo "Go to a path typed in a prompt. Words typed there also suggest bookmarks and zoxide's frequent directories to go to.";
+    GoToPath "go_to_path" GoTo "Go to a path typed in a prompt. Words typed there also suggest workspaces and zoxide's frequent directories to go to.";
     GoToTrash "go_to_trash" GoTo "Go to the trash and browse it like any directory; restore puts entries back. Pressed again in the trash, go to the next filesystem's trash.";
     GoBack "go_back" GoTo "Go back to the directory this tab was in before, like a browser's back button.";
     GoForward "go_forward" GoTo "Go forward again to the directory go_back left. Ctrl+i needs a terminal that tells it apart from Tab.";
@@ -693,7 +693,7 @@ functions! {
     ToggleJobList "toggle_job_list" Files "Toggle the focus between the results and the jobs list, the file operations still running (shown below the marks). There x stops the highlighted one and undoes what it had done.";
     ShowKeys "show_keys" Session "Show the Keys screen, to look keys up and change them; the same key closes it.";
     ShowSession "show_session" Session "Show the Session tab: exact paths, search scopes, policies, marks and any errors in the configuration.";
-    ShowBookmarks "show_bookmarks" Session "Show the bookmarks: go to one, or add, edit, delete and reorder them.";
+    ShowWorkspaces "show_workspaces" Session "Show the workspaces: go to one, or add, edit, delete and reorder them.";
     EditConfig "edit_config" Session "Edit the configuration file in $EDITOR, then apply it to this session at once.";
     SwitchProgram "switch_program" Session "Go on as fff roam, pick or seek, keeping the query, highlight, marks, exclusions, filters and a depth you set.";
 }
@@ -756,9 +756,10 @@ impl Function {
             | MoveMarked | CopyMarked | LinkMarked | Trash | Delete | Extract | Undo | Restore
             | Quit | EditConfig => only_normal(lists),
             Rename | Create | ClearQuery | SearchToDepth | ShowSorting => only_normal(results),
-            SwitchQuery => both(scope(&[], &[Results], &[])),
-            GoToParent | GoToPath | ShowBookmarks | GoToTrash | GoBack | GoForward
-            | GoToNextTab | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
+            // A workspace can switch program, so it opens in every one.
+            SwitchQuery | ShowWorkspaces => both(scope(&[], &[Results], &[])),
+            GoToParent | GoToPath | GoToTrash | GoBack | GoForward | GoToNextTab
+            | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
                 both(scope(&NAVIGATE, &[Results], &[]))
             }
             GoToHighlighted if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
@@ -839,7 +840,7 @@ impl Function {
             HighlightNextPage => &[("<PageDown>", all)],
             GoToParent => &[("<M-h>", all)],
             GoToPath => &[("<M-g>", all)],
-            ShowBookmarks => &[("<M-b>", all)],
+            ShowWorkspaces => &[("<M-w>", all)],
             GoToTrash => &[("<M-t>", all)],
             GoBack => &[("<C-o>", all)],
             GoForward => &[("<C-i>", all)],
@@ -937,7 +938,7 @@ impl Function {
                 ("<CR>", scope(&[Window], &[Marks], &[H::Dir])),
             ],
             GoToPath => &[("g/", all)],
-            ShowBookmarks => &[("b", all)],
+            ShowWorkspaces => &[("gw", all)],
             GoToTrash => &[("gt", all)],
             GoBack => &[("<C-o>", all)],
             GoForward => &[("<C-i>", all)],
@@ -1047,12 +1048,12 @@ pub const FIXED: &[(&str, &str, &str)] = &[
     (
         "j k gg G",
         "choosers",
-        "Move through the bookmark, palette and icon choosers (Normal mode).",
+        "Move through the workspace, palette and icon choosers (Normal mode).",
     ),
     (
         "↑ ↓",
         "choosers",
-        "Move; in the bookmark chooser, move the highlighted bookmark.",
+        "Move; in the workspace chooser, move the highlighted workspace.",
     ),
     (
         "q  !",
@@ -1066,17 +1067,17 @@ pub const FIXED: &[(&str, &str, &str)] = &[
     ),
     (
         "n e d r",
-        "bookmarks",
-        "New, edit, delete or reload bookmarks (Normal mode; with Alt in Insert mode).",
+        "workspaces",
+        "New, edit, delete or reload workspaces (Normal mode; with Alt in Insert mode).",
     ),
     (
         "Alt+0–9",
-        "bookmarks",
-        "Open the visible bookmark #; 0 is the last.",
+        "workspaces",
+        "Open the visible workspace #; 0 is the last.",
     ),
     (
         "Tab  Shift+Tab",
-        "bookmark form",
+        "workspace form",
         "Switch fields; Space chooses the icon on its row.",
     ),
     (
@@ -1487,7 +1488,7 @@ impl Keymap {
             }
         }
         // Whole or not at all: a keys.toml cut short would lose every key.
-        crate::bookmarks::atomic_write(path, before.as_deref(), &document.to_string())
+        crate::workspaces::atomic_write(path, before.as_deref(), &document.to_string())
             .map_err(|e| format!("{}: {e}", path.display()))
     }
 }

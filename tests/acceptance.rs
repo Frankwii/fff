@@ -64,14 +64,15 @@ fn live_order_highlight_late_depth_and_rendered_choice() {
     assert!(!app.known.contains_key(Path::new("/fixture/obsolete")));
 }
 #[test]
-fn bookmark_jump_keeps_the_highlight_on_the_first_row_until_moved() {
+fn workspace_jump_keeps_the_highlight_on_the_first_row_until_moved() {
     let mut app = app();
-    app.bookmarks = vec![fuzzy_file_finder::config::Bookmark {
+    app.workspaces = vec![fuzzy_file_finder::config::Workspace {
         name: "here".into(),
-        path: std::env::temp_dir(),
+        path: Some(std::env::temp_dir()),
         icon: None,
+        ..Default::default()
     }];
-    assert!(app.open_bookmark(0));
+    assert!(app.open_workspace(0));
     let cwd = app.cwd.clone();
     let at = |name: &str, dir, depth| Candidate {
         path: cwd.join(name),

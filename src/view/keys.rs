@@ -1,7 +1,7 @@
 //! The Keys screen, drawn like the results: the query box, a line of keys,
 //! the list of functions (or of a key's places) beside the highlighted
 //! function's details, and the footer. A function's keys are a sheet like
-//! the bookmark form, and where a key applies another; all three show
+//! the workspace form, and where a key applies another; all three show
 //! places with the same checklists: a column each for the mode, the
 //! program, the list and the highlight.
 use super::*;

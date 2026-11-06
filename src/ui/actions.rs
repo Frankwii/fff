@@ -358,54 +358,54 @@ pub(super) fn start_run(editor: &mut Nvim, paths: Vec<PathBuf>, exit: bool) -> F
     }
     Focus::Command(crate::run::Prompt::new(paths, exit))
 }
-pub(super) fn bookmark_saved(app: &App, action: &str) -> String {
-    match &app.bookmark_store.path {
+pub(super) fn workspace_saved(app: &App, action: &str) -> String {
+    match &app.workspace_store.path {
         Some(path) => format!("{action} in {}", path.display()),
         None => format!("{action} for this session"),
     }
 }
-pub(super) fn save_bookmark(app: &mut App, focus: &mut Focus) {
-    let Focus::BookmarkEdit(draft) = focus else {
+pub(super) fn save_workspace(app: &mut App, focus: &mut Focus) {
+    let Focus::WorkspaceEdit(draft) = focus else {
         return;
     };
-    let back = Focus::Bookmarks {
+    let back = Focus::Workspaces {
         query: draft.query.clone(),
         index: draft.index,
     };
-    let bookmark = draft.bookmark(&app.cwd, app.home.as_deref());
-    // An unchanged existing bookmark leaves the configuration untouched.
-    if let (Some(index), Ok(bookmark)) = (draft.editing, &bookmark)
-        && app.bookmarks.get(index) == Some(bookmark)
+    let workspace = draft.workspace(&app.cwd, app.home.as_deref());
+    // An unchanged existing workspace leaves the configuration untouched.
+    if let (Some(index), Ok(workspace)) = (draft.editing, &workspace)
+        && app.workspaces.get(index) == Some(workspace)
     {
         *focus = back;
         return;
     }
-    let result = bookmark.and_then(|bookmark| {
-        app.bookmark_store.commit(
-            &app.bookmarks,
-            &BookmarkChange::Put {
+    let result = workspace.and_then(|workspace| {
+        app.workspace_store.commit(
+            &app.workspaces,
+            &WorkspaceChange::Put {
                 index: draft.editing,
-                bookmark,
+                workspace,
             },
         )
     });
     match result {
-        Ok(bookmarks) => {
-            let index = draft.editing.unwrap_or(app.bookmarks.len());
-            app.bookmarks = bookmarks;
-            app.status = bookmark_saved(app, "Bookmark saved");
-            *focus = Focus::Bookmarks {
+        Ok(workspaces) => {
+            let index = draft.editing.unwrap_or(app.workspaces.len());
+            app.workspaces = workspaces;
+            app.status = workspace_saved(app, "Workspace saved");
+            *focus = Focus::Workspaces {
                 query: String::new(),
                 index,
             };
         }
-        Err(error) => app.status = bookmark_error(app, error),
+        Err(error) => app.status = workspace_error(app, error),
     }
 }
-/// A refused bookmark write's message; when the file changed meanwhile, it
+/// A refused workspace write's message; when the file changed meanwhile, it
 /// names the chooser's reload key (r in Normal mode, else its Alt chord).
-pub(super) fn bookmark_error(app: &App, error: String) -> String {
-    if error != crate::bookmarks::CHANGED {
+pub(super) fn workspace_error(app: &App, error: String) -> String {
+    if error != crate::workspaces::CHANGED {
         return error;
     }
     match app.key("alt+r") {

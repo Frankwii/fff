@@ -12,25 +12,6 @@ The preview pane stays text only; there will be no image previews: see
 
 The goals for the first release, the README last.
 
-### Named workspaces
-
-`fff --resume` keeps only the last session, so a recurring setup (the papers
-of one project with their roots pinned and a depth of 3, a folder of notes
-with a content search in it, a codebase with its exclusions) is rebuilt by
-hand or started from a script of its own. A workspace would be a session
-saved under a name: its roots, folders and tabs, depth, filters, exclusions,
-toggles, sort order and query, and perhaps its marks.
-
-Workspaces would live in the bookmark chooser beside bookmarks, a bookmark
-being the simplest workspace: a single folder. The form that adds a bookmark
-would offer to save the current session instead, and opening a workspace
-would replace the session as `--resume` does. `fff --workspace NAME`
-(completed from the saved names) would start in one. To decide: whether
-workspaces are kept in the configuration with bookmarks or in the state
-directory beside the session, which they resemble more; whether opening one
-saves changes back to it or leaves it as saved until saved again; and how the
-chooser tells a workspace from a bookmark.
-
 ### Faster scanning
 
 Listing a large tree takes several times as long as `fd`: about 0.93
@@ -137,8 +118,8 @@ never navigates.
   apply. The program chose the paths, and its choice is kept.
 - **The session.** Rows are the list's, so nothing that would replace them
   works: no live updates, no reload, no switching program with `gm` and no
-  opening a [workspace](#named-workspaces), and the session is not saved
-  for `--resume`, since the list cannot be read again. Marks, previews,
+  opening a [workspace](../README.md#workspaces), since the list cannot be
+  read again. Marks, previews,
   opening, the contents query, sorting and file operations work on the rows
   as they do in `fff seek`; an operation's result shows in the rows only
   for the paths listed (a deleted file leaves, a renamed one is renamed).
@@ -167,8 +148,6 @@ What the [sorting picker](../README.md#sorting) leaves for later:
   kind, paths a scan delivers are each `lstat`ed on the interface thread as
   they are merged; a stalled network mount would stall it too. Reading them
   with the scan, on its threads, would keep the interface thread free.
-- **Kept with `--resume`.** The order chosen is not part of the saved
-  session; `[ui] sort` decides how each one starts.
 
 ### A tree view
 

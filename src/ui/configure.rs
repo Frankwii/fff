@@ -92,7 +92,7 @@ impl Session {
         settings: Settings,
     ) -> io::Result<Result<(), String>> {
         // keys.toml is read again too; with errors, the keys in use stay.
-        app.keys_path = settings.bookmark_path.as_deref().map(keymap::path_beside);
+        app.keys_path = settings.workspace_path.as_deref().map(keymap::path_beside);
         if let Some(path) = &app.keys_path {
             match keymap::Keymap::load(path) {
                 Ok(keys) => {
@@ -103,10 +103,10 @@ impl Session {
             }
         }
         app.openers = settings.open;
-        app.bookmarks = settings.bookmarks;
-        app.bookmark_store = crate::bookmarks::Store::new(
-            settings.bookmark_path,
-            app.bookmarks.clone(),
+        app.workspaces = settings.workspaces;
+        app.workspace_store = crate::workspaces::Store::new(
+            settings.workspace_path,
+            app.workspaces.clone(),
             app.home.clone(),
         );
         app.icons = settings.icons && !app.no_icons;

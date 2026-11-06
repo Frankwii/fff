@@ -1,11 +1,11 @@
 use crate::{
     App,
-    bookmarks::{Change as BookmarkChange, Draft as BookmarkDraft, EditField as BookmarkField},
     discovery::Discovery,
     editor::{Field, Nvim},
     keymap::{self, Function, Step},
     program::Program,
     rows,
+    workspaces::{Change as WorkspaceChange, Draft as WorkspaceDraft, EditField as WorkspaceField},
 };
 use crossterm::{
     cursor::{Hide, SetCursorStyle, Show},
@@ -110,17 +110,17 @@ pub(crate) enum Focus {
     /// go back.
     Replace(Replace),
     Location(crate::location::Location),
-    Bookmarks {
+    Workspaces {
         query: String,
         index: usize,
     },
-    BookmarkEdit(BookmarkDraft),
-    BookmarkIcons {
-        draft: BookmarkDraft,
+    WorkspaceEdit(WorkspaceDraft),
+    WorkspaceIcons {
+        draft: WorkspaceDraft,
         query: String,
         index: usize,
     },
-    BookmarkDelete {
+    WorkspaceDelete {
         target: usize,
         query: String,
         index: usize,
@@ -289,7 +289,7 @@ fn session(
 struct Drawn {
     /// Rows a page moves.
     page: usize,
-    bookmark_targets: Vec<usize>,
+    workspace_targets: Vec<usize>,
     results: ratatui::layout::Rect,
     buttons: Vec<(ratatui::layout::Rect, Button)>,
     tabs: Vec<(ratatui::layout::Rect, usize)>,
@@ -299,7 +299,7 @@ impl Default for Drawn {
     fn default() -> Self {
         Self {
             page: 1,
-            bookmark_targets: Vec::new(),
+            workspace_targets: Vec::new(),
             results: ratatui::layout::Rect::default(),
             buttons: Vec::new(),
             tabs: Vec::new(),
@@ -601,13 +601,13 @@ impl Session {
                 } else {
                     self.focus = Focus::Results;
                 }
-            } else if let Focus::BookmarkEdit(draft) = &self.focus {
+            } else if let Focus::WorkspaceEdit(draft) = &self.focus {
                 // Enter and Escape are the form's keys; Neovim's own
                 // ZZ/:wq and ZQ/:q! still save or cancel it.
                 if view.saved {
-                    save_bookmark(app, &mut self.focus);
+                    save_workspace(app, &mut self.focus);
                 } else {
-                    self.focus = Focus::Bookmarks {
+                    self.focus = Focus::Workspaces {
                         query: draft.query.clone(),
                         index: draft.index,
                     };
@@ -740,7 +740,7 @@ impl Session {
         }
         self.drawn = Drawn {
             page: completed.page.max(1),
-            bookmark_targets: completed.bookmark_targets,
+            workspace_targets: completed.workspace_targets,
             results: completed.results,
             buttons: completed.buttons,
             tabs: completed.tabs,

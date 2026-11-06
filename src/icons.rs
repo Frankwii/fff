@@ -159,9 +159,9 @@ pub fn marker_width() -> usize {
     "▸ ".width()
 }
 
-/// Searchable bookmark glyphs from the same Nerd Font families as file icons.
+/// Searchable workspace glyphs from the same Nerd Font families as file icons.
 /// The first option removes a custom icon and restores the automatic folder.
-pub const BOOKMARK_ICONS: &[(&str, Option<char>)] = &[
+pub const WORKSPACE_ICONS: &[(&str, Option<char>)] = &[
     ("Automatic (none / clear)", None),
     ("Folder directory", Some(FOLDER)),
     ("Home house", Some('\u{f015}')),
@@ -201,9 +201,9 @@ pub const BOOKMARK_ICONS: &[(&str, Option<char>)] = &[
     ("Markdown", Some('\u{e609}')),
 ];
 
-pub fn matching_bookmark_icons(query: &str) -> Vec<usize> {
+pub fn matching_workspace_icons(query: &str) -> Vec<usize> {
     let matcher = crate::Matcher::new(query);
-    BOOKMARK_ICONS
+    WORKSPACE_ICONS
         .iter()
         .enumerate()
         .filter_map(|(i, (name, _))| matcher.score(name).map(|_| i))
@@ -235,16 +235,16 @@ mod tests {
     }
 
     #[test]
-    fn bookmark_catalog_is_searchable_and_has_valid_glyph_widths() {
-        assert_eq!(BOOKMARK_ICONS[0].1, None);
-        assert_eq!(matching_bookmark_icons("").len(), BOOKMARK_ICONS.len());
+    fn workspace_catalog_is_searchable_and_has_valid_glyph_widths() {
+        assert_eq!(WORKSPACE_ICONS[0].1, None);
+        assert_eq!(matching_workspace_icons("").len(), WORKSPACE_ICONS.len());
         assert!(
-            matching_bookmark_icons("home")
+            matching_workspace_icons("home")
                 .iter()
-                .any(|&i| BOOKMARK_ICONS[i].1 == Some('\u{f015}'))
+                .any(|&i| WORKSPACE_ICONS[i].1 == Some('\u{f015}'))
         );
-        assert!(matching_bookmark_icons("zzzzzzzz").is_empty());
-        for (_, glyph) in BOOKMARK_ICONS {
+        assert!(matching_workspace_icons("zzzzzzzz").is_empty());
+        for (_, glyph) in WORKSPACE_ICONS {
             if let Some(glyph) = glyph {
                 assert!(matches!(
                     unicode_width::UnicodeWidthChar::width(*glyph),

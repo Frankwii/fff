@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn bookmarks(
+pub(super) fn workspaces(
     frame: &mut Frame,
     area: Rect,
     app: &App,
@@ -15,9 +15,9 @@ pub(super) fn bookmarks(
         theme,
         mode_title(
             app,
-            Field::Bookmarks,
+            Field::Workspaces,
             &format!(
-                "Bookmarks · {} opens · {} returns",
+                "Workspaces · {} opens · {} returns",
                 [app.key("enter"), Some("Alt+digit".to_string())]
                     .into_iter()
                     .flatten()
@@ -35,7 +35,7 @@ pub(super) fn bookmarks(
     frame.render_widget(block, dialog);
     let (mut line, cursor) = editable_line(
         app,
-        Field::Bookmarks,
+        Field::Workspaces,
         query,
         0,
         inner.width.saturating_sub(6) as usize,
@@ -51,7 +51,7 @@ pub(super) fn bookmarks(
     command_line(
         frame,
         app,
-        Field::Bookmarks,
+        Field::Workspaces,
         Rect::new(inner.x, inner.y + 1, inner.width, 1),
     );
     let list = Rect::new(
@@ -60,7 +60,7 @@ pub(super) fn bookmarks(
         inner.width,
         inner.height.saturating_sub(3),
     );
-    let matches = app.matching_bookmarks(query);
+    let matches = app.matching_workspaces(query);
     // Plain letters work while the filter is in Normal mode; otherwise Alt.
     let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
     let command = |c: char| {
@@ -70,19 +70,19 @@ pub(super) fn bookmarks(
             app.key(&format!("alt+{c}"))
         }
     };
-    // Each bookmark occupies three lines; only fully visible entries get labels.
+    // Each workspace occupies three lines; only fully visible entries get labels.
     let page = list.height as usize / 3;
     let start = index.saturating_sub(page.saturating_sub(1));
     let visible: Vec<_> = matches.iter().skip(start).take(page).copied().collect();
     let mut choices = Vec::new();
     if matches.is_empty() {
-        let text = if app.bookmarks.is_empty() {
+        let text = if app.workspaces.is_empty() {
             match command('n') {
-                Some(key) => format!("No bookmarks yet. {key} adds the current directory."),
-                None => "No bookmarks yet.".into(),
+                Some(key) => format!("No workspaces yet. {key} adds the current directory."),
+                None => "No workspaces yet.".into(),
             }
         } else {
-            "No matching bookmarks".into()
+            "No matching workspaces".into()
         };
         frame.render_widget(
             Paragraph::new(styled(text, theme.muted)).wrap(Wrap { trim: false }),
@@ -91,13 +91,13 @@ pub(super) fn bookmarks(
     } else {
         // Configured icons always show; others get the folder glyph when file
         // icons are enabled, or blank padding so names stay aligned.
-        let icon_column = app.icons || app.bookmarks.iter().any(|b| b.icon.is_some());
+        let icon_column = app.icons || app.workspaces.iter().any(|b| b.icon.is_some());
         let items: Vec<_> = visible
             .iter()
             .enumerate()
             .map(|(position, &i)| {
-                let b = &app.bookmarks[i];
-                let available = available(app, &b.path);
+                let b = &app.workspaces[i];
+                let available = b.path.as_deref().is_none_or(|p| available(app, p));
                 let color = if available { theme.marked } else { theme.error };
                 let label = if position + 1 == visible.len() {
                     if position < 9 {
@@ -114,7 +114,7 @@ pub(super) fn bookmarks(
                 if icon_column {
                     let icon = match &b.icon {
                         Some(icon) => safe(icon),
-                        None if app.icons => crate::icons::icon(&b.path, true).glyph.to_string(),
+                        None if app.icons => folder_glyph(),
                         None => String::new(),
                     };
                     let pad = 3usize.saturating_sub(icon.width());
@@ -134,7 +134,7 @@ pub(super) fn bookmarks(
                     Line::from(styled(
                         indent.to_string()
                             + &elide(
-                                &display_path(&b.path, &app.cwd),
+                                &summary(app, b),
                                 list.width.saturating_sub(2 + indent.len() as u16) as usize,
                             ),
                         theme.muted,
@@ -186,8 +186,8 @@ pub(super) fn bookmarks(
     );
     (visible, choices)
 }
-/// Modal frame for the bookmark icon chooser.
-pub(super) fn bookmark_dialog(
+/// Modal frame for the workspace icon chooser.
+pub(super) fn workspace_dialog(
     frame: &mut Frame,
     area: Rect,
     app: &App,
@@ -203,20 +203,20 @@ pub(super) fn bookmark_dialog(
     frame.render_widget(block, dialog);
     inner
 }
-/// The bookmark form shares the operation sheet: an explanation, three
+/// The workspace form shares the operation sheet: an explanation, three
 /// labelled rows (the active one carries the prompt glyph) and a status row.
-pub(super) fn bookmark_form(
+pub(super) fn workspace_form(
     frame: &mut Frame,
     main: Rect,
     app: &App,
-    draft: &crate::bookmarks::Draft,
+    draft: &crate::workspaces::Draft,
 ) {
-    use crate::bookmarks::EditField;
+    use crate::workspaces::EditField;
     let theme = app.palette;
     let title = if draft.editing.is_some() {
-        "Edit bookmark"
+        "Edit workspace"
     } else {
-        "New bookmark"
+        "New workspace"
     };
     let title = draft
         .field
@@ -226,24 +226,30 @@ pub(super) fn bookmark_form(
     let body = prose(
         theme,
         theme.marked,
-        &format!("Relative paths start at {here}; *~* is your home directory."),
+        &format!(
+            "Relative paths start at {here}; *~* is your home directory. An empty \
+             path leaves the folder as it is. *Space* ticks the settings to keep, \
+             as they are now."
+        ),
         main.width.saturating_sub(4) as usize,
     );
-    let summary = match &app.bookmark_store.path {
+    let saves = match &app.workspace_store.path {
         Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
         None => "this session only".into(),
     };
-    // Borders, prose, a blank line, three rows, and a row for commands or errors.
+    // Borders, prose, a blank line, three rows, a blank line, the settings
+    // with their heading, and a row for commands or errors.
+    let settings = crate::config::Setting::ALL.len() as u16;
     let inner = sheet(
         frame,
         main,
         app,
-        body.len() as u16 + 7,
+        body.len() as u16 + 9 + settings,
         Sheet {
             title,
             accent: theme.marked,
             keys: &[("enter", "Save"), ("esc", "Cancel"), ("tab", "Next field")],
-            summary: Some(summary),
+            summary: Some(saves),
         },
     );
     let top = (body.len() as u16 + 1).min(inner.height);
@@ -274,14 +280,14 @@ pub(super) fn bookmark_form(
             0,
             "Name",
             &draft.name,
-            Field::BookmarkName,
+            Field::WorkspaceName,
             draft.field == EditField::Name,
         ),
         (
             1,
             "Path",
             &draft.path,
-            Field::BookmarkPath,
+            Field::WorkspacePath,
             draft.field == EditField::Path,
         ),
     ] {
@@ -319,6 +325,55 @@ pub(super) fn bookmark_form(
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
+    // The settings, as the Keys screen's checklists tick them.
+    let y = inner.y + top + 4;
+    if y < inner.bottom().saturating_sub(1) {
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                styled("  ", theme.muted),
+                bold("KEEPS", theme.muted),
+            ])),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+    }
+    let show = |p: &Path| tilde(p, app.home.as_deref());
+    for (i, setting) in crate::config::Setting::ALL.into_iter().enumerate() {
+        let y = y + 1 + i as u16;
+        if y >= inner.bottom().saturating_sub(1) {
+            break;
+        }
+        let here = draft.field == EditField::Setting(setting);
+        let kept = setting.is_in(&draft.kept);
+        let (marker, color) = if kept {
+            ("●", theme.accent)
+        } else if draft.offers(setting) {
+            ("○", theme.muted)
+        } else {
+            ("×", theme.error)
+        };
+        let shown = if kept { &draft.kept } else { &draft.offered };
+        let mut style = Style::default().fg(if kept { theme.text } else { theme.muted });
+        if here {
+            style = style.bg(theme.selection).add_modifier(Modifier::BOLD);
+        }
+        let name = format!(" {:<11}", setting.name());
+        let used = 3 + name.width();
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(if here { "› " } else { "  " }, style.fg(theme.marked)),
+                Span::styled(marker, style.fg(color)),
+                Span::styled(name, style),
+                Span::styled(
+                    elide(
+                        &safe(setting.describe(shown, show)),
+                        (inner.width as usize).saturating_sub(used),
+                    ),
+                    style,
+                ),
+            ])),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
+    }
     let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
     let field = draft.field.editor();
     if app
@@ -330,34 +385,34 @@ pub(super) fn bookmark_form(
     } else if !app.status.is_empty() && app.status != app.status_success {
         frame.render_widget(Paragraph::new(styled(safe(&app.status), theme.error)), last);
     } else if draft
-        .bookmark(&app.cwd, app.home.as_deref())
-        .is_ok_and(|b| !available(app, &b.path))
+        .workspace(&app.cwd, app.home.as_deref())
+        .is_ok_and(|b| b.path.as_deref().is_some_and(|p| !available(app, p)))
     {
         frame.render_widget(
             Paragraph::new(styled(
-                "This directory does not exist; the bookmark will show as unavailable.",
+                "This directory does not exist; the workspace will show as unavailable.",
                 theme.muted,
             )),
             last,
         );
     }
 }
-pub(super) fn bookmark_icons(
+pub(super) fn workspace_icons(
     frame: &mut Frame,
     area: Rect,
     app: &App,
     query: &str,
     index: usize,
 ) -> Vec<(Rect, usize)> {
-    let inner = bookmark_dialog(
+    let inner = workspace_dialog(
         frame,
         area,
         app,
         mode_title(
             app,
-            Field::BookmarkIcons,
+            Field::WorkspaceIcons,
             &format!(
-                "Bookmark icons · {} chooses · {} returns",
+                "Workspace icons · {} chooses · {} returns",
                 app.key_or_none("enter"),
                 app.key_or_none("esc")
             ),
@@ -367,7 +422,7 @@ pub(super) fn bookmark_icons(
     let theme = app.palette;
     let (mut line, cursor) = editable_line(
         app,
-        Field::BookmarkIcons,
+        Field::WorkspaceIcons,
         query,
         0,
         inner.width.saturating_sub(6) as usize,
@@ -383,7 +438,7 @@ pub(super) fn bookmark_icons(
     command_line(
         frame,
         app,
-        Field::BookmarkIcons,
+        Field::WorkspaceIcons,
         Rect::new(inner.x, inner.y + 1, inner.width, 1),
     );
     let list = Rect::new(
@@ -392,7 +447,7 @@ pub(super) fn bookmark_icons(
         inner.width,
         inner.height.saturating_sub(3),
     );
-    let matches = crate::icons::matching_bookmark_icons(query);
+    let matches = crate::icons::matching_workspace_icons(query);
     let mut choices = Vec::new();
     if matches.is_empty() {
         frame.render_widget(
@@ -403,7 +458,7 @@ pub(super) fn bookmark_icons(
         let items: Vec<_> = matches
             .iter()
             .map(|&i| {
-                let (name, glyph) = crate::icons::BOOKMARK_ICONS[i];
+                let (name, glyph) = crate::icons::WORKSPACE_ICONS[i];
                 ListItem::new(Line::from(vec![
                     bold(format!("{}  ", glyph.unwrap_or('·')), theme.accent),
                     styled(name, theme.text),
@@ -430,45 +485,45 @@ pub(super) fn bookmark_icons(
     );
     choices
 }
-/// Bookmark deletion uses the operation sheet in the deletion accent, listing
+/// Workspace deletion uses the operation sheet in the deletion accent, listing
 /// the one entry like a chooser row.
-pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: usize) {
+pub(super) fn workspace_delete(frame: &mut Frame, main: Rect, app: &App, index: usize) {
     let theme = app.palette;
-    let Some(bookmark) = app.bookmarks.get(index) else {
+    let Some(workspace) = app.workspaces.get(index) else {
         return;
     };
     let body = prose(
         theme,
         theme.error,
         &format!(
-            "Press *{}* to remove this bookmark, or *{}* to keep it. \
+            "Press *{}* to remove this workspace, or *{}* to keep it. \
              The directory itself is not touched.",
             app.key_or_none("enter"),
             app.key_or_none("esc")
         ),
         main.width.saturating_sub(4) as usize,
     );
-    let summary = match &app.bookmark_store.path {
+    let saves = match &app.workspace_store.path {
         Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
         None => "this session only".into(),
     };
-    // Borders, prose, a blank line, the bookmark, and a row for errors.
+    // Borders, prose, a blank line, the workspace, and a row for errors.
     let inner = sheet(
         frame,
         main,
         app,
         body.len() as u16 + 5,
         Sheet {
-            title: " Delete bookmark ".into(),
+            title: " Delete workspace ".into(),
             accent: theme.error,
             keys: &[("enter", "Delete"), ("esc", "Cancel")],
-            summary: Some(summary),
+            summary: Some(saves),
         },
     );
-    let available = available(app, &bookmark.path);
-    let icon = match &bookmark.icon {
+    let available = workspace.path.as_deref().is_none_or(|p| available(app, p));
+    let icon = match &workspace.icon {
         Some(icon) => safe(icon),
-        None if app.icons => crate::icons::icon(&bookmark.path, true).glyph.to_string(),
+        None if app.icons => folder_glyph(),
         None => String::new(),
     };
     let mut row = vec![];
@@ -479,7 +534,7 @@ pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: u
             if available { theme.marked } else { theme.error },
         ));
     }
-    let name = safe(&bookmark.name);
+    let name = safe(&workspace.name);
     row.push(bold(
         name.clone(),
         if available { theme.marked } else { theme.error },
@@ -489,7 +544,7 @@ pub(super) fn bookmark_delete(frame: &mut Frame, main: Rect, app: &App, index: u
         format!(
             "   {}",
             elide(
-                &tilde(&bookmark.path, app.home.as_deref()),
+                &summary(app, workspace),
                 (inner.width as usize).saturating_sub(used),
             )
         ),
@@ -622,8 +677,51 @@ pub(super) fn palettes(
     }
     choices
 }
-/// A bookmark's folder exists, from the details cache: drawing never waits
+/// A workspace's folder exists, from the details cache: drawing never waits
 /// for the filesystem, and one not read yet counts as available.
+/// The glyph of a workspace without an icon of its own.
+fn folder_glyph() -> String {
+    crate::icons::icon(Path::new(""), true).glyph.to_string()
+}
+/// What a workspace keeps, in a few words: its folder, then its other
+/// settings (`pick · 3 roots · depth 10`).
+fn summary(app: &App, w: &crate::config::Workspace) -> String {
+    use crate::config::Setting;
+    let count = |n: usize, one: &str, many: &str| match n {
+        0 => format!("no {many}"),
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    };
+    let show = |p: &Path| tilde(p, app.home.as_deref());
+    w.path
+        .as_deref()
+        .map(show)
+        .into_iter()
+        .chain(
+            Setting::ALL
+                .into_iter()
+                .filter(|s| s.is_in(w))
+                .map(|s| match s {
+                    Setting::Roots => count(w.roots.as_ref().map_or(0, Vec::len), "root", "roots"),
+                    Setting::Depth => format!("depth {}", s.describe(w, show)),
+                    Setting::Filters => {
+                        count(w.filters.as_ref().map_or(0, Vec::len), "filter", "filters")
+                    }
+                    Setting::Exclusions => count(
+                        w.exclusions.as_ref().map_or(0, Vec::len),
+                        "exclusion",
+                        "exclusions",
+                    ),
+                    Setting::Sorting => match w.sort {
+                        Some(Some(sort)) => format!("sorted by {}", sort.label()),
+                        _ => "ranked".into(),
+                    },
+                    _ => s.describe(w, show),
+                }),
+        )
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
 fn available(app: &App, path: &Path) -> bool {
     match app.details.lookup(path) {
         Some(found) => found.is_some_and(|i| i.directory),

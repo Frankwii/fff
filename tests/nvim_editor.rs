@@ -119,7 +119,7 @@ fn command_line_substitution_and_buffer_replacement() {
         "new/path"
     );
     assert_eq!(
-        e.activate(Field::Bookmarks, "Notes").unwrap().label(),
+        e.activate(Field::Workspaces, "Notes").unwrap().label(),
         "NORMAL"
     );
     assert_eq!(
@@ -164,7 +164,7 @@ fn field_switches_restore_insert_cursor_at_end_and_in_middle() {
     e.activate(Field::Query, "ab").unwrap();
     assert_eq!(chars(&mut e, Field::Query, "X"), "aXb");
     e.input(Field::Query, Key::new(K::End, M::NONE)).unwrap();
-    e.activate(Field::Bookmarks, "Notes").unwrap();
+    e.activate(Field::Workspaces, "Notes").unwrap();
     e.activate(Field::Query, "aXb").unwrap();
     assert_eq!(chars(&mut e, Field::Query, "Y"), "aXbY");
 }
@@ -181,11 +181,11 @@ fn every_text_field_initially_starts_normal() {
         Field::Extraction,
         Field::Location,
         Field::Exclusions,
-        Field::Bookmarks,
+        Field::Workspaces,
         Field::Palettes,
-        Field::BookmarkName,
-        Field::BookmarkPath,
-        Field::BookmarkIcons,
+        Field::WorkspaceName,
+        Field::WorkspacePath,
+        Field::WorkspaceIcons,
     ] {
         let view = e.activate(field, "sample").unwrap();
         assert!(view.normal(), "{field:?}: {view:?}");
@@ -306,7 +306,11 @@ fn close_distinguishes_written_contents_from_unsaved_edits() {
     let Some(mut e) = engine() else {
         return;
     };
-    for field in [Field::Exclusions, Field::BookmarkName, Field::BookmarkPath] {
+    for field in [
+        Field::Exclusions,
+        Field::WorkspaceName,
+        Field::WorkspacePath,
+    ] {
         e.activate(field, "original").unwrap();
         chars(&mut e, field, "ccsaved");
         e.input(field, Key::new(K::Esc, M::NONE)).unwrap();

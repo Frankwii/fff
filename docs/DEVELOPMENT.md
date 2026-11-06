@@ -20,7 +20,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
-| `src/bookmarks.rs` | Live bookmark forms and atomic, comment-preserving TOML persistence. |
+| `src/workspaces.rs` | Live workspace forms (the settings ticked to keep) and atomic, comment-preserving TOML persistence. A workspace and its settings are `config::Workspace` and `config::Setting`; `App::apply_workspace` opens one, `App::snapshot` is what a new one can keep. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. |
 | `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`), what each function does (`run_function`), and other focuses' fixed keys (`act`). |
@@ -28,7 +28,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | The choosers' fixed Normal-mode keys; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |
-| `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, bookmark/glob/palette saves, dropped paths. |
+| `src/ui/actions.rs` | Opening and leaving with entries, file dialogs' saves, the scope choice, running programs, workspace/glob/palette saves, dropped paths. |
 | `src/ui/jobs.rs` | File operations as background jobs: checks before confirmations (modal), running operations in the jobs list (`App::jobs`) with the paths each reads and changes (`Claim`, refusing collisions), stopping and undoing them, results, marks, undo records and their messages. |
 | `src/ui/mouse.rs` | Clicks, the wheel and drags in the results and lists; the opt-in button bar. |
 | `src/view/mod.rs` | Ratatui frame layout (`render`): the query box and its status, the location line, tab strip, notices, display paths. |
@@ -36,7 +36,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/view/panes.rs`, `src/view/footer.rs` | The marked list and preview panes; the footer and the button bar. |
 | `src/view/text.rs` | Edited text with Neovim's cursor and selection, prompts, wrapped messages. |
 | `src/view/sheets.rs` | Operation sheets: confirmations, choices, rename/new/extract, run and go-to prompts. |
-| `src/view/choosers.rs` | Bookmark chooser and form, icon picker, palette chooser. |
+| `src/view/choosers.rs` | Workspace chooser and form, icon picker, palette chooser. |
 | `src/view/guide.rs` | F2's Session tab. |
 | `src/view/keys.rs` | The Keys screen (F1), drawn in place of the results, and its editor sheet. |
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
@@ -47,7 +47,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
-| `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
+| `src/location.rs` | The Alt+g prompt: typed paths, workspaces and zoxide suggestions. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Per-directory highlights, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback, deletion review, progress and stopping. |
@@ -201,7 +201,7 @@ share runs, so merging a run they share copies it, as it did before.
   nothing more). In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
 - Drawing never touches the filesystem: what a frame shows about an entry
-  (details, `[MISSING]`, a folder's slash, a bookmark's availability) comes
+  (details, `[MISSING]`, a folder's slash, a workspace's availability) comes
   from `Details`, whose workers read it in the background, one set per mount
   so that a stuck mount holds up only its own entries; until they answer,
   the frame shows what they found before. Owner names, possibly from a
@@ -214,9 +214,9 @@ share runs, so merging a run they share copies it, as it did before.
 - Verification age survives revisits and checkpoints. F5 bypasses replay. Prefetch
   stays bounded and cannot evict visited snapshots or spawn successors behind a
   stuck speculative worker. See [cache settings](CONFIGURATION.md#discovery-cache-and-performance).
-- Bookmark writes occur only on explicit save/delete. Preserve unrelated config,
-  symlinks and permissions; refuse conflicting bookmark edits. `--no-config`
-  stays session-only. `tests/bookmarks.rs` covers persistence and failures.
+- Workspace writes occur only on explicit save/delete. Preserve unrelated config,
+  symlinks and permissions; refuse conflicting workspace edits. `--no-config`
+  stays session-only. `tests/workspaces.rs` covers persistence and failures.
 - Original paths remain separate from display abbreviations and icons. Keep
   palette attribution and [third-party notices](THIRD_PARTY_NOTICES.md).
 - File operations must pass through `Engine`; no UI branch may mutate a user

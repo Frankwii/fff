@@ -39,10 +39,10 @@ impl Session {
             Focus::TrashConfirm(_) => self.trash_confirm_key(app, key),
             Focus::Operation(_) => self.draft_key(app, key),
             Focus::Palettes { .. } => self.palettes_key(app, key),
-            Focus::Bookmarks { .. } => self.bookmarks_key(app, key),
-            Focus::BookmarkEdit(_) => self.bookmark_edit_key(app, key),
-            Focus::BookmarkIcons { .. } => self.bookmark_icons_key(app, key),
-            Focus::BookmarkDelete { .. } => self.bookmark_delete_key(app, key),
+            Focus::Workspaces { .. } => self.workspaces_key(app, key),
+            Focus::WorkspaceEdit(_) => self.workspace_edit_key(app, key),
+            Focus::WorkspaceIcons { .. } => self.workspace_icons_key(app, key),
+            Focus::WorkspaceDelete { .. } => self.workspace_delete_key(app, key),
             Focus::Info { .. } | Focus::Keys(_) | Focus::Picker { .. } => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
@@ -310,58 +310,87 @@ impl Session {
         };
         *index = moved;
     }
-    /// The bookmark chooser's movement and Enter; its commands were handled
-    /// in `bookmark_command`.
-    fn bookmarks_key(&mut self, app: &mut App, key: KeyEvent) {
+    /// The workspace chooser's movement and Enter; its commands were handled
+    /// in `workspace_command`.
+    fn workspaces_key(&mut self, app: &mut App, key: KeyEvent) {
         let page = self.drawn.page;
         let alt = key.modifiers.contains(M::ALT);
-        let Focus::Bookmarks { query, index } = &mut self.focus else {
+        let Focus::Workspaces { query, index } = &mut self.focus else {
             return;
         };
-        let matches = app.matching_bookmarks(query);
+        let matches = app.matching_workspaces(query);
         match key.code {
             K::Esc => self.focus = Focus::Results,
-            K::Char('b') if alt => self.focus = Focus::Results,
+            K::Char('w') if alt => self.focus = Focus::Results,
             // Up/Down reorder; Alt+j/k (or Normal j/k) move.
             K::Char('j') if alt => *index = cycle(*index, matches.len(), true),
             K::Char('k') if alt => *index = cycle(*index, matches.len(), false),
             K::PageDown => *index = (*index + page).min(matches.len().saturating_sub(1)),
             K::PageUp => *index = index.saturating_sub(page),
             K::Enter => {
-                if let Some(&target) = matches.get(*index)
-                    && app.open_bookmark(target)
-                {
-                    self.discovery.start(app, true);
-                    self.focus = Focus::Results;
+                if let Some(&target) = matches.get(*index) {
+                    self.open_workspace(app, target);
                 }
             }
             _ => deliver(app, &mut self.focus, &mut self.editor, key),
         }
     }
-    fn bookmark_edit_key(&mut self, app: &mut App, key: KeyEvent) {
-        let Focus::BookmarkEdit(draft) = &mut self.focus else {
+    /// Opens workspace `target` from the chooser and scans what it set up;
+    /// the chooser stays open when it cannot be opened.
+    pub(super) fn open_workspace(&mut self, app: &mut App, target: usize) {
+        self.discovery.checkpoint(app);
+        if !app.open_workspace(target) {
+            return;
+        }
+        self.focus = Focus::Results;
+        // The queries may have changed, and the program with them.
+        let field = if app.typing_contents() {
+            Field::Contents
+        } else {
+            Field::Query
+        };
+        self.editor.reset_preserving_mode(field);
+        // Starting a scan clears the status; keep saying what changed.
+        let status = std::mem::take(&mut app.status);
+        self.discovery.start(app, true);
+        app.status = status;
+    }
+    fn workspace_edit_key(&mut self, app: &mut App, key: KeyEvent) {
+        let Focus::WorkspaceEdit(draft) = &mut self.focus else {
             return;
         };
         // Neovim's Insert/Visual Escape and command-line Enter were
         // captured before, so these keys act on the form itself.
         if key.code == K::Esc {
-            self.focus = Focus::Bookmarks {
+            self.focus = Focus::Workspaces {
                 query: draft.query.clone(),
                 index: draft.index,
             };
         } else if key.code == K::Enter {
-            save_bookmark(app, &mut self.focus);
+            save_workspace(app, &mut self.focus);
         } else if matches!(key.code, K::Tab | K::BackTab | K::Up | K::Down) {
             draft.field = draft
                 .field
                 .next(matches!(key.code, K::BackTab | K::Up) || key.modifiers.contains(M::SHIFT));
-        } else if draft.field == BookmarkField::Icon && key.code == K::Char(' ') {
-            let index = crate::icons::BOOKMARK_ICONS
+        } else if let WorkspaceField::Setting(setting) = draft.field
+            && key.code == K::Char(' ')
+        {
+            if !draft.toggle(setting) {
+                app.status = match setting {
+                    crate::config::Setting::Program => format!(
+                        "fff {} cannot change program, so a workspace saved here keeps none",
+                        app.program().title()
+                    ),
+                    _ => format!("There is no {} to keep here", setting.name()),
+                };
+            }
+        } else if draft.field == WorkspaceField::Icon && key.code == K::Char(' ') {
+            let index = crate::icons::WORKSPACE_ICONS
                 .iter()
                 .position(|(_, glyph)| glyph.map(|g| g.to_string()) == draft.icon)
                 .unwrap_or(0);
-            self.editor.reset(Field::BookmarkIcons);
-            self.focus = Focus::BookmarkIcons {
+            self.editor.reset(Field::WorkspaceIcons);
+            self.focus = Focus::WorkspaceIcons {
                 draft: draft.clone(),
                 query: String::new(),
                 index,
@@ -370,10 +399,10 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
         }
     }
-    fn bookmark_icons_key(&mut self, app: &mut App, key: KeyEvent) {
+    fn workspace_icons_key(&mut self, app: &mut App, key: KeyEvent) {
         let page = self.drawn.page;
         let alt = key.modifiers.contains(M::ALT);
-        let Focus::BookmarkIcons {
+        let Focus::WorkspaceIcons {
             draft,
             query,
             index,
@@ -381,13 +410,13 @@ impl Session {
         else {
             return;
         };
-        let matches = crate::icons::matching_bookmark_icons(query);
+        let matches = crate::icons::matching_workspace_icons(query);
         match key.code {
-            K::Esc => self.focus = Focus::BookmarkEdit(draft.clone()),
+            K::Esc => self.focus = Focus::WorkspaceEdit(draft.clone()),
             K::Enter => {
                 if let Some(&i) = matches.get(*index) {
-                    draft.icon = crate::icons::BOOKMARK_ICONS[i].1.map(|g| g.to_string());
-                    self.focus = Focus::BookmarkEdit(draft.clone());
+                    draft.icon = crate::icons::WORKSPACE_ICONS[i].1.map(|g| g.to_string());
+                    self.focus = Focus::WorkspaceEdit(draft.clone());
                 }
             }
             K::Down | K::Char('j') if key.code == K::Down || alt => {
@@ -401,8 +430,8 @@ impl Session {
             _ => deliver(app, &mut self.focus, &mut self.editor, key),
         }
     }
-    fn bookmark_delete_key(&mut self, app: &mut App, key: KeyEvent) {
-        let Focus::BookmarkDelete {
+    fn workspace_delete_key(&mut self, app: &mut App, key: KeyEvent) {
+        let Focus::WorkspaceDelete {
             target,
             query,
             index,
@@ -411,25 +440,25 @@ impl Session {
             return;
         };
         if key.code == K::Esc {
-            self.focus = Focus::Bookmarks {
+            self.focus = Focus::Workspaces {
                 query: query.clone(),
                 index: *index,
             };
         } else if key.code == K::Enter {
             let target = *target;
             match app
-                .bookmark_store
-                .commit(&app.bookmarks, &BookmarkChange::Remove(target))
+                .workspace_store
+                .commit(&app.workspaces, &WorkspaceChange::Remove(target))
             {
-                Ok(bookmarks) => {
-                    app.bookmarks = bookmarks;
-                    app.status = bookmark_saved(app, "Bookmark deleted");
-                    self.focus = Focus::Bookmarks {
+                Ok(workspaces) => {
+                    app.workspaces = workspaces;
+                    app.status = workspace_saved(app, "Workspace deleted");
+                    self.focus = Focus::Workspaces {
                         query: String::new(),
-                        index: target.min(app.bookmarks.len().saturating_sub(1)),
+                        index: target.min(app.workspaces.len().saturating_sub(1)),
                     };
                 }
-                Err(error) => app.status = bookmark_error(app, error),
+                Err(error) => app.status = workspace_error(app, error),
             }
         }
     }
@@ -624,18 +653,20 @@ impl Session {
         }
         self.focus = Focus::Results;
     }
-    /// `go_to_path`: the prompt, with bookmarks and zoxide's suggestions.
+    /// `go_to_path`: the prompt, with workspaces and zoxide's suggestions.
     pub(super) fn open_location(&mut self, app: &App) {
-        let bookmarks = app
-            .bookmarks
+        let workspaces = app
+            .workspaces
             .iter()
-            .map(|b| (b.name.clone(), b.path.clone()))
+            .filter_map(|w| Some((w.name.clone(), w.path.clone()?)))
             .collect::<Vec<_>>();
         let frequent = crate::location::zoxide(&app.cwd);
         // It exists for typing, like the run prompt.
         self.editor.reset_insert(Field::Location);
         self.focus = Focus::Location(crate::location::Location::new(
-            &bookmarks, frequent, &app.cwd,
+            &workspaces,
+            frequent,
+            &app.cwd,
         ));
     }
     /// `show_palettes`: the chooser, on the palette in use.

@@ -1,7 +1,7 @@
-# Configuration, palettes, bookmarks, and caching
+# Configuration, palettes, workspaces, and caching
 
 Fuzzy file finder reads an optional TOML file at startup. You can run it without a config;
-the default palette is `midnight`, bookmarks start empty, and caching is enabled.
+the default palette is `midnight`, workspaces start empty, and caching is enabled.
 
 ## Start here
 
@@ -13,17 +13,17 @@ unset, empty, or not absolute. `fff setup --check-config` prints the file it rea
 [ui]
 palette = "forest"
 
-[[bookmarks]]
+[[workspaces]]
 name = "Home"
 path = "~"
 
-[[bookmarks]]
+[[workspaces]]
 name = "Notes"
 path = "~/notes"
 ```
 
-Run `fff` and press **b** (Alt+b while typing) to open bookmarks. Press **i** to filter names,
-then **Enter** to navigate. From Normal mode, **Escape** returns to results.
+Run `fff` and press **gw** (Alt+w while typing) to open workspaces. Press **i** to filter names,
+then **Enter** to open one. From Normal mode, **Escape** returns to results.
 
 The [commented example](config.example.toml) also shows a custom palette and all
 cache settings. From the repository, you can try it without installing a config:
@@ -35,7 +35,7 @@ cargo run -- --config docs/config.example.toml --palette ember
 
 `fff setup --check-config` validates and exits without opening the TUI. Its report
 (what was checked, and how it went) uses stderr; stdout remains empty. It checks syntax, names, colors, and limits,
-while unavailable bookmark directories are handled when you try to visit them.
+while unavailable workspace directories are handled when you try to visit them.
 It also warns, without failing, about the [desktop integration](DESKTOP.md)
 when it was set up: files `fff setup --desktop` or `--browser` wrote that
 are missing, out of date or run another fff binary, folders that open in
@@ -46,7 +46,7 @@ would not ask the portal for file dialogs.
 
 `gc` in Normal mode (`edit_config` on the [Keys screen](#keys)) opens the
 configuration file in `$EDITOR`, as `e` would, and applies it as soon as the
-editor ends, reading `keys.toml` again too: bookmarks, exclusions,
+editor ends, reading `keys.toml` again too: workspaces, exclusions,
 openers, icons, columns, the mouse and the button bar, live updates, the
 trash, cache and performance limits, message timing and syntax colors.
 `--no-icons` and `--palette` still win over the file. A palette
@@ -85,11 +85,11 @@ The config directory is always `fff`, independently of the crate name
 
 A missing default file uses defaults. An explicitly requested missing file,
 invalid TOML, unknown field, unknown palette, or invalid setting produces a clear
-startup error naming the file. Explicit bookmark saves/deletions update the active
+startup error naming the file. Explicit workspace saves/deletions update the active
 config; a missing default file is created on the first save. Startup alone never
-writes it. With `--no-config`, bookmark edits last only for the session.
-Palette edits reload live; external bookmark edits reload with r in the
-bookmark chooser. Editor edits take effect on the next invocation.
+writes it. With `--no-config`, workspace edits last only for the session.
+Palette edits reload live; external workspace edits reload with r in the
+workspace chooser. Editor edits take effect on the next invocation.
 CLI discovery/output options are independent of this file, except that
 `--exclude` adds to its [exclusions](#exclusions).
 
@@ -344,9 +344,9 @@ In the marked list:
 - The wheel over the marked list moves through the marks, focusing it.
 - A click in the results returns to them, highlighting the row clicked.
 
-In the choosers (bookmarks, bookmark icons, palettes, and the Alt+g
+In the choosers (workspaces, workspace icons, palettes, and the Alt+g
 suggestions), a click selects a row, a double click is Enter on it (opening
-the bookmark, choosing the icon, applying the palette, going to the folder),
+the workspace, choosing the icon, applying the palette, going to the folder),
 and the wheel moves the selection. Clicks outside an open chooser do nothing.
 
 Capturing the mouse takes it from the terminal's own text selection; most
@@ -540,7 +540,7 @@ purged either, and Alt+t and R say the trash is off.
 
 Alt+t (`gt` in Normal mode) opens the trash as a folder, and `R` there
 restores entries; see [the trash folder](OPERATIONS.md#the-trash-folder). A
-bookmark to the trash is not needed.
+workspace to the trash is not needed.
 
 ## Remembered locations
 
@@ -559,92 +559,134 @@ first, as exact path bytes. The file is readable only by you and replaced
 atomically when a session ends; a missing or damaged file is ignored. Delete
 it to forget everything.
 
-## Bookmarks
+## Workspaces
 
-Each `[[bookmarks]]` entry has a unique, nonempty `name`, a nonempty `path`, and
-an optional `icon`. Entries appear in config order:
+A workspace is a name for some of a session's settings. Opening one applies
+the settings it keeps and leaves every other one as it is; one that keeps
+only a folder is a place to go to. Each `[[workspaces]]` entry has a unique,
+nonempty `name`, an optional `icon`, and at least one of these keys:
+
+| Key | What opening it does |
+| --- | --- |
+| `path` | Browses that folder. |
+| `program` | Turns the session into `"roam"`, `"pick"` or `"seek"`, as `gm` does (the depth then follows the program's default unless the workspace keeps one). |
+| `roots` | Pins these roots in place of the session's (`[]` unpins them). Without a `path`, it browses the first one. |
+| `query`, `contents` | Sets the names query and the contents query. |
+| `depth` | Sets the search depth (1 or more). |
+| `filters` | Replaces the file filters (globs, as `--glob`). |
+| `exclusions` | Replaces the whole exclusion list, `[exclusions] rules` included. |
+| `sort`, `sort_descending` | Sorts the results, as `[ui] sort` names the orders (`"ranking"` for the program's own). |
+| `hidden`, `kinds`, `preview`, `exclusions_on`, `filters_on` | Hidden entries shown, the kinds listed (`"all"`, `"files"` or `"directories"`), the preview pane shown, exclusions enforced, filters applied. |
 
 ```toml
-[[bookmarks]]
+[[workspaces]]
 name = "Downloads"
 icon = "󱃩"
 path = "~/Downloads/"
 
-[[bookmarks]]
-name = "Research papers"
-path = "~/Documents/Research papers"
-
-[[bookmarks]]
+[[workspaces]]
 name = "Shared workspace"
 path = "/mnt/shared/work"
 
-[[bookmarks]]
+[[workspaces]]
 name = "Nearby notes"
 path = "../../notes"
+
+# Like `fff pick --depth 10 --glob '*.pdf' --glob '*.djvu' ~/phd ~/books`.
+[[workspaces]]
+name = "findnotes"
+program = "pick"
+roots = ["~/phd", "~/books"]
+depth = 10
+filters = ["*.pdf", "*.djvu"]
 ```
 
 `icon` is any text one or two terminal columns wide (surrounding spaces are
 trimmed), typically a Nerd Font glyph or an emoji. It is drawn before the name in
-the chooser. Bookmarks without one show the folder icon when `[ui] icons` is on;
+the chooser. Workspaces without one show the folder icon when `[ui] icons` is on;
 a configured `icon` always shows, even with file icons off.
 
-Path rules:
+Path rules, for `path` and `roots`:
 
 - `~` and `~/...` expand using `HOME`.
 - Absolute paths are used as written.
-- Other relative paths resolve from the **config file's directory**, so a bookmark
+- Other relative paths resolve from the **config file's directory**, so a workspace
   has the same destination regardless of where you launch fff.
 - Paths are literal TOML strings: spaces work directly; shell substitutions and
   environment-variable expansion are not performed.
 
-In the chooser, press `i` to type and fuzzy-filter bookmark **names** (Neovim
-fields initially start in Normal mode). `j`/`k` in Normal mode or Alt+j/Alt+k
-move the highlight; PageUp/PageDown moves farther. Alt+1 through Alt+9 open
-the corresponding visible numbered bookmark, and Alt+0 opens the last visible
-bookmark. Out-of-range digits clamp to the last visible entry, including after
-filtering or scrolling. These shortcuts work in every editing mode.
-Enter opens a directory;
-Escape or Alt+b returns to results. An unavailable directory or a bookmark that
-points to a file is shown as unavailable; trying it leaves the chooser open with
-an error. Bookmarks never select a file or finish the program.
+Press **gw** in Normal mode or **Alt+w** while typing to open the chooser. It
+works in every program; each workspace shows its folder and what else it
+keeps (`pick · 2 roots · depth 10 · 2 filters`). In the chooser, press `i`
+to type and fuzzy-filter workspace **names** (Neovim fields initially start
+in Normal mode). `j`/`k` in Normal mode or Alt+j/Alt+k move the highlight;
+PageUp/PageDown moves farther. Alt+1 through Alt+9 open the corresponding
+visible numbered workspace, and Alt+0 opens the last visible workspace.
+Out-of-range digits clamp to the last visible entry, including after
+filtering or scrolling. These shortcuts work in every editing mode. Enter
+opens a workspace; Escape or Alt+w returns to results. A `path` that is not a
+directory is shown as unavailable; trying it leaves the chooser open with an
+error. Workspaces never select a file or finish the program.
 
-Opening a bookmark preserves marks, discovery depth, policies, and explicitly
-supplied fixed roots. It changes the single current directory and clears the
-filename query. The highlight then stays on the first row as the scan streams in,
-until you move it yourself; typing a search there highlights the best match. Bookmarks are navigation destinations, not additional roots or
-preselected output paths.
+Opening a workspace keeps the marks, the tabs and whatever it does not set,
+the query included. Roots that are gone are left out, and the status line
+names them; when none of a workspace's roots is there and it has no `path`,
+nothing changes. `fff window` and `fff explorer` cannot change program: they
+apply the rest of a workspace and say the program stayed, and leave out of
+the chooser the workspaces that would only change it. In `fff seek`,
+whose folder does not change otherwise, a workspace's folder still applies.
+The highlight then stays on the first row as the scan streams in, until you
+move it yourself; typing a search there highlights the best match. The
+Alt+g prompt offers the workspaces that have a `path` and only goes to it.
 
-### Editing bookmarks
+`fff --workspace NAME` (any command takes it; shell completion offers the
+names) starts in a workspace. What the command line gives wins over it: a
+command over its `program`, ROOTS (or the PATH of `fff explorer`) over its
+`path` and `roots`, and `--depth`, `--glob`, `--exclude`, `--hidden` and
+`--no-exclusions` over the settings they set. A name that is not in the
+configuration, or a workspace that cannot be opened, is a startup error. To
+pipe its choice, name the program: `fff pick -0 --workspace findnotes |
+xargs -0 zathura`.
 
-In the chooser, **n** adds the current directory, **e** edits the
-highlighted bookmark, and **d** asks for confirmation before deleting it.
-Deletion removes only the bookmark record. **r** reloads bookmarks from disk.
+### Editing workspaces
+
+In the chooser, **n** saves a new workspace, **e** edits the
+highlighted workspace, and **d** asks for confirmation before deleting it.
+Deletion removes only the workspace record. **r** reloads workspaces from disk.
 These letters act while the filter is in Normal mode, so Vim's own `n`, `e`,
 `d` and `r` are unavailable there; while typing a filter (Insert mode) use **Alt+n**, **Alt+e**, **Alt+d** and **Alt+r**.
-**Up** / **Down** move the highlighted bookmark one place and save the
+**Up** / **Down** move the highlighted workspace one place and save the
 new order immediately; while filtering, it moves past its visible neighbour.
-Comments directly above a `[[bookmarks]]` table move with it.
+Comments directly above a `[[workspaces]]` table move with it.
 
 The form opens at the bottom like the file-operation dialogs and edits name,
-path and icon. **Enter** saves and **Escape** cancels, from any editing mode:
+path and icon, then lists the other settings under **Keeps** as a checklist,
+like the Keys screen's: ticked `●`, not ticked `○`, or crossed out `×` where
+there is nothing to keep (the program in `fff window` or a file dialog).
+Each shows the value it keeps: the session's as it is now, or, editing a
+workspace, the one it already keeps. A new workspace starts with the current
+directory as its path and nothing ticked; an empty path leaves the folder
+alone, and a workspace needs a path or a ticked setting. **Space** ticks the
+highlighted setting. **Enter** saves and **Escape** cancels, from any editing mode:
 in Neovim, Escape first leaves Insert/Visual mode, and Enter during command-line
 or pending input still goes to Neovim. Neovim's `ZZ` / `:wq` also save and
-`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields. **Space** on the
+`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields and settings. **Space** on the
 icon row opens a searchable selection of 37 choices,
 including common Nerd Font glyphs and **Automatic** to clear a custom icon.
 Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
 icons remain intact unless changed. The form warns when the path is not an
-existing directory; such bookmarks are still saved and shown as unavailable.
+existing directory; such workspaces are still saved and shown as unavailable.
 
 Paths entered in the form resolve relative to the current browsing directory;
 `~` uses HOME. New or changed paths are stored as absolute paths. An unchanged
-configured relative path retains its original spelling.
+configured relative path retains its original spelling, and an unchanged
+setting its formatting; an unticked setting's keys are removed.
 
 Saves preserve unrelated TOML settings, comments, existing file permissions and
-valid config symlinks. If another process has changed the bookmark list since
+valid config symlinks. If another process has changed the workspace list since
 it was loaded, saving refuses to overwrite it: cancel and use r to reload.
-Save errors leave the form open and preserve the current bookmarks. Saving an
-unchanged existing bookmark leaves the file alone. With configuration
+Save errors leave the form open and preserve the current workspaces. Saving an
+unchanged existing workspace leaves the file alone. With configuration
 disabled, edits are session-only. No directory or target file is modified.
 
 For navigation and palette bindings, see the [key reference](../README.md#keys).
@@ -733,7 +775,7 @@ own small allocation budgets and cannot evict visited snapshots.
 
 At depth 1, a directory highlighted in main results for at least **500 ms** can
 have its immediate children read before you enter it. There must be no foreground
-scan pending. Only a direct child is eligible; file, marks, bookmark, palette and
+scan pending. Only a direct child is eligible; file, marks, workspace, palette and
 help highlights do not start scans. A recent exhaustive visited snapshot also
 suppresses redundant prefetch. At greater depths, known descendants are reused
 on navigation instead of speculatively reading them again.
@@ -1028,7 +1070,7 @@ The same three keys work at every level: **Space goes a level deeper**
 **Enter is done** and **Escape goes back**.
 
 - **The picker:** Space opens the highlighted function's keys in a sheet
-  like the bookmark form. Changes there are staged: Enter saves them (to the
+  like the workspace form. Changes there are staged: Enter saves them (to the
   session and `keys.toml`), Escape drops them, and F1 closes the screen
   dropping them too.
 - **A function's keys:** one row per place: its key, mode, programs, lists
@@ -1111,8 +1153,8 @@ them. [`docs/keys.example.toml`](keys.example.toml) is a commented example.
 What the screen says is what works: the Keys screen, footers, empty-pane
 hints, query-line hints and status messages name each function's key as
 bound, preferring one that applies where you are and in the mode you are
-in. A key that works in the other mode says so when pressed (`Alt+b works
-while typing; in Normal mode, b`), and one that does nothing where it is
+in. A key that works in the other mode says so when pressed (`Alt+w works
+while typing; in Normal mode, gw`), and one that does nothing where it is
 pressed says which function it is and that it does not work there. Keys
 inside choosers, prompts and confirmation sheets (Enter, Escape, Tab,
 `j`/`k`/`gg`/`G` and `q`/`!` in Normal mode) are fixed.

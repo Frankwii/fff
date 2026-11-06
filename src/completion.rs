@@ -106,6 +106,34 @@ pub fn palette_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+/// The names of the workspaces in the configuration the command line being
+/// completed would load.
+pub fn workspace_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
+    let current = current.to_string_lossy();
+    config_path(std::env::args_os())
+        .map(|path| workspace_names(&path))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| name.starts_with(current.as_ref()))
+        .map(CompletionCandidate::new)
+        .collect()
+}
+
+/// Workspace names in a TOML file; unreadable or invalid files yield none.
+pub fn workspace_names(path: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+    match table.get("workspaces") {
+        Some(toml::Value::Array(workspaces)) => workspaces
+            .iter()
+            .filter_map(|w| w.get("name")?.as_str().map(String::from))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Custom palette names in a TOML file; unreadable or invalid files yield none.
 pub fn custom_palettes(path: &Path) -> Vec<String> {
     std::fs::read_to_string(path)

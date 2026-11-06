@@ -41,7 +41,7 @@ reading and parsing happen in a background thread. Invalid intermediate edits
 keep the last working colors and show an error; correcting the file recovers
 automatically. Atomic-save/rename workflows work too. `--palette` pins the chosen
 name but still reloads custom colors for that name. `--no-config` disables file
-reload. This reload applies to colors only; bookmarks reload with r in their chooser; cache settings need a new
+reload. This reload applies to colors only; workspaces reload with r in their chooser; cache settings need a new
 invocation. Query, cursor, marks, discovery, and numbered targets are preserved.
 
 ## Switching palettes while running

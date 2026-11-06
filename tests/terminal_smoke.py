@@ -599,11 +599,11 @@ class TerminalTests(unittest.TestCase):
     def test_default_depth_by_mode_and_feature_chords_only_while_typing(self):
         s = self.start(implicit_root=True, output_paths=False)
         s.wait_ui(" depth 1 ")
-        # In Normal mode, Alt+b names the key that works there instead.
-        s.send(b"\x1bb", "Alt+b works in Insert mode; in Normal mode, b")
-        self.assertNotIn("Bookmarks", s.screen.text)
+        # In Normal mode, Alt+w names the key that works there instead.
+        s.send(b"\x1bw", "Alt+w works in Insert mode; in Normal mode, gw")
+        self.assertNotIn("Workspaces", s.screen.text)
         s.send(b"i", "INSERT")
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1bw", "Workspaces")
         s.send(b"\x03")
         s.finish()
         s.close()
@@ -628,7 +628,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")
         s.wait_absent("Go to directory")
-        s.send(b"b", "Bookmarks")
+        s.send(b"gw", "Workspaces")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -651,20 +651,20 @@ class TerminalTests(unittest.TestCase):
         s.send(b"!")
         self.assertEqual(s.finish(), (0, b""))
 
-    def test_bookmark_alt_digits_use_visible_filtered_rows_and_clamp(self):
+    def test_workspace_alt_digits_use_visible_filtered_rows_and_clamp(self):
         names = [f"place{i:02}" for i in range(12)]
         for name in names:
             (self.root / name).mkdir()
             (self.root / name / "file").touch()
         config = self.root / "config.toml"
-        config.write_text("".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in names))
+        config.write_text("".join(f"[[workspaces]]\nname='{n}'\npath='{n}'\n" for n in names))
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"b", "Bookmarks")
+        s.send(b"gw", "Workspaces")
         s.send(b"\x1b2", ("cwd", self.root / names[1]))
-        s.send(b"b", "Bookmarks")
+        s.send(b"gw", "Workspaces")
         s.send(b"iplace1", "place11")
         s.send(b"\x1b9", ("cwd", self.root / names[11]))
-        s.send(b"\x1bb", "Bookmarks")
+        s.send(b"\x1bw", "Workspaces")
         s.send(b"\x1b[6~", "place05")
         s.send(b"\x1b[6~\x1b[6~", "place11")
         s.send(b"\x1b0", ("cwd", self.root / names[11]))
@@ -1144,13 +1144,13 @@ class TerminalTests(unittest.TestCase):
         s = self.start("seek", "--depth", "2", implicit_root=True)
         s.send(b"", b"nested.txt")
         self.assertNotIn("folder/ ", s.screen.text)
-        # Parent, location and bookmarks all stay put with a notice. (Every
-        # row is a file, so Alt+l would open it rather than enter anything.)
-        for key in (b"\x1bh", b"\x1bg", b"\x1bb"):
+        # Parent and location stay put with a notice. (Every row is a file,
+        # so Alt+l would open it rather than enter anything.)
+        for key in (b"\x1bh", b"\x1bg"):
             s.send(key, "does not work in fff seek")
             self.assertTrue(any(" ".join(l.split()).startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
             self.assertNotIn("Go to directory", s.screen.text)
-            self.assertNotIn("Bookmarks ·", s.screen.text)
+            self.assertNotIn("Workspaces ·", s.screen.text)
         # A no-match query: Ctrl+number does not fall back to the directory.
         s.send(b"zzzz", b"No matching results")
         s.send(b"\x1b[49;5u")  # CSI-u: Ctrl+1
@@ -1205,193 +1205,245 @@ class TerminalTests(unittest.TestCase):
         highlight("top.txt")
         self.assertNotIn("disabled in fff seek", s.screen.text)
 
-    def test_live_bookmark_save_edit_icon_cancel_and_delete(self):
+    def test_live_workspace_save_edit_icon_cancel_and_delete(self):
         config = self.root / "config.toml"
         config.write_text("# Keep my comment\n[ui]\npalette='nord'\n")
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"b", "Bookmarks")
-        s.send(b"\x1bn", "New bookmark")
+        s.send(b"gw", "Workspaces")
+        s.send(b"\x1bn", "New workspace")
         s.send(b"\x1b[27uccNotes", "Notes")
         s.send(b"\x1b[27u\t\t", "Space chooses")
-        s.send(b" ", "Bookmark icons")
+        s.send(b" ", "Workspace icons")
         s.send(b"ihome", "Home house")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"\r", "New bookmark")
-        s.send(b"\r", "Bookmark saved")
-        saved = tomllib.loads(config.read_text())["bookmarks"][0]
+        s.send(b"\r", "New workspace")
+        s.send(b"\r", "Workspace saved")
+        saved = tomllib.loads(config.read_text())["workspaces"][0]
         self.assertEqual(saved, dict(name="Notes", path=str(self.root), icon="\uf015"))
         self.assertIn("# Keep my comment", config.read_text())
-        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"\x1be", "Edit workspace")
         s.send(b"\x1b[27uccRenamed", "Renamed")
         s.send(b"\x1b[27u\t\t", "Space chooses")
-        s.send(b" ", "Bookmark icons")
+        s.send(b" ", "Workspace icons")
         s.send(b"iautomatic", "Automatic")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"\r", "Edit bookmark")
+        s.send(b"\r", "Edit workspace")
         s.send(b"\r")
-        s.wait_absent("Edit bookmark")
-        s.wait_absent("New bookmark")
-        s.wait_ui("Bookmark saved")
-        saved = tomllib.loads(config.read_text())["bookmarks"][0]
+        s.wait_absent("Edit workspace")
+        s.wait_absent("New workspace")
+        s.wait_ui("Workspace saved")
+        saved = tomllib.loads(config.read_text())["workspaces"][0]
         self.assertEqual(saved, dict(name="Renamed", path=str(self.root)))
         before = config.read_text()
-        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"\x1be", "Edit workspace")
         s.send(b"\x1b[27uccchanged", "changed")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")
-        s.wait_absent("Edit bookmark")
+        s.wait_absent("Edit workspace")
         self.assertEqual(config.read_text(), before)
-        s.send(b"\x1bd", "Delete bookmark")
+        s.send(b"\x1bd", "Delete workspace")
         s.send(b"\x1b[27u")
-        s.wait_absent("Delete bookmark")
+        s.wait_absent("Delete workspace")
         self.assertEqual(config.read_text(), before)
-        s.send(b"\x1bd", "Delete bookmark")
-        s.send(b"\r", "Bookmark deleted")
-        self.assertEqual(tomllib.loads(config.read_text()).get("bookmarks", []), [])
+        s.send(b"\x1bd", "Delete workspace")
+        s.send(b"\r", "Workspace deleted")
+        self.assertEqual(tomllib.loads(config.read_text()).get("workspaces", []), [])
         self.assertTrue(self.root.is_dir())
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_bookmark_save_creates_missing_default_config_and_survives_restart(self):
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_workspaces_keep_ticked_settings_and_start_sessions(self):
+        for name in ["phd/a.pdf", "phd/x.txt", "books/deep/b.pdf"]:
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).touch()
+        config = self.root / "config.toml"
+        config.write_text(
+            "[[workspaces]]\nname='pickpdf'\nprogram='pick'\nfilters=['*.pdf']\n"
+            f"roots=['{self.root / 'phd'}', '{self.root / 'gone'}']\n")
+        s = self.start("--config", str(config), "--depth", "3", "--glob", "*.pdf",
+                       implicit_root=True, output_paths=False)
+        s.send(b"gw", "Workspaces")
+        self.assertIn("pick · 2 roots · 1 filter", s.screen.text)
+        s.send(b"\x1bn", "New workspace")
+        self.assertIn("KEEPS", s.screen.text)
+        s.send(b"\x1b[27uccnotes", "notes")
+        # Past the path, the icon, the program, the roots and the queries.
+        s.send(b"\x1b[27u" + b"\t" * 6, "› ○ depth")
+        s.send(b" ", "● depth")
+        s.send(b"\t ", "● filters")
+        s.send(b"\r", "Workspace saved")
+        saved = tomllib.loads(config.read_text())["workspaces"][1]
+        self.assertEqual(saved, dict(name="notes", path=str(self.root), depth=3, filters=["*.pdf"]))
+        s.send(b"\x03")
+        s.finish()
+        s.close()
+        # The workspace's settings start the session, unless given here.
+        for args, depth in ((), 3), (("--depth", "1"), 1):
+            s = self.session = Session(self.root, "--config", str(config), "--workspace", "notes",
+                                       *args, implicit_root=True, output_paths=False,
+                                       cwd=self.root / "books")
+            s.wait_ui(("cwd", self.root))
+            s.wait_ui(f" depth {depth} ")
+            if depth == 3:
+                s.wait_ui("a.pdf")
+                self.assertNotIn("x.txt", s.screen.text)
+            s.send(b"\x03")
+            s.finish()
+            s.close()
+        # Its program too, without the roots that are gone.
+        s = self.session = Session(self.root, "--config", str(config), "--workspace", "pickpdf",
+                                   implicit_root=True, output_paths=False, ready=False)
+        s.wait_ui("left out missing roots")
+        s.wait_ui("INSERT")
+        s.send(b"a.pdf", "a.pdf")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "phd" / "a.pdf") + b"\n"))
+        s.close()
+        s = self.session = Session(self.root, "--config", str(config), "--workspace", "nothing",
+                                   implicit_root=True, output_paths=False, ready=False)
+        self.assertEqual(s.finish()[0], 1)
+
+    def test_workspace_save_creates_missing_default_config_and_survives_restart(self):
         config_home = self.root / "settings"
         config = config_home / "fff" / "config.toml"
         environment = {"XDG_CONFIG_HOME": str(config_home)}
         s = self.start(implicit_root=True, environment=environment)
         self.assertFalse(config.exists())
-        s.send(b"b", "Bookmarks")
-        s.send(b"\x1bn", "New bookmark")
-        s.send(b"\r", "Bookmark saved")
-        self.assertEqual(tomllib.loads(config.read_text())["bookmarks"][0]["path"], str(self.root))
+        s.send(b"gw", "Workspaces")
+        s.send(b"\x1bn", "New workspace")
+        s.send(b"\r", "Workspace saved")
+        self.assertEqual(tomllib.loads(config.read_text())["workspaces"][0]["path"], str(self.root))
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
         self.session = None
         s = self.start(implicit_root=True, environment=environment)
-        s.send(b"b", "Bookmarks")
+        s.send(b"gw", "Workspaces")
         self.assertIn(self.root.name, s.screen.text)
         s.send(b"\r", ("cwd", self.root))
-        s.wait_absent("Bookmarks ·")
+        s.wait_absent("Workspaces ·")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_live_bookmarks_session_only_and_external_reload(self):
+    def test_live_workspaces_session_only_and_external_reload(self):
         s = self.start(implicit_root=True)
-        s.send(b"b", "Bookmarks")
-        s.send(b"\x1bn", "New bookmark")
+        s.send(b"gw", "Workspaces")
+        s.send(b"\x1bn", "New workspace")
         s.send(b"\r", "for this session")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
         self.session = None
         config = self.root / "config.toml"
-        config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
+        config.write_text("[[workspaces]]\nname='Before'\npath='.'\n")
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"b", "Before")
-        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"gw", "Before")
+        s.send(b"\x1be", "Edit workspace")
         s.send(b"!", "Before!")  # the form starts typing at the end
-        config.write_text("[[bookmarks]]\nname='External'\npath='.'\n")
+        config.write_text("[[workspaces]]\nname='External'\npath='.'\n")
         s.send(b"\r", "changed on disk")
         self.assertIn("External", config.read_text())
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")
-        s.wait_absent("Edit bookmark")
-        s.send(b"\x1br", "Bookmarks reloaded")
+        s.wait_absent("Edit workspace")
+        s.send(b"\x1br", "Workspaces reloaded")
         self.assertIn("External", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
-    def test_live_bookmark_nvim_form_and_icon_picker(self):
+    def test_live_workspace_nvim_form_and_icon_picker(self):
         s = self.start(implicit_root=True)
-        s.send(b"b", "Bookmarks")
+        s.send(b"gw", "Workspaces")
         # Normal-mode filter: plain letters act and the hint says so.
         self.assertIn("n new · e edit · d delete · r reload · ↑↓ reorder", s.screen.text)
-        s.send(b"n", "New bookmark")
-        s.wait_ui("New bookmark · INSERT")  # the form is for typing
+        s.send(b"n", "New workspace")
+        s.wait_ui("New workspace · INSERT")  # the form is for typing
         s.send(b"\x1b[27uccNotes", "Notes")
         # Tab twice to the icon row; Space opens the chooser, Alt+i does nothing.
         s.send(b"\x1b[27u\t\t", "Space chooses")
         s.send(b"\x1bi")
-        self.assertNotIn("Bookmark icons", s.screen.text)
-        s.send(b" ", "Bookmark icons")
+        self.assertNotIn("Workspace icons", s.screen.text)
+        s.send(b" ", "Workspace icons")
         self.assertIn("NORMAL", s.screen.text)
         s.send(b"ihome", "Home house")
         s.send(b"\x1b", "NORMAL")
-        s.send(b"\r", "New bookmark")
+        s.send(b"\r", "New workspace")
         s.send(b"\r")
-        s.wait_absent("New bookmark")
-        s.wait_ui("Bookmark saved")
+        s.wait_absent("New workspace")
+        s.wait_ui("Workspace saved")
         self.assertIn("Notes", s.screen.text)
-        s.send(b"e", "Edit bookmark")
+        s.send(b"e", "Edit workspace")
         s.send(b"\x1b[27u", "NORMAL")  # leave Insert, then the form
-        s.send(b"\x1b[27u", "Bookmarks ·")
-        s.send(b"d", "Delete bookmark")
-        s.send(b"\x1b[27u", "Bookmarks ·")
-        s.wait_absent("Delete bookmark")
+        s.send(b"\x1b[27u", "Workspaces ·")
+        s.send(b"d", "Delete workspace")
+        s.send(b"\x1b[27u", "Workspaces ·")
+        s.wait_absent("Delete workspace")
         # While typing a filter the letters are text and Alt is needed.
         s.send(b"inot", "Alt+n new")
-        self.assertNotIn("Edit bookmark", s.screen.text)
-        s.send(b"\x1be", "Edit bookmark")
-        s.send(b"\x1b[27u", "Edit bookmark · NORMAL")
-        s.send(b"\x1b[27u", "Bookmarks ·")
+        self.assertNotIn("Edit workspace", s.screen.text)
+        s.send(b"\x1be", "Edit workspace")
+        s.send(b"\x1b[27u", "Edit workspace · NORMAL")
+        s.send(b"\x1b[27u", "Workspaces ·")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is unavailable")
-    def test_bookmark_neovim_enter_saves_and_escape_cancels(self):
+    def test_workspace_neovim_enter_saves_and_escape_cancels(self):
         config = self.root / "config.toml"
-        config.write_text("[[bookmarks]]\nname='Before'\npath='.'\n")
-        name = lambda: tomllib.loads(config.read_text())["bookmarks"][0]["name"]
+        config.write_text("[[workspaces]]\nname='Before'\npath='.'\n")
+        name = lambda: tomllib.loads(config.read_text())["workspaces"][0]["name"]
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"b", "Before")
+        s.send(b"gw", "Before")
         # Escape leaves Insert first; a second Escape cancels the form.
-        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"\x1be", "Edit workspace")
         s.send(b"\x1b[27uccDiscarded", "Discarded")
         s.send(b"\x1b[27u", "NORMAL")
-        self.assertIn("Edit bookmark", s.screen.text)
-        s.send(b"\x1b[27u", "Bookmarks ·")
-        s.wait_absent("Edit bookmark")
+        self.assertIn("Edit workspace", s.screen.text)
+        s.send(b"\x1b[27u", "Workspaces ·")
+        s.wait_absent("Edit workspace")
         self.assertEqual(name(), "Before")
         # Enter saves straight from Insert mode.
-        s.send(b"\x1be", "Edit bookmark")
-        s.send(b"\x1b[27uccWritten\r", "Bookmark saved")
-        s.wait_absent("Edit bookmark")
+        s.send(b"\x1be", "Edit workspace")
+        s.send(b"\x1b[27uccWritten\r", "Workspace saved")
+        s.wait_absent("Edit workspace")
         self.assertEqual(name(), "Written")
         # Validation errors keep the form open; nothing is written.
         before = config.read_text()
-        s.send(b"\x1be", "Edit bookmark")
-        s.send(b"\x1b[27udd\r", "Bookmark name must not be empty")
-        self.assertIn("Edit bookmark", s.screen.text)
-        s.send(b"\x1b[27u", "Bookmarks ·")
+        s.send(b"\x1be", "Edit workspace")
+        s.send(b"\x1b[27udd\r", "Workspace name must not be empty")
+        self.assertIn("Edit workspace", s.screen.text)
+        s.send(b"\x1b[27u", "Workspaces ·")
         self.assertEqual(config.read_text(), before)
-        # An unchanged bookmark is a no-op.
-        s.send(b"\x1be", "Edit bookmark")
-        s.send(b"\r", "Bookmarks ·")
-        s.wait_absent("Edit bookmark")
+        # An unchanged workspace is a no-op.
+        s.send(b"\x1be", "Edit workspace")
+        s.send(b"\r", "Workspaces ·")
+        s.wait_absent("Edit workspace")
         self.assertEqual(config.read_text(), before)
         # Command-line Enter stays in Neovim; the next Enter saves.
-        s.send(b"\x1be", "Edit bookmark")
+        s.send(b"\x1be", "Edit workspace")
         s.send(b"\x1b[27u:s/Written/Command/\r", "Command")
-        self.assertIn("Edit bookmark", s.screen.text)
+        self.assertIn("Edit workspace", s.screen.text)
         self.assertEqual(name(), "Written")
-        s.send(b"\r", "Bookmark saved")
+        s.send(b"\r", "Workspace saved")
         self.assertEqual(name(), "Command")
         # Neovim's own ZZ still saves.
-        s.send(b"\x1be", "Edit bookmark")
-        s.send(b"\x1b[27uccZed\x1b[27uZZ", "Bookmark saved")
-        s.wait_absent("Edit bookmark")
+        s.send(b"\x1be", "Edit workspace")
+        s.send(b"\x1b[27uccZed\x1b[27uZZ", "Workspace saved")
+        s.wait_absent("Edit workspace")
         self.assertEqual(name(), "Zed")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_alt_arrows_reorder_bookmarks_among_visible_rows(self):
+    def test_alt_arrows_reorder_workspaces_among_visible_rows(self):
         config = self.root / "config.toml"
         config.write_text(
-            "# mine\n[ui]\npreview=false\n\n[[bookmarks]]\nname='red1'\npath='.'\n\n"
-            "[[bookmarks]]\nname='blue'\npath='.'\n\n"
-            "[[bookmarks]]\nname='red2'\npath='.'\n"
+            "# mine\n[ui]\npreview=false\n\n[[workspaces]]\nname='red1'\npath='.'\n\n"
+            "[[workspaces]]\nname='blue'\npath='.'\n\n"
+            "[[workspaces]]\nname='red2'\npath='.'\n"
         )
-        order = lambda: [b["name"] for b in tomllib.loads(config.read_text())["bookmarks"]]
+        order = lambda: [b["name"] for b in tomllib.loads(config.read_text())["workspaces"]]
 
         def wait_order(expected):
             deadline = time.monotonic() + 5
@@ -1400,7 +1452,7 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(order(), expected)
 
         s = self.start("--config", str(config), implicit_root=True)
-        s.send(b"b", "red2")
+        s.send(b"gw", "red2")
         s.send(b"\x1b[B")
         wait_order(["blue", "red1", "red2"])
         s.send(b"\x1b[B")
@@ -1414,30 +1466,30 @@ class TerminalTests(unittest.TestCase):
         s.wait_absent("blue")
         s.send(b"\x1b[B")
         wait_order(["blue", "red2", "red1"])
-        # The highlight follows the moved bookmark: Enter opens red1.
+        # The highlight follows the moved workspace: Enter opens red1.
         s.send(b"\x1b[A")
         wait_order(["blue", "red1", "red2"])
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_configured_bookmarks_filter_missing_target_and_preserve_marks(self):
+    def test_configured_workspaces_filter_missing_target_and_preserve_marks(self):
         marked = self.root / "marked"
         marked.touch()
-        with tempfile.TemporaryDirectory(prefix="fff-bookmarks-") as config_dir:
+        with tempfile.TemporaryDirectory(prefix="fff-workspaces-") as config_dir:
             base = Path(config_dir)
             target = base / "notes folder"
             target.mkdir()
             (target / "report.tex").touch()
             config = base / "config.toml"
-            config.write_text("[[bookmarks]]\nname='My notes'\npath='notes folder'\n[[bookmarks]]\nname='Missing'\npath='missing'\n")
+            config.write_text("[[workspaces]]\nname='My notes'\npath='notes folder'\n[[workspaces]]\nname='Missing'\npath='missing'\n")
             s = self.start("--config", str(config), "--null", implicit_root=True)
             s.send(SHIFT_SPACE, b"Marks (1)")
-            s.send(b"b", b"Bookmarks")
+            s.send(b"gw", b"Workspaces")
             s.send(b"iMissing\r", b"not an accessible directory")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"\x1b[27u", b"Marks (1)")
-            s.wait_absent("Bookmarks ·")
-            s.send(b"b", b"Bookmarks")
+            s.wait_absent("Workspaces ·")
+            s.send(b"gw", b"Workspaces")
             s.send(b"imnt\r", ("cwd", target))
             self.assertIn("Marks (1)", s.screen.text)
             s.send(b"\x17")
@@ -1798,21 +1850,21 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_nvim_location_and_bookmark_filter(self):
+    def test_nvim_location_and_workspace_filter(self):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="fff-vim-fields-") as folder:
             target = Path(folder) / "notes"
             target.mkdir()
             (target / "note").touch()
             config = Path(folder) / "config.toml"
-            config.write_text("[[bookmarks]]\nname='Notes'\npath='notes'\n")
+            config.write_text("[[workspaces]]\nname='Notes'\npath='notes'\n")
             s = self.start("--config", str(config), implicit_root=True)
             # The go-to prompt starts in Insert mode, ready for typing.
             s.send(b"g/", "Go to directory · INSERT")
             s.send(b"junk " + os.fsencode(target), b"junk")
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"0dw\r", ("cwd", target))
-            s.send(b"b", "Bookmarks")
+            s.send(b"gw", "Workspaces")
             s.send(b"iJunk Notes", "Find: Junk Notes")
             s.send(b"\x1b[27u", "NORMAL")
             # n/e/d/r are chooser commands in Normal mode; other Vim keys edit.
@@ -1933,7 +1985,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_nvim_normal_mode_keys_in_marks_bookmarks_and_config(self):
+    def test_nvim_normal_mode_keys_in_marks_workspaces_and_config(self):
         for name in ("alpha", "beta", "gamma"):
             (self.root / name).touch()
         with tempfile.TemporaryDirectory(prefix="fff-normal-keys-") as folder:
@@ -1944,7 +1996,7 @@ class TerminalTests(unittest.TestCase):
                 "[normal]\ntoggle_mark='<S-Space>'\nhighlight_first='<Space>t'\nhighlight_last=['G','<Space>b']\nhighlight_next='none'\n"
             )
             config.write_text(
-                "".join(f"[[bookmarks]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
+                "".join(f"[[workspaces]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
             )
             s = self.start("--config", str(config), implicit_root=True)
             s.send(SHIFT_SPACE * 3, b"Marks (3)")
@@ -1954,7 +2006,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"G" + SHIFT_SPACE, b"Marks (2)")
             s.send(b" t" + SHIFT_SPACE, b"Marks (1)")
             s.send(b"\x1b[27u", "NORMAL")
-            s.send(b"b", "Bookmarks")
+            s.send(b"gw", "Workspaces")
             # The chooser's keys are fixed: G, gg and j move there.
             s.send(b"G")
             s.send(b"gg")

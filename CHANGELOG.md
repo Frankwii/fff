@@ -16,6 +16,27 @@ history.
   switches between ascending and descending. The query still decides what is
   listed, the results' border names the order (`sorted by size ↓`), and
   `[ui] sort` and `sort_descending` choose the one sessions start in.
+- **Workspaces keep more than a folder**: a workspace (what bookmarks were)
+  can also keep the program, the pinned roots, both queries, the depth,
+  filters, exclusions, sorting and toggles, as `program`, `roots`, `query`,
+  `contents`, `depth`, `filters`, `exclusions`, `sort`, `hidden`, `kinds`,
+  `preview`, `exclusions_on` and `filters_on` in its `[[workspaces]]` table,
+  with or without a `path`. Opening one applies what it keeps and leaves the
+  rest; roots that are gone are left out and named. The form saving one ticks
+  the settings to keep, as they are now, in a checklist like the Keys
+  screen's, and the chooser shows what each keeps. `fff --workspace NAME`
+  starts in one, the command line winning over it, so a script that starts
+  `fff pick` with its own roots and globs can be a workspace instead.
+  `fff window` and `fff explorer` apply all but the program.
+
+### Changed
+
+- **Bookmarks are workspaces**: `[[bookmarks]]` tables are now
+  `[[workspaces]]` (an old table is an error: rename it), the chooser opens
+  with `gw` in Normal mode and Alt+w while typing instead of `b` and Alt+b,
+  and the function is `show_workspaces`. The chooser works in every program,
+  `fff seek` included.
+- **Opening a workspace keeps the query**; opening a bookmark cleared it.
 
 ### Removed
 

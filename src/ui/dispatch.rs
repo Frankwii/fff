@@ -210,7 +210,7 @@ impl Session {
             }
         }
         // Multiline buffers keep Neovim's write/close lifecycle; single-line
-        // names and destinations take Enter/Escape like the bookmark form.
+        // names and destinations take Enter/Escape like the workspace form.
         let buffer_input = match &self.focus {
             Focus::Exclusions(_) | Focus::Filters(_) => true,
             Focus::Operation(draft) => draft.multiline(),
@@ -513,9 +513,9 @@ impl Session {
                 self.open_keys(here);
             }
             ShowSession => self.focus = Focus::Info { offset: 0 },
-            ShowBookmarks => {
+            ShowWorkspaces => {
                 if app.can_navigate() {
-                    self.focus = Focus::Bookmarks {
+                    self.focus = Focus::Workspaces {
                         query: String::new(),
                         index: 0,
                     }
@@ -691,18 +691,18 @@ impl Session {
             return Ok(None);
         }
         let alt = key.modifiers.contains(M::ALT);
-        if matches!(self.focus, Focus::Bookmarks { .. }) {
+        if matches!(self.focus, Focus::Workspaces { .. }) {
             if let Some(digit) = alt_numbered_key(key) {
-                self.open_numbered_bookmark(app, digit);
+                self.open_numbered_workspace(app, digit);
                 return Ok(None);
             }
-            if self.bookmark_command(app, key, alt) {
+            if self.workspace_command(app, key, alt) {
                 return Ok(None);
             }
         }
         let navigation =
             key.code == K::Enter || (alt && matches!(key.code, K::Char('h' | 'l' | '0'..='9')));
-        if navigation && matches!(self.focus, Focus::Bookmarks { .. } | Focus::Location(_)) {
+        if navigation && matches!(self.focus, Focus::Workspaces { .. } | Focus::Location(_)) {
             self.discovery.checkpoint(app);
         }
         self.focus_key(
@@ -854,7 +854,7 @@ impl Session {
                                 text,
                             });
                         }
-                        Err(error) => app.status = bookmark_error(app, error),
+                        Err(error) => app.status = workspace_error(app, error),
                     }
                 }
             }
@@ -963,41 +963,44 @@ impl Session {
             open_in_background(app, &target.path);
         }
     }
-    /// Alt+number among the bookmarks opens that one; 0 is the last.
-    fn open_numbered_bookmark(&mut self, app: &mut App, digit: u32) {
+    /// Alt+number among the workspaces opens that one; 0 is the last.
+    fn open_numbered_workspace(&mut self, app: &mut App, digit: u32) {
         let index = if digit == 0 {
             usize::MAX
         } else {
             digit as usize - 1
         };
-        let targets = &self.drawn.bookmark_targets;
+        let targets = &self.drawn.workspace_targets;
         if let Some(&target) = targets.get(index.min(targets.len().saturating_sub(1))) {
-            self.discovery.checkpoint(app);
-            if app.open_bookmark(target) {
-                self.discovery.start(app, true);
-                self.focus = Focus::Results;
-            }
+            self.open_workspace(app, target);
         }
     }
-    /// The bookmark chooser's commands: new, edit, delete, reorder and
+    /// The workspace chooser's commands: new, edit, delete, reorder and
     /// reload. Plain letters act while the filter is in Normal mode, like the
     /// results' file operations; Alt keeps them reachable while typing. False
     /// leaves the key to the chooser.
-    fn bookmark_command(&mut self, app: &mut App, key: KeyEvent, alt: bool) -> bool {
-        let Focus::Bookmarks { query, index } = &self.focus else {
+    fn workspace_command(&mut self, app: &mut App, key: KeyEvent, alt: bool) -> bool {
+        let Focus::Workspaces { query, index } = &self.focus else {
             return false;
         };
-        let matches = app.matching_bookmarks(query);
+        let matches = app.matching_workspaces(query);
         let target = matches.get(*index).copied();
         let normal = key.modifiers.is_empty() && app.edit_view.as_ref().is_some_and(|v| v.normal());
         let command = |c| key.code == K::Char(c) && (alt || normal);
         let next = if command('n') {
-            Some(BookmarkDraft::new(&app.cwd, None, query.clone(), *index))
+            Some(WorkspaceDraft::new(
+                &app.cwd,
+                None,
+                app.snapshot(),
+                query.clone(),
+                *index,
+            ))
         } else if command('e') {
             target.map(|i| {
-                BookmarkDraft::new(
+                WorkspaceDraft::new(
                     &app.cwd,
-                    Some((i, &app.bookmarks[i])),
+                    Some((i, &app.workspaces[i])),
+                    app.snapshot(),
                     query.clone(),
                     *index,
                 )
@@ -1009,9 +1012,9 @@ impl Session {
             match next {
                 Ok(draft) => {
                     // The form is for typing: its fields start in Insert mode.
-                    self.editor.reset_insert(Field::BookmarkName);
-                    self.editor.reset_insert(Field::BookmarkPath);
-                    self.focus = Focus::BookmarkEdit(draft);
+                    self.editor.reset_insert(Field::WorkspaceName);
+                    self.editor.reset_insert(Field::WorkspacePath);
+                    self.focus = Focus::WorkspaceEdit(draft);
                 }
                 Err(error) => app.status = error,
             }
@@ -1019,7 +1022,7 @@ impl Session {
         }
         if command('d') {
             if let Some(target) = target {
-                self.focus = Focus::BookmarkDelete {
+                self.focus = Focus::WorkspaceDelete {
                     target,
                     query: query.clone(),
                     index: *index,
@@ -1039,12 +1042,12 @@ impl Session {
                 (target, neighbor.and_then(|n| Some((n, matches.get(n)?))))
             {
                 match app
-                    .bookmark_store
-                    .commit(&app.bookmarks, &BookmarkChange::Swap(target, other))
+                    .workspace_store
+                    .commit(&app.workspaces, &WorkspaceChange::Swap(target, other))
                 {
-                    Ok(bookmarks) => {
-                        app.bookmarks = bookmarks;
-                        self.focus = Focus::Bookmarks {
+                    Ok(workspaces) => {
+                        app.workspaces = workspaces;
+                        self.focus = Focus::Workspaces {
                             query: query.clone(),
                             index: neighbor,
                         };
@@ -1055,15 +1058,15 @@ impl Session {
             return true;
         }
         if command('r') {
-            match app.bookmark_store.reload() {
-                Ok(bookmarks) => {
-                    app.bookmarks = bookmarks;
-                    self.editor.reset(Field::Bookmarks);
-                    self.focus = Focus::Bookmarks {
+            match app.workspace_store.reload() {
+                Ok(workspaces) => {
+                    app.workspaces = workspaces;
+                    self.editor.reset(Field::Workspaces);
+                    self.focus = Focus::Workspaces {
                         query: String::new(),
                         index: 0,
                     };
-                    app.status = "Bookmarks reloaded".into();
+                    app.status = "Workspaces reloaded".into();
                 }
                 Err(error) => app.status = error,
             }

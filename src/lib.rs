@@ -1,6 +1,5 @@
 //! Fuzzy file finder state, independent of terminal input and filesystem timing.
 mod archive;
-pub mod bookmarks;
 mod cache;
 pub mod completion;
 pub mod config;
@@ -38,6 +37,7 @@ pub mod trash;
 pub mod ui;
 mod view;
 pub mod watch;
+pub mod workspaces;
 
 use matching::narrows;
 pub use matching::{Matcher, relative_parts, score};
@@ -211,8 +211,8 @@ pub struct App {
     pub cache_pending: bool,
     pub edit_view: Option<editor::EditView>,
     pub palette: config::Palette,
-    pub bookmarks: Vec<config::Bookmark>,
-    pub bookmark_store: bookmarks::Store,
+    pub workspaces: Vec<config::Workspace>,
+    pub workspace_store: workspaces::Store,
     /// Draw Nerd Font filetype icons before result and marked names.
     pub icons: bool,
     /// Active palette name and the palettes offered by the Alt+p chooser.
@@ -363,8 +363,8 @@ impl App {
             cache_pending: false,
             edit_view: None,
             palette: config::Palette::default(),
-            bookmarks: Vec::new(),
-            bookmark_store: bookmarks::Store::default(),
+            workspaces: Vec::new(),
+            workspace_store: workspaces::Store::default(),
             icons: true,
             palette_name: "midnight".into(),
             palettes: config::Palette::names()
@@ -1539,13 +1539,24 @@ impl App {
             true
         }
     }
-    pub fn matching_bookmarks(&self, query: &str) -> Vec<usize> {
-        self.bookmarks
+    /// The chooser's workspaces matching `query`. A session that cannot
+    /// change program leaves out those that would only change it.
+    pub fn matching_workspaces(&self, query: &str) -> Vec<usize> {
+        let switches = self.switches_program();
+        self.workspaces
             .iter()
             .enumerate()
-            .filter(|(_, b)| score(&b.name, query).is_some())
+            .filter(|(_, w)| switches || w.applies_beside_program())
+            .filter(|(_, w)| score(&w.name, query).is_some())
             .map(|(i, _)| i)
             .collect()
+    }
+    /// `switch_program` works here: not in a window of its own or a file
+    /// dialog.
+    pub fn switches_program(&self) -> bool {
+        program::Program::SWITCHABLE
+            .iter()
+            .any(|&(p, _)| p == self.program())
     }
     /// Palette chooser rows in list order, fuzzy-filtered by name.
     pub fn matching_palettes(&self, query: &str) -> Vec<usize> {
@@ -1562,27 +1573,150 @@ impl App {
         self.palette_name = state.name;
         self.palettes = state.available;
     }
-    pub fn open_bookmark(&mut self, index: usize) -> bool {
-        if !self.can_navigate() {
-            return false;
+    /// The session's settings, as a workspace saved now would keep them:
+    /// every one this program has (a window or file dialog has no program
+    /// to switch to, a dialog no contents query).
+    pub fn snapshot(&self) -> config::Workspace {
+        config::Workspace {
+            path: Some(self.cwd.clone()),
+            program: self.switches_program().then(|| self.program()),
+            roots: Some(self.roots.clone()),
+            query: Some(self.query.clone()),
+            contents: (!self.program().dialog()).then(|| self.grep.text.clone()),
+            depth: Some(self.depth),
+            filters: Some(self.policy.filters.clone()),
+            exclusions: Some(self.policy.rules.clone()),
+            sort: Some(self.sort),
+            hidden: Some(self.policy.hidden),
+            kinds: Some(self.kinds),
+            preview: Some(self.preview.shown),
+            exclusions_on: Some(self.policy.ignore),
+            filters_on: Some(!self.policy.filters_off),
+            ..config::Workspace::default()
         }
-        let Some(bookmark) = self.bookmarks.get(index) else {
-            return false;
+    }
+    pub fn open_workspace(&mut self, index: usize) -> bool {
+        match self.workspaces.get(index).cloned() {
+            Some(workspace) => self.apply_workspace(&workspace),
+            None => false,
+        }
+    }
+    /// Applies the settings `workspace` keeps and leaves the others, the
+    /// query included. Its folder (else its first root) becomes the current
+    /// directory; roots that are gone are left out. A program that cannot
+    /// change (`switches_program`) stays. Nothing changes when the folder is
+    /// not a directory or none of the roots is; the status says why. True
+    /// when it was applied, and the caller scans.
+    pub fn apply_workspace(&mut self, workspace: &config::Workspace) -> bool {
+        let name = &workspace.name;
+        let folder = match &workspace.path {
+            Some(path) => match path.canonicalize() {
+                Ok(path) if path.is_dir() => Some(path),
+                _ => {
+                    self.status = format!(
+                        "Workspace {name:?}: {} is not an accessible directory",
+                        path.display()
+                    );
+                    return false;
+                }
+            },
+            None => None,
         };
-        match bookmark.path.canonicalize() {
-            Ok(path) if path.is_dir() => {
-                let moved = self.navigate(path, false);
-                self.wanted = None;
-                moved
+        let mut notes = Vec::new();
+        let roots = workspace.roots.as_ref().map(|roots| {
+            let (found, missing): (Vec<_>, Vec<_>) = roots
+                .iter()
+                .map(|root| root.canonicalize().ok().filter(|r| r.is_dir()).ok_or(root))
+                .partition(Result::is_ok);
+            if !missing.is_empty() {
+                let missing: Vec<_> = missing
+                    .into_iter()
+                    .map(|r| r.unwrap_err().display().to_string())
+                    .collect();
+                notes.push(format!("left out missing roots {}", missing.join(", ")));
             }
-            _ => {
-                self.status = format!(
-                    "Bookmark {:?} is not an accessible directory",
-                    bookmark.name
-                );
-                false
+            let mut kept: Vec<PathBuf> = found.into_iter().map(Result::unwrap).collect();
+            let mut seen = std::collections::HashSet::new();
+            kept.retain(|r| seen.insert(r.clone()));
+            kept
+        });
+        if let Some(kept) = &roots
+            && kept.is_empty()
+            && folder.is_none()
+            && workspace.roots.as_ref().is_some_and(|r| !r.is_empty())
+        {
+            self.status = format!("Workspace {name:?}: none of its roots exists");
+            return false;
+        }
+        let target = folder
+            .or_else(|| roots.as_ref().and_then(|r| r.first().cloned()))
+            .unwrap_or_else(|| self.cwd.clone());
+        if self.leaving(&target) {
+            return false;
+        }
+        if let Some(to) = workspace.program {
+            let from = self.program();
+            if !self.switches_program() {
+                notes.push(format!(
+                    "fff {} stays, as it cannot become fff {}",
+                    from.title(),
+                    to.title()
+                ));
+            } else if to != from {
+                self.set_program(to);
+                if workspace.depth.is_none() && self.depth == from.default_depth() {
+                    self.depth = to.default_depth();
+                }
             }
         }
+        if let Some(roots) = roots {
+            self.roots = roots;
+        }
+        if let Some(depth) = workspace.depth {
+            self.depth = depth.max(1);
+        }
+        // Globs were checked when the configuration was read.
+        if let Some(filters) = &workspace.filters {
+            let _ = self.policy.set_filters(filters.clone());
+        }
+        if let Some(rules) = &workspace.exclusions {
+            let _ = self.policy.set_rules(rules.clone());
+        }
+        if let Some(hidden) = workspace.hidden {
+            self.policy.hidden = hidden;
+        }
+        if let Some(on) = workspace.exclusions_on {
+            self.policy.ignore = on;
+        }
+        if let Some(on) = workspace.filters_on {
+            self.policy.filters_off = !on;
+        }
+        if let Some(kinds) = workspace.kinds {
+            self.kinds = kinds;
+        }
+        if let Some(shown) = workspace.preview {
+            self.preview.shown = shown;
+        }
+        if let Some(contents) = &workspace.contents
+            && !self.program().dialog()
+        {
+            self.grep.text = contents.clone();
+        }
+        // The scope follows the roots even when the folder stays.
+        self.navigate(target, true);
+        if let Some(query) = &workspace.query {
+            self.query = query.clone();
+        }
+        if let Some(sort) = workspace.sort {
+            self.set_sort(sort);
+        }
+        self.wanted = None;
+        self.status = std::iter::once(format!("Opened workspace {name:?}"))
+            .chain(notes)
+            .collect::<Vec<_>>()
+            .join("; ");
+        self.status_success = self.status.clone();
+        true
     }
     /// Enter with nothing listed while typing: in a folder verified empty,
     /// where a folder is an answer, the marks and the folder. Otherwise

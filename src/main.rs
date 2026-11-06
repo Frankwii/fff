@@ -48,6 +48,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Search two pinned roots for TeX and PDF files.
   <cyan>eval \"$(fff setup --init zsh)\"</cyan>
       In ~/.zshrc: leaving fff changes the shell's directory (bash, fish too).
+  <cyan>fff pick -0 --workspace papers | xargs -0 zathura</cyan>
+      Start in a saved workspace (gw saves them) and open what is chosen.
   <cyan>vim \"$(fff pick --relative)\"</cyan>
       Open the picked file using a path relative to here.
   <cyan>fff pick --exclude build -0 | xargs -0 ls -ld</cyan>
@@ -62,11 +64,11 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 <bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff to search and rebind them, <cyan>F2</cyan> for session details)
   <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Space</cyan>  mark
   <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
-  <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+b</cyan>  bookmarks
+  <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+w</cyan>  workspaces
   <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
   <cyan>Escape</cyan> leave Insert mode, clear query, twice: marks   <cyan>Ctrl+w</cyan> return marks (pick)
   In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
-  results take <cyan>-/+</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>g/</cyan> location, <cyan>b</cyan> bookmarks,
+  results take <cyan>-/+</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>g/</cyan> location, <cyan>gw</cyan> workspaces,
   <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
   Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> trash, <cyan>X</cyan> delete, <cyan>u</cyan> undo.
   <cyan>r</cyan> batch rename; <cyan>E</cyan> extract archive; <cyan>e</cyan> edit; <cyan>n</cyan> new file/directory.
@@ -79,7 +81,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
 
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
-  config.toml when XDG_CONFIG_HOME is unset): palettes, bookmarks, editor, cache,
+  config.toml when XDG_CONFIG_HOME is unset): palettes, workspaces, editor, cache,
   file icons ([ui] icons), row details ([ui] columns), the preview pane
   ([ui] preview) and its syntax colors ([ui] highlight), the mouse and buttons
   ([ui] mouse, buttons) and live updates ([ui] watch). Keys live in keys.toml
@@ -176,6 +178,16 @@ struct Args {
     /// no Nerd Font glyphs.
     #[arg(global = true, long, help_heading = "Interface")]
     no_icons: bool,
+    /// Start in a saved workspace: its folder and the settings it keeps
+    ///
+    /// The workspace is one of the configuration's [[workspaces]], which
+    /// the chooser (gw) saves. What the command line gives wins over it: a
+    /// command over its program, ROOTS over its folder and roots, and
+    /// --depth, --glob, --exclude, --hidden and --no-exclusions over theirs.
+    /// fff window and fff explorer keep their own program.
+    #[arg(global = true, long, value_name = "NAME", help_heading = "Search",
+        add = ArgValueCompleter::new(completion::workspace_candidates))]
+    workspace: Option<String>,
     /// Read this TOML configuration instead of the default file
     #[arg(global = true, long, value_name = "FILE", conflicts_with = "no_config",
         value_hint = clap::ValueHint::FilePath, help_heading = "Configuration")]
@@ -557,11 +569,56 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             .exclusions
             .iter()
             .cloned()
-            .chain(args.exclusions)
+            .chain(args.exclusions.iter().cloned())
             .collect(),
     ) {
         usage("--exclude", &e);
     }
+    let workspace = match &args.workspace {
+        Some(name) => {
+            let mut workspace = settings
+                .workspaces
+                .iter()
+                .find(|w| w.name == *name)
+                .cloned()
+                .ok_or_else(|| format!("No workspace is named {name:?} in the configuration"))?;
+            // The command line wins over what the workspace keeps.
+            match &args.command {
+                None => {
+                    if let Some(program) = workspace.program.take() {
+                        mode.program = program;
+                    }
+                }
+                Some(Command::Window(_) | Command::Explorer(_)) => {}
+                Some(_) => workspace.program = None,
+            }
+            let placed = mode
+                .explorer
+                .as_ref()
+                .map_or(!mode.roots.is_empty(), |asked| asked.path.is_some());
+            if placed {
+                workspace.path = None;
+                workspace.roots = None;
+            }
+            if args.depth.is_some() {
+                workspace.depth = None;
+            }
+            if !policy.filters.is_empty() {
+                workspace.filters = None;
+            }
+            if !args.exclusions.is_empty() {
+                workspace.exclusions = None;
+            }
+            if args.hidden {
+                workspace.hidden = None;
+            }
+            if args.no_exclusions {
+                workspace.exclusions_on = None;
+            }
+            Some(workspace)
+        }
+        None => None,
+    };
     let invocation = std::env::current_dir()?.canonicalize()?;
     let (browse_from, dialog) = starting_place(&mode, &invocation)?;
     let roots = pinned_roots(&mode)?;
@@ -597,12 +654,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.apply_palette(fuzzy_file_finder::reload::PaletteState::from_settings(
         &settings,
     ));
-    app.bookmarks = settings.bookmarks;
+    app.workspaces = settings.workspaces;
     app.config_rules = settings.exclusions;
     app.icons = settings.icons && !args.no_icons;
     // keys.toml sits beside the configuration; one with errors gives way
     // to the defaults, and the Session tab says why.
-    app.keys_path = settings.bookmark_path.as_deref().map(keymap::path_beside);
+    app.keys_path = settings.workspace_path.as_deref().map(keymap::path_beside);
     if let Some(path) = &app.keys_path {
         match keymap::Keymap::load(path) {
             Ok(keys) => app.keymap = keys,
@@ -618,7 +675,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.preview.shown = settings.preview;
     app.preview.highlight = settings.highlight;
     app.sort = settings.sort;
-    app.config_path = settings.bookmark_path.clone();
+    app.config_path = settings.workspace_path.clone();
     if let Some(path) = fuzzy_file_finder::sizes::path() {
         app.details.keep_sizes(path);
     }
@@ -634,13 +691,20 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
+    if let Some(workspace) = &workspace {
+        if !app.apply_workspace(workspace) {
+            return Err(app.status.clone().into());
+        }
+        // It starts there: going back does not lead to where fff was run.
+        app.back.clear();
+    }
     app.config_broken = settings.broken;
     if let Some(status) = app.config_errors_status() {
         app.status = status;
     }
-    app.bookmark_store = fuzzy_file_finder::bookmarks::Store::new(
-        settings.bookmark_path,
-        app.bookmarks.clone(),
+    app.workspace_store = fuzzy_file_finder::workspaces::Store::new(
+        settings.workspace_path,
+        app.workspaces.clone(),
         app.home.clone(),
     );
     let (finish, program) = ui::run(app, settings.cache, watcher, settings.performance)?;
@@ -829,7 +893,7 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         args.palette.as_deref(),
     )?;
     if setup.check_config {
-        let keys = settings.bookmark_path.as_deref().map(keymap::path_beside);
+        let keys = settings.workspace_path.as_deref().map(keymap::path_beside);
         if let Some(path) = &keys {
             keymap::Keymap::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
         }

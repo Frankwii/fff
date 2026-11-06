@@ -277,7 +277,7 @@ names their programs (`explorer-open`, ...); one folder and several share
 | A file that does not exist (usual when saving) | Its folder, if that exists; else the current directory | — |
 
 A relative PATH is taken from the current directory. Browsing is otherwise the usual:
-navigation, filtering, depth, hidden entries, tabs and bookmarks all work.
+navigation, filtering, depth, hidden entries, tabs and workspaces all work.
 
 When saving, the suggested name is PATH's file name; without a PATH, or when
 PATH is a folder, it is `untitled`.

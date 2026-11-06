@@ -141,7 +141,7 @@ pub(super) fn wheel_step(current: Option<usize>, count: usize, forward: bool) ->
         Some(i) => Some(i.saturating_sub(1).min(last)),
     }
 }
-/// `[ui] mouse` in the marked list and the choosers (bookmarks, their icons,
+/// `[ui] mouse` in the marked list and the choosers (workspaces, their icons,
 /// palettes, go-to suggestions). A click on a row selects it (a mark focuses
 /// the marked list) and a second click on it acts on it; the wheel over
 /// them moves the selection. A click outside the marked list returns to the
@@ -166,12 +166,12 @@ pub(super) fn mouse_lists(
         _ => None,
     };
     let chooser = match &*focus {
-        Focus::Bookmarks { query, index } => {
-            Some((Some(*index), app.matching_bookmarks(query).len()))
+        Focus::Workspaces { query, index } => {
+            Some((Some(*index), app.matching_workspaces(query).len()))
         }
-        Focus::BookmarkIcons { query, index, .. } => Some((
+        Focus::WorkspaceIcons { query, index, .. } => Some((
             Some(*index),
-            crate::icons::matching_bookmark_icons(query).len(),
+            crate::icons::matching_workspace_icons(query).len(),
         )),
         Focus::Palettes { query, index, .. } => {
             Some((Some(*index), app.matching_palettes(query).len()))
@@ -190,8 +190,8 @@ pub(super) fn mouse_lists(
         };
         let again = down && mouse.again(target);
         match focus {
-            Focus::Bookmarks { index, .. }
-            | Focus::BookmarkIcons { index, .. }
+            Focus::Workspaces { index, .. }
+            | Focus::WorkspaceIcons { index, .. }
             | Focus::Palettes { index, .. } => *index = target,
             Focus::Location(location) => location.selected = Some(target),
             _ => {}

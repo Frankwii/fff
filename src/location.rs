@@ -1,4 +1,4 @@
-//! The Alt+g prompt: a typed path, or words picking one of your bookmarks or
+//! The Alt+g prompt: a typed path, or words picking one of your workspaces or
 //! zoxide's frequently used directories.
 use std::{
     ffi::OsString,
@@ -10,14 +10,14 @@ use std::{
 /// Where a suggestion comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
-    Bookmark(String),
+    Workspace(String),
     Zoxide,
 }
 
 #[derive(Clone, Debug)]
 pub struct Location {
     pub text: String,
-    /// Bookmarks first, then zoxide's directories by frecency; no duplicates.
+    /// Workspaces first, then zoxide's directories by frecency; no duplicates.
     pub places: Vec<(PathBuf, Source)>,
     /// The chosen suggestion among the current matches, if the user moved.
     pub selected: Option<usize>,
@@ -64,11 +64,11 @@ fn keywords_match(path: &Path, words: &[String]) -> bool {
 }
 
 impl Location {
-    pub fn new(bookmarks: &[(String, PathBuf)], frequent: Vec<PathBuf>, cwd: &Path) -> Self {
+    pub fn new(workspaces: &[(String, PathBuf)], frequent: Vec<PathBuf>, cwd: &Path) -> Self {
         let mut places: Vec<(PathBuf, Source)> = vec![];
-        let candidates = bookmarks
+        let candidates = workspaces
             .iter()
-            .map(|(name, path)| (path.clone(), Source::Bookmark(name.clone())))
+            .map(|(name, path)| (path.clone(), Source::Workspace(name.clone())))
             .chain(frequent.into_iter().map(|p| (p, Source::Zoxide)));
         for (path, source) in candidates {
             if path != cwd && !places.iter().any(|(p, _)| *p == path) {
@@ -81,7 +81,7 @@ impl Location {
             selected: None,
         }
     }
-    /// Suggestions for the typed words, bookmarks first; all when empty.
+    /// Suggestions for the typed words, workspaces first; all when empty.
     pub fn matches(&self) -> Vec<&(PathBuf, Source)> {
         let words = self
             .text
@@ -92,7 +92,7 @@ impl Location {
             .iter()
             .filter(|(path, source)| {
                 keywords_match(path, &words)
-                    || matches!(source, Source::Bookmark(name)
+                    || matches!(source, Source::Workspace(name)
                         if !words.is_empty() && keywords_match(Path::new(name), &words))
             })
             .collect()
@@ -185,7 +185,7 @@ fn resolve(text: &str, cwd: &Path, home: Option<&Path>) -> PathBuf {
 mod tests {
     use super::*;
     #[test]
-    fn words_pick_bookmarks_and_frequent_folders_and_paths_still_work() {
+    fn words_pick_workspaces_and_frequent_folders_and_paths_still_work() {
         let home = std::env::temp_dir().join(format!("fff-location-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join("builds/fff")).unwrap();
@@ -195,11 +195,11 @@ mod tests {
             home.join("notes"),
             home.join("builds/dragon"),
         ];
-        let bookmarks = [("Notes".to_string(), home.join("notes"))];
-        let mut l = Location::new(&bookmarks, frequent, &home);
-        // The bookmark comes first and is not repeated from zoxide.
+        let workspaces = [("Notes".to_string(), home.join("notes"))];
+        let mut l = Location::new(&workspaces, frequent, &home);
+        // The workspace comes first and is not repeated from zoxide.
         assert_eq!(l.places.len(), 3);
-        assert_eq!(l.places[0].1, Source::Bookmark("Notes".into()));
+        assert_eq!(l.places[0].1, Source::Workspace("Notes".into()));
         l.text = "bu ff".into();
         assert_eq!(
             l.target(&home, Some(&home)).unwrap(),

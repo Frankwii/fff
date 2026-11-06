@@ -131,7 +131,7 @@ pub(super) fn chooser_key(
 ) -> ChooserKey {
     let list = matches!(
         focus,
-        Focus::Bookmarks { .. } | Focus::Palettes { .. } | Focus::BookmarkIcons { .. }
+        Focus::Workspaces { .. } | Focus::Palettes { .. } | Focus::WorkspaceIcons { .. }
     );
     if !(list || matches!(focus, Focus::Location(_)))
         // Normal mode, also while a sequence begun there waits.
@@ -157,7 +157,7 @@ pub(super) fn chooser_key(
         if let Some((_, act)) = candidates.iter().find(|(k, _)| k.len() == sequence.len()) {
             app.pending.clear();
             return match act {
-                // As Alt+j and Alt+k: the bookmark chooser's arrows reorder.
+                // As Alt+j and Alt+k: the workspace chooser's arrows reorder.
                 0 => ChooserKey::Pass(KeyEvent::new(K::Char('j'), M::ALT)),
                 1 => ChooserKey::Pass(KeyEvent::new(K::Char('k'), M::ALT)),
                 4 => ChooserKey::Quit(false),
@@ -186,9 +186,9 @@ pub(super) fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
     match focus {
         Focus::Results => app.move_by(if last { isize::MAX } else { isize::MIN }),
         Focus::Marks { rows, index } => *index = end(rows.len()),
-        Focus::Bookmarks { query, index } => *index = end(app.matching_bookmarks(query).len()),
-        Focus::BookmarkIcons { query, index, .. } => {
-            *index = end(crate::icons::matching_bookmark_icons(query).len())
+        Focus::Workspaces { query, index } => *index = end(app.matching_workspaces(query).len()),
+        Focus::WorkspaceIcons { query, index, .. } => {
+            *index = end(crate::icons::matching_workspace_icons(query).len())
         }
         Focus::Palettes { query, index, .. } => {
             *index = end(app.matching_palettes(query).len());
@@ -214,12 +214,12 @@ fn focused_text<'a>(
             let field = draft.field();
             (&mut draft.text, field)
         }
-        Focus::Bookmarks { query, .. } => (query, Field::Bookmarks),
-        Focus::BookmarkIcons { query, .. } => (query, Field::BookmarkIcons),
-        Focus::BookmarkEdit(draft) => match draft.field {
-            BookmarkField::Name => (&mut draft.name, Field::BookmarkName),
-            BookmarkField::Path => (&mut draft.path, Field::BookmarkPath),
-            BookmarkField::Icon => return None,
+        Focus::Workspaces { query, .. } => (query, Field::Workspaces),
+        Focus::WorkspaceIcons { query, .. } => (query, Field::WorkspaceIcons),
+        Focus::WorkspaceEdit(draft) => match draft.field {
+            WorkspaceField::Name => (&mut draft.name, Field::WorkspaceName),
+            WorkspaceField::Path => (&mut draft.path, Field::WorkspacePath),
+            WorkspaceField::Icon | WorkspaceField::Setting(_) => return None,
         },
         Focus::Palettes { query, .. } => (query, Field::Palettes),
         Focus::Keys(screen) if screen.editor.is_none() => (&mut screen.query, Field::Keys),
@@ -242,8 +242,8 @@ fn text_changed(app: &mut App, focus: &mut Focus) {
             app.offset = 0;
             app.refresh();
         }
-        Focus::Bookmarks { index, .. }
-        | Focus::BookmarkIcons { index, .. }
+        Focus::Workspaces { index, .. }
+        | Focus::WorkspaceIcons { index, .. }
         | Focus::Palettes { index, .. } => *index = 0,
         Focus::Location(location) => location.selected = None,
         Focus::Keys(screen) => screen.index = 0,
