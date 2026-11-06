@@ -379,11 +379,16 @@ fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec
         _ => Extraction::Failed,
     })?;
     let mut stdout = child.stdout.take().ok_or(Extraction::Failed)?;
-    // Reading stops past the limit: the extractor then fails writing to
-    // the closed pipe, and its text is not kept.
+    // Reading stops at the limit: the extractor then fails writing to the
+    // closed pipe, and its text up to the limit is kept, as a longer
+    // EPUB's is.
     let reader = std::thread::spawn(move || {
         let mut out = Vec::new();
-        read_limited(&mut stdout, &mut out).then_some(out)
+        let whole = read_limited(&mut stdout, &mut out);
+        drop(stdout);
+        let cut = out.len() as u64 > TEXT_LIMIT;
+        out.truncate(TEXT_LIMIT as usize);
+        (whole || cut).then_some((out, cut))
     });
     let deadline = Instant::now() + EXTRACT_TIME;
     let status = loop {
@@ -399,7 +404,7 @@ fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec
         }
     };
     match reader.join() {
-        Ok(Some(out)) if status.success() => Ok(out),
+        Ok(Some((out, cut))) if cut || status.success() => Ok(out),
         _ => Err(Extraction::Failed),
     }
 }
@@ -1601,5 +1606,12 @@ mod tests {
         let mut rest = std::io::repeat(b'a').take(TEXT_LIMIT * 2);
         assert!(!read_limited(&mut rest, &mut bytes));
         assert_eq!(bytes.len() as u64, TEXT_LIMIT + 1);
+    }
+    #[test]
+    fn a_long_extraction_is_cut_at_the_text_limit() {
+        // `yes` prints without end, and fails once the pipe is closed.
+        let out = run_extractor("yes", &[]).unwrap();
+        assert_eq!(out.len() as u64, TEXT_LIMIT);
+        assert!(out.starts_with(b"y\ny\n"));
     }
 }

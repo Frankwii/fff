@@ -27,7 +27,8 @@ history.
   and restored its modification time: the extracted text was the old one.
 - **Content searches never read more than 64 MiB of a file**: a text file
   growing while it was read, an oversized cache entry, or an extractor
-  printing more than that could make one search hold any amount of memory.
+  printing more than that could make one search hold any amount of memory. A
+  document whose text is longer is searched in its first 64 MiB.
 - **The operations guide has its sections back** on buffers, opening files,
   running programs, the trash and undo, which links pointed to, and the help
   and guides no longer contradict the program on the default depth, the key

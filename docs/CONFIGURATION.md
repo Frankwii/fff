@@ -865,8 +865,9 @@ contents](../README.md#searching-contents).
 Both are readable only by you (folders 0700, files 0600, whatever the
 documents' own modes), since the text cache holds documents' plain text: it
 stays after a document is deleted or made unreadable, until pruned or
-deleted. Text files over 64 MiB are not searched, nor PDF and DjVu documents
-whose text passes 64 MiB; an EPUB's text is read up to that size.
+deleted. Text files over 64 MiB are not searched; a document's text (PDF,
+DjVu or EPUB) is read up to 64 MiB, and searches find only what comes
+before.
 
 Folders' sizes are kept in `~/.cache/fff/sizes` (see [folder
 sizes](#folder-sizes)): a record per folder added up, about 100 bytes each,
