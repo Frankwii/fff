@@ -1310,9 +1310,18 @@ impl App {
             if self.short_labels {
                 for c in &listed {
                     if let Some(name) = c.path.file_name() {
-                        let group = self.names.entry(name.to_os_string()).or_default();
-                        group.push(Arc::clone(c));
-                        if self.relabelling.insert(name.to_os_string()) {
+                        // A name is copied only for a group or a queue it
+                        // is not in yet. A new group of one has no label to
+                        // make (removing a path removes its label).
+                        match self.names.get_mut(name) {
+                            Some(group) => group.push(Arc::clone(c)),
+                            None => {
+                                self.names.insert(name.to_os_string(), vec![Arc::clone(c)]);
+                                continue;
+                            }
+                        }
+                        if !self.relabelling.contains(name) {
+                            self.relabelling.insert(name.to_os_string());
                             self.relabel.push(name.to_os_string());
                         }
                     }
@@ -1338,14 +1347,27 @@ impl App {
         while let Some(name) = self.relabel.pop() {
             self.relabelling.remove(&name);
             if let Some(group) = self.names.get(&name) {
-                for c in group {
-                    self.labels.remove(&c.path);
-                }
-                if group.is_empty() {
-                    self.names.remove(&name);
-                } else if group.len() > 1 {
-                    self.labels
-                        .extend(disambiguate(group.iter().map(|c| c.path.as_path())));
+                if group.len() > 1 {
+                    // Most labels stay as they were: only those that change
+                    // are made again.
+                    let paths: Vec<&Path> = group.iter().map(|c| c.path.as_path()).collect();
+                    for (path, length) in paths.iter().zip(label_lengths(&paths)) {
+                        match self.labels.get_mut(*path) {
+                            Some(label) if label.components().count() == length => {}
+                            Some(label) => *label = label_of(path, length),
+                            None => {
+                                self.labels
+                                    .insert(path.to_path_buf(), label_of(path, length));
+                            }
+                        }
+                    }
+                } else {
+                    for c in group {
+                        self.labels.remove(&c.path);
+                    }
+                    if group.is_empty() {
+                        self.names.remove(&name);
+                    }
                 }
             }
             if self.yield_now(budget, start) {
@@ -1802,36 +1824,40 @@ pub fn disambiguate<'a>(paths: impl Iterator<Item = &'a Path>) -> HashMap<PathBu
     }
     let mut labels = HashMap::new();
     for group in groups.into_values().filter(|g| g.len() > 1) {
-        let parts: Vec<Vec<_>> = group
-            .iter()
-            .map(|p| p.components().rev().collect())
-            .collect();
-        // Once a suffix is unique, every longer one is too, so resolved paths
-        // drop out and only the still-colliding ones are counted at the next length.
-        let mut pending: Vec<usize> = (0..group.len()).collect();
-        let mut length = 2;
-        while !pending.is_empty() {
-            let mut counts: HashMap<&[_], usize> = HashMap::new();
-            for &i in &pending {
-                *counts
-                    .entry(&parts[i][..length.min(parts[i].len())])
-                    .or_default() += 1;
-            }
-            pending.retain(|&i| {
-                let suffix = &parts[i][..length.min(parts[i].len())];
-                if counts[suffix] > 1 && length < parts[i].len() {
-                    return true;
-                }
-                labels.insert(
-                    group[i].to_path_buf(),
-                    suffix.iter().rev().collect::<PathBuf>(),
-                );
-                false
-            });
-            length += 1;
+        for (path, length) in group.iter().zip(label_lengths(&group)) {
+            labels.insert(path.to_path_buf(), label_of(path, length));
         }
     }
     labels
+}
+
+/// How many trailing parts each path of `group` (two or more sharing a
+/// basename) keeps in its label: one past the most it ends in common with
+/// another, and at least its parent, short of the whole path.
+fn label_lengths(group: &[&Path]) -> Vec<usize> {
+    // Each path's parts from its name up, sorted: the path sharing the
+    // longest ending with one is beside it.
+    let mut parts: Vec<(Vec<_>, usize)> = group
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.components().rev().collect(), i))
+        .collect();
+    parts.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let shared = |a: &[std::path::Component], b: &[std::path::Component]| {
+        a.iter().zip(b).take_while(|(a, b)| a == b).count()
+    };
+    let mut lengths = vec![0; group.len()];
+    for (i, (own, at)) in parts.iter().enumerate() {
+        let before = i.checked_sub(1).map_or(0, |j| shared(&parts[j].0, own));
+        let after = parts.get(i + 1).map_or(0, |next| shared(&next.0, own));
+        lengths[*at] = (before.max(after) + 1).max(2).min(own.len());
+    }
+    lengths
+}
+/// The last `length` parts of `path`.
+fn label_of(path: &Path, length: usize) -> PathBuf {
+    let parts: Vec<_> = path.components().collect();
+    parts[parts.len() - length..].iter().collect()
 }
 
 /// Relative output is always based on the invocation directory, including `..`.

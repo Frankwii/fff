@@ -6,6 +6,14 @@ history.
 
 ## Unreleased
 
+### Changed
+
+- **Large trees list faster**, most in `fff pick`: `/usr` (620,000
+  entries) is listed in about 1.7 seconds in a terminal where it took 1.9,
+  and in about 1 second in `fff roam` where it took 1.1. While a scan runs,
+  what it finds is drawn at most every 33 ms (keys still draw at once), and
+  the labels of entries sharing a name are kept up with less work.
+
 ### Fixed
 
 - **Scanning from `/` no longer reports folders you may not read.** A

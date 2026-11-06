@@ -23,7 +23,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/workspaces.rs` | Live workspace forms (the settings ticked to keep) and atomic, comment-preserving TOML persistence. A workspace and its settings are `config::Workspace` and `config::Setting`; `App::apply_workspace` opens one, `App::snapshot` is what a new one can keep. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
-| `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. |
+| `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. While a scan runs, what it, the rankings and the contents search change is drawn at most every `SCAN_FRAME` (33 ms); input and everything else draw on the next pass. |
 | `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`), what each function does (`run_function`), and other focuses' fixed keys (`act`). |
 | `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (the sheets and choosers); Enter in the lists (`enter`: the function Enter has there by default, for the mouse and `confirm_row`), the entry Enter's functions act on (`chosen`) and what each does with it (`finish_with_entry`), and the larger functions' code. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |

@@ -14,55 +14,38 @@ The goals for the first release, the README last.
 
 ### Faster scanning
 
-Listing a large tree takes several times as long as `fd`: about 0.93
+Listing a large tree takes several times as long as `fd`: about 0.91
 seconds for the 620,000 entries of `/usr` (headless, until the rows are
-settled; `tests/scan_timing.rs`), against 0.15, and 1.1 seconds in a
-terminal with the frames drawn meanwhile, so a query typed at once waits
-for the scan to reach its match. In `fff pick`, with its labels, it takes
-2.3 seconds headless and 2.8 in a terminal. Each depth's folders are read on
+settled; `tests/scan_timing.rs`), against 0.15, and 1 second in a terminal
+with the frames drawn meanwhile, so a query typed at once waits for the
+scan to reach its match. In `fff pick`, with its labels, it takes 1.6
+seconds headless and 1.7 in a terminal. Each depth's folders are read on
 several threads, and paths are attributed to their roots there, which took
 the walk out of the way; the rows are kept as sorted runs merged lazily (see
 [how rows are kept](DEVELOPMENT.md#how-rows-are-kept-and-ordered)), so a
-batch no longer moves the rows ranked before it (inserting `/usr`'s paths
-took 0.11 seconds in `fff roam` and 0.17 in `fff pick`, now 0.1 and 0.09).
-What remains is the interface thread:
+batch no longer moves the rows ranked before it; while a scan runs, frames
+are drawn at most every 33 ms (about 30 for `/usr` in `fff roam`, 50 in
+`fff pick`, where they were 115 and 220). What remains is the interface
+thread:
 
 - Storing each path among the known ones takes about 0.5 seconds of it.
   This is memory latency, not hashing: a faster hasher and keys sharing the
   candidate's path were tried and changed nothing measurable, since each
   lookup follows pointers through a table of 620,000 entries.
-- Filtering, scoring and sorting each round of new paths takes about 0.12
-  seconds in `fff roam`; in `fff pick`, grouping them by name for the labels
-  adds about 0.6, and relabelling the groups they change about 0.95 (see
-  below). Pushing the sorted rounds as runs, and merging the runs as they
-  double, takes the 0.1 seconds above; merging three or four runs at once
-  instead of two would move each row about half as often.
+- Filtering, scoring and sorting each round of new paths takes about 0.13
+  seconds in `fff roam`. In `fff pick`, grouping them by name for the labels
+  adds about 0.35, and relabelling the groups that gain a second member or
+  more about 0.3 (see below); a name new to the listing is not relabelled.
+  Pushing the sorted rounds as runs, and merging the runs as they double,
+  takes 0.1 seconds; merging three or four runs at once instead of two
+  would move each row about half as often, which bounds the gain near
+  0.05 seconds.
 - **Rows' keys.** Since [sorting](../README.md#sorting), each row is kept
   with a 16-byte key, its score and a sort's value, where it had an 8-byte
-  score: listing `/usr` went from about 0.88 to 0.93 seconds in `fff roam`
-  and 2.26 to 2.31 in `fff pick`. Keeping the values in a list of their own,
-  there only while a sort that reads them is chosen, would bring the
-  default order back to what it moved before.
-- **Limiting redraws while a scan runs.** Each batch merged marks the screen
-  as changed, and the session loop draws on its next pass: a scan of `/usr`
-  draws about 115 frames in `fff roam` and 400 in `fff pick`, on the same
-  interface thread that stores and merges the paths. They, with starting
-  Neovim, are the 0.25 to 0.5 seconds the terminal adds to the headless
-  time; what each frame costs alone has not been measured.
-  Drawing at most every few tens of milliseconds while scanning (and at once
-  after a key, as now), or only when what the screen shows changed (the rows
-  in view, the count, the progress marker), would leave that time to the
-  scan. Frames read only the rows in view from the runs, so they no longer
-  grow with the listing.
-- **A contents query set while a large tree is listed.** Each time a
-  batch changes the rows, the contents search goes over every listed row
-  to queue the files it has not read yet and, at most every 50 ms, over
-  every row again to list the matches in order: with `/usr` listing, about
-  11 seconds of the interface thread in `fff roam` and 18 in `fff pick`.
-  Queueing only the rows a batch added (in their order, as now) would take
-  out the first; the second needs the matches kept in the rows' order as
-  rows arrive among them, which is the delicate part (the first 20,000
-  matches are the ones kept, so the order decides which).
+  score: listing `/usr` went from about 0.88 to 0.93 seconds in `fff roam`.
+  Keeping the values in a list of their own, there only while a sort that
+  reads them is chosen, would bring the default order back to what it moved
+  before.
 
 How close this can come to fzf. Once a tree is listed, nothing in fff
 needs a slower algorithm than fzf's: each keystroke scores the same names

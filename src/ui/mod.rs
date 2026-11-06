@@ -157,6 +157,10 @@ pub enum Finish {
 }
 /// How often the progress of a running operation is redrawn.
 const PROGRESS_FRAME: Duration = Duration::from_millis(100);
+/// While a scan runs, what it changes (and the rankings and contents search
+/// following it) is drawn at most this often, leaving the time between to
+/// the scan; input still draws at once.
+const SCAN_FRAME: Duration = Duration::from_millis(33);
 /// How long a change to the current directory's listing waits for more
 /// changes before the quiet rescan.
 const RELIST_DELAY: Duration = Duration::from_millis(150);
@@ -316,6 +320,8 @@ struct Session {
     /// Frames are drawn after input or a visible change, and at least once a
     /// second so external changes (e.g. a deleted mark) still appear.
     dirty: bool,
+    /// A scan changed what is shown: drawn within `SCAN_FRAME`.
+    scanned: bool,
     drawn_at: std::time::Instant,
     /// Whether the last pass showed the progress marker.
     progress_shown: bool,
@@ -405,6 +411,7 @@ impl Session {
             queued: None,
             answering: false,
             dirty: true,
+            scanned: false,
             drawn_at: std::time::Instant::now(),
             progress_shown: true,
             buttons_shown: false,
@@ -534,10 +541,14 @@ impl Session {
         // scan finishes within a frame, instead of an empty or cached frame
         // and then another.
         if self.queued.is_none() && (!self.answering || self.discovery.just_started()) {
-            self.dirty |= self.discovery.drain(app);
+            self.scanned |= self.discovery.drain(app);
         }
-        self.dirty |= app.poll_ranking();
-        self.dirty |= app.poll_grep();
+        self.scanned |= app.poll_ranking();
+        self.scanned |= app.poll_grep();
+        // Once the scan is done (or with none), at once.
+        if self.scanned && (!app.scanning || self.drawn_at.elapsed() >= SCAN_FRAME) {
+            self.dirty = true;
+        }
         // The progress marker stays a few seconds after work settles.
         let settled = (!app.working()).then(|| app.settled_at.unwrap_or(now));
         if settled != app.settled_at {
@@ -751,6 +762,7 @@ impl Session {
             },
         };
         self.dirty = false;
+        self.scanned = false;
         self.answering = false;
         self.drawn_at = std::time::Instant::now();
         Ok(())
@@ -797,6 +809,11 @@ impl Session {
             at.saturating_duration_since(std::time::Instant::now())
                 .min(wait)
         });
+        let wait = if self.scanned {
+            wait.min(SCAN_FRAME.saturating_sub(self.drawn_at.elapsed()))
+        } else {
+            wait
+        };
         let wait = app.grep.due().map_or(wait, |at| {
             at.saturating_duration_since(std::time::Instant::now())
                 .min(wait)

@@ -2418,3 +2418,68 @@ fn workspace_names_and_paths_never_reach_the_terminal_as_control_characters() {
         }
     }
 }
+#[test]
+fn disambiguation_matches_counting_suffixes_length_by_length() {
+    // The labels as first computed: suffixes counted at each length, the
+    // paths they resolve dropping out.
+    use std::collections::HashMap;
+    fn counted(paths: &[PathBuf]) -> HashMap<PathBuf, PathBuf> {
+        let mut groups: HashMap<_, Vec<_>> = HashMap::new();
+        for path in paths {
+            groups
+                .entry(path.file_name().unwrap())
+                .or_default()
+                .push(path);
+        }
+        let mut labels = HashMap::new();
+        for group in groups.into_values().filter(|g| g.len() > 1) {
+            let parts: Vec<Vec<_>> = group
+                .iter()
+                .map(|p| p.components().rev().collect())
+                .collect();
+            let mut pending: Vec<usize> = (0..group.len()).collect();
+            let mut length = 2;
+            while !pending.is_empty() {
+                let mut counts: HashMap<&[_], usize> = HashMap::new();
+                for &i in &pending {
+                    *counts
+                        .entry(&parts[i][..length.min(parts[i].len())])
+                        .or_default() += 1;
+                }
+                pending.retain(|&i| {
+                    let suffix = &parts[i][..length.min(parts[i].len())];
+                    if counts[suffix] > 1 && length < parts[i].len() {
+                        return true;
+                    }
+                    labels.insert(group[i].clone(), suffix.iter().rev().collect::<PathBuf>());
+                    false
+                });
+                length += 1;
+            }
+        }
+        labels
+    }
+    // Paths of up to five parts from a few names, absolute and relative.
+    let names = ["a", "b", "c"];
+    let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+    for _ in 0..500 {
+        let mut paths = Vec::new();
+        for _ in 0..12 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let mut path = PathBuf::from(if seed & 1 == 0 { "/" } else { "" });
+            for k in 0..1 + (seed >> 1) % 5 {
+                path.push(names[((seed >> (8 + 2 * k)) % 3) as usize]);
+            }
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+        assert_eq!(
+            crate::disambiguate(paths.iter().map(PathBuf::as_path)),
+            counted(&paths),
+            "{paths:?}"
+        );
+    }
+}
