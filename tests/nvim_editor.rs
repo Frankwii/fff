@@ -426,3 +426,33 @@ fn invalid_utf8_lines_stay_visible_instead_of_becoming_empty() {
         .unwrap();
     assert_eq!(text, "1 a\u{fffd}b");
 }
+
+#[test]
+fn switching_queries_carries_the_mode_and_keeps_each_cursor() {
+    let Some(mut e) = engine() else {
+        return;
+    };
+    // Typing in the names query: the contents query, new, is typed into.
+    e.activate(Field::Query, "").unwrap();
+    chars(&mut e, Field::Query, "aname");
+    e.carry_mode(Field::Contents);
+    assert_eq!(e.activate(Field::Contents, "").unwrap().mode, "i");
+    assert_eq!(chars(&mut e, Field::Contents, "word"), "word");
+    // Back at the names query, still typing, at its own cursor.
+    e.input(Field::Contents, Key::new(K::Left, M::NONE))
+        .unwrap();
+    e.carry_mode(Field::Query);
+    assert_eq!(e.activate(Field::Query, "name").unwrap().mode, "i");
+    assert_eq!(chars(&mut e, Field::Query, "!"), "name!");
+    // Normal mode carries too, over the Insert mode the contents query was
+    // left in, and its cursor stays where it was.
+    e.input(Field::Query, Key::new(K::Esc, M::NONE)).unwrap();
+    e.carry_mode(Field::Contents);
+    let view = e.activate(Field::Contents, "word").unwrap();
+    assert!(view.normal(), "{view:?}");
+    assert_eq!(chars(&mut e, Field::Contents, "x"), "wor");
+    // A visual selection starts again in the other query.
+    chars(&mut e, Field::Contents, "v");
+    e.carry_mode(Field::Query);
+    assert_eq!(e.activate(Field::Query, "name!").unwrap().mode, "v");
+}

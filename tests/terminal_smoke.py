@@ -348,10 +348,9 @@ class TerminalTests(unittest.TestCase):
         s = self.start(implicit_root=True, typing=True)
         s.wait_ui("Query · INSERT")
         self.assertNotIn("Contents", s.screen.text)
-        # Tab goes to the contents query, beside the names query, in its
-        # own mode.
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"i", "Contents · INSERT")
+        # Tab goes to the contents query, beside the names query, in the
+        # mode it was pressed in.
+        s.send(b"\t", "Contents · INSERT")
         self.assertIn("Names", s.screen.text)
         s.send(b"canard", "❯ canard")
         s.wait_ui("2 matches in 1 file")
@@ -364,9 +363,10 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("Preview · l. 2 · match 1 of 2")
         self.assertIn("intro", s.screen.text)
         s.send(b"\x1b[B", "Preview · l. 4 · match 2 of 2")
-        # Tab goes back to the names query, which chooses the files read.
-        s.send(b"\t", "Names · NORMAL")
-        s.send(b"izzz", "No matches")
+        # Tab goes back to the names query, which chooses the files read,
+        # still typing.
+        s.send(b"\t", "Names · INSERT")
+        s.send(b"zzz", "No matches")
         s.send(b"\x7f\x7f\x7f", "Matches · 2")
         # Enter prints the file.
         s.send(b"\r")
@@ -377,16 +377,16 @@ class TerminalTests(unittest.TestCase):
     def test_a_file_with_more_matches_than_are_kept_says_so(self):
         (self.root / "many.txt").write_text("canard\n" * 250)
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"icanard", "200+ matches in 1 file · first 200 per file")
+        s.send(b"\t", "Contents · INSERT")
+        s.send(b"canard", "200+ matches in 1 file · first 200 per file")
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_space_on_a_match_marks_its_file_and_moves_to_the_next_file(self):
         for name in ("one", "two"):
             (self.root / name).write_text("hello world\nhello again\n")
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"ihello", "4 matches in 2 files")
+        s.send(b"\t", "Contents · INSERT")
+        s.send(b"hello", "4 matches in 2 files")
         s.send(b"\x1b[27u", "Contents · NORMAL")
         # Each file's two matches share its mark: Space goes on to the next
         # file, so pressing it again marks that one instead of unmarking.
@@ -402,8 +402,8 @@ class TerminalTests(unittest.TestCase):
         lines[49] = "line 50 canard"
         (self.root / "notes.txt").write_text("\n".join(lines) + "\n")
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"icanard", "❯ canard")
+        s.send(b"\t", "Contents · INSERT")
+        s.send(b"canard", "❯ canard")
         s.wait_ui("Preview · l. 30 · match 1 of 2")
         s.send(b"\x1b[27u", "NORMAL")
         self.assertNotIn("line 45", s.screen.text)
@@ -460,8 +460,8 @@ class TerminalTests(unittest.TestCase):
         (self.root / "notes.txt").write_text("a canard here\n")
         (self.root / "other.txt").write_text("nothing\n")
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"icanard", "1 match in 1 file")
+        s.send(b"\t", "Contents · INSERT")
+        s.send(b"canard", "1 match in 1 file")
         s.send(b"\x1b[27u", "Contents · NORMAL")
         s.send(b"gm", "Switch program")
         self.assertNotIn("grep", s.screen.text)
@@ -470,7 +470,8 @@ class TerminalTests(unittest.TestCase):
         s.send(b"s", "Now fff seek")
         s.wait_ui("Contents · NORMAL")
         s.wait_ui("1 match in 1 file")
-        # Tab goes to the names query, in its own mode; Alt+/ comes back,
+        # Tab goes to the names query, in the mode it was pressed in; Alt+/
+        # comes back,
         # and clearing the contents query lists the files.
         s.send(b"\t", "Names · NORMAL")
         s.send(b"\x1b/", "Contents · NORMAL")
@@ -493,9 +494,9 @@ class TerminalTests(unittest.TestCase):
         s.wait_ui("Matches · 1")
         row = next(l for l in s.screen.text.splitlines() if "notes.txt" in l)
         self.assertIn("l. 2", row)
-        # Back to the names query, in its own mode; the contents bar stays
+        # Back to the names query, still typing; the contents bar stays
         # while it is set.
-        s.send(b"\x1b/", "Names · NORMAL")
+        s.send(b"\x1b/", "Names · INSERT")
         self.assertIn("Contents", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -522,11 +523,12 @@ class TerminalTests(unittest.TestCase):
         # Tab never marks: it switches to the contents query and back.
         s.send(b"\t", "Contents · NORMAL")
         s.send(b"\t", "Query · NORMAL")
-        s.send(b"i\t", "Contents · NORMAL")
-        s.send(b"\t", "Query · NORMAL")
+        # From Insert mode, both are typed into in Insert mode.
+        s.send(b"i\t", "Contents · INSERT")
+        s.send(b"\t", "Query · INSERT")
         self.assertIn("Marks (2)", s.screen.text)
         # With a query, Escape clears it first and keeps the marks.
-        s.send(b"it", "❯ t")
+        s.send(b"t", "❯ t")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯ type to filter")
         self.assertIn("Marks (2)", s.screen.text)
@@ -1218,8 +1220,7 @@ class TerminalTests(unittest.TestCase):
             s.send(key, f"({function}) does not work in fff reading paths from stdin")
         # The contents query searches the listed files; Enter prints the
         # chosen one as the list spelled it.
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"i", "Contents · INSERT")
+        s.send(b"\t", "Contents · INSERT")
         s.send(b"canard", "1 match in 1 file")
         s.send(b"\x1b[27u", "Contents · NORMAL")
         s.send(b"\r")
@@ -1410,13 +1411,23 @@ class TerminalTests(unittest.TestCase):
     def test_live_workspace_nvim_form_and_icon_picker(self):
         s = self.start(implicit_root=True)
         s.send(b"gw", "Workspaces")
-        # Normal-mode filter: plain letters act and the hint says so.
-        self.assertIn("n new · e edit · d delete · r reload · ↑↓ reorder", s.screen.text)
+        # Normal-mode filter: plain letters act and the border says so.
+        self.assertIn("n: New ─── e: Edit ─── d: Delete ─── r: Reload ─── ↑↓: Reorder", s.screen.text)
+        self.assertIn("n adds one: a folder, settings to apply, or both", s.screen.text)
         s.send(b"n", "New workspace")
         s.wait_ui("New workspace · INSERT")  # the form is for typing
         s.send(b"\x1b[27uccNotes", "Notes")
-        # Tab twice to the icon row; Space opens the chooser, Alt+i does nothing.
-        s.send(b"\x1b[27u\t\t", "Space chooses")
+        # The path is optional, as it says under it.
+        self.assertIn("Optional: left empty", s.screen.text)
+        # Normal-mode j and k move through the rows, as Tab does; the path
+        # is typed into from the start.
+        s.send(b"\x1b[27uj", "Path  ❯")
+        s.send(b"\x1b[27uj", "Space chooses")
+        s.send(b"j")
+        s.wait_absent("Space chooses")
+        s.send(b"jjkk")
+        s.send(b"k", "Space chooses")
+        # On the icon row Space opens the chooser, Alt+i does nothing.
         s.send(b"\x1bi")
         self.assertNotIn("Workspace icons", s.screen.text)
         s.send(b" ", "Workspace icons")
@@ -1435,7 +1446,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "Workspaces ·")
         s.wait_absent("Delete workspace")
         # While typing a filter the letters are text and Alt is needed.
-        s.send(b"inot", "Alt+n new")
+        s.send(b"inot", "Alt+n: New")
         self.assertNotIn("Edit workspace", s.screen.text)
         s.send(b"\x1be", "Edit workspace")
         s.send(b"\x1b[27u", "Edit workspace · NORMAL")
@@ -1919,10 +1930,10 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"0dw\r", ("cwd", target))
             s.send(b"gw", "Workspaces")
-            s.send(b"iJunk Notes", "Find: Junk Notes")
+            s.send(b"iJunk Notes", "❯ Junk Notes")
             s.send(b"\x1b[27u", "NORMAL")
             # n/e/d/r are chooser commands in Normal mode; other Vim keys edit.
-            s.send(b"05x", "Find: Notes")
+            s.send(b"05x", "❯ Notes")
             s.send(b"\r", ("cwd", target))
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -2984,9 +2995,9 @@ class TerminalTests(unittest.TestCase):
         (docs / "notes.txt").write_text("a canard here\n")
         s = save()
         s.send(b"inew.pdf", "Save as new.pdf · INSERT")
-        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"\t", "Contents · INSERT")
         self.assertIn("Save as new.pdf", s.screen.text)
-        s.send(b"icanard", "❯ canard")
+        s.send(b"canard", "❯ canard")
         s.wait_ui("Matches · 1")
         s.send(b"\x13")
         self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
@@ -3340,8 +3351,8 @@ class TerminalTests(unittest.TestCase):
         env, config, log = self.opener_setup(
             rules="[[open.rules]]\ncommand = 'viewer'\npatterns = ['*']\nat_grep_match = '+{line}'\n")
         s = self.start("--config", str(config), implicit_root=True, environment=env, typing=True)
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"icanard", "❯ canard")
+        s.send(b"\t", "Contents · INSERT")
+        s.send(b"canard", "❯ canard")
         s.wait_ui("4 matches in 2 files")
         # Each row's own match, not the first of its file's.
         s.send(b"\x1b[50;3u", "Opened one.txt with viewer")  # CSI-u Alt+2

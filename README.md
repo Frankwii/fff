@@ -611,8 +611,9 @@ fff setup --config docs/config.example.toml --check-config
 - [Editing guide](docs/EDITING.md): Normal/Insert modes and clean Neovim embedding.
 - [Desktop integration](docs/DESKTOP.md): fff as the file manager and Firefox's file chooser.
 
-In the workspace editor, Enter saves and Escape cancels, Tab switches fields and
-settings, Space ticks a setting to keep, and Space on the icon row opens a
+In the workspace editor, Enter saves and Escape cancels, Tab (or j/k outside
+typing) switches fields and settings, the path is optional (a workspace can
+be only settings, such as filters), Space ticks a setting to keep, and Space on the icon row opens a
 searchable Nerd Font icon picker. In the chooser,
 Up/Down reorder workspaces. Saves update the active TOML file; `--no-config`
 keeps edits for this session only.

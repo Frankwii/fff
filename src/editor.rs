@@ -103,6 +103,9 @@ pub struct Nvim {
     serial: u64,
     /// Fields to replace on next activation, with the mode to restore.
     invalid: HashMap<Field, String>,
+    /// Fields to enter next in another field's mode, keeping their text and
+    /// cursor (Tab between the queries).
+    carried: HashMap<Field, String>,
     /// Row whose end receives the cursor on the next replacement; else the last.
     start_row: HashMap<Field, usize>,
     active: Option<Field>,
@@ -170,6 +173,7 @@ impl Nvim {
             responses,
             serial: 0,
             invalid: HashMap::new(),
+            carried: HashMap::new(),
             start_row: HashMap::new(),
             active: None,
             buffers: HashMap::new(),
@@ -318,9 +322,21 @@ impl Nvim {
             .unwrap_or("n");
         self.invalid.insert(field, mode.to_owned());
     }
+    /// Enter `field` next in the active field's stable editing mode, keeping
+    /// its text and cursor. Pending input and command-line entry are
+    /// cancelled; a visual selection restarts at its cursor.
+    pub fn carry_mode(&mut self, field: Field) {
+        let mode = self
+            .active
+            .and_then(|active| self.buffers.get(&active))
+            .map(|b| b.view.mode.as_str())
+            .unwrap_or("n");
+        self.carried.insert(field, mode.to_owned());
+    }
     pub fn activate(&mut self, field: Field, text: &str) -> Result<EditView, String> {
-        let requested_mode = self.invalid.remove(&field);
+        let mut requested_mode = self.invalid.remove(&field);
         let reset = requested_mode.is_some();
+        let carried = self.carried.remove(&field);
         if !reset
             && self.active == Some(field)
             && self.buffers.get(&field).is_some_and(|b| b.text == text)
@@ -390,12 +406,16 @@ impl Nvim {
                 .remove(&field)
                 .map_or(lines.len(), |row| row.min(lines.len() - 1) + 1);
             self.lua("local b,lines,row=...; vim.bo[b].undolevels=-1; vim.api.nvim_buf_set_lines(b,0,-1,false,lines); vim.bo[b].undolevels=1000; vim.bo[b].modified=false; vim.api.nvim_win_set_cursor(0,{row,#lines[row]}); vim.cmd('stopinsert')",vec![id,arr(lines),row.into()])?;
+            requested_mode = requested_mode.or(carried);
         } else {
             let view = &self.buffers[&field].view;
             let row = view.row + 1;
             let col = view.column;
-            let insert = view.mode.starts_with('i');
+            let insert = carried.as_deref().unwrap_or(&view.mode).starts_with('i');
             self.lua("local row,col,insert=...; local line=vim.api.nvim_buf_get_lines(0,row-1,row,false)[1] or ''; vim.api.nvim_win_set_cursor(0,{row,col}); if insert then vim.cmd(col>=#line and 'startinsert!' or 'startinsert') end",vec![row.into(),col.into(),insert.into()])?;
+            // Insert mode was entered above, at the kept cursor; other
+            // carried modes start there.
+            requested_mode = carried.filter(|mode| !mode.starts_with('i'));
         }
         if let Some(mode) = requested_mode {
             let input = match mode.as_str() {

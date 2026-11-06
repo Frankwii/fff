@@ -14,7 +14,10 @@ form's name and path, and the query of `fff pick`, `fff seek`,
 `fff explorer save` and a list read from stdin start in **Insert mode**, ready for typing; rename and
 extraction buffers and the contents query start in Normal. Tab or Alt+/
 (`switch_query`), in either mode, moves between the names and contents
-queries, in any program but the file dialogs; each keeps its own text, cursor, mode and undo
+queries, in any program but the file dialogs, and the other query is typed
+into in the mode it was pressed in (Insert stays Insert, Normal stays
+Normal; pending input and command-line entry are cancelled, and a visual
+selection starts again there). Each keeps its own text, cursor and undo
 history. Switching programs (`gm`) keeps the mode it was pressed in, in
 whichever query the new program types into.
 Press `i` or `a` to type in a Normal field. Directory navigation
@@ -111,7 +114,8 @@ are not buffer-lifecycle editors: Enter applies and Escape in Normal mode
 cancels, like the location prompt. Validation errors keep them open. Escape from Insert/Visual mode
 and Enter during command-line or pending input still go to Neovim; `ZZ`/`:wq`
 and `ZQ`/`:q!` also apply or cancel. In workspace forms, Tab/Shift+Tab or
-Up/Down switch fields and settings, Space on a setting ticks it, and Space
+Up/Down switch fields and settings, as j/k do on the icon and settings rows
+and in a Normal-mode name or path; Space on a setting ticks it, and Space
 on the icon row opens the icon chooser.
 
 Enter in results navigates or confirms; in locations it navigates, in workspaces it opens one; in

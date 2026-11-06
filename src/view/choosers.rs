@@ -1,5 +1,8 @@
 use super::*;
 
+/// The workspace chooser, drawn as the pickers are: the filter under the
+/// title, a row per workspace (its number for Alt+digit, icon, name and what
+/// it keeps), the count on the top border and the keys on the bottom one.
 pub(super) fn workspaces(
     frame: &mut Frame,
     area: Rect,
@@ -8,28 +11,45 @@ pub(super) fn workspaces(
     index: usize,
 ) -> (Vec<usize>, Vec<(Rect, usize)>) {
     let theme = app.palette;
-    let width = area.width.saturating_sub(4).min(90);
-    let height = area.height.saturating_sub(4).min(22);
+    let matches = app.matching_workspaces(query);
+    // Plain letters work while the filter is in Normal mode; otherwise Alt.
+    let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
+    let command = |c: char| {
+        if normal {
+            c.to_string()
+        } else {
+            format!("alt+{c}")
+        }
+    };
+    let (new, edit, delete, reload) = (command('n'), command('e'), command('d'), command('r'));
+    let keys = [
+        ("enter", "Open"),
+        (new.as_str(), "New"),
+        (edit.as_str(), "Edit"),
+        (delete.as_str(), "Delete"),
+        (reload.as_str(), "Reload"),
+        ("up down", "Reorder"),
+        ("esc", "Close"),
+    ];
+    let width = area.width.saturating_sub(4).min(110);
+    // Borders, the filter and its command line, the rows and a status row.
+    let rows = matches.len().max(1) as u16;
+    let height = area.height.saturating_sub(4).min(24).min(rows + 5);
     let dialog = centered(area, width, height);
+    let hints = border_hints(app, &keys, theme.marked, width.saturating_sub(4) as usize);
+    let count = match app.workspaces.len() {
+        1 => "1 workspace".to_string(),
+        n => format!("{n} workspaces"),
+    };
     let block = panel(
         theme,
-        mode_title(
-            app,
-            Field::Workspaces,
-            &format!(
-                "Workspaces · {} opens · {} returns",
-                [app.key("enter"), Some("Alt+digit".to_string())]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .join(" / "),
-                app.key_or_none("esc")
-            ),
-        ),
+        mode_title(app, Field::Workspaces, "Workspaces"),
         true,
         theme.marked,
     )
-    .padding(Padding::horizontal(1));
+    .padding(Padding::horizontal(1))
+    .title_top(Line::from(styled(format!(" {count} "), theme.muted)).right_aligned())
+    .title_bottom(Line::from(hints).centered());
     let inner = block.inner(dialog);
     frame.render_widget(Clear, dialog);
     frame.render_widget(block, dialog);
@@ -38,15 +58,19 @@ pub(super) fn workspaces(
         Field::Workspaces,
         query,
         0,
-        inner.width.saturating_sub(6) as usize,
+        inner.width.saturating_sub(2) as usize,
     );
-    line.spans.insert(0, styled("Find: ", theme.marked));
+    if query.is_empty() {
+        line = Line::from(styled("type a workspace's name…", theme.muted));
+    }
+    line.spans.insert(0, bold("❯", theme.marked));
+    line.spans.insert(1, Span::raw(" "));
     frame.render_widget(
         Paragraph::new(line),
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
-    if inner.width > 6 {
-        frame.set_cursor_position((inner.x + 6 + cursor, inner.y));
+    if inner.width > 2 {
+        frame.set_cursor_position((inner.x + 2 + cursor, inner.y));
     }
     command_line(
         frame,
@@ -60,29 +84,19 @@ pub(super) fn workspaces(
         inner.width,
         inner.height.saturating_sub(3),
     );
-    let matches = app.matching_workspaces(query);
-    // Plain letters work while the filter is in Normal mode; otherwise Alt.
-    let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
-    let command = |c: char| {
-        if normal {
-            Some(c.to_string())
-        } else {
-            app.key(&format!("alt+{c}"))
-        }
-    };
-    // Each workspace occupies three lines; only fully visible entries get labels.
-    let page = list.height as usize / 3;
+    // Only fully visible entries get labels.
+    let page = list.height as usize;
     let start = index.saturating_sub(page.saturating_sub(1));
     let visible: Vec<_> = matches.iter().skip(start).take(page).copied().collect();
     let mut choices = Vec::new();
     if matches.is_empty() {
         let text = if app.workspaces.is_empty() {
-            match command('n') {
-                Some(key) => format!("No workspaces yet. {key} adds the current directory."),
-                None => "No workspaces yet.".into(),
-            }
+            format!(
+                "No workspaces yet. {} adds one: a folder, settings to apply, or both.",
+                keys_named(app, &new).unwrap_or_default()
+            )
         } else {
-            "No matching workspaces".into()
+            "No workspace matches.".into()
         };
         frame.render_widget(
             Paragraph::new(styled(text, theme.muted)).wrap(Wrap { trim: false }),
@@ -92,13 +106,24 @@ pub(super) fn workspaces(
         // Configured icons always show; others get the folder glyph when file
         // icons are enabled, or blank padding so names stay aligned.
         let icon_column = app.icons || app.workspaces.iter().any(|b| b.icon.is_some());
+        let name_width = visible
+            .iter()
+            .map(|&i| safe(&app.workspaces[i].name).width())
+            .max()
+            .unwrap_or(0)
+            .min(28)
+            + 2;
         let items: Vec<_> = visible
             .iter()
             .enumerate()
             .map(|(position, &i)| {
                 let b = &app.workspaces[i];
                 let available = b.path.as_deref().is_none_or(|p| available(app, p));
-                let color = if available { theme.marked } else { theme.error };
+                let color = if available {
+                    theme.function
+                } else {
+                    theme.error
+                };
                 let label = if position + 1 == visible.len() {
                     if position < 9 {
                         format!("{}/0", position + 1)
@@ -110,7 +135,7 @@ pub(super) fn workspaces(
                 } else {
                     String::new()
                 };
-                let mut title = vec![styled(format!("{label:>3} "), theme.muted)];
+                let mut spans = vec![styled(format!("{label:>3} "), theme.muted)];
                 if icon_column {
                     let icon = match &b.icon {
                         Some(icon) => safe(icon),
@@ -118,29 +143,21 @@ pub(super) fn workspaces(
                         None => String::new(),
                     };
                     let pad = 3usize.saturating_sub(icon.width());
-                    title.push(styled(icon + &" ".repeat(pad), color));
+                    spans.push(styled(icon + &" ".repeat(pad), color));
                 }
-                title.push(bold(
-                    format!(
-                        "{}{}",
-                        safe(&b.name),
-                        if available { "" } else { " [unavailable]" }
-                    ),
-                    color,
+                let name = truncate(&safe(&b.name), name_width - 2);
+                let pad = name_width.saturating_sub(name.width());
+                spans.push(bold(name + &" ".repeat(pad), color));
+                let used: usize = 2 + spans.iter().map(|s| s.width()).sum::<usize>();
+                let mut aside = safe(summary(app, b));
+                if !available {
+                    aside = format!("unavailable · {aside}");
+                }
+                spans.push(styled(
+                    elide(&aside, (list.width as usize).saturating_sub(used)),
+                    if available { theme.muted } else { theme.error },
                 ));
-                let indent = if icon_column { "       " } else { "    " };
-                ListItem::new(vec![
-                    Line::from(title),
-                    Line::from(styled(
-                        indent.to_string()
-                            + &elide(
-                                &summary(app, b),
-                                list.width.saturating_sub(2 + indent.len() as u16) as usize,
-                            ),
-                        theme.muted,
-                    )),
-                    Line::from(""),
-                ])
+                ListItem::new(Line::from(spans))
             })
             .collect();
         let mut state = ListState::default().with_selected(Some(index.saturating_sub(start)));
@@ -155,35 +172,15 @@ pub(super) fn workspaces(
         choices = item_areas(
             list,
             start + shown,
-            std::iter::repeat_n(3, visible.len().saturating_sub(shown)),
+            std::iter::repeat_n(1, visible.len().saturating_sub(shown)),
         );
     }
-    let hint = if app.status.is_empty() {
-        [
-            does(command('n'), "new"),
-            does(command('e'), "edit"),
-            does(command('d'), "delete"),
-            does(command('r'), "reload"),
-            does(keys_named(app, "up down"), "reorder"),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ")
-    } else {
-        app.status.clone()
-    };
-    frame.render_widget(
-        Paragraph::new(styled(
-            safe(hint),
-            if app.status.is_empty() {
-                theme.muted
-            } else {
-                theme.error
-            },
-        )),
-        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
-    );
+    if !app.status.is_empty() {
+        frame.render_widget(
+            Paragraph::new(styled(safe(&app.status), theme.error)),
+            Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        );
+    }
     (visible, choices)
 }
 /// Modal frame for the workspace icon chooser.
@@ -203,8 +200,9 @@ pub(super) fn workspace_dialog(
     frame.render_widget(block, dialog);
     inner
 }
-/// The workspace form shares the operation sheet: an explanation, three
-/// labelled rows (the active one carries the prompt glyph) and a status row.
+/// The workspace form shares the operation sheet: what a workspace is, its
+/// labelled rows (the active one carries the prompt glyph), the path's
+/// explanation under it, the settings to keep and a status row.
 pub(super) fn workspace_form(
     frame: &mut Frame,
     main: Rect,
@@ -222,29 +220,62 @@ pub(super) fn workspace_form(
         .field
         .editor()
         .map_or_else(|| format!(" {title} "), |f| mode_title(app, f, title));
-    let here = tilde(&app.cwd, app.home.as_deref());
+    // Label, then the query box's prompt glyph on the active row.
+    let indent = 8;
+    let width = main.width.saturating_sub(4) as usize;
     let body = prose(
         theme,
         theme.marked,
-        &format!(
-            "Relative paths start at {here}; *~* is your home directory. An empty \
-             path leaves the folder as it is. *Space* ticks the settings to keep, \
-             as they are now."
-        ),
-        main.width.saturating_sub(4) as usize,
+        "A workspace opens a folder, applies the settings ticked below, or both.",
+        width,
     );
+    // The path's explanation, under it in the value's column.
+    let here = tilde(&app.cwd, app.home.as_deref());
+    let room = width.saturating_sub(indent as usize);
+    // Prose whose plain words take `color`; its *emphasis* stays.
+    let tinted = |text: &str, color: Color| {
+        prose(theme, theme.text, text, room)
+            .into_iter()
+            .map(move |mut line| {
+                for span in &mut line.spans {
+                    if !span.style.add_modifier.contains(Modifier::BOLD) {
+                        span.style = span.style.fg(color);
+                    }
+                }
+                line
+            })
+    };
+    let mut hint = Vec::new();
+    if draft
+        .workspace(&app.cwd, app.home.as_deref())
+        .is_ok_and(|b| b.path.as_deref().is_some_and(|p| !available(app, p)))
+    {
+        hint.extend(tinted(
+            "This directory does not exist; the workspace will show as unavailable.",
+            theme.error,
+        ));
+    }
+    hint.extend(tinted(
+        &format!(
+            "*Optional:* left empty, the workspace stays in whatever folder you \
+             are in and applies only the ticked settings. Relative paths start \
+             at {here}; *~* is your home directory."
+        ),
+        theme.muted,
+    ));
     let saves = match &app.workspace_store.path {
         Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
         None => "this session only".into(),
     };
-    // Borders, prose, a blank line, three rows, a blank line, the settings
-    // with their heading, and a row for commands or errors.
+    // Borders, the explanation and a blank line, the name, the path and its
+    // explanation, the icon, a blank line, the settings with their heading,
+    // and a row for commands or errors.
     let settings = crate::config::Setting::ALL.len() as u16;
     let inner = sheet(
         frame,
         main,
         app,
-        body.len() as u16 + 9 + settings,
+        body.len() as u16 + hint.len() as u16 + 9 + settings,
         Sheet {
             title,
             accent: theme.marked,
@@ -257,11 +288,9 @@ pub(super) fn workspace_form(
         Paragraph::new(body),
         Rect::new(inner.x, inner.y, inner.width, top),
     );
-    // Label, then the query box's prompt glyph on the active row.
-    let indent = 8;
-    let row = |frame: &mut Frame, offset: u16, label: &str, active: bool| {
-        let y = inner.y + top + offset;
-        (y < inner.bottom().saturating_sub(1)).then(|| {
+    let fits = |y: u16| y < inner.bottom().saturating_sub(1);
+    let row = |frame: &mut Frame, y: u16, label: &str, active: bool| {
+        fits(y).then(|| {
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
                     bold(
@@ -275,36 +304,44 @@ pub(super) fn workspace_form(
             Rect::new(inner.x + indent, y, inner.width.saturating_sub(indent), 1)
         })
     };
-    for (offset, label, value, field, active) in [
+    let mut y = inner.y + top;
+    for (label, value, field, active) in [
         (
-            0,
             "Name",
             &draft.name,
             Field::WorkspaceName,
             draft.field == EditField::Name,
         ),
         (
-            1,
             "Path",
             &draft.path,
             Field::WorkspacePath,
             draft.field == EditField::Path,
         ),
     ] {
-        let Some(area) = row(frame, offset, label, active) else {
-            continue;
-        };
-        if active {
-            edit_rows(frame, app, field, value, area);
-        } else {
+        if let Some(area) = row(frame, y, label, active) {
+            if active {
+                edit_rows(frame, app, field, value, area);
+            } else {
+                frame.render_widget(
+                    Paragraph::new(styled(elide(&safe(value), area.width as usize), theme.text)),
+                    area,
+                );
+            }
+        }
+        y += 1;
+    }
+    for line in hint {
+        if fits(y) {
             frame.render_widget(
-                Paragraph::new(styled(elide(&safe(value), area.width as usize), theme.text)),
-                area,
+                Paragraph::new(line),
+                Rect::new(inner.x + indent, y, inner.width.saturating_sub(indent), 1),
             );
         }
+        y += 1;
     }
     let active = draft.field == EditField::Icon;
-    if let Some(area) = row(frame, 2, "Icon", active) {
+    if let Some(area) = row(frame, y, "Icon", active) {
         let (glyph, name) = match &draft.icon {
             Some(icon) => (safe(icon), "custom"),
             None if app.icons => (
@@ -325,13 +362,14 @@ pub(super) fn workspace_form(
         }
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
+    y += 2;
     // The settings, as the Keys screen's checklists tick them.
-    let y = inner.y + top + 4;
-    if y < inner.bottom().saturating_sub(1) {
+    if fits(y) {
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 styled("  ", theme.muted),
                 bold("KEEPS", theme.muted),
+                styled(" · Space ticks a setting, kept as it is now", theme.muted),
             ])),
             Rect::new(inner.x, y, inner.width, 1),
         );
@@ -384,17 +422,6 @@ pub(super) fn workspace_form(
         command_line(frame, app, field.unwrap(), last);
     } else if !app.status.is_empty() && app.status != app.status_success {
         frame.render_widget(Paragraph::new(styled(safe(&app.status), theme.error)), last);
-    } else if draft
-        .workspace(&app.cwd, app.home.as_deref())
-        .is_ok_and(|b| b.path.as_deref().is_some_and(|p| !available(app, p)))
-    {
-        frame.render_widget(
-            Paragraph::new(styled(
-                "This directory does not exist; the workspace will show as unavailable.",
-                theme.muted,
-            )),
-            last,
-        );
     }
 }
 pub(super) fn workspace_icons(

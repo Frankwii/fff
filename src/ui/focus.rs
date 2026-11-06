@@ -372,6 +372,17 @@ impl Session {
             draft.field = draft
                 .field
                 .next(matches!(key.code, K::BackTab | K::Up) || key.modifiers.contains(M::SHIFT));
+        } else if matches!(key.code, K::Char('j' | 'k'))
+            && !key.modifiers.intersects(M::CONTROL | M::ALT)
+            // The icon and the settings have no text; a one-line field's
+            // own j and k do nothing in Normal mode.
+            && draft.field.editor().is_none_or(|field| {
+                app.edit_view
+                    .as_ref()
+                    .is_some_and(|v| v.field == field && v.normal())
+            })
+        {
+            draft.field = draft.field.next(key.code == K::Char('k'));
         } else if let WorkspaceField::Setting(setting) = draft.field
             && key.code == K::Char(' ')
         {

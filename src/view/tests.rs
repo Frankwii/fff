@@ -1346,16 +1346,18 @@ fn workspace_numbers_follow_visible_scrolled_and_filtered_rows() {
         query: String::new(),
         index: 11,
     };
-    let mut terminal = Terminal::new(TestBackend::new(100, 26)).unwrap();
+    // A row per workspace; a short terminal scrolls to the highlight.
+    let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
     let mut targets = Vec::new();
     terminal
         .draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
         .unwrap();
-    assert_eq!(targets, vec![7, 8, 9, 10, 11]);
     let screen = text(terminal.backend().buffer());
-    assert!(screen.contains("5/0"), "{screen}");
-    assert!(screen.contains("place11"), "{screen}");
-    assert!(!screen.contains("place06"), "{screen}");
+    assert_eq!(targets, (5..12).collect::<Vec<_>>(), "{screen}");
+    let row = |name: &str| screen.lines().find(|l| l.contains(name)).unwrap_or("");
+    assert!(row("place11").contains("› 7/0"), "{screen}");
+    assert!(row("place05").contains("  1 "), "{screen}");
+    assert!(!screen.contains("place04"), "{screen}");
     focus = Focus::Workspaces {
         query: "place1".into(),
         index: 0,
@@ -2272,6 +2274,136 @@ fn frames_drawn_while_a_scan_adds_paths_show_what_a_fresh_ranking_would() {
                 assert_eq!(draw(&mut app, 120, 30), draw(&mut fresh, 120, 30));
                 assert_eq!(app.offset, fresh.offset);
             }
+        }
+    }
+}
+#[test]
+fn workspace_form_explains_the_optional_path_under_it() {
+    let mut app = fixture();
+    let draft =
+        crate::workspaces::Draft::new(&app.cwd.clone(), None, app.snapshot(), String::new(), 0)
+            .unwrap();
+    let mut focus = Focus::WorkspaceEdit(draft);
+    let mut terminal = Terminal::new(TestBackend::new(100, 34)).unwrap();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    let lines: Vec<_> = screen.lines().collect();
+    let path = lines.iter().position(|l| l.contains("Path  ")).unwrap();
+    // The fixture's folder is not on disk: that comes first, then that the
+    // path is optional, both in the value's column.
+    assert!(
+        lines[path + 1].contains("This directory does not exist"),
+        "{screen}"
+    );
+    assert!(lines[path + 2].contains("Optional: left empty"), "{screen}");
+    let column = |l: &str, word: &str| l.find(word).map(|i| l[..i].chars().count());
+    assert_eq!(
+        column(lines[path + 2], "Optional"),
+        column(lines[path], "/home"),
+        "{screen}"
+    );
+    assert!(lines[path - 1].contains("Name  ❯ notes"), "{screen}");
+    assert!(screen.contains("KEEPS · Space ticks"), "{screen}");
+    assert!(screen.contains("Enter: Save ─── Esc: Cancel"), "{screen}");
+    // An empty path still says it is optional, and nothing is missing.
+    if let Focus::WorkspaceEdit(draft) = &mut focus {
+        draft.path.clear();
+    }
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(!screen.contains("does not exist"), "{screen}");
+    assert!(screen.contains("Optional: left empty"), "{screen}");
+}
+#[test]
+fn workspace_chooser_is_drawn_as_the_pickers_are() {
+    let mut app = fixture();
+    app.icons = false;
+    let workspace = |name: &str, path: Option<&str>| crate::config::Workspace {
+        name: name.into(),
+        path: path.map(Into::into),
+        depth: path.is_none().then_some(2),
+        ..Default::default()
+    };
+    app.workspaces = vec![
+        workspace("Downloads", Some("/tmp")),
+        workspace("Shallow", None),
+    ];
+    let mut focus = Focus::Workspaces {
+        query: String::new(),
+        index: 1,
+    };
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    // The count on the top border, the keys on the bottom one, the filter
+    // with its prompt glyph and one row per workspace, names aligned.
+    assert!(screen.contains("╭ Workspaces ─"), "{screen}");
+    assert!(screen.contains(" 2 workspaces ╮"), "{screen}");
+    assert!(screen.contains("❯ type a workspace's name…"), "{screen}");
+    assert!(screen.contains("    1 Downloads  /tmp"), "{screen}");
+    assert!(screen.contains("› 2/0 Shallow    depth 2"), "{screen}");
+    assert!(
+        screen.contains("Enter: Open ─ Alt+n: New ─ Alt+e: Edit"),
+        "{screen}"
+    );
+    assert!(screen.contains("Esc: Close"), "{screen}");
+    assert!(!screen.contains("Find:"), "{screen}");
+    app.workspaces.clear();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(
+        screen.contains("No workspaces yet. Alt+n adds one"),
+        "{screen}"
+    );
+}
+#[test]
+fn workspace_names_and_paths_never_reach_the_terminal_as_control_characters() {
+    let mut app = fixture();
+    app.workspaces = vec![crate::config::Workspace {
+        name: "evil\u{1b}]52;c;payload\u{7}".into(),
+        path: Some("/tmp/\u{1b}[2Jgone\u{9b}31m".into()),
+        ..Default::default()
+    }];
+    let draft = crate::workspaces::Draft::new(
+        &app.cwd.clone(),
+        Some((0, &app.workspaces[0].clone())),
+        app.snapshot(),
+        String::new(),
+        0,
+    )
+    .unwrap();
+    for mut focus in [
+        Focus::Workspaces {
+            query: String::new(),
+            index: 0,
+        },
+        Focus::WorkspaceEdit(draft),
+        Focus::WorkspaceDelete {
+            target: 0,
+            query: String::new(),
+            index: 0,
+        },
+    ] {
+        let mut terminal = Terminal::new(TestBackend::new(120, 34)).unwrap();
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let screen = text(terminal.backend().buffer());
+        assert!(
+            !screen.chars().any(|c| c.is_control() && c != '\n'),
+            "{screen:?}"
+        );
+        assert!(screen.contains("evil\\u{1b}]52"), "{screen}");
+        if let Focus::Workspaces { .. } = focus {
+            assert!(screen.contains("/tmp/\\u{1b}[2Jgone"), "{screen}");
         }
     }
 }

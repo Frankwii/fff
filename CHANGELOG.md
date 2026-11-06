@@ -48,6 +48,16 @@ history.
   and the function is `show_workspaces`. The chooser works in every program,
   `fff seek` included.
 - **Opening a workspace keeps the query**; opening a bookmark cleared it.
+- **Tab keeps the editing mode**: switching between the names and contents
+  queries types into the other one in the mode Tab was pressed in, so Tab
+  while typing goes on typing; before, each query came back in its own mode.
+- **The workspace chooser looks like the other pickers**: a `❯` filter
+  line, one row per workspace with what it keeps beside its name, the count
+  on the top border and the keys on the bottom one.
+- **The workspace form says the path is optional** right under it: left
+  empty, the workspace applies only its ticked settings, wherever you are.
+  The warning about a missing folder moved there too. j and k move through
+  its rows outside typing, as Tab does.
 
 ### Removed
 

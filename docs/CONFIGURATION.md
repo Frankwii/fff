@@ -650,7 +650,10 @@ xargs -0 zathura`.
 
 ### Editing workspaces
 
-In the chooser, **n** saves a new workspace, **e** edits the
+The chooser is drawn like the other pickers: the filter (it matches names)
+under the title, one row per workspace with its number for Alt+digit, its
+icon, its name and what it keeps (an unavailable folder in the error
+color), the count on the top border and its keys on the bottom one. In the chooser, **n** saves a new workspace, **e** edits the
 highlighted workspace, and **d** asks for confirmation before deleting it.
 Deletion removes only the workspace record. **r** reloads workspaces from disk.
 These letters act while the filter is in Normal mode, so Vim's own `n`, `e`,
@@ -665,16 +668,19 @@ like the Keys screen's: ticked `●`, not ticked `○`, or crossed out `×` wher
 there is nothing to keep (the program in `fff window` or a file dialog).
 Each shows the value it keeps: the session's as it is now, or, editing a
 workspace, the one it already keeps. A new workspace starts with the current
-directory as its path and nothing ticked; an empty path leaves the folder
-alone, and a workspace needs a path or a ticked setting. **Space** ticks the
+directory as its path and nothing ticked. The path is optional, as the form
+says under it: left empty, the workspace stays in whatever folder you are in
+and applies only its ticked settings (a set of filters, say); a workspace
+needs a path or a ticked setting. **Space** ticks the
 highlighted setting. **Enter** saves and **Escape** cancels, from any editing mode:
 in Neovim, Escape first leaves Insert/Visual mode, and Enter during command-line
 or pending input still goes to Neovim. Neovim's `ZZ` / `:wq` also save and
-`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields and settings. **Space** on the
+`ZQ` / `:q!` cancel. Tab/Shift+Tab or Up/Down switch fields and settings; so do **j** / **k** on
+the icon and settings rows, and in the name or path in Normal mode. **Space** on the
 icon row opens a searchable selection of 37 choices,
 including common Nerd Font glyphs and **Automatic** to clear a custom icon.
 Press `i` to filter in Neovim, then Escape and Enter to choose. Existing custom
-icons remain intact unless changed. The form warns when the path is not an
+icons remain intact unless changed. The form warns, under the path, when it is not an
 existing directory; such workspaces are still saved and shown as unavailable.
 
 Paths entered in the form resolve relative to the current browsing directory;

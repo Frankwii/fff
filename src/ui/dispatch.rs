@@ -440,7 +440,16 @@ impl Session {
             }
             PrintMarks => return Ok(leave_with_marks(app)),
             ClearQuery => self.clear_query(app),
-            SwitchQuery => app.grep.editing = !app.grep.editing,
+            SwitchQuery => {
+                app.grep.editing = !app.grep.editing;
+                // The other query is typed into in the mode Tab was pressed in.
+                let field = if app.grep.editing {
+                    Field::Contents
+                } else {
+                    Field::Query
+                };
+                self.editor.carry_mode(field);
+            }
             SearchShallower | SearchDeeper => {
                 app.depth = if function == SearchDeeper {
                     app.depth.saturating_add(1)
