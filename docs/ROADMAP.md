@@ -174,9 +174,27 @@ where results are a folder's own entries, the current behavior stays. To try
 out: which contexts it suits, how a folder match ranks against a file match,
 and how the row shows which part matched.
 
-### Queries with a typo
+### Improvements to matching
 
-A query matches when its letters appear in order, so a letter left out is
+Two changes to how a query matches and ranks: depth weighed against match
+quality rather than ranked before it, and queries that tolerate a typo.
+
+**Depth as a penalty.** `fff roam` ranks by depth first and match quality
+second; `fff pick` and `fff seek` by match quality first, depth only
+breaking ties. Both are ends of one order by `score − λ·depth`: the first
+is λ → ∞ (a max), the second λ = 0. A finite λ, a setting per program, would
+let a much better match rise above a shallower poor one, as a softmax
+weighs rather than picks; a penalty growing more slowly with depth (such as
+`λ·log(1 + depth)`) would count the first levels most. It is a change to
+`rows::Order` alone and costs nothing: rows are compared on one number
+instead of two, and an empty query, every score equal, still ranks by
+depth. While a scan runs, a deep good match could arrive above rows already
+shown, as in `fff pick` today. With [sorting](#sorting), this would be the
+default criterion and λ its setting. To decide: λ's scale against nucleo's
+scores, and whether the score is taken per letter of the query so that
+depth weighs the same as the query grows.
+
+**Queries with a typo.** A query matches when its letters appear in order, so a letter left out is
 forgiven (`thre lnes` finds `three lines theorem.pdf`) but a wrong, extra or
 swapped one is not (`three lnies`). nucleo has no tolerance for typos. Both
 queries would get it as a fallback, run only when the query as typed finds
@@ -212,6 +230,13 @@ ranks as it does.
   query searches them, as now: the names are never matched against the
   match rows. Each falls back on its own, the names first, since they decide
   which files the contents search reads.
+
+Typo matches would join the soft order as a third term: a row matched as
+typed has no typo, one found by the names fallback one, and a contents match
+as many as words were corrected. Their scores are frizbee's, not nucleo's,
+so the simplest order keeps the two apart, the typo matches after the
+others, each ranked by score and depth; a single order needs frizbee's
+scores brought to nucleo's scale.
 
 To decide: the threshold for the names fallback; how the vocabulary is
 stored (a compact sorted set beside the index's segments), kept and pruned
