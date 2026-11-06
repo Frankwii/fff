@@ -135,6 +135,14 @@ pub struct Tab {
     pub back: Vec<PathBuf>,
     pub forward: Vec<PathBuf>,
 }
+/// The row of `rows` drawn ones that Alt+number (or Ctrl+number) `digit`
+/// reaches: 1 the first, 0 the last, a number past them the last too.
+pub fn numbered_row(digit: u32, rows: usize) -> usize {
+    (digit as usize)
+        .checked_sub(1)
+        .unwrap_or(usize::MAX)
+        .min(rows.saturating_sub(1))
+}
 pub struct App {
     pub roots: Vec<PathBuf>,
     pub scope: Vec<PathBuf>,
@@ -1477,12 +1485,7 @@ impl App {
     /// Highlight the row numbered `digit` on screen, by row: a contents
     /// query shows a file once per match.
     pub fn highlight_numbered(&mut self, digit: u32) {
-        let i = if digit == 0 {
-            usize::MAX
-        } else {
-            digit as usize - 1
-        };
-        let i = i.min(self.rendered.len().saturating_sub(1));
+        let i = numbered_row(digit, self.rendered.len());
         let path = self.numbered(digit);
         self.highlight_row(self.offset + i);
         // The drawn path rules, should the rows have moved since.
@@ -1491,13 +1494,8 @@ impl App {
         }
     }
     pub fn numbered(&self, digit: u32) -> PathBuf {
-        let i = if digit == 0 {
-            usize::MAX
-        } else {
-            digit as usize - 1
-        };
         self.rendered
-            .get(i.min(self.rendered.len().saturating_sub(1)))
+            .get(numbered_row(digit, self.rendered.len()))
             .cloned()
             .unwrap_or_else(|| self.cwd.clone())
     }

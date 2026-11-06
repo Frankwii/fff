@@ -702,15 +702,16 @@ impl Session {
             deliver(app, &mut self.focus, &mut self.editor, key);
             return Ok(None);
         }
+        // Alt+number on a chooser's or picker's row is Enter there.
+        let key = match alt_numbered_key(key) {
+            Some(digit) if self.highlight_numbered_choice(app, digit) => {
+                KeyEvent::new(K::Enter, M::NONE)
+            }
+            _ => key,
+        };
         let alt = key.modifiers.contains(M::ALT);
-        if matches!(self.focus, Focus::Workspaces { .. }) {
-            if let Some(digit) = alt_numbered_key(key) {
-                self.open_numbered_workspace(app, digit);
-                return Ok(None);
-            }
-            if self.workspace_command(app, key, alt) {
-                return Ok(None);
-            }
+        if matches!(self.focus, Focus::Workspaces { .. }) && self.workspace_command(app, key, alt) {
+            return Ok(None);
         }
         let navigation =
             key.code == K::Enter || (alt && matches!(key.code, K::Char('h' | 'l' | '0'..='9')));
@@ -975,16 +976,20 @@ impl Session {
             open_in_background(app, &target.path);
         }
     }
-    /// Alt+number among the workspaces opens that one; 0 is the last.
-    fn open_numbered_workspace(&mut self, app: &mut App, digit: u32) {
-        let index = if digit == 0 {
-            usize::MAX
-        } else {
-            digit as usize - 1
+    /// Alt+number in a chooser or picker highlights that row as drawn, as
+    /// `App::highlight_numbered` does in the results. False elsewhere, or
+    /// with no rows.
+    fn highlight_numbered_choice(&mut self, app: &App, digit: u32) -> bool {
+        let rows = &self.drawn.lists.choices;
+        let Some(&(_, target)) = rows.get(crate::numbered_row(digit, rows.len())) else {
+            return false;
         };
-        let targets = &self.drawn.workspace_targets;
-        if let Some(&target) = targets.get(index.min(targets.len().saturating_sub(1))) {
-            self.open_workspace(app, target);
+        match chooser_rows(app, &mut self.focus) {
+            Some((index, _)) => {
+                *index = target;
+                true
+            }
+            None => false,
         }
     }
     /// The workspace chooser's commands: new, edit, delete, reorder and

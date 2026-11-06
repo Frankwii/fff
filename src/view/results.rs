@@ -221,15 +221,7 @@ pub(super) fn results_pane(
                 theme.panel
             };
             frame.render_widget(Block::default().style(Style::default().bg(bg)), row);
-            let label = if i + 1 == visible.len() && i < 9 {
-                format!("{}/0", i + 1)
-            } else if i + 1 == visible.len() {
-                "0".into()
-            } else if i < 9 {
-                (i + 1).to_string()
-            } else {
-                String::new()
-            };
+            let label = row_label(i, visible.len());
             let name = name_of(c);
             let prefix = format!("{} {:>3} ", if selected { "›" } else { " " }, label);
             let marked = app.marks.contains(&c.path);
@@ -310,7 +302,6 @@ pub(super) fn results_pane(
     }
     Rendered {
         targets: visible.iter().map(|c| c.path.clone()).collect(),
-        workspace_targets: Vec::new(),
         page,
         results: inner,
         buttons: Vec::new(),

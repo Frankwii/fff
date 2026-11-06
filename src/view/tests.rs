@@ -880,7 +880,10 @@ fn the_sorting_picker_names_the_direction_and_the_border_the_order() {
         "{screen}"
     );
     assert!(screen.contains("↓ type a criterion's name"), "{screen}");
-    assert!(screen.contains("› name        current ↓   Names alphabetically"));
+    assert!(
+        screen.contains("›   2 name        current ↓   Names alphabetically"),
+        "{screen}"
+    );
     assert!(screen.contains("ranking"));
     assert!(screen.contains("depth 3 · sorted by name ↓"));
     if let Focus::Picker { query, .. } = &mut focus {
@@ -921,7 +924,7 @@ fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("Palettes · Enter applies · Esc reverts"));
     assert!(screen.contains("Find: paper"));
-    assert!(screen.contains("› paper"));
+    assert!(screen.contains("› 1/0 paper"), "{screen}");
     assert!(screen.contains("custom"));
     assert!(!screen.contains("gruvbox-dark"));
     assert_eq!(app.matching_palettes("paper").len(), 1);
@@ -1350,7 +1353,7 @@ fn workspace_numbers_follow_visible_scrolled_and_filtered_rows() {
     let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
     let mut targets = Vec::new();
     terminal
-        .draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
+        .draw(|f| targets = rows(render(f, &mut app, &mut focus)))
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert_eq!(targets, (5..12).collect::<Vec<_>>(), "{screen}");
@@ -1363,13 +1366,18 @@ fn workspace_numbers_follow_visible_scrolled_and_filtered_rows() {
         index: 0,
     };
     terminal
-        .draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
+        .draw(|f| targets = rows(render(f, &mut app, &mut focus)))
         .unwrap();
-    assert_eq!(targets, vec![1, 10, 11]);
+    // The rows are the matches: place01, place10 and place11.
+    assert_eq!(targets, vec![0, 1, 2]);
     let mut tiny = Terminal::new(TestBackend::new(35, 11)).unwrap();
-    tiny.draw(|f| targets = render(f, &mut app, &mut focus).workspace_targets)
+    tiny.draw(|f| targets = rows(render(f, &mut app, &mut focus)))
         .unwrap();
     assert!(targets.is_empty());
+}
+/// The indices of the rows a chooser drew.
+fn rows(rendered: Rendered) -> Vec<usize> {
+    rendered.choices.into_iter().map(|(_, i)| i).collect()
 }
 fn draw(app: &mut App, width: u16, height: u16) -> (String, Vec<PathBuf>) {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

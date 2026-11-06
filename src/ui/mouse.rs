@@ -166,18 +166,8 @@ pub(super) fn mouse_lists(
         _ => None,
     };
     let chooser = match &*focus {
-        Focus::Workspaces { query, index } => {
-            Some((Some(*index), app.matching_workspaces(query).len()))
-        }
-        Focus::WorkspaceIcons { query, index, .. } => Some((
-            Some(*index),
-            crate::icons::matching_workspace_icons(query).len(),
-        )),
-        Focus::Palettes { query, index, .. } => {
-            Some((Some(*index), app.matching_palettes(query).len()))
-        }
         Focus::Location(location) => Some((location.selected, location.matches().len())),
-        _ => None,
+        _ => chooser_rows(app, focus).map(|(index, rows)| (Some(*index), rows)),
     };
     if let Some((current, count)) = chooser {
         let target = match wheel {
@@ -190,11 +180,12 @@ pub(super) fn mouse_lists(
         };
         let again = down && mouse.again(target);
         match focus {
-            Focus::Workspaces { index, .. }
-            | Focus::WorkspaceIcons { index, .. }
-            | Focus::Palettes { index, .. } => *index = target,
             Focus::Location(location) => location.selected = Some(target),
-            _ => {}
+            _ => {
+                if let Some((index, _)) = chooser_rows(app, focus) {
+                    *index = target;
+                }
+            }
         }
         return if again {
             ListMouse::Enter

@@ -42,7 +42,6 @@ use text::*;
 
 pub(crate) struct Rendered {
     pub targets: Vec<PathBuf>,
-    pub workspace_targets: Vec<usize>,
     pub page: usize,
     /// Where the result rows were drawn, for mouse clicks; one row per target.
     pub results: Rect,
@@ -79,6 +78,54 @@ fn item_areas(
     areas
 }
 
+/// A row's label for Alt+number, as the results number theirs: `1`…`9`
+/// from the top of `rows`, the last also `0` (`3/0`, or `0` past the ninth).
+fn row_label(position: usize, rows: usize) -> String {
+    match (position + 1 == rows, position < 9) {
+        (true, true) => format!("{}/0", position + 1),
+        (true, false) => "0".into(),
+        (false, true) => (position + 1).to_string(),
+        (false, false) => String::new(),
+    }
+}
+/// The first row a list `page` rows tall shows with row `index` highlighted.
+fn first_shown(index: usize, page: usize) -> usize {
+    index.saturating_sub(page.saturating_sub(1))
+}
+/// A chooser's or picker's `rows` from row `start`, as many as fit `list`:
+/// each after its Alt+number label, the highlighted one (`index`) marked
+/// `›`. Where each is drawn, with its index, for the mouse and Alt+number.
+fn numbered_rows(
+    frame: &mut Frame,
+    list: Rect,
+    theme: Palette,
+    start: usize,
+    rows: Vec<Line<'static>>,
+    index: usize,
+) -> Vec<(Rect, usize)> {
+    let count = rows.len().min(list.height as usize);
+    let items: Vec<_> = rows
+        .into_iter()
+        .take(count)
+        .enumerate()
+        .map(|(position, mut line)| {
+            let label = format!("{:>3} ", row_label(position, count));
+            line.spans.insert(0, styled(label, theme.muted));
+            ListItem::new(line)
+        })
+        .collect();
+    let mut state = ListState::default().with_selected(index.checked_sub(start));
+    frame.render_stateful_widget(
+        List::new(items)
+            .highlight_style(Style::default().bg(theme.selection))
+            .highlight_symbol("› "),
+        list,
+        &mut state,
+    );
+    item_areas(list, start, std::iter::repeat_n(1, count))
+}
+/// The columns `numbered_rows` puts before a row: the pointer and label.
+const NUMBERED: usize = 6;
 fn styled(text: impl Into<String>, color: Color) -> Span<'static> {
     Span::styled(text.into(), Style::default().fg(color))
 }
@@ -236,7 +283,6 @@ fn too_small(frame: &mut Frame, app: &App, width: u16, height: u16) -> Rendered 
     frame.render_widget(Paragraph::new(text), area);
     Rendered {
         targets: Vec::new(),
-        workspace_targets: Vec::new(),
         page: 0,
         results: Rect::default(),
         buttons: Vec::new(),
@@ -275,7 +321,6 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
         let page = keys_screen(frame, area, app, screen);
         return Rendered {
             targets: Vec::new(),
-            workspace_targets: Vec::new(),
             page,
             results: Rect::default(),
             buttons: Vec::new(),
@@ -404,9 +449,7 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
             prompt(frame, app, area, Field::Filters, "Edit filters", text, true)
         }
         Focus::Workspaces { query, index } => {
-            (result.workspace_targets, result.choices) =
-                workspaces(frame, area, app, query, *index);
-            result.page = result.workspace_targets.len();
+            (result.page, result.choices) = workspaces(frame, area, app, query, *index);
         }
         Focus::WorkspaceEdit(draft) => workspace_form(frame, area, app, draft),
         Focus::WorkspaceIcons { query, index, .. } => {

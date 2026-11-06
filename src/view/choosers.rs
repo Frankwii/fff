@@ -9,7 +9,7 @@ pub(super) fn workspaces(
     app: &App,
     query: &str,
     index: usize,
-) -> (Vec<usize>, Vec<(Rect, usize)>) {
+) -> (usize, Vec<(Rect, usize)>) {
     let theme = app.palette;
     let matches = app.matching_workspaces(query);
     // Plain letters work while the filter is in Normal mode; otherwise Alt.
@@ -83,7 +83,7 @@ pub(super) fn workspaces(
     );
     // Only fully visible entries get labels.
     let page = list.height as usize;
-    let start = index.saturating_sub(page.saturating_sub(1));
+    let start = first_shown(index, page);
     let visible: Vec<_> = matches.iter().skip(start).take(page).copied().collect();
     let mut choices = Vec::new();
     if matches.is_empty() {
@@ -110,10 +110,9 @@ pub(super) fn workspaces(
             .unwrap_or(0)
             .min(28)
             + 2;
-        let items: Vec<_> = visible
+        let rows: Vec<_> = visible
             .iter()
-            .enumerate()
-            .map(|(position, &i)| {
+            .map(|&i| {
                 let b = &app.workspaces[i];
                 let available = b.path.as_deref().is_none_or(|p| available(app, p));
                 let color = if available {
@@ -121,18 +120,7 @@ pub(super) fn workspaces(
                 } else {
                     theme.error
                 };
-                let label = if position + 1 == visible.len() {
-                    if position < 9 {
-                        format!("{}/0", position + 1)
-                    } else {
-                        "0".into()
-                    }
-                } else if position < 9 {
-                    (position + 1).to_string()
-                } else {
-                    String::new()
-                };
-                let mut spans = vec![styled(format!("{label:>3} "), theme.muted)];
+                let mut spans = Vec::new();
                 if icon_column {
                     let icon = match &b.icon {
                         Some(icon) => safe(icon),
@@ -145,7 +133,7 @@ pub(super) fn workspaces(
                 let name = truncate(&safe(&b.name), name_width - 2);
                 let pad = name_width.saturating_sub(name.width());
                 spans.push(bold(name + &" ".repeat(pad), color));
-                let used: usize = 2 + spans.iter().map(|s| s.width()).sum::<usize>();
+                let used: usize = NUMBERED + spans.iter().map(|s| s.width()).sum::<usize>();
                 let mut aside = safe(summary(app, b));
                 if !available {
                     aside = format!("unavailable · {aside}");
@@ -154,23 +142,10 @@ pub(super) fn workspaces(
                     elide(&aside, (list.width as usize).saturating_sub(used)),
                     if available { theme.muted } else { theme.error },
                 ));
-                ListItem::new(Line::from(spans))
+                Line::from(spans)
             })
             .collect();
-        let mut state = ListState::default().with_selected(Some(index.saturating_sub(start)));
-        frame.render_stateful_widget(
-            List::new(items)
-                .highlight_style(Style::default().bg(theme.selection))
-                .highlight_symbol("› "),
-            list,
-            &mut state,
-        );
-        let shown = state.offset();
-        choices = item_areas(
-            list,
-            start + shown,
-            std::iter::repeat_n(1, visible.len().saturating_sub(shown)),
-        );
+        choices = numbered_rows(frame, list, theme, start, rows, index);
     }
     if !app.status.is_empty() {
         frame.render_widget(
@@ -178,7 +153,7 @@ pub(super) fn workspaces(
             Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
         );
     }
-    (visible, choices)
+    (visible.len(), choices)
 }
 /// Modal frame for the workspace icon chooser.
 pub(super) fn workspace_dialog(
@@ -494,26 +469,19 @@ pub(super) fn workspace_icons(
             list,
         );
     } else {
-        let items: Vec<_> = matches
+        let start = first_shown(index, list.height as usize);
+        let rows = matches
             .iter()
+            .skip(start)
             .map(|&i| {
                 let (name, glyph) = crate::icons::WORKSPACE_ICONS[i];
-                ListItem::new(Line::from(vec![
+                Line::from(vec![
                     bold(format!("{}  ", glyph.unwrap_or('·')), theme.accent),
                     styled(name, theme.text),
-                ]))
+                ])
             })
             .collect();
-        let mut state = ListState::default().with_selected(Some(index));
-        frame.render_stateful_widget(
-            List::new(items)
-                .highlight_symbol("› ")
-                .highlight_style(Style::default().bg(theme.selection)),
-            list,
-            &mut state,
-        );
-        let shown = state.offset();
-        choices = item_areas(list, shown, std::iter::repeat_n(1, matches.len() - shown));
+        choices = numbered_rows(frame, list, theme, start, rows, index);
     }
     frame.render_widget(
         Paragraph::new(styled(
@@ -609,7 +577,7 @@ pub(super) fn palettes(
     index: usize,
 ) -> Vec<(Rect, usize)> {
     let theme = app.palette;
-    let width = area.width.saturating_sub(4).min(64);
+    let width = area.width.saturating_sub(4).min(70);
     let height = area.height.saturating_sub(4).min(22);
     let dialog = centered(area, width, height);
     let block = panel(
@@ -666,8 +634,10 @@ pub(super) fn palettes(
         );
     } else {
         let builtin = Palette::names().len();
-        let items: Vec<_> = matches
+        let start = first_shown(index, list.height as usize);
+        let rows = matches
             .iter()
+            .skip(start)
             .map(|&i| {
                 let (name, p) = &app.palettes[i];
                 let mut spans = vec![bold(format!("{:<22}", safe(name)), theme.text)];
@@ -694,19 +664,10 @@ pub(super) fn palettes(
                 if *name == app.palette_name {
                     spans.push(styled(" · current", theme.success));
                 }
-                ListItem::new(Line::from(spans))
+                Line::from(spans)
             })
             .collect();
-        let mut state = ListState::default().with_selected(Some(index));
-        frame.render_stateful_widget(
-            List::new(items)
-                .highlight_style(Style::default().bg(theme.selection))
-                .highlight_symbol("› "),
-            list,
-            &mut state,
-        );
-        let shown = state.offset();
-        choices = item_areas(list, shown, std::iter::repeat_n(1, matches.len() - shown));
+        choices = numbered_rows(frame, list, theme, start, rows, index);
     }
     if !app.status.is_empty() {
         frame.render_widget(
@@ -873,9 +834,12 @@ pub(super) fn picker(
         frame.render_widget(Paragraph::new(styled(none, theme.muted)), list);
         return (list.height as usize, Vec::new());
     }
-    let room = (list.width as usize).saturating_sub(2);
-    let items: Vec<ListItem> = found
+    let room = (list.width as usize).saturating_sub(NUMBERED);
+    let index = index.min(found.len() - 1);
+    let start = first_shown(index, list.height as usize);
+    let rows = found
         .iter()
+        .skip(start)
         .map(|&choice| {
             let aside = match (choice, kind) {
                 (Choice::Function(f), Picker::Commands(here)) => app
@@ -891,32 +855,16 @@ pub(super) fn picker(
                 },
                 _ => String::new(),
             };
-            ListItem::new(Line::from(vec![
+            Line::from(vec![
                 bold(format!("{:<name_width$}", choice.name()), theme.function),
                 bold(format!("{:<12}", truncate(&aside, 11)), theme.accent),
                 styled(
                     truncate(choice.description(), room.saturating_sub(name_width + 12)),
                     theme.muted,
                 ),
-            ]))
+            ])
         })
         .collect();
-    let mut state = ListState::default().with_selected(Some(index.min(found.len() - 1)));
-    frame.render_stateful_widget(
-        List::new(items)
-            .highlight_style(Style::default().bg(theme.selection))
-            .highlight_symbol("› "),
-        list,
-        &mut state,
-    );
-    let shown = state.offset();
-    let choices = item_areas(
-        list,
-        shown,
-        std::iter::repeat_n(
-            1,
-            found.len().saturating_sub(shown).min(list.height as usize),
-        ),
-    );
+    let choices = numbered_rows(frame, list, theme, start, rows, index);
     (list.height as usize, choices)
 }

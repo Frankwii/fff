@@ -129,13 +129,7 @@ pub(super) fn chooser_key(
     editor: &mut Nvim,
     key: KeyEvent,
 ) -> ChooserKey {
-    let list = matches!(
-        focus,
-        Focus::Workspaces { .. }
-            | Focus::Palettes { .. }
-            | Focus::WorkspaceIcons { .. }
-            | Focus::Picker { .. }
-    );
+    let list = chooser_rows(app, focus).is_some();
     if !(list || matches!(focus, Focus::Location(_)))
         // Normal mode, also while a sequence begun there waits.
         || !app.edit_view.as_ref().is_some_and(|v| v.mode == "n")
@@ -189,18 +183,27 @@ pub(super) fn jump_to_end(app: &mut App, focus: &mut Focus, last: bool) {
     match focus {
         Focus::Results => app.move_by(if last { isize::MAX } else { isize::MIN }),
         Focus::Marks { rows, index } => *index = end(rows.len()),
-        Focus::Workspaces { query, index } => *index = end(app.matching_workspaces(query).len()),
+        _ => {
+            if let Some((index, rows)) = chooser_rows(app, focus) {
+                *index = end(rows);
+            }
+        }
+    }
+}
+/// A chooser's or picker's highlighted row and how many rows it has: the
+/// lists that j, k, gg, G, Alt+number and the mouse move through alike.
+pub(super) fn chooser_rows<'a>(app: &App, focus: &'a mut Focus) -> Option<(&'a mut usize, usize)> {
+    Some(match focus {
+        Focus::Workspaces { query, index } => (index, app.matching_workspaces(query).len()),
         Focus::WorkspaceIcons { query, index, .. } => {
-            *index = end(crate::icons::matching_workspace_icons(query).len())
+            (index, crate::icons::matching_workspace_icons(query).len())
         }
-        Focus::Palettes { query, index, .. } => {
-            *index = end(app.matching_palettes(query).len());
-        }
+        Focus::Palettes { query, index, .. } => (index, app.matching_palettes(query).len()),
         Focus::Picker {
             query, index, kind, ..
-        } => *index = end(kind.choices(query).len()),
-        _ => {}
-    }
+        } => (index, kind.choices(query).len()),
+        _ => return None,
+    })
 }
 /// The text `focus` edits in Neovim, and its field; `query` is the results'
 /// query, which lives outside the focus. `None` where nothing is typed.

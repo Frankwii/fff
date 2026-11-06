@@ -289,7 +289,6 @@ fn session(
 struct Drawn {
     /// Rows a page moves.
     page: usize,
-    workspace_targets: Vec<usize>,
     results: ratatui::layout::Rect,
     buttons: Vec<(ratatui::layout::Rect, Button)>,
     tabs: Vec<(ratatui::layout::Rect, usize)>,
@@ -299,7 +298,6 @@ impl Default for Drawn {
     fn default() -> Self {
         Self {
             page: 1,
-            workspace_targets: Vec::new(),
             results: ratatui::layout::Rect::default(),
             buttons: Vec::new(),
             tabs: Vec::new(),
@@ -743,7 +741,6 @@ impl Session {
         }
         self.drawn = Drawn {
             page: completed.page.max(1),
-            workspace_targets: completed.workspace_targets,
             results: completed.results,
             buttons: completed.buttons,
             tabs: completed.tabs,

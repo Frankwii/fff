@@ -4,6 +4,16 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Every chooser and picker numbers its rows** as the results and the
+  workspace chooser do: in the `:` and sorting pickers, the palette chooser
+  and the workspace icon chooser, Alt+1 through Alt+9 is Enter on that row
+  and Alt+0 on the last, in every mode. The pickers also take the mouse now:
+  a click highlights a row, the wheel moves, a double click is Enter.
+
 ## 0.19.0 — 2026-11-06
 
 The results can be sorted, workspaces (what bookmarks were) keep settings as

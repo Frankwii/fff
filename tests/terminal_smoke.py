@@ -1083,6 +1083,12 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ranking", "As the program ranks")
         s.send(b"\r")
         s.wait_absent("sorted by")
+        # Rows are numbered as the results are: Alt+2 is Enter on the
+        # second, name.
+        s.send(b"gs", "Sort ascending")
+        self.assertIn("  2 name", s.screen.text)
+        s.send(b"\x1b2", "sorted by name ↑")
+        self.assertNotIn("Sort ascending", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

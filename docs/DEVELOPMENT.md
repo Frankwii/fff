@@ -264,7 +264,10 @@ Where a change usually has to touch, so that none is missed:
   `ui::Picker` variant, its choices (`Picker::all`, as `ui::Choice`s), what
   Enter does with one in `picker_key` (`src/ui/dispatch.rs`) and its title
   and columns in `picker` (`src/view/choosers.rs`); the matching, keys,
-  field and list are shared.
+  field and list are shared. Every chooser and picker draws its rows with
+  `numbered_rows` (`src/view/mod.rs`) and is listed in `chooser_rows`
+  (`src/ui/input.rs`), which j/k, gg/G, Alt+number and the mouse go
+  through.
 - **A file operation:** a `Request` variant and its method after `prepare`
   (`src/operations.rs`), undo steps (`src/undo.rs`), a plan or confirmation
   started as a job from `src/ui/actions.rs`, and the

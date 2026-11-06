@@ -132,7 +132,11 @@ It never exits the session.
 
 Digits are query text in Insert mode. In Normal-mode results 1–9 set the
 search depth (`search_to_depth` on the Keys screen; `"none"` gives them back); elsewhere in Normal mode they
-are Vim counts. Alt+j/Alt+k move list highlights in every mode. Up/Down move
+are Vim counts. Alt+j/Alt+k move list highlights in every mode. The rows of
+the choosers (workspaces, workspace icons, palettes) and the `:` and sorting
+pickers are numbered as the results are: Alt+1 through Alt+9 is Enter on
+that row, Alt+0 on the last, in every mode; a click highlights a row, the
+wheel moves the highlight and a double click is Enter on it. Up/Down move
 the results highlight while typing and switch tabs in Normal-mode results,
 except in `fff seek`, which has no tabs, where they move the highlight too;
 Alt+Up/Alt+Down switch to the next/previous tab in every mode. Up/Down move
