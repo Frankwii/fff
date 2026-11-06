@@ -662,7 +662,11 @@ pub(super) fn picker(
             } else {
                 "Sort ascending"
             },
-            &[("enter", "Sort"), ("tab", "Toggle"), ("esc", "Cancel")],
+            &[
+                ("tab", "Toggle ordering"),
+                ("enter", "Sort"),
+                ("esc", "Cancel"),
+            ],
             if descending { "↓" } else { "↑" },
             "type a criterion's name or words of what it does…",
             12,

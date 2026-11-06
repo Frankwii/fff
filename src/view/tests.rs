@@ -866,7 +866,7 @@ fn the_sorting_picker_names_the_direction_and_the_border_the_order() {
     assert!(screen.contains("╭ Sort descending ─"), "{screen}");
     assert!(!screen.contains("ascending"), "{screen}");
     assert!(
-        screen.contains("Enter: Sort ─── Tab: Toggle ─── Esc: Cancel"),
+        screen.contains("Tab: Toggle ordering ─── Enter: Sort ─── Esc: Cancel"),
         "{screen}"
     );
     assert!(screen.contains("↓ type a criterion's name"), "{screen}");

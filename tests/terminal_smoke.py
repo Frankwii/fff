@@ -1031,7 +1031,7 @@ class TerminalTests(unittest.TestCase):
             return found
 
         s.send(b"gs", "Sort ascending · INSERT")
-        self.assertIn("Tab: Toggle", s.screen.text)
+        self.assertIn("Tab: Toggle ordering ─── Enter: Sort", s.screen.text)
         s.send(b"name", "Names alphabetically")
         s.send(b"\r", "sorted by name ↑")
         self.assertNotIn("Sort ascending", s.screen.text)
