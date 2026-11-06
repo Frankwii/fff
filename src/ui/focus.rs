@@ -583,8 +583,8 @@ impl Session {
     }
     /// Enter pressed by the mouse, or on a row pointed at (`row`): what
     /// Enter does there by default, in `mode`. Saving under the typed name
-    /// ignores the rows, so a row pointed at while typing one takes the row's
-    /// Normal-mode Enter instead.
+    /// ignores the rows, so a row pointed at goes into its folder or offers
+    /// to replace its file instead.
     pub(super) fn enter(
         &mut self,
         app: &mut App,
@@ -597,9 +597,11 @@ impl Session {
         }
         let enter = keymap::Key::press(KeyEvent::new(K::Enter, M::NONE));
         let function = match Function::default_of(enter, mode, cell) {
-            Some(Function::SaveHere) if row.on_row => {
-                Function::default_of(enter, keymap::Mode::Normal, cell)
-            }
+            Some(Function::SaveHere) if row.on_row => match cell.highlight {
+                keymap::Highlight::Dir => Some(Function::GoToHighlighted),
+                keymap::Highlight::File => Some(Function::SaveOver),
+                keymap::Highlight::None => Some(Function::SaveHere),
+            },
             function => function,
         };
         match function {

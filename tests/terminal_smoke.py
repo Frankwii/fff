@@ -1709,8 +1709,8 @@ class TerminalTests(unittest.TestCase):
         s = self.start("explorer", "save", "page.html", "--depth", "1",
                        implicit_root=True, output_paths=False)
         s.send(b"\x1b[27u", "NORMAL")  # save dialogs start typing a name
-        s.send(b"l", "Files do not open here. To save over this one, press Enter on it")
-        s.send(b"\x1b2", "press Enter on it")  # Alt+2: the same
+        s.send(b"l", "Files do not open here. To save over this one, press Ctrl+number")
+        s.send(b"\x1b2", "press Ctrl+number on its row")  # Alt+2: the same
         s.send(b"q")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
@@ -2970,6 +2970,24 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r", "Replace")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(docs / "a.pdf") + b"\n"))
+        s.close()
+        # Enter saves under the name in the query box whatever is
+        # highlighted: on a folder it does not go into it.
+        (docs / "sub").mkdir()
+        s = save()
+        s.send(b"gg", "sub  0 B  0 entries")  # the folder is highlighted
+        s.send(b"\r", "Replace")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "a.pdf") + b"\n"))
+        s.close()
+        (docs / "sub").rmdir()
+        # A name changing the suggested extension is warned about first;
+        # saving again takes it.
+        s = save()
+        s.send(b"inew.txt", "Save as new.txt · INSERT")
+        s.send(b"\r", "new.txt ends in .txt, unlike the suggested a.pdf")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.txt") + b"\n"))
         s.close()
         # Escape goes back to choosing.
         s = save()

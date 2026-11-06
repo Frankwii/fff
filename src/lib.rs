@@ -203,6 +203,9 @@ pub struct App {
     /// The status text of the last success; it shows as success only while
     /// `status` still equals it, so any later message reverts to an error.
     pub status_success: String,
+    /// fff explorer save: the path whose extension the status line warned
+    /// about; saving it again takes it.
+    pub save_warned: Option<PathBuf>,
     pub physical_empty: bool,
     /// The scan stopped at `[performance] max_paths`: the rows are partial.
     pub truncated: bool,
@@ -373,6 +376,7 @@ impl App {
             scanning: true,
             status: String::new(),
             status_success: String::new(),
+            save_warned: None,
             physical_empty: false,
             truncated: false,
             quiet_scan: false,

@@ -993,13 +993,7 @@ impl Function {
                 (
                     "<CR>",
                     scope(
-                        &[
-                            Window,
-                            ExplorerOpen,
-                            ExplorerMultiple,
-                            ExplorerFolder,
-                            ExplorerSave,
-                        ],
+                        &[Window, ExplorerOpen, ExplorerMultiple, ExplorerFolder],
                         &[Results],
                         &[H::Dir],
                     ),
@@ -1016,13 +1010,14 @@ impl Function {
             SaveHere => &[
                 ("!", all),
                 ("<C-s>", all),
-                ("<CR>", scope(&[], &[Results], &[H::None])),
+                ("<CR>", scope(&[], &[Results], &[])),
             ],
-            SaveOver
-            | PrintHighlighted
-            | PrintHighlightedAndMarks
-            | QuitIntoHighlighted
-            | OpenAndQuit => &[("<CR>", all)],
+            // Enter in the results saves under the typed name; on a mark it
+            // offers to replace that file.
+            SaveOver => &[("<CR>", scope(&[], &[Marks], &[]))],
+            PrintHighlighted | PrintHighlightedAndMarks | QuitIntoHighlighted | OpenAndQuit => {
+                &[("<CR>", all)]
+            }
             OpenInBackground => &[("l", all), ("<M-l>", all)],
             OpenInTerminal => &[("o", all)],
             OpenRow => &[("<M-#>", all)],
@@ -1872,7 +1867,11 @@ mod tests {
         );
         assert_eq!(
             normal(ExplorerSave, H::File),
-            Step::Run(Function::SaveOver, None)
+            Step::Run(Function::SaveHere, None)
+        );
+        assert_eq!(
+            normal(ExplorerSave, H::Dir),
+            Step::Run(Function::SaveHere, None)
         );
         assert_eq!(normal(Window, H::None), Step::Pass);
         let insert =

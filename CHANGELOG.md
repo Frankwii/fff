@@ -58,6 +58,13 @@ history.
   empty, the workspace applies only its ticked settings, wherever you are.
   The warning about a missing folder moved there too. j and k move through
   its rows outside typing, as Tab does.
+- **Enter in a save dialog saves under the typed name** (or the suggested
+  one), in Normal mode too and whatever is highlighted: it no longer enters
+  the highlighted folder or offers to replace the highlighted file (`l`
+  enters a folder; Ctrl+number or a double click on a file's row, or typing
+  its name, replaces it). A name whose extension differs from the suggested
+  one's, or that drops it, is warned about on the status line first, and
+  saving it again takes it.
 
 ### Removed
 

@@ -165,15 +165,24 @@ pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
     }
     app.confirm(None).map(Finish::Paths)
 }
-/// fff explorer save, Ctrl+s or !: saves under the typed name (else the
-/// suggested one) in the folder being browsed.
+/// fff explorer save, Enter, Ctrl+s or !: saves under the typed name (else
+/// the suggested one) in the folder being browsed. A name whose extension is
+/// not the suggestion's is warned about first, and taken when saved again.
 pub(super) fn save_here(app: &mut App, focus: &mut Focus) -> Option<Finish> {
-    let name = app.running.dialog()?.save_name(&app.query)?.to_owned();
+    let dialog = app.running.dialog()?;
+    let name = dialog.save_name(&app.query)?.to_owned();
     if let Err(error) = crate::explorer::check_name(&name) {
         app.status = error;
         return None;
     }
-    let target = app.cwd.join(name);
+    let target = app.cwd.join(&name);
+    if let Some(warning) = dialog.extension_warning(&name)
+        && app.save_warned.as_ref() != Some(&target)
+    {
+        app.status = warning;
+        app.save_warned = Some(target);
+        return None;
+    }
     save_as(app, focus, target)
 }
 /// Saving to `target`: at once when nothing is there; a file there is only

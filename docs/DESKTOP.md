@@ -291,19 +291,18 @@ highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (in
 
 | Key | In `fff explorer` |
 | --- | --- |
-| Enter on a folder | Enters it, in Normal and Insert mode alike (a normal session leaves into it from Normal mode). |
-| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file) it is that file whatever is marked; in `open-multiple`, the marks and that file. When saving, offers to [replace](#saving) it. |
-| Enter while typing (Insert mode), when saving | Saves under the typed name, as in any name field. |
-| Enter with nothing listed (an empty folder), when saving | Saves under the typed or suggested name. |
+| Enter on a folder | Enters it, in Normal and Insert mode alike (a normal session leaves into it from Normal mode). Not when saving. |
+| Enter on a file | Chooses it, in Normal and Insert mode alike. With one answer (open one file) it is that file whatever is marked; in `open-multiple`, the marks and that file. Not when saving. |
+| Enter, when saving | Saves under the typed or suggested name, in Normal and Insert mode alike, whatever is highlighted. |
 | Enter in the marked list | Chooses that mark (when saving, offers to replace it). |
 | `!` (Normal mode) | Takes the folder being browsed: the answer to a folder dialog, or where to save. |
 | Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
 | `q` (Normal mode) | Cancels, as everywhere: nothing is chosen. |
 | Ctrl+c | Cancels. |
 | Ctrl+w | Chooses the marks, in `open-multiple` and `folder --multiple`. Other dialogs have one answer, which Ctrl+w does nothing for but say so. |
-| Ctrl+number | Enter on that row: chooses a file, enters a folder, offers to replace a file when saving, also while typing a name to save under. |
+| Ctrl+number | Enter on that row: chooses a file or enters a folder. When saving it acts on the row too, not on the typed name: it enters a folder, or offers to replace a file. |
 | Double click | Enter on that row, as Ctrl+number (a normal session acts like `l`). |
-| `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says to press Enter on it or Ctrl+number on its row, to choose it or, when saving, to replace it. In folder dialogs a file opens in the background, as in a normal session. |
+| `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says how to choose it (Enter on it or Ctrl+number on its row) or, when saving, to replace it (Ctrl+number on its row, or saving under its name). In folder dialogs a file opens in the background, as in a normal session. |
 | `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |
 
 File operations (move, copy, delete, rename, new file or folder, extract)
@@ -313,11 +312,12 @@ remain available, so a dialog can also make the folder to save into.
 
 Tab (or Alt+/) opens the [contents query](../README.md#searching-contents)
 here too, so a file can be found by what it contains: Enter on a match
-chooses its file (when saving, offers to replace it). In a save dialog the
+chooses its file. In a save dialog the
 name saved under is always the names query's (or the suggested name), never
-the contents query's: the names bar keeps its `Save as NAME` title, and `!`,
-Ctrl+s and Enter while typing save under that name whichever query is typed
-into.
+the contents query's: the names bar keeps its `Save as NAME` title, and Enter,
+`!` and Ctrl+s save under that name whichever query is typed into. Enter on a
+match saves under that name too; Ctrl+number on its row offers to replace its
+file.
 
 ### Hints
 
@@ -329,7 +329,7 @@ names…`. Typing (Insert mode) changes it, since `!` is then text:
 | Open one file | Press Enter on a file to choose it. | the same |
 | Open several | Press Enter on a file to choose it. Press Space to mark several, then Ctrl+w to choose them. | the same |
 | Folder | Press ! or Ctrl+s to choose the folder you are in. | Press Ctrl+s to choose the folder you are in. |
-| Save | Press ! or Ctrl+s to save NAME here. Press i to type a custom name. Press Enter on a file to replace it. | Type a custom name, then press Enter or Ctrl+s to save it here. Press Esc to browse folders. |
+| Save | Press ! or Ctrl+s to save NAME here. Press i to type a custom name. Press Ctrl+number on a file's row to replace it. | Type a custom name, then press Enter or Ctrl+s to save it here. Press Esc to browse folders. |
 
 How to leave without choosing is in the footer, to the right of `F1 keys` and
 in the same style: `q quit`, or `Ctrl+c quit` while typing.
@@ -345,8 +345,12 @@ entry stays listed, and the names it matches have their matching letters
 highlighted, so files with similar names stand out as you type. A name cannot contain `/` or a line
 break, nor be `.` or `..`; the status line says so and nothing is saved.
 
-`!`, Ctrl+s, and Enter while typing save under that name in the folder being
-browsed:
+Enter, `!` and Ctrl+s save under that name in the folder being browsed. When
+the name's extension is not the suggested name's (ignoring case), or it has
+none and the suggestion has one, the status line warns first (`new.txt ends
+in .txt, unlike the suggested a.pdf`) and nothing is saved; saving the same
+name in the same folder again takes it. A dialog that suggests no name
+(`untitled`) does not warn. Then:
 
 - **Nothing of that name there:** the dialog ends with that path.
 - **A folder of that name:** refused; the status line suggests Enter to go

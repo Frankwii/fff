@@ -89,12 +89,7 @@ impl Dialog {
                 names.join(" or ")
             }
         };
-        let file = if self.save.is_some() {
-            Function::SaveOver
-        } else {
-            Function::PrintHighlighted
-        };
-        let enter = keys(file, Mode::Normal);
+        let enter = keys(Function::PrintHighlighted, Mode::Normal);
         let here = if self.save.is_some() {
             Function::SaveHere
         } else {
@@ -107,9 +102,13 @@ impl Dialog {
                 app.key_or_none("esc")
             ),
             (Some(name), _, _) => format!(
-                "Press {} to save {name} here. Press i to type a custom name. \
-                 Press {enter} on a file to replace it.",
-                keys(here, Mode::Normal)
+                "Press {} to save {name} here. Press i to type a custom name.{}",
+                keys(here, Mode::Normal),
+                if app.bound(Function::ConfirmRow).is_some() {
+                    " Press Ctrl+number on a file's row to replace it."
+                } else {
+                    ""
+                }
             ),
             (None, true, _) if typing => format!(
                 "Press {} to choose the folder you are in.",
@@ -133,10 +132,11 @@ impl Dialog {
     /// chooses files or where to save, and what to do instead. `None` for
     /// folder dialogs, where files open as in a normal session.
     pub fn file_hint(&self, app: &crate::App) -> Option<String> {
+        let row = app.bound(crate::keymap::Function::ConfirmRow).is_some();
         let how = format!(
             "press {} on it{}",
             app.bound_or_none(crate::keymap::Function::PrintHighlighted),
-            if app.bound(crate::keymap::Function::ConfirmRow).is_some() {
+            if row {
                 " or Ctrl+number on its row"
             } else {
                 ""
@@ -144,7 +144,12 @@ impl Dialog {
         );
         match (&self.save, self.directory) {
             (Some(_), _) => Some(format!(
-                "Files do not open here. To save over this one, {how}."
+                "Files do not open here. To save over this one, {}.",
+                if row {
+                    "press Ctrl+number on its row or save under its name"
+                } else {
+                    "save under its name"
+                }
             )),
             (None, true) => None,
             (None, false) => Some(format!(
@@ -158,6 +163,23 @@ impl Dialog {
         self.save
             .as_deref()
             .map(|suggested| if typed.is_empty() { suggested } else { typed })
+    }
+    /// Saving as `name` changes the suggested name's extension (or drops
+    /// it): what the status line says before such a save. `None` when the
+    /// extension stays, ignoring case, or nothing was suggested.
+    pub fn extension_warning(&self, name: &str) -> Option<String> {
+        let suggested = self.save.as_deref().filter(|s| *s != UNTITLED)?;
+        let (wanted, typed) = (extension(suggested), extension(name));
+        if wanted.map(str::to_lowercase) == typed.map(str::to_lowercase) {
+            return None;
+        }
+        let has = match typed {
+            Some(typed) => format!("ends in .{typed}"),
+            None => "has no extension".into(),
+        };
+        Some(format!(
+            "{name} {has}, unlike the suggested {suggested}: save again to use it anyway"
+        ))
     }
     /// The query box title: what Ctrl+s saves as, or `Query`.
     pub fn title(&self, query: &str) -> String {
@@ -202,6 +224,15 @@ pub fn check_name(name: &str) -> Result<(), String> {
         _ if name.contains('/') => Err("A file name cannot contain /".into()),
         _ if name.contains(['\n', '\0']) => Err("A file name cannot span lines".into()),
         _ => Ok(()),
+    }
+}
+
+/// What follows a name's last dot, unless that dot starts it (`.bashrc`),
+/// as `free_name` numbers names.
+fn extension(name: &str) -> Option<&str> {
+    match name.rfind('.') {
+        Some(dot) if dot > 0 => Some(&name[dot + 1..]),
+        _ => None,
     }
 }
 
@@ -299,6 +330,32 @@ mod tests {
             assert!(check_name(bad).is_err(), "{bad}");
         }
         assert!(check_name(".hidden").is_ok());
+    }
+
+    #[test]
+    fn a_name_changing_the_suggested_extension_is_warned_about() {
+        let save = |name: &str| Dialog {
+            save: Some(name.into()),
+            ..Dialog::default()
+        };
+        let pdf = save("a.pdf");
+        assert_eq!(pdf.extension_warning("b.pdf"), None);
+        assert_eq!(pdf.extension_warning("b.PDF"), None);
+        assert_eq!(
+            pdf.extension_warning("b.txt").unwrap(),
+            "b.txt ends in .txt, unlike the suggested a.pdf: save again to use it anyway"
+        );
+        assert!(
+            pdf.extension_warning("b")
+                .unwrap()
+                .starts_with("b has no extension")
+        );
+        assert!(pdf.extension_warning(".pdf").is_some());
+        // A suggestion without one warns when a name adds one.
+        assert!(save("Makefile").extension_warning("Makefile.bak").is_some());
+        assert_eq!(save(".bashrc").extension_warning(".profile"), None);
+        // Nothing suggested: any name.
+        assert_eq!(save(UNTITLED).extension_warning("notes.txt"), None);
     }
 
     #[test]
