@@ -49,7 +49,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, bookmarks and zoxide suggestions. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
-| `src/state.rs` | Per-directory highlights and the last session for `--resume`, saved atomically. |
+| `src/state.rs` | Per-directory highlights, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback, deletion review, progress and stopping. |
 | `src/trash.rs` | Trash bins per filesystem, their records (found again after a rename, for restoring), and the startup purge. |
 | `src/undo.rs` | Undo records of operations and their all-or-nothing reversal (`operations::undo`). |

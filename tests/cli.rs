@@ -31,7 +31,6 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
         "keys.toml",
         "source <(fff setup --completions bash)",
         "Commands (without one, fff roam):",
-        "--resume",
     ] {
         assert!(long.contains(text), "missing {text:?}");
     }

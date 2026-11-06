@@ -26,7 +26,6 @@ navigate with Enter, Alt+h and Alt+l, mark several paths with Space, and confirm
 The interface draws on /dev/tty. Without a command (fff roam), leaving fff
 changes your shell's directory, with the shell function from fff setup --init;
 fff pick prints the selected paths instead, for pipes and command substitution.
-fff --resume continues the last session as it ended.
 
 With no ROOTS, browsing starts in the invocation directory and follows
 navigation. Each ROOT is pinned: its descendants stay in the results wherever
@@ -37,7 +36,6 @@ const AFTER_HELP: &str = color_print::cstr!(
   <cyan>fff</cyan>                             browse; ! or Enter on a file changes directory
   <cyan>eval \"$(fff setup --init zsh)\"</cyan>  shell integration line for ~/.zshrc
   <cyan>vim \"$(fff pick)\"</cyan>               open one picked file
-  <cyan>fff --resume</cyan>                    continue the last session
 
 Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 );
@@ -50,8 +48,6 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Search two pinned roots for TeX and PDF files.
   <cyan>eval \"$(fff setup --init zsh)\"</cyan>
       In ~/.zshrc: leaving fff changes the shell's directory (bash, fish too).
-  <cyan>fff --resume</cyan>
-      Continue the last session: folders, tabs, highlight, marks and query.
   <cyan>vim \"$(fff pick --relative)\"</cyan>
       Open the picked file using a path relative to here.
   <cyan>fff pick --exclude build -0 | xargs -0 ls -ld</cyan>
@@ -213,18 +209,10 @@ struct RoamArgs {
     /// the file highlighted. Without a ROOT it is plain browsing.
     #[arg(long, help_heading = "Search")]
     browse: bool,
-    /// Continue the last fff roam session where it ended
-    ///
-    /// Its folders and tabs, highlight, marks, query, depth, filters,
-    /// exclusions and toggles come back as they were. Only the last session is
-    /// kept; folders that are gone fall back to their nearest parent.
-    #[arg(long, help_heading = "Search",
-        conflicts_with_all = ["roots", "browse", "depth", "glob", "exclusions", "hidden", "no_exclusions"])]
-    resume: bool,
 }
 impl RoamArgs {
     fn is_empty(&self) -> bool {
-        self.roots.is_empty() && !self.browse && !self.resume
+        self.roots.is_empty() && !self.browse
     }
 }
 #[derive(clap::Subcommand)]
@@ -318,9 +306,6 @@ struct WindowArgs {
     /// without it, the current directory
     #[arg(value_hint = clap::ValueHint::AnyPath)]
     path: Option<PathBuf>,
-    /// Continue the last fff roam or fff window session where it ended
-    #[arg(long, conflicts_with = "path")]
-    resume: bool,
 }
 #[derive(clap::Args)]
 struct ExplorerArgs {
@@ -463,7 +448,6 @@ struct Mode {
     program: fuzzy_file_finder::program::Program,
     roots: Vec<PathBuf>,
     browse: bool,
-    resume: bool,
     relative: bool,
     null: bool,
     explorer: Option<Asked>,
@@ -474,7 +458,6 @@ impl Default for Mode {
             program: fuzzy_file_finder::program::Program::Roam,
             roots: Vec::new(),
             browse: false,
-            resume: false,
             relative: false,
             null: false,
             explorer: None,
@@ -501,13 +484,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     // fff roam's options before another command would be ignored.
     let roam = std::mem::take(&mut args.roam);
     if !matches!(args.command, None | Some(Command::Roam(_))) && !roam.is_empty() {
-        conflict("roots, --browse and --resume belong to fff roam");
+        conflict("roots and --browse belong to fff roam");
     }
     let mut mode = match args.command.take() {
         None => Mode {
             roots: roam.roots,
             browse: roam.browse,
-            resume: roam.resume,
             ..Mode::default()
         },
         Some(Command::Roam(mut more)) => {
@@ -516,14 +498,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             Mode {
                 roots,
                 browse: roam.browse || more.browse,
-                resume: roam.resume || more.resume,
                 ..Mode::default()
             }
         }
         Some(Command::Window(window)) => Mode {
             roots: window.path.into_iter().collect(),
             browse: true,
-            resume: window.resume,
             program: fuzzy_file_finder::program::Program::Window,
             ..Mode::default()
         },
@@ -551,9 +531,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
             return Ok(true);
         }
     };
-    if mode.resume && !mode.roots.is_empty() {
-        conflict("--resume continues the last session's own roots; give no ROOTS");
-    }
     let mut policy = Policy {
         hidden: args.hidden,
         ignore: !args.no_exclusions,
@@ -594,11 +571,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     if let Some(dialog) = &dialog {
         mode.program = dialog.program();
     }
-    let session = mode
-        .resume
-        .then(fuzzy_file_finder::state::session_path)
-        .flatten()
-        .and_then(|p| fuzzy_file_finder::state::load_session(&p));
     let depth = args
         .depth
         .map_or(mode.program.default_depth(), |depth| depth as usize);
@@ -662,21 +634,6 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.home = std::env::var_os("HOME")
         .filter(|s| !s.is_empty())
         .map(PathBuf::from);
-    if mode.resume {
-        match session {
-            Some(session) => {
-                app.restore(session);
-                app.status = match app.bound_in(keymap::Function::Quit, keymap::Mode::Normal) {
-                    Some(quit) => {
-                        format!("Resumed the last session; {quit} returns to where you started")
-                    }
-                    None => "Resumed the last session".into(),
-                };
-                app.status_success = app.status.clone();
-            }
-            None => app.status = "No earlier session to resume; starting here".into(),
-        }
-    }
     app.config_broken = settings.broken;
     if let Some(status) = app.config_errors_status() {
         app.status = status;

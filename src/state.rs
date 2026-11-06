@@ -1,5 +1,4 @@
-//! What fff remembers between sessions: each directory's highlighted entry
-//! (`state`), and the last `fff roam` session for `--resume` (`session`).
+//! What fff remembers between sessions: each directory's highlighted entry.
 //! Best effort: a missing, unreadable or corrupt file is treated as empty, and
 //! saving failures are ignored.
 use std::{
@@ -12,7 +11,6 @@ use std::{
 /// Directories remembered at most; the least recently left are dropped.
 pub const CAPACITY: usize = 500;
 const HEADER: &[u8] = b"fff-state 3\0";
-const SESSION_HEADER: &[u8] = b"fff-session 1\0";
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct State {
@@ -35,10 +33,6 @@ fn file(name: &str) -> Option<PathBuf> {
 /// The remembered highlights: `$XDG_STATE_HOME/fff/state`.
 pub fn path() -> Option<PathBuf> {
     file("state")
-}
-/// The last `fff roam` session: `$XDG_STATE_HOME/fff/session`.
-pub fn session_path() -> Option<PathBuf> {
-    file("session")
 }
 
 /// NUL-separated fields keep any path bytes: directory/entry pairs.
@@ -94,133 +88,6 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     fs::rename(&temporary, path)
 }
 
-/// A `fff roam` session as it ended, for `--resume`: where it was, what was
-/// highlighted and marked, and the query and settings it had.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Session {
-    pub roots: Vec<PathBuf>,
-    /// Every tab, and which one was active.
-    pub tabs: Vec<crate::Tab>,
-    pub tab: usize,
-    pub highlight: Option<PathBuf>,
-    pub marks: Vec<PathBuf>,
-    pub query: String,
-    pub depth: usize,
-    pub filters: Vec<String>,
-    /// Filters turned off (gf).
-    pub filters_off: bool,
-    pub rules: Vec<String>,
-    /// Exclusions enforced (Alt+H).
-    pub ignore: bool,
-    pub hidden: bool,
-    /// Directories (Alt+d) or files (Alt+D) hidden.
-    pub kinds: crate::Kinds,
-    /// The preview pane shown (Alt+v).
-    pub preview: bool,
-}
-
-/// NUL-separated key/value pairs, so values keep any bytes. A tab's `back`
-/// and `forward` entries follow its `tab`.
-pub fn save_session(path: &Path, session: &Session) -> std::io::Result<()> {
-    let mut bytes = SESSION_HEADER.to_vec();
-    // Paths cannot contain NUL; text values lose any, keeping the pairs intact.
-    let mut put = |key: &str, value: &[u8]| {
-        bytes.extend_from_slice(key.as_bytes());
-        bytes.push(0);
-        bytes.extend(value.iter().filter(|&&b| b != 0));
-        bytes.push(0);
-    };
-    let flag = |on: bool| if on { b"1" } else { b"0" };
-    for root in &session.roots {
-        put("root", root.as_os_str().as_bytes());
-    }
-    for tab in &session.tabs {
-        put("tab", tab.cwd.as_os_str().as_bytes());
-        for dir in &tab.back {
-            put("back", dir.as_os_str().as_bytes());
-        }
-        for dir in &tab.forward {
-            put("forward", dir.as_os_str().as_bytes());
-        }
-    }
-    put("active", session.tab.to_string().as_bytes());
-    if let Some(highlight) = &session.highlight {
-        put("highlight", highlight.as_os_str().as_bytes());
-    }
-    for mark in &session.marks {
-        put("mark", mark.as_os_str().as_bytes());
-    }
-    put("query", session.query.as_bytes());
-    put("depth", session.depth.to_string().as_bytes());
-    for filter in &session.filters {
-        put("filter", filter.as_bytes());
-    }
-    for rule in &session.rules {
-        put("exclude", rule.as_bytes());
-    }
-    put("ignore", flag(session.ignore));
-    put("filters_off", flag(session.filters_off));
-    put("hidden", flag(session.hidden));
-    put("files_only", flag(session.kinds == crate::Kinds::Files));
-    put(
-        "directories_only",
-        flag(session.kinds == crate::Kinds::Directories),
-    );
-    put("preview", flag(session.preview));
-    write(path, &bytes)
-}
-
-/// The saved session, if there is a readable one with a tab. Paths are
-/// absolute: other ones are dropped, and a tab's makes the file damaged.
-pub fn load_session(path: &Path) -> Option<Session> {
-    let bytes = fs::read(path).ok()?;
-    let body = bytes.strip_prefix(SESSION_HEADER)?;
-    let mut fields = body.split(|b| *b == 0);
-    let mut session = Session {
-        depth: 2,
-        ignore: true,
-        ..Session::default()
-    };
-    let path = |v: &[u8]| {
-        Some(PathBuf::from(std::ffi::OsString::from_vec(v.to_vec()))).filter(|p| p.is_absolute())
-    };
-    let text = |v: &[u8]| String::from_utf8_lossy(v).into_owned();
-    while let (Some(key), Some(value)) = (fields.next(), fields.next()) {
-        match key {
-            b"root" => session.roots.extend(path(value)),
-            b"tab" => session.tabs.push(crate::Tab {
-                cwd: path(value)?,
-                ..crate::Tab::default()
-            }),
-            b"back" | b"forward" => {
-                if let Some(tab) = session.tabs.last_mut() {
-                    let list = if key == b"back" {
-                        &mut tab.back
-                    } else {
-                        &mut tab.forward
-                    };
-                    list.extend(path(value));
-                }
-            }
-            b"active" => session.tab = text(value).parse().unwrap_or(0),
-            b"highlight" => session.highlight = path(value),
-            b"mark" => session.marks.extend(path(value)),
-            b"query" => session.query = text(value),
-            b"depth" => session.depth = text(value).parse().unwrap_or(2),
-            b"filter" => session.filters.push(text(value)),
-            b"exclude" => session.rules.push(text(value)),
-            b"ignore" => session.ignore = value == b"1",
-            b"filters_off" => session.filters_off = value == b"1",
-            b"hidden" => session.hidden = value == b"1",
-            b"files_only" if value == b"1" => session.kinds = crate::Kinds::Files,
-            b"directories_only" if value == b"1" => session.kinds = crate::Kinds::Directories,
-            b"preview" => session.preview = value == b"1",
-            _ => {}
-        }
-    }
-    (!session.tabs.is_empty()).then_some(session)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,69 +122,6 @@ mod tests {
             loaded.positions.last().unwrap().0,
             PathBuf::from(format!("/d{}", CAPACITY + 6))
         );
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn sessions_round_trip_and_need_a_tab() {
-        let dir = std::env::temp_dir().join(format!("fff-session-{}", std::process::id()));
-        let file = dir.join("fff/session");
-        let odd = PathBuf::from(std::ffi::OsString::from_vec(b"/a/b\xff\nc".to_vec()));
-        let session = Session {
-            roots: vec!["/r".into()],
-            tabs: vec![
-                crate::Tab {
-                    cwd: "/one".into(),
-                    back: vec!["/zero".into()],
-                    forward: vec![],
-                },
-                crate::Tab {
-                    cwd: odd.clone(),
-                    back: vec![],
-                    forward: vec!["/x".into(), "/y".into()],
-                },
-            ],
-            tab: 1,
-            highlight: Some(odd.join("papers")),
-            marks: vec!["/m1".into(), odd],
-            query: "pap\0er".into(),
-            depth: 4,
-            filters: vec!["*.pdf".into()],
-            filters_off: true,
-            rules: vec!["target".into(), "build".into()],
-            ignore: false,
-            hidden: true,
-            kinds: crate::Kinds::Directories,
-            preview: true,
-        };
-        save_session(&file, &session).unwrap();
-        let loaded = load_session(&file).unwrap();
-        // A NUL is dropped; everything else survives.
-        assert_eq!(
-            Session {
-                query: "paper".into(),
-                ..session
-            },
-            loaded
-        );
-        fs::write(&file, b"fff-session 1\0query\0x\0").unwrap();
-        assert_eq!(load_session(&file), None);
-        // Relative paths would resolve against wherever fff runs next.
-        fs::write(
-            &file,
-            b"fff-session 1\0tab\0/t\0back\0b\0mark\0m\0mark\0/m\0highlight\0h\0root\0r\0",
-        )
-        .unwrap();
-        let loaded = load_session(&file).unwrap();
-        assert_eq!(loaded.tabs[0].back, Vec::<PathBuf>::new());
-        assert_eq!((loaded.marks, loaded.highlight), (vec!["/m".into()], None));
-        assert!(loaded.roots.is_empty());
-        fs::write(&file, b"fff-session 1\0tab\0notes\0").unwrap();
-        assert_eq!(load_session(&file), None);
-        fs::write(&file, b"fff-session 1\0tab\0\0").unwrap();
-        assert_eq!(load_session(&file), None);
-        fs::write(&file, b"garbage").unwrap();
-        assert_eq!(load_session(&file), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -100,7 +100,6 @@ are browsing, so the window becomes a terminal there; leaving the shell closes
 it. `q` closes the window. Nothing is printed. The F1 guide describes Enter
 and `!` this way in such a window.
 
-`fff window --resume` continues the last `fff roam` or `fff window` session.
 Launchers and wrappers written by earlier versions may call options that are
 gone: run `fff setup --desktop` and `fff setup --browser` again after
 upgrading.
@@ -277,8 +276,7 @@ names their programs (`explorer-open`, ...); one folder and several share
 | An existing file | Its folder | That file |
 | A file that does not exist (usual when saving) | Its folder, if that exists; else the current directory | — |
 
-A relative PATH is taken from the current directory. The session is never
-saved for `fff --resume`, so dialogs do not disturb your own sessions. Browsing is otherwise the usual:
+A relative PATH is taken from the current directory. Browsing is otherwise the usual:
 navigation, filtering, depth, hidden entries, tabs and bookmarks all work.
 
 When saving, the suggested name is PATH's file name; without a PATH, or when

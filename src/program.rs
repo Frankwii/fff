@@ -76,10 +76,6 @@ impl Program {
     pub fn short_labels(self) -> bool {
         self == Self::Pick
     }
-    /// Its sessions are saved for `--resume`.
-    pub fn records_session(self) -> bool {
-        matches!(self, Self::Roam | Self::Window)
-    }
     /// The program as its command line says it: `roam`, `explorer save`.
     pub fn title(self) -> &'static str {
         match self {

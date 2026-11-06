@@ -17,6 +17,13 @@ history.
   listed, the results' border names the order (`sorted by size ↓`), and
   `[ui] sort` and `sort_descending` choose the one sessions start in.
 
+### Removed
+
+- **`--resume`** (and `fff window --resume`) is gone, and sessions are no
+  longer saved when they end. `~/.local/state/fff/session` is left from
+  earlier versions and can be deleted; each folder's remembered highlight
+  stays.
+
 ## 0.18.1 — 2026-11-04
 
 Listing a large tree is a little faster.

@@ -2757,7 +2757,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(sub) + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_directories_remember_their_cursor_and_sessions_resume_on_request(self):
+    def test_directories_remember_their_cursor_across_sessions(self):
         for folder in ["one", "two"]:
             (self.root / folder).mkdir()
             for name in ["a", "b", "c"]:
@@ -2783,54 +2783,16 @@ class TerminalTests(unittest.TestCase):
         s = self.session = Session(self.root, "--depth", "1",
                                    implicit_root=True, output_paths=False)
         s.wait_ui(("cwd", self.root))
-        self.assertNotIn("Resumed", s.screen.text)
-        # Leave a session to continue: in two, the first row marked, b
-        # highlighted, hidden entries shown.
-        # (The root still remembers two as its highlighted row.)
-        s.wait_ui("› 2/0")
-        self.assertIn("two/", highlighted())
-        s.send(b"l", ("cwd", self.root / "two"))
-        s.send(b"gg", "›   1 ")
-        s.send(SHIFT_SPACE, "Marks (1)")
-        s.send(b".", "hidden shown")
-        s.send(b"q")
-        self.assertEqual(s.finish(), (0, b""))
-        s.close()
-        # Picker sessions are never saved...
-        s = self.session = Session(self.root, "--depth", "1", implicit_root=True)
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
         s.close()
-        # ...so --resume continues the roaming one as it ended.
-        s = self.session = Session(self.root, "--resume", implicit_root=True,
-                                   output_paths=False, cwd=self.root / "one")
-        s.wait_ui(("cwd", self.root / "two"))
-        s.wait_ui("›   2 ")
-        self.assertIn("b", highlighted())
-        self.assertIn("Resumed the last session", s.screen.text)
-        self.assertIn("Marks (1)", s.screen.text)
-        self.assertIn("hidden shown", s.screen.text)
-        self.assertIn("depth 1", s.screen.text)
-        s.send(b"q")
-        self.assertEqual(s.finish(), (0, b""))
-        s.close()
-        # With nothing saved, --resume starts here and says so.
-        (Path(str(self.root) + "-state") / "fff" / "session").unlink()
-        s = self.session = Session(self.root, "--resume", implicit_root=True,
-                                   output_paths=False)
-        s.wait_ui("No earlier session to resume")
-        s.wait_ui(("cwd", self.root))
-        s.send(b"\x03")
-        self.assertEqual(s.finish()[0], 130)
-        s.close()
-        # --browse starts beside a file, highlighted, instead of resuming.
+        # --browse starts beside a file, highlighted.
         s = self.session = Session(self.root, "--depth", "1", "--browse",
                                    str(self.root / "one" / "b"),
                                    implicit_root=True, output_paths=False)
         s.wait_ui(("cwd", self.root / "one"))
         s.wait_ui("Files · 3")
         self.assertRegex(highlighted(), r"›\s+2\s.*\sb\s")
-        self.assertNotIn("Resumed", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
         s.close()

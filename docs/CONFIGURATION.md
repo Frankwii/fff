@@ -117,7 +117,7 @@ there.
 They are the first lines of the session's exclusion list, so Alt+e edits and
 removes them for the session (the file is not written) and Alt+H turns them
 all off; each `--exclude` adds a line after them. `--no-config` leaves them
-out, and `--resume` brings back the list the last session had. The query box's
+out. The query box's
 `exclusions on` stays away while the list is exactly these rules. When `gc`
 changes them, the file's new rules replace the old ones at the top of the
 list and the session's own lines stay below them.
@@ -553,20 +553,11 @@ highlight on the first row while its scan streams in, until you move it.
 Typing or deleting a letter of the query always highlights the best match;
 rows a scan adds under the same query keep the highlighted entry.
 
-`fff --resume` continues the last `fff roam` session instead: its folder,
-highlighted row, tabs with their back/forward history, marks, query, depth,
-filters, exclusions and toggles (hidden entries, directories, preview pane).
-Only the last session is kept, whichever directory it was started from; the
-status line says when a session resumed, and `q` still exits to where the new
-one started. `--resume` takes no ROOTS and none of the search options, since
-the session brings its own. `fff pick`, `fff seek` and `fff explorer`
-sessions are never saved.
-
 Highlights are kept in `$XDG_STATE_HOME/fff/state` (`~/.local/state/fff/state`
 when unset): up to 500 directories' highlights, least recently used dropped
-first, as exact path bytes. The last session is in `fff/session` beside it.
-Both files are readable only by you and replaced atomically when a session
-ends; a missing or damaged file is ignored. Delete them to forget everything.
+first, as exact path bytes. The file is readable only by you and replaced
+atomically when a session ends; a missing or damaged file is ignored. Delete
+it to forget everything.
 
 ## Bookmarks
 

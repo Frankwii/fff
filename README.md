@@ -45,7 +45,7 @@ and exit codes.
 
 | Command | What it is for |
 | --- | --- |
-| `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. `--resume` continues the last session. |
+| `fff [ROOTS]`, or `fff roam [ROOTS]` | Browse; leaving changes your shell's directory. |
 | `fff pick [ROOTS]` | Browse and print the chosen paths, for scripts and `$(...)`. |
 | `fff seek [ROOTS]` | Choose files from below ROOTS without navigating ([details](#choosing-files-fff-seek)). |
 | `fff window [PATH]` | Browse in a terminal window of its own, as the desktop's file manager ([details](docs/DESKTOP.md#opening-directories)). |
@@ -88,18 +88,8 @@ there, if any. Arguments pass through unchanged, so `fff pick` keeps printing
 paths. Without the function, `fff roam` prints the chosen directory instead,
 so `cd "$(command fff)"` also works.
 
-### Resuming a session
-
-`fff --resume` continues the last `fff roam` session as it ended: the folder
-and highlighted row, the other tabs and their back/forward history, the
-marks, the query, the depth, filters, exclusions, and the hidden-entry,
-directory and preview toggles. Only the last session is kept, wherever it was
-started, and `q` still returns to where you start the new one. Folders that
-are gone fall back to their nearest existing parent. A session is saved when
-it ends as `fff roam` (switched to it with `gm` too); `fff pick`, `fff seek`
-and `fff explorer` sessions are not. Without `--resume`, fff starts in
-the current directory, on the row last highlighted there (see [remembered
-locations](docs/CONFIGURATION.md#remembered-locations)).
+fff starts in the current directory, on the row last highlighted there (see
+[remembered locations](docs/CONFIGURATION.md#remembered-locations)).
 
 fff can also be the desktop's file manager and file chooser: `fff setup
 --desktop` opens directories from other programs in fff, and `fff setup
@@ -120,8 +110,7 @@ preserves your current editing mode. See [editing](docs/EDITING.md).
 This section describes what each confirmation returns in `fff pick`; in
 `fff roam` the same keys choose a directory instead (see above).
 
-Without root arguments, browsing starts in the invocation directory (or, with
-`--resume`, where the last session ended) and follows navigation. Explicit roots stay pinned: results combine their descendants with
+Without root arguments, browsing starts in the invocation directory and follows navigation. Explicit roots stay pinned: results combine their descendants with
 those of the current directory. Overlapping paths appear once at their minimum
 depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek`); immediate children are depth
 1. Shallower matches come first, followed within each depth by directories

@@ -236,12 +236,6 @@ pub fn run(
 ) -> io::Result<(Finish, crate::program::Program)> {
     let finish = session(&mut app, cache, palettes, performance);
     app.remember();
-    // fff roam's sessions are saved for --resume, whatever it started as.
-    if app.program().records_session()
-        && let Some(path) = crate::state::session_path()
-    {
-        let _ = crate::state::save_session(&path, &app.session());
-    }
     if let Some(path) = crate::state::path() {
         let state = crate::state::State {
             positions: std::mem::take(&mut app.positions),
