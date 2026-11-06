@@ -174,6 +174,50 @@ where results are a folder's own entries, the current behavior stays. To try
 out: which contexts it suits, how a folder match ranks against a file match,
 and how the row shows which part matched.
 
+### Queries with a typo
+
+A query matches when its letters appear in order, so a letter left out is
+forgiven (`thre lnes` finds `three lines theorem.pdf`) but a wrong, extra or
+swapped one is not (`three lnies`). nucleo has no tolerance for typos. Both
+queries would get it as a fallback, run only when the query as typed finds
+(next to) nothing, so a query without typos costs what it costs today and
+ranks as it does.
+
+- **Names.** When the names query lists fewer than a few dozen rows, the
+  names are matched again allowing one typo, a letter of the query left
+  unmatched or replaced; with letters of the name skipped as usual, a swap
+  is one typo. [frizbee](https://github.com/saghen/frizbee) does this (MIT,
+  Smith–Waterman like fzf's, with SIMD): by its author's figures, one typo
+  over 1.4 million paths takes 61 ms on one thread, against nucleo's 91 ms
+  without, so over a home folder (about 190,000 entries to depth 6 with
+  dotfiles) the first such keystroke would take some milliseconds and the
+  next ones, narrowing the typo matches, less. frizbee compares bytes and
+  does not fold accents (`á` against `a` is a typo), so the fallback folds
+  them on both sides first, as nucleo's smart normalization does. Rows found
+  this way rank after those the query matches as typed. The matched letters
+  are highlighted from frizbee's indices; a `/` path query takes the
+  fallback part by part.
+- **Contents.** A fuzzy match over lines of text matches noise, and an
+  approximate scan defeats the contents index: allowing a typo in `three
+  lines` leaves too few trigrams to require, and nearly every English text
+  passes, so the search would read the whole text cache (seconds, against
+  0.02 s). The query is corrected instead: the index would also keep the
+  vocabulary of the text it has seen (the distinct words, folded as the
+  query is), and when a contents search finds nothing, which the index
+  tells at once, each query word missing from the vocabulary is replaced by
+  its nearest word within one typo (`lnies` → `lines`), preferring words the
+  listed files' filters hold, and the corrected query is searched as usual.
+  The query's border shows what was searched.
+- **Both at once.** The names query chooses the files and the contents
+  query searches them, as now: the names are never matched against the
+  match rows. Each falls back on its own, the names first, since they decide
+  which files the contents search reads.
+
+To decide: the threshold for the names fallback; how the vocabulary is
+stored (a compact sorted set beside the index's segments), kept and pruned
+(a stale word costs a correction that finds nothing); whether a key accepts
+or refuses a correction; and how a row shows that it matched with a typo.
+
 ### Resizing the font
 
 Keys that make the terminal's font larger or smaller, for reading from a
