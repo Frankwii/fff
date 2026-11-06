@@ -115,20 +115,33 @@ the aim; what is lost to the features above is the price of them.
 
 ### Shell integration
 
-fff lists what it scans; other programs could supply the list instead, the
-way `fzf` reads its candidates: `ls | fff`, `git ls-files | fff pick`, `rg
--l TODO | fff seek`, `locate -i thesis | fff`. Rows would still be paths
-(marks, previews, operations and opening would work on them) but the
-program, not a folder scan, would decide which. To explore before designing
-anything: whether a list comes in on stdin (fff then reads keys from
-`/dev/tty`, as `fzf` does) or as a command fff runs and can run again on
-reload; which commands accept one (`pick` and `seek` naturally, `roam`
-perhaps not, since navigating leaves the list); whether lines that are not
-existing paths are allowed, and how relative ones resolve; whether the list
-streams in while fff is open; and what live updates, depth and exclusions
-mean for it. Other integrations to weigh alongside: a key binding for zsh
-that inserts `fff pick`'s choice at the cursor (`fzf`'s Ctrl+t), and a
-`cd` into the folder `fff roam` ended in.
+`fff seek` lists the files below its roots; another program could supply
+the list instead, the way `fzf` reads its candidates, so that a script
+already producing paths gains fff's choice of them: `rg -l TODO | fff seek
+-`, `git ls-files | fff seek -`, `locate -i thesis | fff seek -`. Only
+`fff seek` would take a list at first, being already a static choice that
+never navigates.
+
+- **The list.** `-` as the only root reads it from stdin, one path per line
+  (NUL-separated with `--read0`, for `fd -0` and names with newlines);
+  without `-` stdin is never read, so a `fff seek` run in a loop reading
+  stdin keeps behaving as now. Keys come from `/dev/tty`, as they already
+  do. Paths stream in as the producer writes them, as a scan's batches do,
+  and the progress marker shows until stdin closes.
+- **Lines.** Relative paths resolve against the current directory, and rows
+  are labelled by their path below it. Lines naming no existing file or
+  folder are skipped and counted on the status line; repeats are listed
+  once.
+- **Options.** `--glob` and `--exclude` filter the list as they filter a
+  scan; `--depth` and `--hidden` decide what a scan reads, so they do not
+  apply. The program chose the paths, and its choice is kept.
+- **The session.** Rows are the list's, so nothing that would replace them
+  works: no live updates, no reload, no switching program with `gm` and no
+  opening a [workspace](#named-workspaces), and the session is not saved
+  for `--resume`, since the list cannot be read again. Marks, previews,
+  opening, the contents query, sorting and file operations work on the rows
+  as they do in `fff seek`; an operation's result shows in the rows only
+  for the paths listed (a deleted file leaves, a renamed one is renamed).
 
 ### The README
 
