@@ -19,7 +19,7 @@ of one project with their roots pinned and a depth of 3, a folder of notes
 with a content search in it, a codebase with its exclusions) is rebuilt by
 hand or started from a script of its own. A workspace would be a session
 saved under a name: its roots, folders and tabs, depth, filters, exclusions,
-toggles and query, and perhaps its marks.
+toggles, sort order and query, and perhaps its marks.
 
 Workspaces would live in the bookmark chooser beside bookmarks, a bookmark
 being the simplest workspace: a single folder. The form that adds a bookmark
@@ -33,7 +33,7 @@ chooser tells a workspace from a bookmark.
 
 ### Faster scanning
 
-Listing a large tree takes several times as long as `fd`: about 0.89
+Listing a large tree takes several times as long as `fd`: about 0.93
 seconds for the 620,000 entries of `/usr` (headless, until the rows are
 settled; `tests/scan_timing.rs`), against 0.15, and 1.1 seconds in a
 terminal with the frames drawn meanwhile, so a query typed at once waits
@@ -56,6 +56,12 @@ What remains is the interface thread:
   below). Pushing the sorted rounds as runs, and merging the runs as they
   double, takes the 0.1 seconds above; merging three or four runs at once
   instead of two would move each row about half as often.
+- **Rows' keys.** Since [sorting](../README.md#sorting), each row is kept
+  with a 16-byte key, its score and a sort's value, where it had an 8-byte
+  score: listing `/usr` went from about 0.88 to 0.93 seconds in `fff roam`
+  and 2.26 to 2.31 in `fff pick`. Keeping the values in a list of their own,
+  there only while a sort that reads them is chosen, would bring the
+  default order back to what it moved before.
 - **Limiting redraws while a scan runs.** Each batch merged marks the screen
   as changed, and the session loop draws on its next pass: a scan of `/usr`
   draws about 115 frames in `fff roam` and 400 in `fff pick`, on the same
@@ -134,6 +140,22 @@ playing in the terminal.
 ## Post-launch
 
 Ideas for after 1.0, once the features above are done.
+
+### Sorting, continued
+
+What the [sorting picker](../README.md#sorting) leaves for later:
+
+- **Sizes as they are added up.** Sorting by size puts folders not added up
+  yet last, and the order stays as it was ranked: choosing it again sorts by
+  the totals found since. The folders listed could be added up first while
+  the sort is by size, and the rows ranked again as totals arrive, at most
+  every so often so that rows do not jump under the highlight.
+- **Values read off the interface thread.** With a sort by size, a date or
+  kind, paths a scan delivers are each `lstat`ed on the interface thread as
+  they are merged; a stalled network mount would stall it too. Reading them
+  with the scan, on its threads, would keep the interface thread free.
+- **Kept with `--resume`.** The order chosen is not part of the saved
+  session; `[ui] sort` decides how each one starts.
 
 ### A tree view
 
