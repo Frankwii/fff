@@ -1076,8 +1076,8 @@ The same three keys work at every level: **Space goes a level deeper**
 (Enter does too in the picker, where Space is typed in Insert mode),
 **Enter is done** and **Escape goes back**.
 
-- **The picker:** Space opens the highlighted function's keys in a sheet
-  like the workspace form. Changes there are staged: Enter saves them (to the
+- **The picker:** Space opens the highlighted function's keys in a sheet.
+  Changes there are staged: Enter saves them (to the
   session and `keys.toml`), Escape drops them, and F1 closes the screen
   dropping them too.
 - **A function's keys:** one row per place: its key, mode, programs, lists

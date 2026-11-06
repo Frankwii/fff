@@ -200,15 +200,17 @@ pub(super) fn workspace_dialog(
     frame.render_widget(block, dialog);
     inner
 }
-/// The workspace form shares the operation sheet: what a workspace is, its
-/// labelled rows (the active one carries the prompt glyph), the path's
-/// explanation under it, the settings to keep and a status row.
+/// The workspace form, framed as the chooser it opens from: what a workspace
+/// is, a row per field and setting (the cursor's marked as the pickers mark
+/// it), the path's explanation under it and a status row. The keys, Space's
+/// among them where it does something, are on the bottom border.
 pub(super) fn workspace_form(
     frame: &mut Frame,
-    main: Rect,
+    area: Rect,
     app: &App,
     draft: &crate::workspaces::Draft,
 ) {
+    use crate::config::Setting;
     use crate::workspaces::EditField;
     let theme = app.palette;
     let title = if draft.editing.is_some() {
@@ -220,21 +222,23 @@ pub(super) fn workspace_form(
         .field
         .editor()
         .map_or_else(|| format!(" {title} "), |f| mode_title(app, f, title));
-    // Label, then the query box's prompt glyph on the active row.
-    let indent = 8;
-    let width = main.width.saturating_sub(4) as usize;
+    let width = area.width.saturating_sub(4).min(110);
+    // Inside the borders and padding.
+    let room = width.saturating_sub(4) as usize;
+    // The pointer, then a field's label, then its value.
+    let indent: u16 = 9;
     let body = prose(
         theme,
         theme.marked,
         "A workspace opens a folder, applies the settings ticked below, or both.",
-        width,
+        room,
     );
     // The path's explanation, under it in the value's column.
     let here = tilde(&app.cwd, app.home.as_deref());
-    let room = width.saturating_sub(indent as usize);
+    let beside = room.saturating_sub(indent as usize);
     // Prose whose plain words take `color`; its *emphasis* stays.
     let tinted = |text: &str, color: Color| {
-        prose(theme, theme.text, text, room)
+        prose(theme, theme.text, text, beside)
             .into_iter()
             .map(move |mut line| {
                 for span in &mut line.spans {
@@ -267,45 +271,65 @@ pub(super) fn workspace_form(
         Some(path) => format!("saves to {}", tilde(path, app.home.as_deref())),
         None => "this session only".into(),
     };
+    // Space chooses the icon and ticks a setting there is something to keep of.
+    let space = match draft.field {
+        EditField::Icon => Some("Choose icon"),
+        EditField::Setting(setting) if setting.is_in(&draft.kept) => Some("Don't keep"),
+        EditField::Setting(setting) if draft.offers(setting) => Some("Keep"),
+        _ => None,
+    };
+    let mut keys = vec![("tab", "Next field"), ("enter", "Save")];
+    keys.extend(space.map(|label| ("space", label)));
+    keys.push(("esc", "Cancel"));
     // Borders, the explanation and a blank line, the name, the path and its
-    // explanation, the icon, a blank line, the settings with their heading,
-    // and a row for commands or errors.
-    let settings = crate::config::Setting::ALL.len() as u16;
-    let inner = sheet(
-        frame,
-        main,
-        app,
-        body.len() as u16 + hint.len() as u16 + 9 + settings,
-        Sheet {
-            title,
-            accent: theme.marked,
-            keys: &[("enter", "Save"), ("esc", "Cancel"), ("tab", "Next field")],
-            summary: Some(saves),
-        },
-    );
+    // explanation, the icon, a blank line, the settings under their heading,
+    // a blank line and a row for commands or errors.
+    let settings = Setting::ALL.len() as u16;
+    let height = body.len() as u16 + hint.len() as u16 + settings + 9;
+    let dialog = centered(area, width, height.min(area.height.saturating_sub(2)));
+    let hints = border_hints(app, &keys, theme.marked, room);
+    let block = panel(theme, title, true, theme.marked)
+        .padding(Padding::horizontal(1))
+        .title_top(Line::from(styled(format!(" {saves} "), theme.muted)).right_aligned())
+        .title_bottom(Line::from(hints).centered());
+    let inner = block.inner(dialog);
+    frame.render_widget(Clear, dialog);
+    frame.render_widget(block, dialog);
     let top = (body.len() as u16 + 1).min(inner.height);
     frame.render_widget(
         Paragraph::new(body),
         Rect::new(inner.x, inner.y, inner.width, top),
     );
     let fits = |y: u16| y < inner.bottom().saturating_sub(1);
-    let row = |frame: &mut Frame, y: u16, label: &str, active: bool| {
+    // A row, highlighted with the pointer when the cursor is on it: what is
+    // right of the pointer.
+    let row = |frame: &mut Frame, y: u16, active: bool| {
         fits(y).then(|| {
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    bold(
-                        format!("{label:<6}"),
-                        if active { theme.marked } else { theme.muted },
-                    ),
-                    bold(if active { "❯ " } else { "  " }, theme.marked),
-                ])),
-                Rect::new(inner.x, y, indent.min(inner.width), 1),
-            );
-            Rect::new(inner.x + indent, y, inner.width.saturating_sub(indent), 1)
+            let line = Rect::new(inner.x, y, inner.width, 1);
+            if active {
+                frame.render_widget(
+                    Paragraph::new(bold("›", theme.marked))
+                        .style(Style::default().bg(theme.selection)),
+                    line,
+                );
+            }
+            Rect::new(inner.x + 2, y, inner.width.saturating_sub(2), 1)
         })
     };
+    let label = |text: &str, active: bool| {
+        let style = Style::default().add_modifier(Modifier::BOLD);
+        Span::styled(
+            format!("{text:<width$}", width = indent as usize - 2),
+            style.fg(if active { theme.text } else { theme.muted }),
+        )
+    };
+    // The label's column, then what is right of it.
+    let value = |area: Rect| {
+        let skip = (indent - 2).min(area.width);
+        Rect::new(area.x + skip, area.y, area.width - skip, 1)
+    };
     let mut y = inner.y + top;
-    for (label, value, field, active) in [
+    for (name, text, field, active) in [
         (
             "Name",
             &draft.name,
@@ -319,14 +343,13 @@ pub(super) fn workspace_form(
             draft.field == EditField::Path,
         ),
     ] {
-        if let Some(area) = row(frame, y, label, active) {
+        if let Some(area) = row(frame, y, active) {
+            frame.render_widget(Paragraph::new(label(name, active)), area);
             if active {
-                edit_rows(frame, app, field, value, area);
+                edit_rows(frame, app, field, text, value(area));
             } else {
-                frame.render_widget(
-                    Paragraph::new(styled(elide(&safe(value), area.width as usize), theme.text)),
-                    area,
-                );
+                let text = elide(&safe(text), value(area).width as usize);
+                frame.render_widget(Paragraph::new(styled(text, theme.text)), value(area));
             }
         }
         y += 1;
@@ -341,7 +364,7 @@ pub(super) fn workspace_form(
         y += 1;
     }
     let active = draft.field == EditField::Icon;
-    if let Some(area) = row(frame, y, "Icon", active) {
+    if let Some(area) = row(frame, y, active) {
         let (glyph, name) = match &draft.icon {
             Some(icon) => (safe(icon), "custom"),
             None if app.icons => (
@@ -352,35 +375,28 @@ pub(super) fn workspace_form(
             ),
             None => (String::new(), "automatic"),
         };
-        let mut spans = vec![];
+        let mut spans = vec![label("Icon", active)];
         if !glyph.is_empty() {
             spans.push(bold(format!("{glyph}  "), theme.accent));
         }
         spans.push(styled(name, theme.text));
-        if active {
-            spans.push(styled(" · Space chooses", theme.muted));
-        }
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
     y += 2;
-    // The settings, as the Keys screen's checklists tick them.
+    // The settings, ticked as the Keys screen's checklists are, under a
+    // heading in the markers' column.
     if fits(y) {
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                styled("  ", theme.muted),
-                bold("KEEPS", theme.muted),
-                styled(" · Space ticks a setting, kept as it is now", theme.muted),
-            ])),
-            Rect::new(inner.x, y, inner.width, 1),
+            Paragraph::new(bold("KEEPS", theme.muted)),
+            Rect::new(inner.x + 2, y, inner.width.saturating_sub(2), 1),
         );
     }
     let show = |p: &Path| tilde(p, app.home.as_deref());
-    for (i, setting) in crate::config::Setting::ALL.into_iter().enumerate() {
-        let y = y + 1 + i as u16;
-        if y >= inner.bottom().saturating_sub(1) {
-            break;
-        }
+    for (i, setting) in Setting::ALL.into_iter().enumerate() {
         let here = draft.field == EditField::Setting(setting);
+        let Some(area) = row(frame, y + 1 + i as u16, here) else {
+            break;
+        };
         let kept = setting.is_in(&draft.kept);
         let (marker, color) = if kept {
             ("●", theme.accent)
@@ -392,24 +408,23 @@ pub(super) fn workspace_form(
         let shown = if kept { &draft.kept } else { &draft.offered };
         let mut style = Style::default().fg(if kept { theme.text } else { theme.muted });
         if here {
-            style = style.bg(theme.selection).add_modifier(Modifier::BOLD);
+            style = style.add_modifier(Modifier::BOLD);
         }
         let name = format!(" {:<11}", setting.name());
-        let used = 3 + name.width();
+        let used = 1 + name.width();
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(if here { "› " } else { "  " }, style.fg(theme.marked)),
                 Span::styled(marker, style.fg(color)),
                 Span::styled(name, style),
                 Span::styled(
                     elide(
                         &safe(setting.describe(shown, show)),
-                        (inner.width as usize).saturating_sub(used),
+                        (area.width as usize).saturating_sub(used),
                     ),
                     style,
                 ),
             ])),
-            Rect::new(inner.x, y, inner.width, 1),
+            area,
         );
     }
     let last = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);

@@ -2304,9 +2304,12 @@ fn workspace_form_explains_the_optional_path_under_it() {
         column(lines[path], "/home"),
         "{screen}"
     );
-    assert!(lines[path - 1].contains("Name  ❯ notes"), "{screen}");
-    assert!(screen.contains("KEEPS · Space ticks"), "{screen}");
-    assert!(screen.contains("Enter: Save ─── Esc: Cancel"), "{screen}");
+    assert!(lines[path - 1].contains("› Name   notes"), "{screen}");
+    assert!(screen.contains("  KEEPS"), "{screen}");
+    assert!(
+        screen.contains("Tab: Next field ─── Enter: Save ─── Esc: Cancel"),
+        "{screen}"
+    );
     // An empty path still says it is optional, and nothing is missing.
     if let Focus::WorkspaceEdit(draft) = &mut focus {
         draft.path.clear();

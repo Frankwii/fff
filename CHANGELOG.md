@@ -58,6 +58,13 @@ history.
   empty, the workspace applies only its ticked settings, wherever you are.
   The warning about a missing folder moved there too. j and k move through
   its rows outside typing, as Tab does.
+- **The workspace form is drawn like the chooser** it opens from: a dialog
+  in the middle of the screen with where it saves on the top border, every
+  row (the name, path and icon as well as the settings) marked `›` and
+  highlighted under the cursor, and the keys on the bottom border in the
+  order Tab, Enter, Space, Esc. Space is there only where it does
+  something, saying what (`Choose icon`, `Keep`, `Don't keep`), instead of
+  grey text in the form.
 - **Enter in a save dialog saves under the typed name** (or the suggested
   one), in Normal mode too and whatever is highlighted: it no longer enters
   the highlighted folder or offers to replace the highlighted file (`l`

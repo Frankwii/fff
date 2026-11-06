@@ -408,7 +408,7 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
                 workspaces(frame, area, app, query, *index);
             result.page = result.workspace_targets.len();
         }
-        Focus::WorkspaceEdit(draft) => workspace_form(frame, main, app, draft),
+        Focus::WorkspaceEdit(draft) => workspace_form(frame, area, app, draft),
         Focus::WorkspaceIcons { query, index, .. } => {
             result.choices = workspace_icons(frame, area, app, query, *index)
         }
