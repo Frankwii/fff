@@ -90,12 +90,14 @@ enum Undone {
     },
 }
 impl Undone {
-    /// Rolls the step forward again; false when that failed.
-    fn redo(self) -> bool {
+    /// Rolls the step forward again; when that fails, where the entry
+    /// was left.
+    fn redo(self) -> Option<PathBuf> {
         match self {
             Undone::Returned { now, back, id } => {
-                identity(&back.parent, &back.name) == Some(id)
-                    && reparent(&back.parent, &back.name, &now.parent, &now.name).is_ok()
+                let redone = identity(&back.parent, &back.name) == Some(id)
+                    && reparent(&back.parent, &back.name, &now.parent, &now.name).is_ok();
+                (!redone).then_some(back.path)
             }
             Undone::Restored {
                 bin,
@@ -103,15 +105,16 @@ impl Undone {
                 back,
                 id,
             } => {
-                identity(&back.parent, &back.name) == Some(id)
-                    && reparent(&back.parent, &back.name, &bin.files, &slot).is_ok()
+                let redone = identity(&back.parent, &back.name) == Some(id)
+                    && reparent(&back.parent, &back.name, &bin.files, &slot).is_ok();
+                (!redone).then_some(back.path)
             }
             Undone::Discarded { bin, slot, entry } => {
                 let back = bin.take(&slot, &entry.parent, &entry.name).is_ok();
                 if back {
                     bin.forget(&slot);
                 }
-                back
+                (!back).then(|| bin.path.join("files").join(&slot))
             }
         }
     }
@@ -161,16 +164,18 @@ impl Engine {
                 Ok(undone) => done.push(undone),
                 Err(e) => {
                     // Every step is rolled forward, even after one fails.
-                    let mut rolled = true;
-                    for undone in done.into_iter().rev() {
-                        rolled &= undone.redo();
-                    }
+                    let left: Vec<String> = done
+                        .into_iter()
+                        .rev()
+                        .filter_map(Undone::redo)
+                        .map(|path| format!("{path:?}"))
+                        .collect();
                     return Err(format!(
                         "Cannot undo: {e}; {}",
-                        if rolled {
-                            "nothing changed"
+                        if left.is_empty() {
+                            "nothing changed".to_string()
                         } else {
-                            "undo stopped partway"
+                            format!("undo stopped partway, leaving {}", left.join(", "))
                         }
                     ));
                 }

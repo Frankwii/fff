@@ -4,6 +4,36 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **The contents cache is private**: extracted document text and the
+  contents index are written readable only by you (folders 0700, files
+  0600) whatever the umask, and an existing cache folder others could read
+  is closed to them.
+- **Starting an operation on many marks is quick**: moving, copying or
+  deleting tens of thousands of marked entries no longer spends seconds to
+  minutes comparing every selected path with every other before it begins.
+- **A rollback or undo that cannot finish names what it left**: the message
+  lists the entries left at their destinations, or where an undo left them,
+  instead of only saying that it stopped partway.
+
+### Fixed
+
+- **A new extraction folder follows your umask**: it was always mode 0755,
+  even under a stricter umask such as 077.
+- **An edited document is searched again** after an edit that kept its size
+  and restored its modification time: the extracted text was the old one.
+- **Content searches never read more than 64 MiB of a file**: a text file
+  growing while it was read, an oversized cache entry, or an extractor
+  printing more than that could make one search hold any amount of memory.
+- **The operations guide has its sections back** on buffers, opening files,
+  running programs, the trash and undo, which links pointed to, and the help
+  and guides no longer contradict the program on the default depth, the key
+  opening `$EDITOR`, Tab in file dialogs, moving read-only folders and what
+  survives a power loss.
+
 ## 0.19.1 — 2026-11-06
 
 Every chooser and picker numbers its rows for Alt+number.

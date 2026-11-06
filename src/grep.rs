@@ -4,8 +4,9 @@
 //! Text files are read as they are. PDF, DjVu and EPUB documents are read
 //! through text extracted once into a cache (`$XDG_CACHE_HOME/fff/text/`),
 //! one file per document named from its device, inode, size and modification
-//! time, so that an edited file is a new entry and nothing needs
-//! invalidating. `pdftotext` and `djvutxt` separate pages with a form feed,
+//! and change times, so that an edited file is a new entry and nothing needs
+//! invalidating. The cache is private to the user: its folder is mode 0700
+//! and its files 0600, whatever the documents' own modes. `pdftotext` and `djvutxt` separate pages with a form feed,
 //! which gives each match its page.
 //!
 //! Searching happens here, on worker threads, in the order of the rows: no
@@ -213,15 +214,18 @@ pub fn cache_dir() -> Option<PathBuf> {
     Some(base.join("fff/text"))
 }
 /// A document's cache entry: its identity and version, so that an edited
-/// or replaced file is another entry.
+/// or replaced file is another entry. The change time, which no program can
+/// set back, tells an edit that kept the size and restored the modification
+/// time.
 fn cache_name(meta: &fs::Metadata) -> String {
-    let nanos = meta.mtime() as i128 * 1_000_000_000 + meta.mtime_nsec() as i128;
+    let nanos = |s: i64, ns: i64| s as i128 * 1_000_000_000 + ns as i128;
     format!(
-        "{:x}-{:x}-{:x}-{:x}.txt",
+        "{:x}-{:x}-{:x}-{:x}-{:x}.txt",
         meta.dev(),
         meta.ino(),
         meta.size(),
-        nanos
+        nanos(meta.mtime(), meta.mtime_nsec()),
+        nanos(meta.ctime(), meta.ctime_nsec())
     )
 }
 
@@ -253,7 +257,11 @@ fn read_text(path: &Path, meta: &fs::Metadata, cache: Option<&Path>) -> Result<T
         if memchr::memchr(0, &bytes).is_some() {
             return Err(Skip::Binary);
         }
-        file.read_to_end(&mut bytes).map_err(|_| Skip::NoText)?;
+        // A file that grew past the limit since its size was read is not
+        // searched either, rather than read whole.
+        if !read_limited(&mut file, &mut bytes) {
+            return Err(Skip::NoText);
+        }
         return Ok(Text {
             bytes,
             units: Units::Lines,
@@ -265,11 +273,12 @@ fn read_text(path: &Path, meta: &fs::Metadata, cache: Option<&Path>) -> Result<T
         Units::Pages
     };
     let entry = cache.map(|dir| dir.join(cache_name(meta)));
+    // An entry over the limit was not written by fff: it is extracted again.
     if let Some(entry) = &entry
         && let Ok(mut file) = fs::File::open(entry)
     {
         let mut bytes = Vec::new();
-        if file.read_to_end(&mut bytes).is_ok() {
+        if read_limited(&mut file, &mut bytes) {
             index::used(&file);
             return Ok(Text { bytes, units });
         }
@@ -297,24 +306,48 @@ fn read_text(path: &Path, meta: &fs::Metadata, cache: Option<&Path>) -> Result<T
         // Remembered as empty, so it is not tried on every search.
         Err(Extraction::Failed) => Vec::new(),
     };
-    if let Some(entry) = &entry {
+    // A document that changed while it was read is not cached under the
+    // version it had before: the next search reads it again.
+    let unchanged =
+        fs::metadata(path).is_ok_and(|now| index::Key::of(&now) == index::Key::of(meta));
+    if let Some(entry) = &entry
+        && unchanged
+    {
         store(entry, &bytes);
     }
     Ok(Text { bytes, units })
 }
-/// Write a cache entry whole or not at all: to a temporary name, then
-/// renamed into place.
+/// Appends what is left of `reader` to `bytes`, up to `TEXT_LIMIT` in all;
+/// false when it fails or has more than that.
+fn read_limited(reader: &mut impl Read, bytes: &mut Vec<u8>) -> bool {
+    let room = (TEXT_LIMIT + 1).saturating_sub(bytes.len() as u64);
+    reader.take(room).read_to_end(bytes).is_ok() && bytes.len() as u64 <= TEXT_LIMIT
+}
+/// Write a cache entry whole or not at all, readable only by the user: to a
+/// temporary name, then renamed into place.
 fn store(entry: &Path, bytes: &[u8]) {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
     let Some(dir) = entry.parent() else {
         return;
     };
-    let _ = fs::create_dir_all(dir);
+    if crate::state::private_dir(dir).is_err() {
+        return;
+    }
+    // Unique to this thread's write, so that two workers never share one.
     let temporary = dir.join(format!(
-        ".{}.{}",
+        ".{}.{}.{}",
         entry.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
+        std::process::id(),
+        COUNT.fetch_add(1, Ordering::Relaxed)
     ));
-    if fs::write(&temporary, bytes).is_ok() && fs::rename(&temporary, entry).is_err() {
+    let written = crate::state::private_file(&temporary).and_then(|mut file| {
+        use std::io::Write;
+        file.write_all(bytes)
+    });
+    if written
+        .and_then(|()| fs::rename(&temporary, entry))
+        .is_err()
+    {
         let _ = fs::remove_file(&temporary);
     }
 }
@@ -346,10 +379,11 @@ fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec
         _ => Extraction::Failed,
     })?;
     let mut stdout = child.stdout.take().ok_or(Extraction::Failed)?;
+    // Reading stops past the limit: the extractor then fails writing to
+    // the closed pipe, and its text is not kept.
     let reader = std::thread::spawn(move || {
         let mut out = Vec::new();
-        let _ = stdout.read_to_end(&mut out);
-        out
+        read_limited(&mut stdout, &mut out).then_some(out)
     });
     let deadline = Instant::now() + EXTRACT_TIME;
     let status = loop {
@@ -364,11 +398,9 @@ fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec
             Err(_) => return Err(Extraction::Failed),
         }
     };
-    let out = reader.join().map_err(|_| Extraction::Failed)?;
-    if status.success() {
-        Ok(out)
-    } else {
-        Err(Extraction::Failed)
+    match reader.join() {
+        Ok(Some(out)) if status.success() => Ok(out),
+        _ => Err(Extraction::Failed),
     }
 }
 
@@ -412,7 +444,10 @@ fn epub_text(path: &Path) -> Option<Vec<u8>> {
             }
         }
     }
-    Some(out.into_bytes())
+    // A longer book is cut at the limit.
+    let mut out = out.into_bytes();
+    out.truncate(TEXT_LIMIT as usize);
+    Some(out)
 }
 /// `href`, relative to the folder `base` of the archive, as the archive
 /// names it: `.` and `..` resolved, a `#fragment` dropped.
@@ -1519,5 +1554,52 @@ mod tests {
             Some(Skip::Binary)
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn the_text_cache_is_private_and_knows_restored_modification_times() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("fff-grep-private-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let cache = dir.join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
+        let document = dir.join("secret.epub");
+        fs::write(&document, "old secret").unwrap();
+        fs::set_permissions(&document, fs::Permissions::from_mode(0o600)).unwrap();
+        text_of(&document, Some(&cache)).unwrap();
+        let entry = cache.join(cache_name(&fs::metadata(&document).unwrap()));
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        // Whatever the umask, and a folder others could read before.
+        assert_eq!(mode(&cache), 0o700);
+        assert_eq!(mode(&entry), 0o600);
+        fs::write(&entry, "old words").unwrap();
+        // The same size and modification time, but another change time:
+        // the ticks of the kernel's clock are a few milliseconds at most.
+        let modified = fs::metadata(&document).unwrap().modified().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(&document, "new secret").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&document)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert_ne!(
+            text_of(&document, Some(&cache)).unwrap().bytes,
+            b"old words"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn reads_stop_past_the_text_limit() {
+        let mut bytes = b"start".to_vec();
+        let mut rest = std::io::repeat(b'a').take(TEXT_LIMIT - 5);
+        assert!(read_limited(&mut rest, &mut bytes));
+        assert_eq!(bytes.len() as u64, TEXT_LIMIT);
+        // A file that grew, an oversized cache entry, a long extraction.
+        let mut bytes = b"start".to_vec();
+        let mut rest = std::io::repeat(b'a').take(TEXT_LIMIT * 2);
+        assert!(!read_limited(&mut rest, &mut bytes));
+        assert_eq!(bytes.len() as u64, TEXT_LIMIT + 1);
     }
 }

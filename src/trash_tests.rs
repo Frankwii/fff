@@ -42,8 +42,7 @@ fn trash_all(f: &Fixture, sources: Vec<PathBuf>) -> Outcome {
 fn contents(path: &Path) -> Snapshot {
     let mut snap = snapshot(path).unwrap().0;
     if let Some(root) = snap.0.get_mut(Path::new("")) {
-        root.5 = 0;
-        root.6 = 0;
+        root.ctime = (0, 0);
     }
     snap
 }
@@ -1036,4 +1035,37 @@ fn the_purge_never_deletes_an_entry_that_took_a_renamed_ones_slot() {
     assert_eq!(listing(&files), ["a"]);
     assert_eq!(fs::read(files.join("a")).unwrap(), b"newcomer");
     assert!(listing(&bin(&f).join("info")).is_empty());
+}
+#[test]
+fn an_undo_that_cannot_be_rolled_forward_names_what_it_left() {
+    let f = Fixture::new();
+    let a = f.file("a", b"a");
+    let b = f.file("b", b"b");
+    let out = engine(&f)
+        .execute(Request::Move {
+            sources: vec![a.clone(), b.clone()],
+            directory: f.dest.clone(),
+            replace: vec![],
+            confirmed: vec![],
+            into: None,
+        })
+        .unwrap();
+    let mut e = engine(&f);
+    let (a_place, b_place) = (a.clone(), f.dest.join("b"));
+    // b goes back first; then a's place is taken, and so is the place b
+    // would return to.
+    e.hook = Some(Box::new(move |step| {
+        if step == 0 {
+            fs::write(&a_place, b"new a").unwrap();
+            fs::write(&b_place, b"new b").unwrap();
+        }
+    }));
+    let error = e.undo(&record(out)).unwrap_err();
+    let left = format!(
+        "undo stopped partway, leaving {:?}",
+        b.canonicalize().unwrap()
+    );
+    assert!(error.contains(&left), "{error}");
+    assert_eq!(fs::read(&b).unwrap(), b"b");
+    assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"a");
 }

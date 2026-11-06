@@ -2,6 +2,10 @@
 //! running a request with its progress, and what the session shows and
 //! keeps (marks, undo records, messages) once it ends.
 use super::*;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 /// x: the paths go to the trash at once, unless some are too large for it
 /// or cannot go there; then a sheet asks first. Without a trash, and for X,
@@ -640,7 +644,8 @@ pub(super) fn perform_operation(
             .cloned()
             .collect()
     };
-    app.marks.retain(|p| !marked.contains(p));
+    let unmarked: HashSet<&PathBuf> = marked.iter().collect();
+    app.marks.retain(|p| !unmarked.contains(p));
     let trashed = request.trashes_all()
         || matches!(
             request,
@@ -827,15 +832,20 @@ fn ended(
     match (outcome, then) {
         (Ok(_), Then::Planned) => unreachable!("checks end in finish"),
         (Ok(outcome), then) => {
+            // Looked up by each mark's ancestors, so that many marks and
+            // many moved entries do not compare every pair.
+            let moved: HashMap<&Path, &PathBuf> = outcome
+                .moved
+                .iter()
+                .map(|(from, to)| (from.as_path(), to))
+                .collect();
             app.marks.update(|marked| {
                 // Nested renames report final paths; the deepest match wins.
-                if let Some((from, to)) = outcome
-                    .moved
-                    .iter()
-                    .filter(|(from, _)| marked.starts_with(from))
-                    .max_by_key(|(from, _)| from.components().count())
+                if let Some((from, to)) = marked
+                    .ancestors()
+                    .find_map(|a| moved.get(a).map(|to| (a, *to)))
                 {
-                    let suffix = marked.strip_prefix(from).expect("prefix checked");
+                    let suffix = marked.strip_prefix(from).expect("an ancestor");
                     *marked = if suffix.as_os_str().is_empty() {
                         to.clone()
                     } else {
@@ -843,8 +853,9 @@ fn ended(
                     };
                 }
             });
+            let removed: HashSet<&Path> = outcome.removed.iter().map(PathBuf::as_path).collect();
             app.marks
-                .retain(|p| !outcome.removed.iter().any(|r| p.starts_with(r)));
+                .retain(|p| !p.ancestors().any(|a| removed.contains(a)));
             match then {
                 Then::Executed { summary, trashed } => {
                     let complete = outcome.warning.is_none();
@@ -1234,6 +1245,37 @@ mod tests {
         }
         assert!(!dir.join("into/a").exists(), "{}", app.status);
         assert_eq!(app.marks.to_vec(), [dir.join("into"), dir.join("a")]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn starting_an_operation_on_many_marks_is_quick() {
+        let dir = scratch("many marks");
+        let mut app = App::browse(dir.clone(), 1, crate::Policy::default());
+        let mut discovery = Discovery::new(Default::default());
+        let mut focus = Focus::Results;
+        let sources: Vec<PathBuf> = (0..30_000)
+            .map(|i| dir.join(format!("missing-{i:05}")))
+            .collect();
+        app.marks = sources.clone().into();
+        app.marks.push(dir.join("kept"));
+        let request = crate::operations::Request::Delete {
+            sources,
+            confirmed: vec![],
+            trash: vec![],
+        };
+        // A regression to comparing every mark with every source takes
+        // minutes in an unoptimized build.
+        let start = std::time::Instant::now();
+        perform_operation(&mut app, &mut discovery, &mut focus, request, false);
+        let took = start.elapsed();
+        assert!(took < Duration::from_secs(3), "took {took:?}");
+        assert_eq!(app.marks.to_vec(), [dir.join("kept")]);
+        while let Some(job) = app.jobs.first() {
+            let result = job.poll(Duration::from_secs(5)).unwrap();
+            let job = app.jobs.remove(0);
+            ended(&mut app, &mut discovery, job, result);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

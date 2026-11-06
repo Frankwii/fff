@@ -100,6 +100,18 @@ pub(crate) fn reparent(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<(
     }
     result
 }
+/// The process's umask, read without changing it: `umask(2)` only sets it,
+/// and setting it would race other threads creating files. The strictest
+/// mask when it cannot be read.
+fn umask() -> u32 {
+    fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            let mask = status.lines().find_map(|l| l.strip_prefix("Umask:"))?;
+            u32::from_str_radix(mask.trim(), 8).ok()
+        })
+        .map_or(0o077, |mask| mask & 0o777)
+}
 /// Where an opened directory is now, without symlinks.
 pub(crate) fn canonical_dir(dir: &File) -> Result<PathBuf> {
     fs::read_link(fdpath(dir)).map_err(err)
@@ -130,18 +142,38 @@ impl Entry {
         })
     }
 }
-type Stamp = (u64, u64, u64, i64, i64, i64, i64, u32);
+/// One entry of an inventoried tree, as it was: its identity, size, times
+/// (seconds and nanoseconds) and mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stamp {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    mtime: (i64, i64),
+    ctime: (i64, i64),
+    mode: u32,
+}
+impl Stamp {
+    /// The entry's identity, as `identity` gives it.
+    fn id(&self) -> (u64, u64) {
+        (self.dev, self.ino)
+    }
+    fn is_dir(&self) -> bool {
+        self.mode & 0o170000 == 0o040000
+    }
+    fn is_file(&self) -> bool {
+        self.mode & 0o170000 == 0o100000
+    }
+}
 fn stamp(m: &fs::Metadata) -> Stamp {
-    (
-        m.dev(),
-        m.ino(),
-        m.len(),
-        m.mtime(),
-        m.mtime_nsec(),
-        m.ctime(),
-        m.ctime_nsec(),
-        m.mode(),
-    )
+    Stamp {
+        dev: m.dev(),
+        ino: m.ino(),
+        len: m.len(),
+        mtime: (m.mtime(), m.mtime_nsec()),
+        ctime: (m.ctime(), m.ctime_nsec()),
+        mode: m.mode(),
+    }
 }
 fn inventory(
     parent: &File,
@@ -157,7 +189,9 @@ fn inventory(
     // Never copy or delete through anything mounted inside a tree, including
     // bind mounts from the same filesystem, which keep the device number.
     if depth > 0
-        && (out.get(Path::new("")).is_some_and(|root| root.0 != m.dev())
+        && (out
+            .get(Path::new(""))
+            .is_some_and(|root| root.dev != m.dev())
             || mount_root(parent, name)?)
     {
         return Err(format!(
@@ -199,8 +233,7 @@ fn detached_matches(
     let mut current = BTreeMap::new();
     inventory(parent, name, Path::new(""), &mut current, 0)?;
     if let (Some(now), Some(was)) = (current.get_mut(Path::new("")), expected.get(Path::new(""))) {
-        now.5 = was.5;
-        now.6 = was.6;
+        now.ctime = was.ctime;
     }
     Ok(&current == expected)
 }
@@ -701,28 +734,37 @@ impl Engine {
                 .collect::<Result<Vec<_>>>()?,
             _ => vec![],
         };
+        // Paths are compared through their ancestors, not pair by pair, so
+        // that thousands of selected entries are checked quickly.
+        let destinations: HashSet<&Path> = dst.iter().map(|d| d.path.as_path()).collect();
+        let overwritten: HashSet<&Path> = old.iter().map(|o| o.path.as_path()).collect();
         for o in &old {
-            if !dst.iter().any(|d| d.path == o.path) {
+            if !destinations.contains(o.path.as_path()) {
                 return Err(format!("Not a move destination: {:?}", o.path));
             }
-            if src.iter().any(|s| s.path.starts_with(&o.path)) {
-                return Err(format!(
-                    "Cannot overwrite {:?}: it is or contains a selected path",
-                    o.path
-                ));
-            }
+        }
+        if let Some(o) = src
+            .iter()
+            .find_map(|s| s.path.ancestors().find(|a| overwritten.contains(a)))
+        {
+            return Err(format!(
+                "Cannot overwrite {o:?}: it is or contains a selected path"
+            ));
         }
         let renaming = matches!(request, Request::Rename { .. });
-        for (i, a) in src.iter().enumerate() {
-            for b in &src[..i] {
-                if a.path == b.path {
-                    return Err("The same path is selected twice".into());
-                }
-                // Renames keep their parents, so nested rows cannot collide.
-                if !renaming && (a.path.starts_with(&b.path) || b.path.starts_with(&a.path)) {
-                    return Err("Overlapping selections; select each tree only once".into());
-                }
+        let mut selected = HashSet::new();
+        for s in &src {
+            if !selected.insert(s.path.as_path()) {
+                return Err("The same path is selected twice".into());
             }
+        }
+        // Renames keep their parents, so nested rows cannot collide.
+        if !renaming
+            && src
+                .iter()
+                .any(|s| s.path.ancestors().skip(1).any(|a| selected.contains(a)))
+        {
+            return Err("Overlapping selections; select each tree only once".into());
         }
         let mut seen = HashSet::new();
         for (i, d) in dst.iter().enumerate() {
@@ -736,7 +778,7 @@ impl Engine {
                         check_name(&d.name)?;
                     }
                 }
-                _ if existing && !old.iter().any(|o| o.path == d.path) => {
+                _ if existing && !overwritten.contains(d.path.as_path()) => {
                     return Err(format!("Destination already exists: {:?}", d.path));
                 }
                 // Copies, moves and links keep names that already exist.
@@ -749,7 +791,7 @@ impl Engine {
             }
             // A rename target inside a renamed ancestor stays in its pinned parent.
             // Exchanges and cycles are refused above as existing destinations.
-            if !renaming && src.iter().any(|s| d.path.starts_with(&s.path)) {
+            if !renaming && d.path.ancestors().any(|a| selected.contains(a)) {
                 return Err("Destination is inside a source".into());
             }
         }
@@ -790,7 +832,7 @@ impl Engine {
             if before
                 .iter()
                 .filter_map(|t| t.get(Path::new("")))
-                .any(|root| (root.7 & 0o170000) == 0o040000 && above.contains(&(root.0, root.1)))
+                .any(|root| root.is_dir() && above.contains(&root.id()))
             {
                 return Err("Destination is inside a source".into());
             }
@@ -848,22 +890,25 @@ impl Engine {
                 }
             });
             if let Err(e) = result {
-                let mut rollback = true;
+                let mut left = vec![];
                 for &j in done.iter().rev() {
                     let a: &Entry = &src[j];
                     let b: &Entry = &dst[j];
                     // Only move back the entry this operation published.
                     let root = &before[j][Path::new("")];
-                    rollback &= identity(&b.parent, &b.name) == Some((root.0, root.1))
-                        && reparent(&b.parent, &b.name, &a.parent, &a.name).is_ok();
+                    if !(identity(&b.parent, &b.name) == Some(root.id())
+                        && reparent(&b.parent, &b.name, &a.parent, &a.name).is_ok())
+                    {
+                        left.push(b.path.as_path());
+                    }
                 }
-                rollback &= over.restore();
+                let restored = over.restore();
                 return Err(format!(
                     "{e}; {}",
-                    if rollback {
+                    if left.is_empty() && restored {
                         "earlier moves rolled back".to_string()
                     } else {
-                        format!("rollback incomplete; {}", over.whereabouts())
+                        format!("rollback incomplete; {}", over.left_behind(&left))
                     }
                 ));
             }
@@ -891,7 +936,7 @@ impl Engine {
             outcome.undo.push(undo::Step::Return {
                 now: to.clone(),
                 back,
-                id: (root.0, root.1),
+                id: root.id(),
             });
             outcome.moved.push((sources[i].clone(), to));
         }
@@ -955,8 +1000,8 @@ impl Engine {
         let bytes = before
             .iter()
             .flat_map(|t| t.values())
-            .filter(|s| s.7 & 0o170000 == 0o100000)
-            .fold(0u64, |n, s| n.saturating_add(s.2));
+            .filter(|s| s.is_file())
+            .fold(0u64, |n, s| n.saturating_add(s.len));
         // Until everything is staged, stopping changes nothing.
         self.phase(bytes, true);
         let mut staged = vec![];
@@ -984,22 +1029,25 @@ impl Engine {
         for (i, d) in dst.iter().enumerate() {
             self.checkpoint(i);
             if let Err(e) = reparent(&stage.dir, OsStr::new(&i.to_string()), &d.parent, &d.name) {
-                let mut rollback = true;
+                let mut left = vec![];
                 for &j in done.iter().rev() {
                     let d: &Entry = &dst[j];
                     // Never pull back (and then delete) an entry that
                     // replaced the published copy concurrently.
-                    rollback &= identity(&d.parent, &d.name) == staged[j]
+                    if !(identity(&d.parent, &d.name) == staged[j]
                         && reparent(&d.parent, &d.name, &stage.dir, OsStr::new(&j.to_string()))
-                            .is_ok();
+                            .is_ok())
+                    {
+                        left.push(d.path.as_path());
+                    }
                 }
-                rollback &= over.restore();
+                let restored = over.restore();
                 return Err(format!(
                     "{e}; {}",
-                    if rollback {
+                    if left.is_empty() && restored {
                         "copies rolled back".to_string()
                     } else {
-                        format!("rollback incomplete; {}", over.whereabouts())
+                        format!("rollback incomplete; {}", over.left_behind(&left))
                     }
                 ));
             }
@@ -1105,7 +1153,7 @@ impl Engine {
                     bin: bin.path.clone(),
                     slot: slot.clone(),
                     back: src[i].path.clone(),
-                    id: (root.0, root.1),
+                    id: root.id(),
                 });
                 outcome.removed.push(sources[i].clone());
                 outcome.trashed += 1;
@@ -1278,10 +1326,11 @@ impl Engine {
                     plan.push((&stage.dir, name.clone(), dest, name, id, path));
                 }
             } else {
-                // The private stage becomes an ordinary new directory.
+                // The private stage becomes an ordinary new directory, as
+                // the user's umask allows.
                 stage
                     .dir
-                    .set_permissions(fs::Permissions::from_mode(0o755))
+                    .set_permissions(fs::Permissions::from_mode(0o777 & !umask()))
                     .map_err(err)?;
                 let id = identity(&stage.parent, &stage.name);
                 plan.push((
@@ -1297,15 +1346,19 @@ impl Engine {
         let mut done: Vec<usize> = vec![];
         for (n, (from, name, to, as_name, _, _)) in plan.iter().enumerate() {
             if let Err(e) = rename(from, name, to, as_name) {
-                let mut rollback = true;
+                let mut left = vec![];
                 for &n in done.iter().rev() {
-                    let (from, name, to, as_name, id, _) = &plan[n];
+                    let (from, name, to, as_name, id, path) = &plan[n];
                     // Only take back what this extraction published.
-                    rollback &=
-                        identity(to, as_name) == *id && rename(to, as_name, from, name).is_ok();
+                    if !(identity(to, as_name) == *id && rename(to, as_name, from, name).is_ok()) {
+                        left.push(format!("{path:?}"));
+                    }
                 }
-                if !rollback {
-                    return Err(format!("{e}; extraction rollback incomplete"));
+                if !left.is_empty() {
+                    return Err(format!(
+                        "{e}; extraction rollback incomplete, leaving {}",
+                        left.join(", ")
+                    ));
                 }
                 return Err(e);
             }
@@ -1499,9 +1552,9 @@ impl<'a> Overwrite<'a> {
                     return Err(format!(
                         "{e}; {}",
                         if restored {
-                            "nothing changed"
+                            "nothing changed".to_string()
                         } else {
-                            "restore incomplete; originals retained in staging"
+                            format!("restore incomplete; {}", over.left_behind(&[]))
                         }
                     ));
                 }
@@ -1527,19 +1580,25 @@ impl<'a> Overwrite<'a> {
         }
         restored.iter().all(|&r| r)
     }
-    /// Where detached entries remain when they could not be restored.
-    fn whereabouts(&self) -> String {
+    /// What an incomplete rollback left: the published entries it did not
+    /// take back (`left`, each left in place as it is), and the stages
+    /// still holding overwritten entries that could not be restored.
+    fn left_behind(&self, left: &[&Path]) -> String {
+        let mut parts = vec![];
+        if !left.is_empty() {
+            let left = left.iter().map(|p| format!("{p:?}")).collect::<Vec<_>>();
+            parts.push(format!("left in place: {}", left.join(", ")));
+        }
         let kept = self
             .stages
             .iter()
             .filter(|s| s.keep)
             .map(|s| format!("{:?}", s.path))
             .collect::<Vec<_>>();
-        if kept.is_empty() {
-            "entries remain at their destinations".into()
-        } else {
-            format!("overwritten entries remain in {}", kept.join(", "))
+        if !kept.is_empty() {
+            parts.push(format!("overwritten entries remain in {}", kept.join(", ")));
         }
+        parts.join("; ")
     }
     /// Once every new entry is published, moves the overwritten entries to
     /// the trash (deleting them when it is off or unavailable), recording how
@@ -1564,7 +1623,7 @@ impl<'a> Overwrite<'a> {
                             bin: bin.path.clone(),
                             slot,
                             back: o.path.clone(),
-                            id: (root.0, root.1),
+                            id: root.id(),
                         });
                         outcome.trashed += 1;
                     }
@@ -1954,13 +2013,14 @@ impl DeletePlan {
             .iter()
             .map(|p| Entry::at(p).map(|e| e.path))
             .collect::<Result<Vec<_>>>()?;
-        for (i, a) in resolved.iter().enumerate() {
-            if resolved[..i]
+        // Through each path's ancestors, not pair by pair, for many paths.
+        let mut seen = HashSet::new();
+        let overlap = resolved.iter().any(|p| !seen.insert(p.as_path()))
+            || resolved
                 .iter()
-                .any(|b| a.starts_with(b) || b.starts_with(a))
-            {
-                return Err("Overlapping selections; select each tree only once".into());
-            }
+                .any(|p| p.ancestors().skip(1).any(|a| seen.contains(a)));
+        if overlap {
+            return Err("Overlapping selections; select each tree only once".into());
         }
         let (snapshots, sizes): (Vec<_>, Vec<_>) = sources
             .iter()

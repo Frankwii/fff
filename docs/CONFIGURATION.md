@@ -89,7 +89,8 @@ startup error naming the file. Explicit workspace saves/deletions update the act
 config; a missing default file is created on the first save. Startup alone never
 writes it. With `--no-config`, workspace edits last only for the session.
 Palette edits reload live; external workspace edits reload with r in the
-workspace chooser. Editor edits take effect on the next invocation.
+workspace chooser. Other edits made outside fff take effect at the next start, or
+at once through [`gc`](#editing-while-fff-runs).
 CLI discovery/output options are independent of this file, except that
 `--exclude` adds to its [exclusions](#exclusions).
 
@@ -816,7 +817,7 @@ classification reads `/proc/self/mountinfo`.
 | Setting | Default | Range | Effect |
 | --- | --- | --- | --- |
 | `refresh_ms` | `50` | 0–1000 | Minimum interval between merging new paths into the results during a scan. First results, completion and query changes update immediately, as does a backlog of 8,192 unmerged paths. Zero merges after every drained batch. |
-| `cached_queries` | `5` | 0–64 | Results of this many shorter queries are kept while you type, so deleting letters restores them instead of ranking every path again; an edited query narrows from the longest kept query it still starts with. Each kept query costs about 8 bytes per matching row (rows share their paths). Zero keeps none. Discovery or a policy change discards them. |
+| `cached_queries` | `5` | 0–64 | Results of this many shorter queries are kept while you type, so deleting letters restores them instead of ranking every path again; an edited query narrows from the longest kept query it still starts with. Each kept query costs about 24 bytes per matching row, a pointer and its ranking key (rows share their paths). Zero keeps none. Discovery or a policy change discards them. |
 | `max_paths` | `1000000` | 1000–100000000 | Most paths the current view holds. A scan that finds more stops there: the status line shows `◌ partial`, the listing is neither reconciled nor kept as complete, and a lower depth shows the rest. It bounds the memory browsing a huge tree can take. |
 
 Workers batch up to 256 paths or 10 ms of discoveries, breadth first, so the
@@ -860,6 +861,12 @@ prunes the entries unused for 90 to 135 days, then the least recently used
 while the text cache passes 2 GiB or the index 512 MiB. Deleting either is
 safe; it is rebuilt as searches read the files again. See [searching
 contents](../README.md#searching-contents).
+
+Both are readable only by you (folders 0700, files 0600, whatever the
+documents' own modes), since the text cache holds documents' plain text: it
+stays after a document is deleted or made unreadable, until pruned or
+deleted. Text files over 64 MiB are not searched, nor PDF and DjVu documents
+whose text passes 64 MiB; an EPUB's text is read up to that size.
 
 Folders' sizes are kept in `~/.cache/fff/sizes` (see [folder
 sizes](#folder-sizes)): a record per folder added up, about 100 bytes each,

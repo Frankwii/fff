@@ -46,7 +46,7 @@ Use <cyan>--help</cyan> for details, keys, exit codes and shell completions."
 const AFTER_LONG_HELP: &str = color_print::cstr!(
     "<bold><green>Examples:</green></bold>
   <cyan>fff</cyan>
-      Browse from the current directory, two levels deep.
+      Browse from the current directory, one level deep.
   <cyan>fff ~/notes ~/papers --depth 2 --glob '*.tex' --glob '*.pdf'</cyan>
       Search two pinned roots for TeX and PDF files.
   <cyan>eval \"$(fff setup --init zsh)\"</cyan>
@@ -82,7 +82,7 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files;
   feature chords like these work while typing, their letters in Normal mode.
   <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
-  <cyan>E</cyan> open current/marked paths in $EDITOR; <cyan>gc</cyan> edit the configuration and apply it.
+  <cyan>e</cyan> open current/marked paths in $EDITOR; <cyan>gc</cyan> edit the configuration and apply it.
   Each folder remembers its cursor.
   <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.
 

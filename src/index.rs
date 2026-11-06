@@ -470,7 +470,7 @@ fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         path.file_name().unwrap_or_default().to_string_lossy(),
         std::process::id()
     ));
-    let written = fs::File::create(&temporary).and_then(|mut f| f.write_all(bytes));
+    let written = crate::state::private_file(&temporary).and_then(|mut f| f.write_all(bytes));
     match written.and_then(|_| fs::rename(&temporary, path)) {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -503,7 +503,7 @@ fn write_main<F>(
     let dir = path.parent().unwrap_or(Path::new("."));
     let temporary = dir.join(format!(".main.{}", std::process::id()));
     let write = || -> std::io::Result<()> {
-        let mut out = std::io::BufWriter::new(fs::File::create(&temporary)?);
+        let mut out = std::io::BufWriter::new(crate::state::private_file(&temporary)?);
         out.write_all(&MAIN_MAGIC.to_le_bytes())?;
         out.write_all(&(rows.len() as u64).to_le_bytes())?;
         let mut at = 0u64;
@@ -678,7 +678,9 @@ impl Index {
             std::process::id(),
             COUNT.fetch_add(1, Ordering::Relaxed)
         );
-        let _ = fs::create_dir_all(&self.dir);
+        if crate::state::private_dir(&self.dir).is_err() {
+            return;
+        }
         let _ = write_whole(&self.dir.join(name), &bytes);
     }
     fn merge_due(&self) -> bool {
@@ -696,8 +698,10 @@ impl Index {
     /// Merge the segments into `main`, dropping what has gone unused, and
     /// prune the text cache; another session's merge running, skip it.
     fn merge(&self) {
-        let _ = fs::create_dir_all(&self.dir);
-        let Ok(lock) = fs::File::create(self.dir.join("lock")) else {
+        if crate::state::private_dir(&self.dir).is_err() {
+            return;
+        }
+        let Ok(lock) = crate::state::private_file(&self.dir.join("lock")) else {
             return;
         };
         if rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive).is_err() {

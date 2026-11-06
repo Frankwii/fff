@@ -1064,6 +1064,12 @@ fn failed_move_rollback_never_overwrites_a_new_source_entry() {
         })
         .unwrap_err();
     assert!(error.contains("rollback incomplete"));
+    // The message names where the moved entry stays.
+    let left = format!(
+        "left in place: {:?}",
+        f.dest.canonicalize().unwrap().join("a")
+    );
+    assert!(error.contains(&left), "{error}");
     assert_eq!(fs::read(a).unwrap(), b"new source");
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"original a");
     assert!(b.exists());
@@ -1627,6 +1633,11 @@ fn copy_rollback_never_pulls_back_an_entry_it_did_not_publish() {
     };
     let error = e.execute(request).unwrap_err();
     assert!(error.contains("rollback incomplete"), "{error}");
+    let left = format!(
+        "left in place: {:?}",
+        f.dest.canonicalize().unwrap().join("a")
+    );
+    assert!(error.contains(&left), "{error}");
     assert_eq!(fs::read(f.dest.join("a")).unwrap(), b"theirs");
     assert_eq!(fs::read(f.dest.join("b")).unwrap(), b"theirs too");
 }
@@ -1772,6 +1783,47 @@ fn extracted_files_respect_the_umask_and_delete_plans_refuse_overlaps() {
     fs::create_dir(&dir).unwrap();
     fs::write(dir.join("x"), b"x").unwrap();
     assert!(DeletePlan::new(vec![dir.clone(), dir.join("x")]).is_err());
+}
+#[test]
+fn a_new_extraction_destination_respects_a_restrictive_umask() {
+    if std::env::var_os("FFF_UMASK_CHILD").is_some() {
+        // Alone in this process: the umask is the process's.
+        unsafe {
+            libc::umask(0o077);
+        }
+        let f = Fixture::new();
+        let archive = f.work.join("a.tar");
+        tar(&archive, &[("docs/a", b'0', b"a", "")]);
+        let existing = f.dest.join("existing");
+        fs::create_dir(&existing).unwrap();
+        fs::set_permissions(&existing, fs::Permissions::from_mode(0o751)).unwrap();
+        for destination in [f.dest.join("new"), existing.clone()] {
+            f.engine()
+                .execute(Request::Extract {
+                    archives: vec![archive.clone()],
+                    destination: Some(destination),
+                })
+                .unwrap();
+        }
+        let mode = |p: PathBuf| fs::metadata(p).unwrap().mode() & 0o777;
+        assert_eq!(mode(f.dest.join("new")), 0o700);
+        assert_eq!(mode(f.dest.join("new/docs")), 0o700);
+        assert_eq!(mode(f.dest.join("new/docs/a")), 0o600);
+        // An existing destination keeps its own mode.
+        assert_eq!(mode(existing.clone()), 0o751);
+        assert_eq!(mode(existing.join("docs")), 0o700);
+        return;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "operations::tests::a_new_extraction_destination_respects_a_restrictive_umask",
+            "--nocapture",
+        ])
+        .env("FFF_UMASK_CHILD", "1")
+        .status()
+        .unwrap();
+    assert!(status.success());
 }
 #[test]
 fn several_archives_extract_together_or_not_at_all() {

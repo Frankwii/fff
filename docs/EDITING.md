@@ -14,7 +14,7 @@ form's name and path, and the query of `fff pick`, `fff seek`,
 `fff explorer save` and a list read from stdin start in **Insert mode**, ready for typing; rename and
 extraction buffers and the contents query start in Normal. Tab or Alt+/
 (`switch_query`), in either mode, moves between the names and contents
-queries, in any program but the file dialogs, and the other query is typed
+queries, in every program, the file dialogs included, and the other query is typed
 into in the mode it was pressed in (Insert stays Insert, Normal stays
 Normal; pending input and command-line entry are cancelled, and a visual
 selection starts again there). Each keeps its own text, cursor and undo
@@ -87,8 +87,7 @@ Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
 Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
 mode. Space in Normal mode marks/unmarks like Shift+Space; in Insert mode it
 types a space. Shift+Space needs a terminal that tells it from Space (the kitty
-keyboard protocol); elsewhere it types a space. Tab never marks: it switches between the names and contents queries
-(not in the file dialogs).
+keyboard protocol); elsewhere it types a space. Tab never marks: it switches between the names and contents queries.
 The marked list always accepts Space because it has no text field. In Normal mode `m` marks every
 listed row (all filtered results, not only those on screen, or every row of the
 marked list) and `M` inverts the listed rows' marks, like nnn's `a` and `A`;

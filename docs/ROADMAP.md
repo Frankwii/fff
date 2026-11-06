@@ -3,7 +3,7 @@
 The current implementation is the baseline. These are potential extensions,
 not implemented features or commitments:
 
-- An AUR package once the project nears 1.0.
+- Publishing the package in `packaging/aur` to the AUR once the project nears 1.0.
 
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).

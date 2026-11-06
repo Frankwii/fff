@@ -70,22 +70,42 @@ pub fn save(path: &Path, state: &State) -> std::io::Result<()> {
 /// Writes atomically: a private temporary file (mode 0600: marks, queries
 /// and folders are nobody else's business) renamed over the old one.
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let dir = path.parent().ok_or(std::io::ErrorKind::InvalidInput)?;
     fs::create_dir_all(dir)?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let temporary = dir.join(format!(".{name}-{}", std::process::id()));
-    let mut file = fs::OpenOptions::new()
+    let mut file = private_file(&temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    fs::rename(&temporary, path)
+}
+/// Opens `path` for writing, emptied and readable only by the user (mode
+/// 0600), whatever the umask.
+pub(crate) fn private_file(path: &Path) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let file = fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .mode(0o600)
-        .open(&temporary)?;
-    // A leftover temporary file keeps its mode when reopened.
+        .open(path)?;
+    // A leftover file keeps its mode when reopened.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)
+    Ok(file)
+}
+/// Creates `dir` and its missing parents readable only by the user (mode
+/// 0700); an existing `dir` that others may read or enter loses that.
+pub(crate) fn private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    let mode = fs::metadata(dir)?.permissions().mode() & 0o7777;
+    if mode & 0o077 != 0 {
+        fs::set_permissions(dir, fs::Permissions::from_mode(mode & !0o077))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
