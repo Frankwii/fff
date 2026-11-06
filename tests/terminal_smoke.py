@@ -1015,6 +1015,49 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_gs_sorts_the_matches_and_tab_switches_the_direction(self):
+        for name, size in [("file10", 1), ("file2", 300), ("file1", 20)]:
+            (self.root / name).write_bytes(b"x" * size)
+        s = self.start(implicit_root=True, output_paths=False)
+        s.wait_ui("file10")
+
+        def order():
+            # Each name where its row first shows it (the footer repeats one).
+            names = ["file10", "file2", "file1"]
+            found = []
+            for line in s.screen.text.splitlines():
+                words = line.replace("/", " ").split()
+                found += [n for n in names if n in words and n not in found]
+            return found
+
+        s.send(b"gs", "Sort ascending · Tab descending")
+        s.send(b"name", "Names alphabetically")
+        s.send(b"\r", "sorted by name ↑")
+        self.assertNotIn("Sort ascending", s.screen.text)
+        self.assertEqual(order(), ["file1", "file2", "file10"])
+        # Tab reverses; the picker opens at the current order.
+        s.send(b"gs", "Sort ascending")
+        s.send(b"\t", "Sort descending · Tab ascending")
+        s.send(b"\r", "sorted by name ↓")
+        self.assertEqual(order(), ["file10", "file2", "file1"])
+        s.send(b"gs", "Sort descending")
+        s.send(b"size", "Sizes")
+        s.send(b"\r", "sorted by size ↓")
+        self.assertEqual(order(), ["file2", "file1", "file10"])
+        # Escape leaves the order as it is; ranking goes back to the
+        # program's order, named nowhere.
+        s.send(b"gs", "Sort descending")
+        s.send(b"\x1b[27u")
+        s.wait_absent("Sort descending")
+        self.assertIn("sorted by size ↓", s.screen.text)
+        s.send(b"gs", "Sort descending")
+        s.send(b"ranking", "As the program ranks")
+        s.send(b"\r")
+        s.wait_absent("sorted by")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_keys_screen_saves_keys_and_refuses_a_lockout(self):
         (self.root / "file").touch()
         with tempfile.TemporaryDirectory(prefix="fff-keys-") as folder:

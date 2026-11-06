@@ -523,6 +523,10 @@ impl Sizes {
             unreadable: false,
         })
     }
+    /// The totals found so far, for ranking on other threads.
+    pub fn totals(&self) -> Totals {
+        Totals(self.shared.clone())
+    }
     /// The frame is drawn: what it wanted, in order, is what workers do.
     pub fn commit(&self) {
         let mut frame = std::mem::take(&mut *self.frame.borrow_mut());
@@ -575,6 +579,20 @@ impl Sizes {
         let shared = self.shared.clone();
         let wake = self.wake.clone();
         let _ = std::thread::Builder::new().spawn(move || work(&shared, &mount, wake.as_ref()));
+    }
+}
+/// Folders' totals as the workers find them, read where sorting by size
+/// needs them; a ranking on another thread holds one.
+#[derive(Clone, Default)]
+pub struct Totals(Arc<Shared>);
+impl Totals {
+    /// `path`'s total once added up (the last one while it is added up
+    /// again); `None` before.
+    pub fn bytes(&self, path: &Path) -> Option<u64> {
+        let mut state = self.0.state.lock().unwrap();
+        let at = state.tree.lookup(path)?;
+        let found = state.tree.total(at).or(state.tree.nodes[at as usize].shown);
+        found.map(|(bytes, _)| bytes)
     }
 }
 impl Drop for Sizes {

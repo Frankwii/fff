@@ -233,6 +233,30 @@ shortened to `.../`. `gd` in Normal mode (`toggle_labels`) switches between
 the two for the session, and the choice stays when `gm` changes program.
 Labels are presentation only: output paths are never shortened.
 
+### Sorting
+
+Rows are ranked by depth, then by how well they match (`fff pick` and `fff
+seek`: the best match first). `gs` in Normal mode (`show_sorting`) opens the
+sorting picker instead: type or move to a criterion and Enter sorts by it,
+Tab switching between ascending and descending first. The query still
+decides what is listed; the sort only how, with the ranking breaking its
+ties:
+
+- `name`: alphabetically, ignoring case, numbers by value (`file2` before
+  `file10`);
+- `size`: a folder's is the files below it, as the size column shows it,
+  once added up (until then it comes last; choosing the order again sorts
+  by the totals found since);
+- `modified`, `accessed`, and `created` where the filesystem records it;
+- `extension`, then name;
+- `kind`: folders, then files, then links;
+- `depth`, then name;
+- `ranking`: back to the program's order.
+
+The results' bottom border names the order (`sorted by size ↓`). `[ui] sort`
+and `sort_descending` choose the one sessions start in (see
+[configuration](docs/CONFIGURATION.md#sorting)).
+
 `--glob` is a file filter: only files whose basename matches it are listed, and
 directories are hidden but still traversed. Repeat it to allow several patterns
 (`--glob '*.pdf' --glob '*.epub'`); a file matching any of them is listed. Alt+f
@@ -447,6 +471,7 @@ key says which one.
 | Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d and D reach Neovim there) |
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
+| gs in Normal | [Sort](#sorting) the matches by name, size, a date, extension, kind or depth; Tab there switches ascending and descending |
 | gd in Normal | Label rows by name (with the parents that tell same-named entries apart) or by path below the folder searched |
 | Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
 | Alt+H / ge in Normal | Toggle exclusion enforcement |

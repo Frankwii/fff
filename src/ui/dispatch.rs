@@ -229,7 +229,7 @@ impl Session {
                 return Ok(None);
             }
             Focus::Keys(_) => return self.keys_key(app, key),
-            Focus::Commands { .. } => return self.commands_key(app, key),
+            Focus::Picker { .. } => return self.picker_key(app, key),
             Focus::Jobs { .. } => {
                 self.jobs_key(app, key);
                 return Ok(None);
@@ -253,14 +253,7 @@ impl Session {
             && !key.modifiers.intersects(M::ALT | M::CONTROL)
         {
             self.escape_armed = false;
-            self.editor.reset_insert(Field::Commands);
-            let back = Box::new(std::mem::take(&mut self.focus));
-            self.focus = Focus::Commands {
-                query: String::new(),
-                index: 0,
-                here: cell,
-                back,
-            };
+            self.open_picker(Picker::Commands(cell), 0);
             return Ok(None);
         }
         // Leaving Insert mode and Neovim's command line are Neovim's.
@@ -530,44 +523,79 @@ impl Session {
             }
             EditConfig => self.edit_config(app)?,
             SwitchProgram => self.focus = Focus::ProgramChoice,
+            ShowSorting => self.show_sorting(app),
             Quit | QuitHere => return Ok(self.quit(app, function == QuitHere)),
             Cancel => return Ok(Some(Finish::Cancelled)),
         }
         Ok(None)
     }
-    /// A key in the command picker: Enter runs the highlighted function
-    /// where `:` was pressed, Escape goes back there; the arrows, Alt+j and
-    /// Alt+k move (and j and k in Normal mode); other keys type.
-    fn commands_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
+    /// Open `kind`'s picker over the current focus, at choice `index`.
+    fn open_picker(&mut self, kind: Picker, index: usize) {
+        self.editor.reset_insert(Field::Picker);
+        let back = Box::new(std::mem::take(&mut self.focus));
+        self.focus = Focus::Picker {
+            query: String::new(),
+            index,
+            kind,
+            back,
+        };
+    }
+    /// `show_sorting`: the orders, at the current one, in its direction.
+    fn show_sorting(&mut self, app: &App) {
+        let current = Choice::Sort(app.sort.map(|s| s.by));
+        let kind = Picker::Sort {
+            descending: app.sort.is_some_and(|s| s.descending),
+        };
+        let index = kind.choices("").iter().position(|&c| c == current);
+        self.open_picker(kind, index.unwrap_or(0));
+    }
+    /// A key in a picker: Enter takes the highlighted choice where the
+    /// picker was opened (runs the function, sorts by the criterion),
+    /// Escape goes back there; the arrows, Alt+j and Alt+k move (and j and
+    /// k in Normal mode); in the sorting picker, Tab switches between
+    /// ascending and descending; other keys type.
+    fn picker_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
         let page = self.drawn.page.max(1);
         let normal = app.edit_view.as_ref().is_some_and(|v| v.normal());
-        let Focus::Commands {
-            query, index, here, ..
+        let Focus::Picker {
+            query, index, kind, ..
         } = &mut self.focus
         else {
             return Ok(None);
         };
-        let found = crate::ui::commands(*here, query);
+        let found = kind.choices(query);
         let last = found.len().saturating_sub(1);
         let alt = key.modifiers == M::ALT;
         let plain = key.modifiers.is_empty();
         match key.code {
             K::Esc => {
-                if let Focus::Commands { back, .. } = std::mem::take(&mut self.focus) {
+                if let Focus::Picker { back, .. } = std::mem::take(&mut self.focus) {
                     self.focus = *back;
                 }
             }
+            K::Tab if plain && let Picker::Sort { descending } = kind => {
+                *descending = !*descending;
+            }
             K::Enter => {
-                let Some(&function) = found.get(*index) else {
+                let Some(&choice) = found.get(*index) else {
                     return Ok(None);
                 };
-                if let Focus::Commands { back, .. } = std::mem::take(&mut self.focus) {
+                let kind = *kind;
+                if let Focus::Picker { back, .. } = std::mem::take(&mut self.focus) {
                     self.focus = *back;
                 }
-                // Back in Normal mode where `:` was pressed, as its key would
-                // have run it.
+                // Back in Normal mode where the picker was opened, as a key
+                // there would have left it.
                 self.sync_editor(app)?;
-                return self.run_function(app, function, None, Row::default());
+                match (choice, kind) {
+                    (Choice::Function(function), _) => {
+                        return self.run_function(app, function, None, Row::default());
+                    }
+                    (Choice::Sort(by), Picker::Sort { descending }) => {
+                        app.set_sort(by.map(|by| crate::rows::Sort { by, descending }));
+                    }
+                    (Choice::Sort(_), Picker::Commands(_)) => {}
+                }
             }
             K::Down => *index = (*index + 1).min(last),
             K::Up => *index = index.saturating_sub(1),

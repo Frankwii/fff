@@ -62,12 +62,12 @@ impl Program {
     pub fn starts_typing(self) -> bool {
         matches!(self, Self::Pick | Self::Seek | Self::ExplorerSave)
     }
-    /// How its rows are ordered: `fff pick` and `fff seek` choose files from
+    /// How its rows are ranked: `fff pick` and `fff seek` choose files from
     /// deep below, so the best match comes first whatever its depth.
-    pub fn order(self) -> crate::rows::Order {
+    pub fn rank(self) -> crate::rows::Rank {
         match self {
-            Self::Pick | Self::Seek => crate::rows::Order::Score,
-            _ => crate::rows::Order::Depth,
+            Self::Pick | Self::Seek => crate::rows::Rank::Score,
+            _ => crate::rows::Rank::Depth,
         }
     }
     /// Flat lists start labelled by name, with only the parents that tell

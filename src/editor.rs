@@ -28,8 +28,8 @@ pub enum Field {
     Palettes,
     /// The Keys screen's query.
     Keys,
-    /// The command picker's query (`:`).
-    Commands,
+    /// A picker's query (`:`, the sorting picker).
+    Picker,
 }
 impl Field {
     fn single_line(self) -> bool {
@@ -41,7 +41,7 @@ impl Field {
                 | Self::Extraction
                 | Self::Command
                 | Self::Keys
-                | Self::Commands
+                | Self::Picker
         )
     }
 }

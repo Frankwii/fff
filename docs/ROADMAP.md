@@ -12,26 +12,6 @@ The preview pane stays text only; there will be no image previews: see
 
 The goals for the first release, the README last.
 
-### Sorting
-
-Results are ranked by depth and match quality today (match quality first in
-`fff pick` and `fff seek`). A key would open a
-sorting picker, a chooser like the others: type or move to choose the
-criterion, Tab switches between ascending and descending. Criteria:
-
-- name, alphabetically (and naturally, so `file2` comes before `file10`);
-- size (a folder by the files below it, as the size column shows it, once
-  added up);
-- last modification, last access, and creation where the filesystem records
-  it;
-- extension, then name;
-- kind: folders first, then files, then links;
-- depth, then name.
-
-The order applies among the fuzzy matches of the current query: the query
-still decides what is listed, the sort only how. The chosen order would show
-on the results' border and could be the default in the configuration.
-
 ### Named workspaces
 
 `fff --resume` keeps only the last session, so a recurring setup (the papers
@@ -186,11 +166,11 @@ is λ → ∞ (a max), the second λ = 0. A finite λ, a setting per program, wo
 let a much better match rise above a shallower poor one, as a softmax
 weighs rather than picks; a penalty growing more slowly with depth (such as
 `λ·log(1 + depth)`) would count the first levels most. It is a change to
-`rows::Order` alone and costs nothing: rows are compared on one number
+`rows::Rank` alone and costs nothing: rows are compared on one number
 instead of two, and an empty query, every score equal, still ranks by
 depth. While a scan runs, a deep good match could arrive above rows already
-shown, as in `fff pick` today. With [sorting](#sorting), this would be the
-default criterion and λ its setting. To decide: λ's scale against nucleo's
+shown, as in `fff pick` today. With [sorting](../README.md#sorting), this would be the
+`ranking` order and λ its setting. To decide: λ's scale against nucleo's
 scores, and whether the score is taken per letter of the query so that
 depth weighs the same as the query grows.
 

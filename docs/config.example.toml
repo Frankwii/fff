@@ -14,6 +14,12 @@ message_seconds = 4
 # Details on the right of each result row, any of "permissions", "size"
 # (directories: entry count) and "modified" (time since); [] shows none.
 columns = ["size", "modified"]
+# The order results start in: "ranking" (each program's: depth, then the best
+# match), or "name", "size", "modified", "accessed", "created", "extension",
+# "kind" or "depth" (gs chooses for the session).
+sort = "ranking"
+# With a criterion, sort the other way: largest, newest or last first.
+sort_descending = false
 # Clicks, drags and the wheel act on the results; false leaves the mouse to
 # the terminal (text selection).
 mouse = true

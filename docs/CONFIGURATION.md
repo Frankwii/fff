@@ -51,7 +51,8 @@ openers, icons, columns, the mouse and the button bar, live updates, the
 trash, cache and performance limits, message timing and syntax colors.
 `--no-icons` and `--palette` still win over the file. A palette
 chosen with Alt+p stays for the session; otherwise the file's palette takes
-over. `[ui] preview` says how a session starts, so the pane stays as it is.
+over. `[ui] preview` and `[ui] sort` say how a session starts, so the pane
+and the order stay as they are.
 A file that does not exist yet is created by the editor; with `--no-config`
 there is nothing to edit.
 
@@ -206,6 +207,21 @@ icons = false
 
 or pass `--no-icons` for one invocation. Icons never affect matching, numbering,
 or output paths, and the row layout has the same width either way.
+
+## Sorting
+
+```toml
+[ui]
+sort = "ranking"          # or "name", "size", "modified", "accessed", "created", "extension", "kind", "depth"
+sort_descending = false   # with a criterion: largest, newest or last first
+```
+
+The order sessions start in; `"ranking"` is each program's own (depth, then
+the best match; the best match first in `fff pick` and `fff seek`). `gs`
+changes it for the session (see [sorting](../README.md#sorting)); like
+`[ui] preview`, it says how a session starts, so `gc` leaves the session's
+order as it is. Sizes, dates and kinds are read for every match before it
+is ranked, which takes a moment in a large listing.
 
 ## Result details
 

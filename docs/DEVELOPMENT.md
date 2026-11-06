@@ -16,7 +16,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/discovery.rs` | Cancellable breadth-first traversal, each depth's folders read on several threads and its paths attributed to their roots there, batches, backpressure, the path limit, freshness and scan reconciliation. |
 | `src/grep.rs` | The contents query (the `App::grep` field, in every program): extraction into the text cache, the search on worker threads, and the rows it shows (one per match). |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
-| `src/rows.rs` | The results' order (`Order`) and the ranked rows (`Rows`): sorted runs merged lazily, and the one way to read every row in order (`Rows::all`). |
+| `src/rows.rs` | The results' order (`Order`: the program's `Rank` or a chosen `Sort`), each row's key (`Key`: its score and a sort's value read from the filesystem), natural name comparison, and the ranked rows (`Rows`): sorted runs merged lazily, and the one way to read every row in order (`Rows::all`). |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
@@ -85,12 +85,22 @@ scans delivered), ranked in one order. `src/rows.rs` holds that order and
 the rows; `App::refresh` decides when they are ranked again or merged.
 
 - **The order** is one value, `rows::Order`, which every comparison of rows
-  goes through (`Order::cmp`, on a row and its match score). Today it has
-  two variants, chosen by the program (`Program::order`, read as
-  `App::order`): `Depth` (depth, folders first, best match, root order, then
-  the path's bytes, which break every tie) and `Score` (`fff pick` and `fff
-  seek`: best match first, then as `Depth`). The order is part of what the
-  rows were ranked for (`RefreshBasis`), so another order ranks them again.
+  goes through (`Order::cmp`, on a row and its key). It is the program's
+  ranking (`Program::rank`): `Rank::Depth` (depth, folders first, best
+  match, root order, then the path's bytes, which break every tie) or
+  `Rank::Score` (`fff pick` and `fff seek`: best match first, then as
+  `Depth`); with a sort chosen in the sorting picker (`App::sort`, `gs`,
+  `[ui] sort`), the `Sort`'s criterion first and the ranking for its ties.
+  `App::order` puts the two together. The order is part of what the rows
+  were ranked for (`RefreshBasis`), so another order ranks them again.
+- **Keys.** Each row is ranked by a `rows::Key`: its match score and, for
+  a sort by size, dates or kind, a value read from the filesystem (an
+  `lstat`; a folder's size from the totals `sizes::Totals` holds, which
+  sort last until added up). `Order::key` reads it when a row is scored,
+  in `Job::rank_piece` and `App::merge`, so comparisons never touch the
+  filesystem; rows ranked again for a longer query keep their values.
+  Names, extensions and depth need no value. `App::set_sort` ranks every
+  known path again, reading the values afresh.
 - **The rows** (`rows::Rows`) are sorted runs (`Run`: rows and their scores,
   in order), each sorted on its own. A ranking produces one run. A scan's
   new paths are filtered, scored and sorted in rounds (`App::merge`), and
@@ -140,10 +150,8 @@ the rows; `App::refresh` decides when they are ranked again or merged.
 
 Where the features of the [roadmap](ROADMAP.md#post-launch) plug in:
 
-- **Sorting**: a variant of `Order` with its comparison in `Order::cmp`,
-  chosen in `App::order` instead of the program's. A key the rows do not
-  carry (size, dates) has to be read before ranking, since comparisons
-  never touch the filesystem.
+- **Another sort criterion**: a `rows::Criterion` with its comparison in
+  `Sort::cmp` and, when it needs the filesystem, its value in `value`.
 - **A tree view**: an order comparing paths by their components (a folder
   before its contents, siblings by name), with the listing also keeping the
   folders leading to each match (`Listing::listed`, `App::listed`).
@@ -172,7 +180,8 @@ share runs, so merging a run they share copies it, as it did before.
   roots. Overlap attribution uses minimum positive depth, then scope order.
 - Sort by depth, directories before files, fuzzy score, root order, then original
   absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before
-  depth (`Program::order`, see [how rows are kept](#how-rows-are-kept-and-ordered)).
+  depth (`Program::rank`); a sort from the sorting picker comes before
+  either, which then breaks its ties (see [how rows are kept](#how-rows-are-kept-and-ordered)).
   Query edits do not restart discovery. Scans merge new paths into the ranked
   rows within a time budget, as sorted runs of their own: no row already
   ranked moves, so a scan's merge costs about sorting what it inserts. Every
@@ -247,6 +256,11 @@ Where a change usually has to touch, so that none is missed:
   (`src/ui/focus.rs`) and, for a text field, a `Field` (`src/editor.rs`)
   mapped in `focused_text` (`src/ui/input.rs`). A `view` frame test pins its
   layout.
+- **A picker** (named choices filtered as you type, like `:` and `gs`): a
+  `ui::Picker` variant, its choices (`Picker::all`, as `ui::Choice`s), what
+  Enter does with one in `picker_key` (`src/ui/dispatch.rs`) and its title
+  and columns in `picker` (`src/view/choosers.rs`); the matching, keys,
+  field and list are shared.
 - **A file operation:** a `Request` variant and its method after `prepare`
   (`src/operations.rs`), undo steps (`src/undo.rs`), a plan or confirmation
   started as a job from `src/ui/actions.rs`, and the

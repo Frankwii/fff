@@ -48,6 +48,10 @@ pub(super) fn results_pane(
     let app = &*app;
     let visible: Vec<_> = app.shown_from(app.offset).take(page).collect();
     let last = (app.offset + visible.len()).min(app.shown_len());
+    let order = match app.sort {
+        Some(sort) => format!(" · sorted by {}", sort.label()),
+        None => String::new(),
+    };
     let range = if visible.is_empty() {
         " 0 results ".into()
     } else {
@@ -57,7 +61,7 @@ pub(super) fn results_pane(
         block
             .title_top(tab_strip(app))
             .title_bottom(Line::from(styled(
-                format!(" depth {} ", app.depth),
+                format!(" depth {}{order} ", app.depth),
                 theme.text,
             )))
             .title_bottom(Line::from(styled(range, theme.muted)).right_aligned()),

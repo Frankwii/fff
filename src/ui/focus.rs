@@ -43,7 +43,7 @@ impl Session {
             Focus::BookmarkEdit(_) => self.bookmark_edit_key(app, key),
             Focus::BookmarkIcons { .. } => self.bookmark_icons_key(app, key),
             Focus::BookmarkDelete { .. } => self.bookmark_delete_key(app, key),
-            Focus::Info { .. } | Focus::Keys(_) | Focus::Commands { .. } => {}
+            Focus::Info { .. } | Focus::Keys(_) | Focus::Picker { .. } => {}
             Focus::Command(_) => self.command_key(app, key),
             Focus::Location(_) => self.location_key(app, key),
             // Keys never reach here while checks run, in the jobs list or

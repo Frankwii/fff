@@ -236,6 +236,9 @@ pub struct App {
     /// sharing one (`labels`), rather than their path below the folder
     /// searched: `Program::short_labels` to start, `toggle_labels` after.
     pub short_labels: bool,
+    /// The sorting picker's choice (`[ui] sort` to start): the matches
+    /// sorted by it rather than as the program ranks them (`order`).
+    pub sort: Option<rows::Sort>,
     /// What `short_labels` was when the rows on screen were last labelled:
     /// while another ranking labels them again, they keep their labels.
     shown_labels: Option<bool>,
@@ -375,6 +378,7 @@ impl App {
             keys_broken: None,
             kinds: Kinds::All,
             short_labels: false,
+            sort: None,
             shown_labels: None,
             labels_chosen: false,
             labels: HashMap::new(),
@@ -592,10 +596,22 @@ impl App {
         self.poll_grep();
         false
     }
-    /// The order rows are ranked in: the program's. A sorting picker
-    /// would choose another here.
+    /// The order rows are ranked in: the program's ranking, or the sort
+    /// chosen with the ranking breaking its ties.
     pub fn order(&self) -> rows::Order {
-        self.program().order()
+        rows::Order {
+            rank: self.program().rank(),
+            sort: self.sort,
+        }
+    }
+    /// Sort the matches by `sort`, or rank them as the program does with
+    /// `None`. Each choice reads the values again (a folder's size added
+    /// up since), even when it was the order already.
+    pub fn set_sort(&mut self, sort: Option<rows::Sort>) {
+        self.sort = sort;
+        self.cancel_ranking();
+        self.refreshed = None;
+        self.refresh();
     }
     /// Every row on screen, in order: the ranked rows, or with a contents
     /// query, one row per match in their files' order. The one way to read
@@ -1109,12 +1125,13 @@ impl App {
                 let job = ranking::Job {
                     base: vec![Arc::new(rows::Run {
                         rows: self.known.values().cloned().collect(),
-                        scores: Vec::new(),
+                        keys: Vec::new(),
                     })],
                     listing: Some(self.listing()),
                     query: folded.clone(),
                     labels: Some(self.short_labels),
                     order: self.order(),
+                    totals: self.details.totals(),
                 };
                 // This job takes over the additions and removals discarded
                 // above, so the rows on screen cannot be narrowed after it.
@@ -1129,16 +1146,18 @@ impl App {
                 query: folded.clone(),
                 labels: None,
                 order: self.order(),
+                totals: self.details.totals(),
             },
             None => ranking::Job {
                 base: vec![Arc::new(rows::Run {
                     rows: self.known.values().cloned().collect(),
-                    scores: Vec::new(),
+                    keys: Vec::new(),
                 })],
                 listing: Some(self.listing()),
                 query: folded.clone(),
                 labels: None,
                 order: self.order(),
+                totals: self.details.totals(),
             },
         };
         self.start_ranking(job, basis, folded, shown);
@@ -1310,6 +1329,7 @@ impl App {
         let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
         let order = self.order();
+        let totals = self.details.totals();
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {
@@ -1334,14 +1354,14 @@ impl App {
             }
             let mut added: Vec<_> = listed
                 .into_iter()
-                .filter_map(|c| Some((score_of(&c)?, c)))
+                .filter_map(|c| Some((order.key(&c, score_of(&c)?, &totals), c)))
                 .collect();
             added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
             if !added.is_empty() {
                 self.rows_version += 1;
                 // A run of its own: rows ranked already stay where they are.
-                let (scores, rows) = added.into_iter().unzip();
-                self.rows.push(order, rows::Run { rows, scores });
+                let (keys, rows) = added.into_iter().unzip();
+                self.rows.push(order, rows::Run { rows, keys });
             }
             if self.yield_now(budget, start) {
                 break;

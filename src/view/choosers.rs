@@ -630,32 +630,50 @@ fn available(app: &App, path: &Path) -> bool {
         None => true,
     }
 }
-/// `:`: the functions that work where it was pressed, with the key each has
-/// there in Normal mode, best match first.
-pub(super) fn commands(
+/// A picker (`ui::Picker`): its choices matching the query, best match
+/// first. `:`'s functions show the key each has where it was pressed in
+/// Normal mode; the sorting picker's orders, which is the current one, and
+/// its title the direction Tab switches.
+pub(super) fn picker(
     frame: &mut Frame,
     area: Rect,
     app: &App,
     query: &str,
     index: usize,
-    here: crate::keymap::Cell,
+    kind: Picker,
 ) -> (usize, Vec<(Rect, usize)>) {
     use crate::keymap::Mode;
     let theme = app.palette;
+    let every = kind.choices("").len() as u16;
     let width = area.width.saturating_sub(4).min(110);
-    let height = area.height.saturating_sub(4).min(24);
+    let height = area.height.saturating_sub(4).min(24).min(every + 4);
     let dialog = centered(area, width, height);
+    let (enter, esc) = (app.key_or_none("enter"), app.key_or_none("esc"));
+    let (title, prompt, placeholder, name_width) = match kind {
+        Picker::Commands(_) => (
+            format!("Commands · {enter} runs · {esc} cancels"),
+            ":".to_string(),
+            "type a function's name or words of what it does…",
+            28,
+        ),
+        Picker::Sort { descending } => {
+            let (now, other, arrow) = if descending {
+                ("descending", "ascending", "↓")
+            } else {
+                ("ascending", "descending", "↑")
+            };
+            let tab = app.key_or_none("tab");
+            (
+                format!("Sort {now} · {tab} {other} · {enter} sorts · {esc} cancels"),
+                arrow.to_string(),
+                "type a criterion's name or words of what it does…",
+                12,
+            )
+        }
+    };
     let block = panel(
         theme,
-        mode_title(
-            app,
-            Field::Commands,
-            &format!(
-                "Commands · {} runs · {} cancels",
-                app.key_or_none("enter"),
-                app.key_or_none("esc")
-            ),
-        ),
+        mode_title(app, Field::Picker, &title),
         true,
         theme.accent,
     )
@@ -665,18 +683,15 @@ pub(super) fn commands(
     frame.render_widget(block, dialog);
     let (mut line, cursor) = editable_line(
         app,
-        Field::Commands,
+        Field::Picker,
         query,
         0,
         inner.width.saturating_sub(2) as usize,
     );
     if query.is_empty() {
-        line = Line::from(styled(
-            "type a function's name or words of what it does…",
-            theme.muted,
-        ));
+        line = Line::from(styled(placeholder, theme.muted));
     }
-    line.spans.insert(0, bold(":", theme.accent));
+    line.spans.insert(0, bold(prompt, theme.accent));
     line.spans.insert(1, Span::raw(" "));
     frame.render_widget(
         Paragraph::new(line),
@@ -688,7 +703,7 @@ pub(super) fn commands(
     command_line(
         frame,
         app,
-        Field::Commands,
+        Field::Picker,
         Rect::new(inner.x, inner.y + 1, inner.width, 1),
     );
     let list = Rect::new(
@@ -697,30 +712,38 @@ pub(super) fn commands(
         inner.width,
         inner.height.saturating_sub(2),
     );
-    let found = crate::ui::commands(here, query);
+    let found = kind.choices(query);
     if found.is_empty() {
-        frame.render_widget(
-            Paragraph::new(styled("Nothing that works here matches.", theme.muted)),
-            list,
-        );
+        let none = match kind {
+            Picker::Commands(_) => "Nothing that works here matches.",
+            Picker::Sort { .. } => "No order matches.",
+        };
+        frame.render_widget(Paragraph::new(styled(none, theme.muted)), list);
         return (list.height as usize, Vec::new());
     }
     let room = (list.width as usize).saturating_sub(2);
     let items: Vec<ListItem> = found
         .iter()
-        .map(|&f| {
-            let key = app
-                .keymap
-                .of(f, Mode::Normal)
-                .into_iter()
-                .find(|b| b.applies(here))
-                .map(|b| b.display())
-                .unwrap_or_default();
+        .map(|&choice| {
+            let aside = match (choice, kind) {
+                (Choice::Function(f), Picker::Commands(here)) => app
+                    .keymap
+                    .of(f, Mode::Normal)
+                    .into_iter()
+                    .find(|b| b.applies(here))
+                    .map(|b| b.display())
+                    .unwrap_or_default(),
+                (Choice::Sort(by), _) if app.sort.map(|s| s.by) == by => match app.sort {
+                    Some(sort) => format!("current {}", sort.arrow()),
+                    None => "current".into(),
+                },
+                _ => String::new(),
+            };
             ListItem::new(Line::from(vec![
-                bold(format!("{:<28}", f.name()), theme.function),
-                bold(format!("{:<12}", truncate(&key, 11)), theme.accent),
+                bold(format!("{:<name_width$}", choice.name()), theme.function),
+                bold(format!("{:<12}", truncate(&aside, 11)), theme.accent),
                 styled(
-                    truncate(f.description(), room.saturating_sub(40)),
+                    truncate(choice.description(), room.saturating_sub(name_width + 12)),
                     theme.muted,
                 ),
             ]))

@@ -274,6 +274,8 @@ struct UiConfig {
     watch: bool,
     preview: bool,
     highlight: bool,
+    sort: String,
+    sort_descending: bool,
 }
 /// `[ui] buttons`: when the button bar is shown (opt-in).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -299,6 +301,8 @@ impl Default for UiConfig {
             watch: true,
             preview: true,
             highlight: true,
+            sort: "ranking".into(),
+            sort_descending: false,
         }
     }
 }
@@ -337,6 +341,9 @@ pub struct Settings {
     pub preview: bool,
     /// `[ui] highlight`: color the syntax of text previews.
     pub highlight: bool,
+    /// `[ui] sort` and `sort_descending`: the order sessions start in;
+    /// `None` ranks as the program does.
+    pub sort: Option<crate::rows::Sort>,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
     pub trash: TrashConfig,
@@ -375,6 +382,19 @@ impl Settings {
         if raw.ui.buttons_seconds > 3600 {
             return Err("ui.buttons_seconds must be 0..3600 (0 keeps the buttons)".into());
         }
+        let sort = match raw.ui.sort.as_str() {
+            "ranking" => None,
+            name => Some(crate::rows::Sort {
+                by: crate::rows::Criterion::named(name).ok_or_else(|| {
+                    let names: Vec<_> = crate::rows::Criterion::ALL.map(|c| c.name()).into();
+                    format!(
+                        "ui.sort must be \"ranking\" or one of {}, got {name:?}",
+                        names.join(", ")
+                    )
+                })?,
+                descending: raw.ui.sort_descending,
+            }),
+        };
         if raw.ui.buttons != Buttons::Off && !raw.ui.mouse {
             return Err("ui.buttons needs ui.mouse = true: buttons are clicked".into());
         }
@@ -444,6 +464,7 @@ impl Settings {
             watch: raw.ui.watch,
             preview: raw.ui.preview,
             highlight: raw.ui.highlight,
+            sort,
             open: raw.open,
             trash,
             exclusions: raw.exclusions.rules,

@@ -678,6 +678,7 @@ functions! {
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, leaving the highlight where it is.";
     ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with only the parent folders that tell same-named entries apart (folder1/main.pdf), or by their path below the folder searched. fff pick starts with names, the others with paths; the choice stays when switch_program changes program.";
     ShowPalettes "show_palettes" View "Show the palettes: the highlighted one is previewed after a moment, and Enter keeps it for the session.";
+    ShowSorting "show_sorting" View "Show the sorting picker: sort the matches by name, size, a date, extension, kind or depth, or as the program ranks them; Tab switches between ascending and descending. The query still decides what is listed.";
     ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen for the session.";
     MoveMarked "move_marked" Files "Move the marked paths into the current directory. Asks first when that would overwrite anything.";
     CopyMarked "copy_marked" Files "Copy the marked paths into the current directory. Asks first when that would overwrite anything.";
@@ -754,7 +755,7 @@ impl Function {
             HighlightFirst | HighlightLast | MarkAll | InvertMarks | Run | RunAndQuit
             | MoveMarked | CopyMarked | LinkMarked | Trash | Delete | Extract | Undo | Restore
             | Quit | EditConfig => only_normal(lists),
-            Rename | Create | ClearQuery | SearchToDepth => only_normal(results),
+            Rename | Create | ClearQuery | SearchToDepth | ShowSorting => only_normal(results),
             SwitchQuery => both(scope(&[], &[Results], &[])),
             GoToParent | GoToPath | ShowBookmarks | GoToTrash | GoBack | GoForward
             | GoToNextTab | GoToPreviousTab | ToggleDirectories | ToggleFiles => {
@@ -1007,6 +1008,7 @@ impl Function {
             ShowKeys => &[("<F1>", all)],
             ShowSession => &[("<F2>", all)],
             ShowPalettes => &[("gp", all)],
+            ShowSorting => &[("gs", all)],
             ReloadPalette => &[("gP", all)],
             EditConfig => &[("gc", all)],
             SwitchProgram => &[("gm", all)],

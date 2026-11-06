@@ -4,6 +4,19 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **The results can be sorted**: `gs` in Normal mode (`show_sorting`) opens
+  a sorting picker, a chooser like `:`, to sort the matches by name
+  (naturally: `file2` before `file10`), size (a folder's once added up), last
+  modification, last access, creation, extension, kind (folders, files,
+  links) or depth, or to go back to the program's ranking. Tab there
+  switches between ascending and descending. The query still decides what is
+  listed, the results' border names the order (`sorted by size ↓`), and
+  `[ui] sort` and `sort_descending` choose the one sessions start in.
+
 ## 0.18.1 — 2026-11-04
 
 Listing a large tree is a little faster.

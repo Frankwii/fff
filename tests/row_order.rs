@@ -507,3 +507,123 @@ fn forgotten_and_replaced_paths_leave_the_rows_in_order() {
     assert_eq!(app.rows.len(), 4 + 12 + 200);
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() {
+    use fuzzy_file_finder::rows::{Criterion, Sort};
+    let paths = tree();
+    for by in [Criterion::Name, Criterion::Extension, Criterion::Depth] {
+        for descending in [false, true] {
+            let sort = Some(Sort { by, descending });
+            let sorted = |query: &str, paths: &[Candidate]| {
+                let mut app = app(Program::Roam);
+                app.sort = sort;
+                app.query = query.into();
+                for c in paths {
+                    app.insert(0, c.clone());
+                }
+                app.refresh();
+                names(&app)
+            };
+            let mut app = app(Program::Roam);
+            app.set_sort(sort);
+            app.query = "f".into();
+            for batch in paths.chunks(97) {
+                for c in batch {
+                    app.insert(0, c.clone());
+                }
+                app.refresh_within(Some(Duration::ZERO));
+            }
+            while !app.settled() {
+                app.refresh_within(Some(Duration::ZERO));
+            }
+            assert_eq!(names(&app), sorted("f", &paths), "{by:?} {descending}");
+            // Narrowing the query keeps the order.
+            app.query = "f1".into();
+            app.refresh();
+            assert_eq!(names(&app), sorted("f1", &paths), "{by:?} {descending}");
+        }
+    }
+    // By name: naturally, whatever the depth; the ranking breaks ties.
+    let mut app = app(Program::Roam);
+    for (name, depth) in [("f10", 1), ("d/F2", 2), ("f1", 1), ("d/f1", 2)] {
+        app.insert(0, candidate(name, false, depth, 0));
+    }
+    app.set_sort(Some(Sort {
+        by: Criterion::Name,
+        descending: false,
+    }));
+    let want = [
+        "/fixture/f1",
+        "/fixture/d/f1",
+        "/fixture/d/F2",
+        "/fixture/f10",
+    ];
+    assert_eq!(names(&app), want);
+    // Back to the program's ranking.
+    app.set_sort(None);
+    assert_eq!(names(&app)[0], "/fixture/f1");
+    assert_eq!(names(&app)[1], "/fixture/f10");
+}
+
+#[test]
+fn sizes_dates_and_kinds_are_read_from_the_filesystem() {
+    use fuzzy_file_finder::rows::{Criterion, Sort};
+    let root = std::env::temp_dir().join(format!("fff-sort-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("folder")).unwrap();
+    let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+    for (name, bytes, age) in [("small", 1, 3), ("large", 300, 1), ("medium", 20, 2)] {
+        let path = root.join(name);
+        std::fs::write(&path, vec![b'x'; bytes]).unwrap();
+        let file = std::fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(old - Duration::from_secs(age * 60))
+            .unwrap();
+    }
+    std::os::unix::fs::symlink(root.join("small"), root.join("link")).unwrap();
+    let mut app = App::new(vec![root.clone()], 1, Policy::default());
+    for (name, directory) in [
+        ("small", false),
+        ("large", false),
+        ("medium", false),
+        ("link", false),
+        ("folder", true),
+    ] {
+        app.insert(
+            0,
+            Candidate {
+                path: root.join(name),
+                directory,
+                depth: 1,
+                root: 0,
+            },
+        );
+    }
+    let sorted = |app: &mut App, by, descending| {
+        app.set_sort(Some(Sort { by, descending }));
+        app.rows
+            .iter()
+            .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+    };
+    // The folder's size is not added up: it comes last either way. A
+    // link's size is its target's.
+    assert_eq!(
+        sorted(&mut app, Criterion::Size, true),
+        ["large", "medium", "link", "small", "folder"]
+    );
+    assert_eq!(
+        sorted(&mut app, Criterion::Size, false),
+        ["link", "small", "medium", "large", "folder"]
+    );
+    // The link and the folder were made now, after the files.
+    assert_eq!(
+        sorted(&mut app, Criterion::Modified, false)[..3],
+        ["small", "medium", "large"]
+    );
+    assert_eq!(
+        sorted(&mut app, Criterion::Kind, false),
+        ["folder", "large", "medium", "small", "link"]
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+}

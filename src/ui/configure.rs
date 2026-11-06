@@ -83,7 +83,8 @@ impl Session {
         Ok(())
     }
     /// Everything `settings` sets, as `main` applies it at startup, except
-    /// `[ui] preview`, which only says how a session starts. The palette is
+    /// `[ui] preview` and `[ui] sort`, which only say how a session starts.
+    /// The palette is
     /// the watcher's: it keeps a palette chosen with Alt+p.
     fn apply_settings(
         &mut self,

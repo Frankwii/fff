@@ -3,14 +3,12 @@
 //! variant here rather than a change to ranking and merging. The rows are
 //! sorted runs, merged lazily: only as far as a reader looks, or all at
 //! once for whatever needs every row in order (`Rows::all`).
-use crate::Candidate;
-use std::{cell::OnceCell, cmp::Ordering, sync::Arc};
+use crate::{Candidate, sizes::Totals};
+use std::{cell::OnceCell, cmp::Ordering, path::Path, sync::Arc, time::SystemTime};
 
-/// How rows are ordered. Each program has one (`Program::order`, read as
-/// `App::order`); a sorting picker would add variants and choose among them
-/// there.
+/// How a program ranks its rows (`Program::rank`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Order {
+pub enum Rank {
     /// Depth, directories first, best score, root order, then pathname
     /// bytes, which break every tie.
     #[default]
@@ -18,9 +16,8 @@ pub enum Order {
     /// The best score first, then as `Depth` (`fff pick` and `fff seek`).
     Score,
 }
-impl Order {
-    /// Compares two rows with their scores for the current query.
-    pub fn cmp(self, a: &Candidate, score_a: i64, b: &Candidate, score_b: i64) -> Ordering {
+impl Rank {
+    fn cmp(self, a: &Candidate, score_a: i64, b: &Candidate, score_b: i64) -> Ordering {
         let score = score_b.cmp(&score_a);
         let depth = a.depth.cmp(&b.depth).then(b.directory.cmp(&a.directory));
         let (first, second) = match self {
@@ -34,12 +31,233 @@ impl Order {
     }
 }
 
-/// Rows sorted in one order, with their scores for the query they were
+/// What the sorting picker sorts the matches by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Criterion {
+    /// Names alphabetically, numbers by value: `file2` before `file10`.
+    Name,
+    /// A file's size; a folder's, the files below it once added up.
+    Size,
+    Modified,
+    Accessed,
+    /// Where the filesystem records it.
+    Created,
+    /// The extension, then the name.
+    Extension,
+    /// Folders, then files, then links.
+    Kind,
+    /// The depth, then the name.
+    Depth,
+}
+impl Criterion {
+    pub const ALL: [Self; 8] = [
+        Self::Name,
+        Self::Size,
+        Self::Modified,
+        Self::Accessed,
+        Self::Created,
+        Self::Extension,
+        Self::Kind,
+        Self::Depth,
+    ];
+    /// Its name in the picker and the configuration.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Size => "size",
+            Self::Modified => "modified",
+            Self::Accessed => "accessed",
+            Self::Created => "created",
+            Self::Extension => "extension",
+            Self::Kind => "kind",
+            Self::Depth => "depth",
+        }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Name => "Names alphabetically, numbers in them by value: file2 before file10.",
+            Self::Size => {
+                "Sizes; a folder's is the files below it, once added up (until then it comes last)."
+            }
+            Self::Modified => "When each entry was last modified.",
+            Self::Accessed => "When each entry was last read.",
+            Self::Created => {
+                "When each entry was created, where the filesystem records it (others come last)."
+            }
+            Self::Extension => "Extensions alphabetically, then names.",
+            Self::Kind => "Folders, then files, then links.",
+            Self::Depth => "Depth below the folder searched, then names.",
+        }
+    }
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.name() == name)
+    }
+    /// Its rows need a value read from the filesystem before ranking.
+    fn reads(self) -> bool {
+        matches!(
+            self,
+            Self::Size | Self::Modified | Self::Accessed | Self::Created | Self::Kind
+        )
+    }
+}
+
+/// A criterion and its direction, chosen in the sorting picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sort {
+    pub by: Criterion,
+    pub descending: bool,
+}
+impl Sort {
+    /// How the results' border names it: `name ↑`.
+    pub fn label(self) -> String {
+        format!("{} {}", self.by.name(), self.arrow())
+    }
+    /// Its direction: ↑ ascending, ↓ descending.
+    pub fn arrow(self) -> &'static str {
+        if self.descending { "↓" } else { "↑" }
+    }
+    fn cmp(self, a: &Candidate, value_a: i64, b: &Candidate, value_b: i64) -> Ordering {
+        // Values not known come last, whichever the direction.
+        let unknown = (value_a == UNKNOWN).cmp(&(value_b == UNKNOWN));
+        let name = || natural(&name(&a.path), &name(&b.path));
+        let by = match self.by {
+            Criterion::Name => name(),
+            Criterion::Extension => {
+                natural(&extension(&a.path), &extension(&b.path)).then_with(name)
+            }
+            Criterion::Depth => a.depth.cmp(&b.depth).then_with(name),
+            Criterion::Size
+            | Criterion::Modified
+            | Criterion::Accessed
+            | Criterion::Created
+            | Criterion::Kind => value_a.cmp(&value_b),
+        };
+        unknown.then(if self.descending { by.reverse() } else { by })
+    }
+}
+
+/// A row's value that could not be read: it sorts last.
+const UNKNOWN: i64 = i64::MIN;
+
+/// How rows are ordered: the program's ranking (`Program::rank`), or a
+/// sort chosen in the picker with the ranking breaking its ties. Read as
+/// `App::order`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Order {
+    pub rank: Rank,
+    pub sort: Option<Sort>,
+}
+impl From<Rank> for Order {
+    fn from(rank: Rank) -> Self {
+        Self { rank, sort: None }
+    }
+}
+impl Order {
+    /// Compares two rows with their keys for the current query.
+    pub fn cmp(self, a: &Candidate, key_a: Key, b: &Candidate, key_b: Key) -> Ordering {
+        let ranked = || self.rank.cmp(a, key_a.score, b, key_b.score);
+        match self.sort {
+            Some(sort) => sort.cmp(a, key_a.value, b, key_b.value).then_with(ranked),
+            None => ranked(),
+        }
+    }
+    /// A row's key for its `score`. For a sort by what the filesystem
+    /// records (sizes, dates, links), its value is read here, before
+    /// ranking: comparisons never touch the filesystem.
+    pub fn key(self, c: &Candidate, score: i64, totals: &Totals) -> Key {
+        let value = match self.sort {
+            Some(sort) if sort.by.reads() => value(sort.by, c, totals),
+            _ => 0,
+        };
+        Key { score, value }
+    }
+}
+
+/// What a row is ranked by: its match score and, for a sort by size,
+/// dates or kind, the value read for it (`Order::key`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Key {
+    pub score: i64,
+    pub value: i64,
+}
+
+/// `c`'s value for `by`, `UNKNOWN` when it cannot be read.
+fn value(by: Criterion, c: &Candidate, totals: &Totals) -> i64 {
+    let path = c.path.as_path();
+    let stamp = |time: std::io::Result<SystemTime>| {
+        let Ok(time) = time else {
+            return UNKNOWN;
+        };
+        match time.duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(after) => i64::try_from(after.as_nanos()).unwrap_or(i64::MAX),
+            Err(before) => i64::try_from(before.duration().as_nanos()).map_or(UNKNOWN + 1, |n| -n),
+        }
+    };
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return UNKNOWN;
+    };
+    let bytes = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
+    match by {
+        Criterion::Size if c.directory => totals.bytes(path).map_or(UNKNOWN, bytes),
+        // A link's size is its target's, as the size column shows it.
+        Criterion::Size if meta.is_symlink() => {
+            std::fs::metadata(path).map_or(UNKNOWN, |m| bytes(m.len()))
+        }
+        Criterion::Size => bytes(meta.len()),
+        Criterion::Modified => stamp(meta.modified()),
+        Criterion::Accessed => stamp(meta.accessed()),
+        Criterion::Created => stamp(meta.created()),
+        Criterion::Kind if meta.is_symlink() => 2,
+        Criterion::Kind if meta.is_dir() => 0,
+        Criterion::Kind => 1,
+        Criterion::Name | Criterion::Extension | Criterion::Depth => 0,
+    }
+}
+fn name(path: &Path) -> std::borrow::Cow<'_, str> {
+    path.file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
+}
+fn extension(path: &Path) -> std::borrow::Cow<'_, str> {
+    path.extension().unwrap_or_default().to_string_lossy()
+}
+/// Compares names alphabetically, ignoring case, and the numbers in them
+/// by value (`file2` before `file10`); names equal so are told apart by
+/// their bytes.
+pub fn natural(a: &str, b: &str) -> Ordering {
+    let (mut x, mut y) = (a, b);
+    loop {
+        let (Some(c), Some(d)) = (x.chars().next(), y.chars().next()) else {
+            return (!x.is_empty()).cmp(&!y.is_empty()).then_with(|| a.cmp(b));
+        };
+        if c.is_ascii_digit() && d.is_ascii_digit() {
+            let n = x.bytes().take_while(u8::is_ascii_digit).count();
+            let m = y.bytes().take_while(u8::is_ascii_digit).count();
+            let (p, q) = (
+                x[..n].trim_start_matches('0'),
+                y[..m].trim_start_matches('0'),
+            );
+            let by = p.len().cmp(&q.len()).then_with(|| p.cmp(q));
+            if by.is_ne() {
+                return by;
+            }
+            (x, y) = (&x[n..], &y[m..]);
+            continue;
+        }
+        let by = c.to_lowercase().cmp(d.to_lowercase());
+        if by.is_ne() {
+            return by;
+        }
+        (x, y) = (&x[c.len_utf8()..], &y[d.len_utf8()..]);
+    }
+}
+
+/// Rows sorted in one order, with their keys for the query they were
 /// ranked by, in the same order.
 #[derive(Clone, Debug, Default)]
 pub struct Run {
     pub rows: Vec<Arc<Candidate>>,
-    pub scores: Vec<i64>,
+    pub keys: Vec<Key>,
 }
 impl Run {
     pub fn len(&self) -> usize {
@@ -205,13 +423,13 @@ impl Rows {
                 .head
                 .rows
                 .last()
-                .zip(self.head.scores.last())
-                .is_some_and(|(c, s)| order.cmp(&run.rows[0], run.scores[0], c, *s).is_gt());
+                .zip(self.head.keys.last())
+                .is_some_and(|(c, s)| order.cmp(&run.rows[0], run.keys[0], c, *s).is_gt());
         if !late {
             let head = std::mem::take(&mut self.head);
             let mut merged = merge_two(order, head, front(&run));
             merged.rows.truncate(LAZY);
-            merged.scores.truncate(LAZY);
+            merged.keys.truncate(LAZY);
             self.head = merged;
         }
         if whole {
@@ -245,7 +463,7 @@ impl Rows {
             let mut each = kept.iter();
             run.rows.retain(|_| *each.next().expect("one per row"));
             let mut each = kept.iter();
-            run.scores.retain(|_| *each.next().expect("one per row"));
+            run.keys.retain(|_| *each.next().expect("one per row"));
         }
         self.runs.retain(|r| !r.is_empty());
         self.len = self.runs.iter().map(|r| r.len()).sum();
@@ -257,7 +475,7 @@ impl Rows {
             .reduce(|merged, run| merge_two(self.order, merged, run))
             .unwrap_or_default();
         self.head.rows.truncate(LAZY);
-        self.head.scores.truncate(LAZY);
+        self.head.keys.truncate(LAZY);
         if whole && let [all] = self.runs.as_slice() {
             let _ = self.all.set(Arc::clone(all));
         }
@@ -286,18 +504,18 @@ fn front(run: &Run) -> Run {
     let n = run.len().min(LAZY);
     Run {
         rows: run.rows[..n].to_vec(),
-        scores: run.scores[..n].to_vec(),
+        keys: run.keys[..n].to_vec(),
     }
 }
 /// Insert `added` among the rows of `into`, both sorted, in place: rows
 /// ranked before every added one stay where they are, and as scans deliver
 /// shallow paths first, insertions mostly land near the end.
 fn insert(order: Order, into: &mut Run, added: Run) {
-    let Run { rows, scores } = into;
+    let Run { rows, keys } = into;
     // Where an insertion goes: searched back from the end in growing
     // steps, as each lands near the one after it, then halving.
-    let before = |rows: &[Arc<Candidate>], scores: &[i64], c: &Candidate, s: i64| {
-        let lt = |i: usize| order.cmp(&rows[i], scores[i], c, s).is_lt();
+    let before = |rows: &[Arc<Candidate>], keys: &[Key], c: &Candidate, s: Key| {
+        let lt = |i: usize| order.cmp(&rows[i], keys[i], c, s).is_lt();
         let (mut lo, mut hi, mut step) = (rows.len(), rows.len(), 1);
         while lo > 0 && !lt(lo - 1) {
             hi = lo - 1;
@@ -319,14 +537,14 @@ fn insert(order: Order, into: &mut Run, added: Run) {
     let mut end = rows.len();
     let k = added.len();
     rows.resize(end + k, Arc::clone(&added.rows[0]));
-    scores.resize(end + k, 0);
-    for (i, (c, score)) in added.rows.into_iter().zip(added.scores).enumerate().rev() {
-        let at = before(&rows[..end], &scores[..end], &c, score);
+    keys.resize(end + k, Key::default());
+    for (i, (c, score)) in added.rows.into_iter().zip(added.keys).enumerate().rev() {
+        let at = before(&rows[..end], &keys[..end], &c, score);
         // Rows at..end move up by the i + 1 insertions left.
         rows[at..end + i + 1].rotate_right(i + 1);
-        scores.copy_within(at..end, at + i + 1);
+        keys.copy_within(at..end, at + i + 1);
         rows[at + i] = c;
-        scores[at + i] = score;
+        keys[at + i] = score;
         end = at;
     }
 }
@@ -340,31 +558,30 @@ fn owned(run: Arc<Run>) -> Run {
 fn merge_two(order: Order, a: Run, b: Run) -> Run {
     let mut merged = Run {
         rows: Vec::with_capacity(a.len() + b.len()),
-        scores: Vec::with_capacity(a.len() + b.len()),
+        keys: Vec::with_capacity(a.len() + b.len()),
     };
-    let (mut a_rows, mut a_scores) = (a.rows.into_iter(), a.scores.into_iter());
-    let (mut b_rows, mut b_scores) = (b.rows.into_iter(), b.scores.into_iter());
-    while let (Some(head), Some(&score)) = (b_rows.as_slice().first(), b_scores.as_slice().first())
-    {
-        let (rows, scores) = (a_rows.as_slice(), a_scores.as_slice());
+    let (mut a_rows, mut a_keys) = (a.rows.into_iter(), a.keys.into_iter());
+    let (mut b_rows, mut b_keys) = (b.rows.into_iter(), b.keys.into_iter());
+    while let (Some(head), Some(&score)) = (b_rows.as_slice().first(), b_keys.as_slice().first()) {
+        let (rows, keys) = (a_rows.as_slice(), a_keys.as_slice());
         let n = leading(rows.len(), |i| {
-            order.cmp(&rows[i], scores[i], head, score).is_le()
+            order.cmp(&rows[i], keys[i], head, score).is_le()
         });
         merged.rows.extend(a_rows.by_ref().take(n));
-        merged.scores.extend(a_scores.by_ref().take(n));
-        let (Some(head), Some(&score)) = (a_rows.as_slice().first(), a_scores.as_slice().first())
+        merged.keys.extend(a_keys.by_ref().take(n));
+        let (Some(head), Some(&score)) = (a_rows.as_slice().first(), a_keys.as_slice().first())
         else {
             break;
         };
-        let (rows, scores) = (b_rows.as_slice(), b_scores.as_slice());
+        let (rows, keys) = (b_rows.as_slice(), b_keys.as_slice());
         let n = leading(rows.len(), |i| {
-            order.cmp(&rows[i], scores[i], head, score).is_lt()
+            order.cmp(&rows[i], keys[i], head, score).is_lt()
         });
         merged.rows.extend(b_rows.by_ref().take(n));
-        merged.scores.extend(b_scores.by_ref().take(n));
+        merged.keys.extend(b_keys.by_ref().take(n));
     }
     merged.rows.extend(a_rows.chain(b_rows));
-    merged.scores.extend(a_scores.chain(b_scores));
+    merged.keys.extend(a_keys.chain(b_keys));
     merged
 }
 /// How many of the first of `len` indices `holds` is true for, given that
@@ -396,15 +613,22 @@ fn leading(len: usize, holds: impl Fn(usize) -> bool) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn run(order: Order, mut rows: Vec<(i64, Candidate)>) -> Run {
+    fn run(order: Order, mut rows: Vec<(Key, Candidate)>) -> Run {
         rows.sort_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
-        let (scores, rows) = rows.into_iter().map(|(s, c)| (s, Arc::new(c))).unzip();
-        Run { rows, scores }
+        let (keys, rows) = rows.into_iter().map(|(s, c)| (s, Arc::new(c))).unzip();
+        Run { rows, keys }
     }
-    fn candidate(i: u64) -> (i64, Candidate) {
+    fn candidate(i: u64) -> (Key, Candidate) {
         let n = i.wrapping_mul(2_654_435_761) % 10_007;
         (
-            (n % 5) as i64,
+            Key {
+                score: (n % 5) as i64,
+                value: if n.is_multiple_of(11) {
+                    UNKNOWN
+                } else {
+                    (n % 7) as i64
+                },
+            },
             Candidate {
                 path: format!("/r/d{}/f{n:05}", n % 13).into(),
                 directory: n.is_multiple_of(3),
@@ -413,9 +637,63 @@ mod tests {
             },
         )
     }
+    /// Both rankings, and sorts by a name and by a value read, each way.
+    fn orders() -> Vec<Order> {
+        let mut orders = vec![Rank::Depth.into(), Rank::Score.into()];
+        for by in [Criterion::Name, Criterion::Size, Criterion::Depth] {
+            for descending in [false, true] {
+                orders.push(Order {
+                    rank: Rank::Depth,
+                    sort: Some(Sort { by, descending }),
+                });
+            }
+        }
+        orders
+    }
+    #[test]
+    fn names_compare_naturally() {
+        let mut names = ["file10", "File2", "file2", "a", "file02", "B", "file1b", ""];
+        names.sort_by(|a, b| natural(a, b));
+        assert_eq!(
+            names,
+            ["", "a", "B", "file1b", "File2", "file02", "file2", "file10"]
+        );
+    }
+    #[test]
+    fn sorts_put_unknown_values_last_and_break_ties_by_the_ranking() {
+        let row = |path: &str, depth: usize| Candidate {
+            path: path.into(),
+            directory: false,
+            depth,
+            root: 0,
+        };
+        let key = |score: i64, value: i64| Key { score, value };
+        let (a, b, c) = (row("/r/a", 2), row("/r/b", 1), row("/r/c", 1));
+        let sort = |by, descending| Order {
+            rank: Rank::Score,
+            sort: Some(Sort { by, descending }),
+        };
+        for descending in [false, true] {
+            let size = sort(Criterion::Size, descending);
+            assert!(size.cmp(&a, key(0, 5), &b, key(0, UNKNOWN)).is_lt());
+            assert!(size.cmp(&b, key(0, UNKNOWN), &a, key(0, 5)).is_gt());
+        }
+        let size = sort(Criterion::Size, true);
+        assert!(size.cmp(&a, key(0, 9), &b, key(0, 5)).is_lt());
+        // Equal sizes: the best match first.
+        assert!(size.cmp(&a, key(1, 5), &b, key(9, 5)).is_gt());
+        let depth = sort(Criterion::Depth, false);
+        assert!(depth.cmp(&b, key(0, 0), &c, key(9, 0)).is_lt());
+        assert!(depth.cmp(&b, key(0, 0), &a, key(9, 0)).is_lt());
+        assert!(
+            sort(Criterion::Name, true)
+                .cmp(&a, key(0, 0), &b, key(0, 0))
+                .is_gt()
+        );
+    }
     #[test]
     fn runs_pushed_one_by_one_read_as_one_sorted_run() {
-        for order in [Order::Depth, Order::Score] {
+        for order in orders() {
             let every: Vec<_> = (0..6000).map(candidate).collect();
             let expected = run(order, every.clone());
             let mut rows = Rows::default();
@@ -432,7 +710,7 @@ mod tests {
                 let n = pushed.min(LAZY);
                 let read: Vec<_> = lazy.iter_from(0).take(n).cloned().collect();
                 assert_eq!(read, front.rows[..n]);
-                assert_eq!(lazy.head.scores, front.scores[..n]);
+                assert_eq!(lazy.head.keys, front.keys[..n]);
                 assert_eq!(lazy.row(n / 2), front.rows.get(n / 2));
                 assert_eq!(lazy.position(|c| *c == front.rows[n - 1]), Some(n - 1));
                 // Never more runs than doublings.
@@ -459,7 +737,7 @@ mod tests {
             }
             assert_eq!(pushed, every.len());
             assert_eq!(lazy.all(), expected.rows.as_slice());
-            assert_eq!(rows.merged().scores, expected.scores);
+            assert_eq!(rows.merged().keys, expected.keys);
             // Rows dropped leave the rest in order, whether merged or not.
             rows.push(order, run(order, (6000..6100).map(candidate).collect()));
             rows.retain(|c| !c.path.to_string_lossy().ends_with('7'));
@@ -469,7 +747,7 @@ mod tests {
                 .collect();
             let kept = run(order, kept);
             assert_eq!(rows.all(), kept.rows.as_slice());
-            assert_eq!(rows.merged().scores, kept.scores);
+            assert_eq!(rows.merged().keys, kept.keys);
             // And in runs not merged yet, the first rows again.
             let mut lazy = Rows::default();
             for part in (0..6100).collect::<Vec<u64>>().chunks(700) {
@@ -499,8 +777,11 @@ mod tests {
             }
             assert!(rows.all.get().is_none(), "after {} rows", rows.len());
             rows.push(
-                Order::Depth,
-                run(Order::Depth, part.iter().map(|&i| candidate(i)).collect()),
+                Order::default(),
+                run(
+                    Order::default(),
+                    part.iter().map(|&i| candidate(i)).collect(),
+                ),
             );
         }
         assert!(rows.runs.len() > 1);

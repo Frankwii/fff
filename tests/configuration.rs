@@ -522,3 +522,31 @@ fn exclusion_rules_are_kept_in_order_as_written() {
     let s = parse("[exclusions]\nrules=['~/backup', '.cache', '/mnt/*/tmp']").unwrap();
     assert_eq!(s.exclusions, ["~/backup", ".cache", "/mnt/*/tmp"]);
 }
+#[test]
+fn sessions_start_ranked_unless_a_sort_is_configured() {
+    use fuzzy_file_finder::rows::{Criterion, Sort};
+    assert_eq!(parse("").unwrap().sort, None);
+    assert_eq!(parse("[ui]\nsort = 'ranking'").unwrap().sort, None);
+    assert_eq!(
+        parse("[ui]\nsort = 'modified'\nsort_descending = true")
+            .unwrap()
+            .sort,
+        Some(Sort {
+            by: Criterion::Modified,
+            descending: true
+        })
+    );
+    assert_eq!(
+        parse("[ui]\nsort = 'name'").unwrap().sort,
+        Some(Sort {
+            by: Criterion::Name,
+            descending: false
+        })
+    );
+    let error = parse("[ui]\nsort = 'date'").err().unwrap();
+    assert!(
+        error.contains("ui.sort") && error.contains("modified"),
+        "{error}"
+    );
+    assert!(parse("[ui]\nsort_descending = 'yes'").is_err());
+}

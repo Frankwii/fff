@@ -5,6 +5,7 @@ use crate::{
     editor::{Field, Nvim},
     keymap::{self, Function, Step},
     program::Program,
+    rows,
 };
 use crossterm::{
     cursor::{Hide, SetCursorStyle, Show},
@@ -60,12 +61,13 @@ pub(crate) enum Focus {
     },
     /// F1: the Keys screen, a picker over every function and its keys.
     Keys(Box<KeysScreen>),
-    /// `:`: the functions that work where it was pressed, to run one by
-    /// name; `back` is that focus, for the function and for going back.
-    Commands {
+    /// A list of choices filtered by what is typed (`Picker`): `:`'s
+    /// functions or the sorting picker's orders; `back` is the focus it was
+    /// opened from, for the choice and for going back.
+    Picker {
         query: String,
         index: usize,
-        here: keymap::Cell,
+        kind: Picker,
         back: Box<Focus>,
     },
     Exclusions(String),
@@ -831,37 +833,86 @@ impl Session {
     }
 }
 
-/// The command picker's functions: those that work in Normal mode where `:`
-/// was pressed, but for those a digit goes with, best match of `query`
-/// first (by name, else by every word in the description).
-pub(crate) fn commands(here: keymap::Cell, query: &str) -> Vec<Function> {
-    let query = query.trim();
-    let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
-    let mut found: Vec<(i64, usize, Function)> = Function::ALL
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| {
-            f.works(keymap::Mode::Normal, here)
-                && !matches!(
-                    f,
-                    Function::SearchToDepth | Function::OpenRow | Function::ConfirmRow
-                )
-        })
-        .filter_map(|(i, &f)| {
-            if query.is_empty() {
-                return Some((0, i, f));
+/// What a picker chooses among.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Picker {
+    /// `:`: the functions that work in Normal mode where it was pressed.
+    Commands(keymap::Cell),
+    /// `show_sorting`: the orders, in the direction Tab switches.
+    Sort { descending: bool },
+}
+/// One of a picker's choices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Choice {
+    Function(Function),
+    /// Sorted by a criterion, or ranked as the program ranks (`None`).
+    Sort(Option<rows::Criterion>),
+}
+impl Choice {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Function(f) => f.name(),
+            Self::Sort(Some(by)) => by.name(),
+            Self::Sort(None) => "ranking",
+        }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Function(f) => f.description(),
+            Self::Sort(Some(by)) => by.description(),
+            Self::Sort(None) => {
+                "As the program ranks them: by depth, then the best match; in fff pick and seek, the best match first."
             }
-            let named = crate::score(f.name(), &query.replace(' ', "_"));
-            let described = || {
-                let text = f.description().to_lowercase();
-                words
-                    .iter()
-                    .all(|w| text.contains(w.as_str()))
-                    .then_some(i64::MIN / 2)
-            };
-            named.or_else(described).map(|score| (score, i, f))
-        })
-        .collect();
-    found.sort_by_key(|(score, i, _)| (std::cmp::Reverse(*score), *i));
-    found.into_iter().map(|(_, _, f)| f).collect()
+        }
+    }
+}
+impl Picker {
+    /// Its choices in their own order: the functions but for those a digit
+    /// goes with, or the program's ranking and then each criterion.
+    fn all(self) -> Vec<Choice> {
+        match self {
+            Self::Commands(here) => Function::ALL
+                .iter()
+                .filter(|f| {
+                    f.works(keymap::Mode::Normal, here)
+                        && !matches!(
+                            f,
+                            Function::SearchToDepth | Function::OpenRow | Function::ConfirmRow
+                        )
+                })
+                .map(|&f| Choice::Function(f))
+                .collect(),
+            Self::Sort { .. } => std::iter::once(None)
+                .chain(rows::Criterion::ALL.map(Some))
+                .map(Choice::Sort)
+                .collect(),
+        }
+    }
+    /// Its choices matching `query`, best match first (by name, else by
+    /// every word in the description).
+    pub(crate) fn choices(self, query: &str) -> Vec<Choice> {
+        let query = query.trim();
+        let words: Vec<String> = query.split_whitespace().map(|w| w.to_lowercase()).collect();
+        let mut found: Vec<(i64, usize, Choice)> = self
+            .all()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, choice)| {
+                if query.is_empty() {
+                    return Some((0, i, choice));
+                }
+                let named = crate::score(choice.name(), &query.replace(' ', "_"));
+                let described = || {
+                    let text = choice.description().to_lowercase();
+                    words
+                        .iter()
+                        .all(|w| text.contains(w.as_str()))
+                        .then_some(i64::MIN / 2)
+                };
+                named.or_else(described).map(|score| (score, i, choice))
+            })
+            .collect();
+        found.sort_by_key(|(score, i, _)| (std::cmp::Reverse(*score), *i));
+        found.into_iter().map(|(_, _, choice)| choice).collect()
+    }
 }

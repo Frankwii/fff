@@ -645,6 +645,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.watch = settings.watch;
     app.preview.shown = settings.preview;
     app.preview.highlight = settings.highlight;
+    app.sort = settings.sort;
     app.config_path = settings.bookmark_path.clone();
     if let Some(path) = fuzzy_file_finder::sizes::path() {
         app.details.keep_sizes(path);

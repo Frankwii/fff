@@ -1,5 +1,11 @@
 //! Terminal presentation. Rendering returns the exact numbered targets in a frame.
-use crate::{App, Candidate, config::Palette, details::Column, editor::Field, ui::Focus};
+use crate::{
+    App, Candidate,
+    config::Palette,
+    details::Column,
+    editor::Field,
+    ui::{Choice, Focus, Picker},
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -410,9 +416,9 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
             result.choices = palettes(frame, area, app, query, *index)
         }
         Focus::Location(location) => result.choices = location_sheet(frame, main, app, location),
-        Focus::Commands {
-            query, index, here, ..
-        } => (result.page, result.choices) = commands(frame, area, app, query, *index, *here),
+        Focus::Picker {
+            query, index, kind, ..
+        } => (result.page, result.choices) = picker(frame, area, app, query, *index, *kind),
         _ => {}
     }
     notices(frame, main, app);

@@ -844,6 +844,43 @@ fn configured_palette_and_location_line_reach_the_frame() {
     assert!(buffer.content().iter().any(|c| c.bg == app.palette.panel));
 }
 #[test]
+fn the_sorting_picker_names_the_direction_and_the_border_the_order() {
+    use crate::rows::{Criterion, Sort};
+    let mut app = fixture();
+    app.set_sort(Some(Sort {
+        by: Criterion::Name,
+        descending: true,
+    }));
+    let mut focus = Focus::Picker {
+        query: String::new(),
+        index: 1,
+        kind: Picker::Sort { descending: true },
+        back: Box::default(),
+    };
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(screen.contains("Sort descending · Tab ascending · Enter sorts · Esc cancels"));
+    assert!(screen.contains("↓ type a criterion's name"), "{screen}");
+    assert!(screen.contains("› name        current ↓   Names alphabetically"));
+    assert!(screen.contains("ranking"));
+    assert!(screen.contains("depth 3 · sorted by name ↓"));
+    if let Focus::Picker { query, .. } = &mut focus {
+        *query = "newest".into();
+    }
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    assert!(screen.contains("No order matches."), "{screen}");
+    // The rows themselves, names descending.
+    let rows: Vec<_> = app.rows.iter().map(|c| c.path.clone()).collect();
+    assert_eq!(rows[0], app.cwd.join("todo.txt"));
+    assert_eq!(rows[4], app.cwd.join("algorithms"));
+}
+#[test]
 fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {
     let mut app = fixture();
     let settings = crate::config::Settings::parse(

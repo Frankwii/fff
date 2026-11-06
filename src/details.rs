@@ -183,6 +183,10 @@ impl Details {
     pub fn commit_sizes(&self) {
         self.sizes.commit();
     }
+    /// Folders' totals as they are found, for sorting by size.
+    pub fn totals(&self) -> crate::sizes::Totals {
+        self.sizes.totals()
+    }
     /// F5: folders' sizes are added up again.
     pub fn refresh_sizes(&self) {
         self.sizes.refresh();
