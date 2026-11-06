@@ -8,28 +8,9 @@ not implemented features or commitments:
 The preview pane stays text only; there will be no image previews: see
 [design choices](DEVELOPMENT.md#design-choices).
 
-## Post-launch
+## Before 1.0
 
-Ideas for after 1.0, once the features above are done.
-
-### A tree view
-
-A key would show the results as a tree, drawn with branch lines the way
-`pass` and `tree` do: folders with their contents indented below them, so
-the shape of a folder is visible at a glance. Rows would keep working as
-rows (marks, operations, the preview), and the query would show the matching
-entries with the folders leading to them.
-
-### Folders as matches
-
-A query names a file today, and `/` in it matches folders on the way
-(`pde/stab`). In flat lists from deep trees (`fff pick`, `fff seek`, and
-contents matches) a folder's name could match instead: `canard` would list the
-files inside a folder called `canard`, ranked by how well the folder
-matched, without typing the slash, and the `/` form would go. Elsewhere,
-where results are a folder's own entries, the current behavior stays. To try
-out: which contexts it suits, how a folder match ranks against a file match,
-and how the row shows which part matched.
+The goals for the first release, the README last.
 
 ### Sorting
 
@@ -51,34 +32,6 @@ The order applies among the fuzzy matches of the current query: the query
 still decides what is listed, the sort only how. The chosen order would show
 on the results' border and could be the default in the configuration.
 
-### Resizing the font
-
-Keys that make the terminal's font larger or smaller, for reading from a
-distance or on a large screen. A first version asked kitty and xterm
-through escape sequences and was removed, unreliable, before release. The terminal
-to aim at is st, which has no escape sequence for its font: its zoom is
-bound in its `config.h` (Ctrl+Shift+PageUp, Ctrl+Shift+PageDown,
-Ctrl+Shift+Home). To investigate: whether fff can trigger st's zoom (st sets
-`$WINDOWID`, so the keys could be sent to its own window), or whether a small
-st patch accepting an escape sequence (such as xterm's OSC 50) is the cleaner
-way, and how the screen should settle after the size changes.
-
-### Permissions
-
-A key would show each entry's permissions, owner and group, the way `nnn`
-does, beside its name (`-rw-r--r--  frank  users`), toggled on and off. The
-`permissions` [column](CONFIGURATION.md#result-details) exists and the footer
-shows the highlighted entry's permissions and owner; this would make them a quick
-toggle for every row rather than a configuration change, with owner and
-group as columns of their own, and could show octal modes too.
-
-### Names a running operation will take
-
-Creating a file or folder whose name a running copy, move or extraction will
-publish is refused until it finishes. A prompt could offer the choices
-instead: name the new entry `name (1).ext`, rename the arriving one to
-`name (1).ext` when it lands, overwrite it when it lands, or abort.
-
 ### Named workspaces
 
 `fff --resume` keeps only the last session, so a recurring setup (the papers
@@ -97,23 +50,6 @@ workspaces are kept in the configuration with bookmarks or in the state
 directory beside the session, which they resemble more; whether opening one
 saves changes back to it or leaves it as saved until saved again; and how the
 chooser tells a workspace from a bookmark.
-
-### Shell integration
-
-fff lists what it scans; other programs could supply the list instead, the
-way `fzf` reads its candidates: `ls | fff`, `git ls-files | fff pick`, `rg
--l TODO | fff seek`, `locate -i thesis | fff`. Rows would still be paths
-(marks, previews, operations and opening would work on them) but the
-program, not a folder scan, would decide which. To explore before designing
-anything: whether a list comes in on stdin (fff then reads keys from
-`/dev/tty`, as `fzf` does) or as a command fff runs and can run again on
-reload; which commands accept one (`pick` and `seek` naturally, `roam`
-perhaps not, since navigating leaves the list); whether lines that are not
-existing paths are allowed, and how relative ones resolve; whether the list
-streams in while fff is open; and what live updates, depth and exclusions
-mean for it. Other integrations to weigh alongside: a key binding for zsh
-that inserts `fff pick`'s choice at the cursor (`fzf`'s Ctrl+t), and a
-`cd` into the folder `fff roam` ended in.
 
 ### Faster scanning
 
@@ -190,6 +126,81 @@ None of these changes what fff can do, and none grows faster than the
 number of paths: a scan within about twice the time of `fd | fzf` looks
 reachable, where it is several times today. Matching fzf exactly is not
 the aim; what is lost to the features above is the price of them.
+
+### Shell integration
+
+fff lists what it scans; other programs could supply the list instead, the
+way `fzf` reads its candidates: `ls | fff`, `git ls-files | fff pick`, `rg
+-l TODO | fff seek`, `locate -i thesis | fff`. Rows would still be paths
+(marks, previews, operations and opening would work on them) but the
+program, not a folder scan, would decide which. To explore before designing
+anything: whether a list comes in on stdin (fff then reads keys from
+`/dev/tty`, as `fzf` does) or as a command fff runs and can run again on
+reload; which commands accept one (`pick` and `seek` naturally, `roam`
+perhaps not, since navigating leaves the list); whether lines that are not
+existing paths are allowed, and how relative ones resolve; whether the list
+streams in while fff is open; and what live updates, depth and exclusions
+mean for it. Other integrations to weigh alongside: a key binding for zsh
+that inserts `fff pick`'s choice at the cursor (`fzf`'s Ctrl+t), and a
+`cd` into the folder `fff roam` ended in.
+
+### The README
+
+Last, once the rest is done: the README polished into a guide a newcomer
+can follow, with examples of use (`fff roam`, `fff pick` and `fff seek` at
+work, a contents query, a file operation) and short recordings of them
+playing in the terminal.
+
+## Post-launch
+
+Ideas for after 1.0, once the features above are done.
+
+### A tree view
+
+A key would show the results as a tree, drawn with branch lines the way
+`pass` and `tree` do: folders with their contents indented below them, so
+the shape of a folder is visible at a glance. Rows would keep working as
+rows (marks, operations, the preview), and the query would show the matching
+entries with the folders leading to them.
+
+### Folders as matches
+
+A query names a file today, and `/` in it matches folders on the way
+(`pde/stab`). In flat lists from deep trees (`fff pick`, `fff seek`, and
+contents matches) a folder's name could match instead: `canard` would list the
+files inside a folder called `canard`, ranked by how well the folder
+matched, without typing the slash, and the `/` form would go. Elsewhere,
+where results are a folder's own entries, the current behavior stays. To try
+out: which contexts it suits, how a folder match ranks against a file match,
+and how the row shows which part matched.
+
+### Resizing the font
+
+Keys that make the terminal's font larger or smaller, for reading from a
+distance or on a large screen. A first version asked kitty and xterm
+through escape sequences and was removed, unreliable, before release. The terminal
+to aim at is st, which has no escape sequence for its font: its zoom is
+bound in its `config.h` (Ctrl+Shift+PageUp, Ctrl+Shift+PageDown,
+Ctrl+Shift+Home). To investigate: whether fff can trigger st's zoom (st sets
+`$WINDOWID`, so the keys could be sent to its own window), or whether a small
+st patch accepting an escape sequence (such as xterm's OSC 50) is the cleaner
+way, and how the screen should settle after the size changes.
+
+### Permissions
+
+A key would show each entry's permissions, owner and group, the way `nnn`
+does, beside its name (`-rw-r--r--  frank  users`), toggled on and off. The
+`permissions` [column](CONFIGURATION.md#result-details) exists and the footer
+shows the highlighted entry's permissions and owner; this would make them a quick
+toggle for every row rather than a configuration change, with owner and
+group as columns of their own, and could show octal modes too.
+
+### Names a running operation will take
+
+Creating a file or folder whose name a running copy, move or extraction will
+publish is refused until it finishes. A prompt could offer the choices
+instead: name the new entry `name (1).ext`, rename the arriving one to
+`name (1).ext` when it lands, overwrite it when it lands, or abort.
 
 ### Semantic search
 
