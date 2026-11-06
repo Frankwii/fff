@@ -19,6 +19,6 @@ pkgbase = fuzzy-file-finder
 	optdepends = st: the terminal fff windows open in by default
 	conflicts = fff
 	source = fuzzy-file-finder-0.19.1.tar.gz::https://github.com/Frankwii/fff/archive/refs/tags/v0.19.1.tar.gz
-	sha256sums = 47306c94504c787181be1f9c33c5c72d43ab9872b87fcb1af90dcffe02c58f06
+	sha256sums = 18b21f9482a8cb1a3a03103d5a19fbf164b1f3d13a25b9ca0e822cbb24233606
 
 pkgname = fuzzy-file-finder
