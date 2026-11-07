@@ -227,7 +227,8 @@ order as it is. Sizes, dates and kinds are read for every match before it
 is ranked, which takes a moment in a large listing.
 
 The depth penalties rank each match by its score per letter of the query
-less `temperature × p(depth)`, the least penalised first:
+less `temperature × p(depth)`, the highest first with `sort_descending =
+true` (↓ in the picker), as for sizes and dates:
 
 | sort        | p(depth)          | 1 level | 2   | 4   | 8   |
 |-------------|-------------------|---------|-----|-----|-----|

@@ -4,6 +4,14 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **The depth penalties list the best match first when descending**
+  (`linear ↓`, `sort_descending = true`), as sizes list the largest and
+  dates the newest; ascending now lists the worst first.
+
 ## 0.19.4 — 2026-11-07
 
 Depth can weigh against the match: four sorts rank the best match first

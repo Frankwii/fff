@@ -579,7 +579,8 @@ fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() 
 #[test]
 fn a_depth_penalty_weighs_the_match_against_the_depth() {
     use fuzzy_file_finder::rows::{Criterion, Sort};
-    let sorted = |by, temperature, query: &str| {
+    // Descending: the best match first, as the largest size is.
+    let sorted_as = |by, temperature, query: &str, descending| {
         let mut app = app(Program::Roam);
         app.temperature = temperature;
         // Per letter of "abc", the deep name scores 29, the shallow one 14.
@@ -587,12 +588,10 @@ fn a_depth_penalty_weighs_the_match_against_the_depth() {
             app.insert(0, candidate(name, false, depth, 0));
         }
         app.query = query.into();
-        app.set_sort(Some(Sort {
-            by,
-            descending: false,
-        }));
+        app.set_sort(Some(Sort { by, descending }));
         names(&app)
     };
+    let sorted = |by, temperature, query: &str| sorted_as(by, temperature, query, true);
     let (shallow, better, deepest) = ("/fixture/xaxbxc", "/fixture/d/abc", "/fixture/d/e/abc");
     // A level costs 8 points per letter at temperature 1: one more level
     // is worth the better match, two are not.
@@ -608,7 +607,12 @@ fn a_depth_penalty_weighs_the_match_against_the_depth() {
     );
     assert_eq!(
         sorted(Criterion::Quadratic, 1000.0, "abc"),
-        sorted(Criterion::Shallowest, 1.0, "abc")
+        sorted_as(Criterion::Shallowest, 1.0, "abc", false)
+    );
+    // Ascending, the worst first.
+    assert_eq!(
+        sorted_as(Criterion::Linear, 1.0, "abc", false),
+        [deepest, shallow, better]
     );
     // The logarithm counts the first levels most: its third costs less.
     assert_eq!(

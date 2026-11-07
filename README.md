@@ -249,9 +249,10 @@ ties:
 - `linear`, `sqrt`, `log` and `quadratic`: the best match, less a penalty
   for its depth growing in proportion to it, as its square root, its
   logarithm or its square, so that a much better match deeper down can
-  come before a poor one above it. `[ui] temperature` sets how much depth
-  costs (see [configuration](docs/CONFIGURATION.md#sorting)); an empty
-  query lists by depth;
+  come before a poor one above it. Descending (↓) lists the best first,
+  as it lists the largest size first. `[ui] temperature` sets how much
+  depth costs (see [configuration](docs/CONFIGURATION.md#sorting)); an
+  empty query lists by depth;
 - `ranking`: back to the program's order.
 
 The results' bottom border names the order (`sorted by size ↓`). `[ui] sort`

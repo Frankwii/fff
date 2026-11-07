@@ -99,12 +99,12 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   a sort by size, dates or kind, a value read from the filesystem (an
   `lstat`; a folder's size from the totals `sizes::Totals` holds, which
   sort last until added up) and, for a sort by a depth penalty
-  (`linear`, `sqrt`, `log`, `quadratic`), the row's cost: the penalty for
-  its depth at `Order::temperature` less its score per letter of the
-  query (`Criterion::cost`). `Order::key` reads or computes it when a row
+  (`linear`, `sqrt`, `log`, `quadratic`), the row's merit: its score per
+  letter of the query less the penalty for its depth at
+  `Order::temperature` (`Criterion::merit`). `Order::key` reads or computes it when a row
   is scored, in `Job::rank_piece` and `App::merge`, so comparisons never
   touch the filesystem; rows ranked again for a longer query keep the
-  values read and have their costs computed again (`Order::costs`).
+  values read and have their merits computed again (`Order::penalises`).
   Names, extensions, depth and `shallowest` need no value. `App::set_sort` ranks every
   known path again, reading the values afresh.
 - **The rows** (`rows::Rows`) are sorted runs (`Run`: rows and their scores,

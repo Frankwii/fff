@@ -55,7 +55,7 @@ pub enum Criterion {
     Depth,
     /// The depth, folders first, then the best match: `fff roam`'s ranking.
     Shallowest,
-    /// The match, less a penalty growing with the depth (`Criterion::cost`):
+    /// The match, less a penalty growing with the depth (`Criterion::merit`):
     /// in proportion to it,
     Linear,
     /// as its square root,
@@ -130,8 +130,8 @@ impl Criterion {
             Self::Size | Self::Modified | Self::Accessed | Self::Created | Self::Kind
         )
     }
-    /// A penalty, whose values are costs (`cost`).
-    fn costs(self) -> bool {
+    /// A penalty, whose values are merits (`merit`).
+    fn penalises(self) -> bool {
         matches!(
             self,
             Self::Linear | Self::Sqrt | Self::Log | Self::Quadratic
@@ -151,13 +151,14 @@ impl Criterion {
         };
         Some(LEVEL * ALIKE_AT * shape(depth as f64)? / shape(ALIKE_AT)?)
     }
-    /// A row's cost for a penalty: the penalty at `temperature`, less its
-    /// score per letter of the query, in fixed point (the least first).
-    /// An empty query scores every row 0, so its rows rank by depth.
-    fn cost(self, depth: usize, score: i64, letters: usize, temperature: f64) -> Option<i64> {
+    /// A row's merit for a penalty: its score per letter of the query,
+    /// less the penalty at `temperature`, in fixed point (the best match
+    /// the highest, first when descending). An empty query scores every
+    /// row 0, so its rows rank by depth.
+    fn merit(self, depth: usize, score: i64, letters: usize, temperature: f64) -> Option<i64> {
         let penalty = self.penalty(depth)?;
-        let merit = score as f64 / letters.max(1) as f64;
-        Some(((temperature * penalty - merit) * FIXED).round() as i64)
+        let per_letter = score as f64 / letters.max(1) as f64;
+        Some(((per_letter - temperature * penalty) * FIXED).round() as i64)
     }
 }
 
@@ -170,7 +171,7 @@ pub const TEMPERATURE: f64 = 1.0;
 const LEVEL: f64 = 8.0;
 /// The depth at which every penalty costs the same.
 const ALIKE_AT: f64 = 4.0;
-/// Fractions of a point a cost keeps.
+/// Fractions of a point a merit keeps.
 const FIXED: f64 = 1024.0;
 
 /// A criterion and its direction, chosen in the sorting picker.
@@ -255,27 +256,27 @@ impl Order {
     /// A row's key for its `score` for a query of `letters`. For a sort by
     /// what the filesystem records (sizes, dates, links), its value is read
     /// here, before ranking: comparisons never touch the filesystem. For a
-    /// penalty, it is the row's cost.
+    /// penalty, it is the row's merit.
     pub fn key(self, c: &Candidate, score: i64, letters: usize, totals: &Totals) -> Key {
         let value = match self.sort {
             Some(sort) if sort.by.reads() => value(sort.by, c, totals),
             Some(sort) => sort
                 .by
-                .cost(c.depth, score, letters, f64::from(self.temperature))
+                .merit(c.depth, score, letters, f64::from(self.temperature))
                 .unwrap_or(0),
             None => 0,
         };
         Key { score, value }
     }
-    /// Its keys' values are costs, which another query changes: rows
+    /// Its keys' values are merits, which another query changes: rows
     /// ranked again take a new `key` rather than keeping their values.
-    pub fn costs(self) -> bool {
-        self.sort.is_some_and(|sort| sort.by.costs())
+    pub fn penalises(self) -> bool {
+        self.sort.is_some_and(|sort| sort.by.penalises())
     }
 }
 
 /// What a row is ranked by: its match score and, for a sort by size,
-/// dates or kind, the value read for it, for a penalty its cost
+/// dates or kind, the value read for it, for a penalty its merit
 /// (`Order::key`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Key {
@@ -800,8 +801,8 @@ mod tests {
         // Taken per letter: a query twice as long scoring twice as much
         // costs the same.
         assert_eq!(
-            Criterion::Log.cost(2, 40, 2, 1.0),
-            Criterion::Log.cost(2, 80, 4, 1.0)
+            Criterion::Log.merit(2, 40, 2, 1.0),
+            Criterion::Log.merit(2, 80, 4, 1.0)
         );
     }
     #[test]
