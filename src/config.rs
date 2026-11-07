@@ -441,6 +441,7 @@ struct UiConfig {
     highlight: bool,
     sort: String,
     sort_descending: bool,
+    temperature: f64,
 }
 /// `[ui] buttons`: when the button bar is shown (opt-in).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -468,6 +469,7 @@ impl Default for UiConfig {
             highlight: true,
             sort: "ranking".into(),
             sort_descending: false,
+            temperature: crate::rows::TEMPERATURE,
         }
     }
 }
@@ -523,6 +525,8 @@ pub struct Settings {
     /// `[ui] sort` and `sort_descending`: the order sessions start in;
     /// `None` ranks as the program does.
     pub sort: Option<crate::rows::Sort>,
+    /// `[ui] temperature`: what depth costs a match in a sort by a penalty.
+    pub temperature: f64,
     /// `[open]`: openers by file type and the terminal for terminal openers.
     pub open: crate::open::OpenConfig,
     pub trash: TrashConfig,
@@ -563,6 +567,9 @@ impl Settings {
         }
         let sort = sort_named(&raw.ui.sort, raw.ui.sort_descending)
             .map_err(|names| format!("ui.sort must be {names}, got {:?}", raw.ui.sort))?;
+        if !(0.0..=MAX_TEMPERATURE).contains(&raw.ui.temperature) {
+            return Err(format!("ui.temperature must be 0..{MAX_TEMPERATURE}"));
+        }
         if raw.ui.buttons != Buttons::Off && !raw.ui.mouse {
             return Err("ui.buttons needs ui.mouse = true: buttons are clicked".into());
         }
@@ -633,6 +640,7 @@ impl Settings {
             preview: raw.ui.preview,
             highlight: raw.ui.highlight,
             sort,
+            temperature: raw.ui.temperature,
             open: raw.open,
             trash,
             exclusions: raw.exclusions.rules,
@@ -783,6 +791,9 @@ pub(crate) fn workspaces_from_text(
     let raw: WorkspaceDocument = toml::from_str(text).map_err(|e| e.to_string())?;
     resolve_workspaces(raw.workspaces, base, home)
 }
+/// The largest `[ui] temperature`: far past the point where depth decides
+/// alone, as in a sort by `shallowest`.
+const MAX_TEMPERATURE: f64 = 1000.0;
 /// `[ui] sort` and a workspace's `sort`: `None` for the program's ranking.
 /// The error lists the names allowed.
 fn sort_named(name: &str, descending: bool) -> Result<Option<crate::rows::Sort>, String> {

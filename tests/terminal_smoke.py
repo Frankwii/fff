@@ -1075,7 +1075,7 @@ class TerminalTests(unittest.TestCase):
         # program's order, named nowhere.
         s.send(b"gs", "Sort descending")
         s.send(b"\x1b[27u", "Sort descending · NORMAL")
-        self.assertIn("9 orders", s.screen.text)
+        self.assertIn("14 orders", s.screen.text)
         s.send(b"\x1b[27u")
         s.wait_absent("Sort descending")
         self.assertIn("sorted by size ↓", s.screen.text)

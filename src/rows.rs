@@ -53,9 +53,20 @@ pub enum Criterion {
     Kind,
     /// The depth, then the name.
     Depth,
+    /// The depth, folders first, then the best match: `fff roam`'s ranking.
+    Shallowest,
+    /// The match, less a penalty growing with the depth (`Criterion::cost`):
+    /// in proportion to it,
+    Linear,
+    /// as its square root,
+    Sqrt,
+    /// as its logarithm,
+    Log,
+    /// or as its square.
+    Quadratic,
 }
 impl Criterion {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 13] = [
         Self::Name,
         Self::Size,
         Self::Modified,
@@ -64,6 +75,11 @@ impl Criterion {
         Self::Extension,
         Self::Kind,
         Self::Depth,
+        Self::Shallowest,
+        Self::Linear,
+        Self::Sqrt,
+        Self::Log,
+        Self::Quadratic,
     ];
     /// Its name in the picker and the configuration.
     pub fn name(self) -> &'static str {
@@ -76,6 +92,11 @@ impl Criterion {
             Self::Extension => "extension",
             Self::Kind => "kind",
             Self::Depth => "depth",
+            Self::Shallowest => "shallowest",
+            Self::Linear => "linear",
+            Self::Sqrt => "sqrt",
+            Self::Log => "log",
+            Self::Quadratic => "quadratic",
         }
     }
     pub fn description(self) -> &'static str {
@@ -92,6 +113,11 @@ impl Criterion {
             Self::Extension => "Extensions alphabetically, then names.",
             Self::Kind => "Folders, then files, then links.",
             Self::Depth => "Depth below the folder searched, then names.",
+            Self::Shallowest => "Depth, folders first, then the best match.",
+            Self::Linear => "The best match, less a penalty in proportion to the depth.",
+            Self::Sqrt => "The best match, less a penalty growing as the square root of the depth.",
+            Self::Log => "The best match, less a penalty growing as the logarithm of the depth.",
+            Self::Quadratic => "The best match, less a penalty growing as the square of the depth.",
         }
     }
     pub fn named(name: &str) -> Option<Self> {
@@ -104,7 +130,41 @@ impl Criterion {
             Self::Size | Self::Modified | Self::Accessed | Self::Created | Self::Kind
         )
     }
+    /// What a match at `depth` costs, in points per letter of the query,
+    /// at temperature 1. Each penalty is scaled so that all cost the same
+    /// `ALIKE_AT` levels down: as many `LEVEL`s as levels. `None` for the
+    /// criteria without one.
+    fn penalty(self, depth: usize) -> Option<f64> {
+        let shape = |d: f64| match self {
+            Self::Linear => Some(d),
+            Self::Sqrt => Some(d.sqrt()),
+            Self::Log => Some(d.ln_1p()),
+            Self::Quadratic => Some(d * d),
+            _ => None,
+        };
+        Some(LEVEL * ALIKE_AT * shape(depth as f64)? / shape(ALIKE_AT)?)
+    }
+    /// A row's cost for a penalty: the penalty at `temperature`, less its
+    /// score per letter of the query, in fixed point (the least first).
+    /// An empty query scores every row 0, so its rows rank by depth.
+    fn cost(self, depth: usize, score: i64, letters: usize, temperature: f64) -> Option<i64> {
+        let penalty = self.penalty(depth)?;
+        let merit = score as f64 / letters.max(1) as f64;
+        Some(((temperature * penalty - merit) * FIXED).round() as i64)
+    }
 }
+
+/// The temperature, `[ui] temperature`, unless the configuration sets one.
+pub const TEMPERATURE: f64 = 1.0;
+/// What one level down costs a match at temperature 1, in points per
+/// letter of the query: nucleo's bonus for a letter starting a word. Per
+/// letter, matches score about 3 to 31 (half of them over a home folder
+/// above 13); a good match scores 6 to 14 more than a typical one.
+const LEVEL: f64 = 8.0;
+/// The depth at which every penalty costs the same.
+const ALIKE_AT: f64 = 4.0;
+/// Fractions of a point a cost keeps.
+const FIXED: f64 = 1024.0;
 
 /// A criterion and its direction, chosen in the sorting picker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,11 +191,17 @@ impl Sort {
                 natural(&extension(&a.path), &extension(&b.path)).then_with(name)
             }
             Criterion::Depth => a.depth.cmp(&b.depth).then_with(name),
+            // The best match comes from the ranking breaking the tie.
+            Criterion::Shallowest => a.depth.cmp(&b.depth).then(b.directory.cmp(&a.directory)),
             Criterion::Size
             | Criterion::Modified
             | Criterion::Accessed
             | Criterion::Created
-            | Criterion::Kind => value_a.cmp(&value_b),
+            | Criterion::Kind
+            | Criterion::Linear
+            | Criterion::Sqrt
+            | Criterion::Log
+            | Criterion::Quadratic => value_a.cmp(&value_b),
         };
         unknown.then(if self.descending { by.reverse() } else { by })
     }
@@ -147,14 +213,26 @@ const UNKNOWN: i64 = i64::MIN;
 /// How rows are ordered: the program's ranking (`Program::rank`), or a
 /// sort chosen in the picker with the ranking breaking its ties. Read as
 /// `App::order`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Order {
     pub rank: Rank,
     pub sort: Option<Sort>,
+    /// How much depth costs a match in a sort by a penalty: 0 not at all,
+    /// a large one ranks as `Criterion::Shallowest` (`[ui] temperature`).
+    pub temperature: f64,
+}
+impl Default for Order {
+    fn default() -> Self {
+        Rank::default().into()
+    }
 }
 impl From<Rank> for Order {
     fn from(rank: Rank) -> Self {
-        Self { rank, sort: None }
+        Self {
+            rank,
+            sort: None,
+            temperature: TEMPERATURE,
+        }
     }
 }
 impl Order {
@@ -166,20 +244,36 @@ impl Order {
             None => ranked(),
         }
     }
-    /// A row's key for its `score`. For a sort by what the filesystem
-    /// records (sizes, dates, links), its value is read here, before
-    /// ranking: comparisons never touch the filesystem.
-    pub fn key(self, c: &Candidate, score: i64, totals: &Totals) -> Key {
+    /// A row's key for its `score` for a query of `letters`. For a sort by
+    /// what the filesystem records (sizes, dates, links), its value is read
+    /// here, before ranking: comparisons never touch the filesystem. For a
+    /// penalty, it is the row's cost.
+    pub fn key(self, c: &Candidate, score: i64, letters: usize, totals: &Totals) -> Key {
         let value = match self.sort {
             Some(sort) if sort.by.reads() => value(sort.by, c, totals),
-            _ => 0,
+            Some(sort) => sort
+                .by
+                .cost(c.depth, score, letters, self.temperature)
+                .unwrap_or(0),
+            None => 0,
         };
         Key { score, value }
+    }
+    /// `key` for another query: a value read is kept, a cost computed again.
+    pub fn rescore(self, key: Key, c: &Candidate, score: i64, letters: usize) -> Key {
+        let cost = self
+            .sort
+            .and_then(|sort| sort.by.cost(c.depth, score, letters, self.temperature));
+        Key {
+            score,
+            value: cost.unwrap_or(key.value),
+        }
     }
 }
 
 /// What a row is ranked by: its match score and, for a sort by size,
-/// dates or kind, the value read for it (`Order::key`).
+/// dates or kind, the value read for it, for a penalty its cost
+/// (`Order::key`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Key {
     pub score: i64,
@@ -215,7 +309,7 @@ fn value(by: Criterion, c: &Candidate, totals: &Totals) -> i64 {
         Criterion::Kind if meta.is_symlink() => 2,
         Criterion::Kind if meta.is_dir() => 0,
         Criterion::Kind => 1,
-        Criterion::Name | Criterion::Extension | Criterion::Depth => 0,
+        _ => 0,
     }
 }
 fn name(path: &Path) -> std::borrow::Cow<'_, str> {
@@ -649,8 +743,8 @@ mod tests {
         for by in [Criterion::Name, Criterion::Size, Criterion::Depth] {
             for descending in [false, true] {
                 orders.push(Order {
-                    rank: Rank::Depth,
                     sort: Some(Sort { by, descending }),
+                    ..Rank::Depth.into()
                 });
             }
         }
@@ -675,6 +769,39 @@ mod tests {
         assert!(listed.cmp(&folder, key(9), &z, key(1)).is_lt());
     }
     #[test]
+    fn every_penalty_costs_the_same_four_levels_down() {
+        let penalties = [
+            Criterion::Linear,
+            Criterion::Sqrt,
+            Criterion::Log,
+            Criterion::Quadratic,
+        ];
+        for by in penalties {
+            assert_eq!(by.penalty(0), Some(0.0), "{by:?}");
+            let alike = by.penalty(4).unwrap();
+            assert!((alike - 4.0 * LEVEL).abs() < 1e-9, "{by:?} {alike}");
+            for depth in 1..12 {
+                assert!(by.penalty(depth) < by.penalty(depth + 1), "{by:?}");
+            }
+        }
+        // Above it, the root and the logarithm count the first levels most,
+        // the square the last ones.
+        let at = |by: Criterion, depth| by.penalty(depth).unwrap();
+        for by in [Criterion::Sqrt, Criterion::Log] {
+            assert!(at(by, 1) > at(Criterion::Linear, 1));
+            assert!(at(by, 9) < at(Criterion::Linear, 9));
+        }
+        assert!(at(Criterion::Quadratic, 1) < at(Criterion::Linear, 1));
+        assert!(at(Criterion::Quadratic, 9) > at(Criterion::Linear, 9));
+        assert_eq!(Criterion::Name.penalty(3), None);
+        // Taken per letter: a query twice as long scoring twice as much
+        // costs the same.
+        assert_eq!(
+            Criterion::Log.cost(2, 40, 2, 1.0),
+            Criterion::Log.cost(2, 80, 4, 1.0)
+        );
+    }
+    #[test]
     fn names_compare_naturally() {
         let mut names = ["file10", "File2", "file2", "a", "file02", "B", "file1b", ""];
         names.sort_by(|a, b| natural(a, b));
@@ -695,8 +822,8 @@ mod tests {
         let key = |score: i64, value: i64| Key { score, value };
         let (a, b, c) = (row("/r/a", 2), row("/r/b", 1), row("/r/c", 1));
         let sort = |by, descending| Order {
-            rank: Rank::Score,
             sort: Some(Sort { by, descending }),
+            ..Rank::Score.into()
         };
         for descending in [false, true] {
             let size = sort(Criterion::Size, descending);

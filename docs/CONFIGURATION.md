@@ -213,8 +213,10 @@ or output paths, and the row layout has the same width either way.
 
 ```toml
 [ui]
-sort = "ranking"          # or "name", "size", "modified", "accessed", "created", "extension", "kind", "depth"
+sort = "ranking"          # or "name", "size", "modified", "accessed", "created", "extension", "kind", "depth",
+                          # "shallowest", "linear", "sqrt", "log", "quadratic"
 sort_descending = false   # with a criterion: largest, newest or last first
+temperature = 1.0         # what depth costs a match with "linear", "sqrt", "log" and "quadratic": 0..1000
 ```
 
 The order sessions start in; `"ranking"` is each program's own (depth, then
@@ -223,6 +225,26 @@ changes it for the session (see [sorting](../README.md#sorting)); like
 `[ui] preview`, it says how a session starts, so `gc` leaves the session's
 order as it is. Sizes, dates and kinds are read for every match before it
 is ranked, which takes a moment in a large listing.
+
+The depth penalties rank each match by its score per letter of the query
+less `temperature × p(depth)`, the least penalised first:
+
+| sort        | p(depth)          | 1 level | 2   | 4   | 8   |
+|-------------|-------------------|---------|-----|-----|-----|
+| `linear`    | 8·d               | 8       | 16  | 32  | 64  |
+| `sqrt`      | 16·√d             | 16      | 23  | 32  | 45  |
+| `log`       | 32·ln(1+d) / ln 5 | 14      | 22  | 32  | 44  |
+| `quadratic` | 2·d²              | 2       | 8   | 32  | 128 |
+
+All four cost the same four levels down, so one temperature means about
+the same for each: `sqrt` and `log` count the first levels most,
+`quadratic` the deep ones. A level costs 8 points per letter at
+temperature 1, nucleo's bonus for a letter starting a word: per letter,
+matches score from about 3 to 31 (over a home folder, half of them above
+13), and a good match scores some 6 to 14 more than a typical one. The
+score is taken per letter so that depth weighs the same as the query
+grows. At `temperature = 0` depth only breaks ties, as in `fff pick`; a
+large one ranks as `shallowest`. Ties go to the program's ranking.
 
 ## Result details
 

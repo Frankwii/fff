@@ -124,22 +124,16 @@ and how the row shows which part matched.
 ### Improvements to matching
 
 Two changes to how a query matches and ranks: depth weighed against match
-quality rather than ranked before it, and queries that tolerate a typo.
+quality by default, and queries that tolerate a typo.
 
-**Depth as a penalty.** `fff roam` ranks by depth first and match quality
-second; `fff pick` and `fff seek` by match quality first, depth only
-breaking ties. Both are ends of one order by `score − λ·depth`: the first
-is λ → ∞ (a max), the second λ = 0. A finite λ, a setting per program, would
-let a much better match rise above a shallower poor one, as a softmax
-weighs rather than picks; a penalty growing more slowly with depth (such as
-`λ·log(1 + depth)`) would count the first levels most. It is a change to
-`rows::Rank` alone and costs nothing: rows are compared on one number
-instead of two, and an empty query, every score equal, still ranks by
-depth. While a scan runs, a deep good match could arrive above rows already
-shown, as in `fff pick` today. With [sorting](../README.md#sorting), this would be the
-`ranking` order and λ its setting. To decide: λ's scale against nucleo's
-scores, and whether the score is taken per letter of the query so that
-depth weighs the same as the query grows.
+**Depth as a penalty by default.** The depth penalties (`linear`, `sqrt`,
+`log`, `quadratic`, with `[ui] temperature`; see
+[configuration](CONFIGURATION.md#sorting)) are sorts chosen with `gs` or
+`[ui] sort`; each program still ranks as before, `fff roam` depth first
+and `fff pick` and `fff seek` by the match first. Once they are tried, one
+could become a program's own ranking (`Program::rank`), with a
+temperature per program. While a scan runs, a deep good match could then
+arrive above rows already shown, as in `fff pick` today.
 
 **Queries with a typo.** A query matches when its letters appear in order, so a letter left out is
 forgiven (`thre lnes` finds `three lines theorem.pdf`) but a wrong, extra or

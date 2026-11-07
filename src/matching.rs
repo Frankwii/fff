@@ -78,6 +78,11 @@ impl Matcher {
             path,
         }
     }
+    /// How many letters the query has, `/` not counted: what a sort by a
+    /// depth penalty takes scores per.
+    pub fn letters(&self) -> usize {
+        self.letters.iter().filter(|&&c| c != '/').count()
+    }
     /// Whether the query matches paths rather than basenames.
     pub fn paths(&self) -> bool {
         self.path.is_some()

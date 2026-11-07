@@ -4,6 +4,19 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **Depth can weigh against the match instead of coming before it.** The
+  sorting picker (`gs`) and `[ui] sort` have `linear`, `sqrt`, `log` and
+  `quadratic`: the best match first, less a penalty for depth growing in
+  proportion to it, as its square root, its logarithm or its square, so a
+  much better match deeper down rises above a poor one near the top.
+  `[ui] temperature` (1 by default) sets how much depth costs; 0 ranks as
+  `fff pick`, a large one as depth first. `shallowest` sorts as `fff roam`
+  ranks: depth first, then the best match.
+
 ## 0.19.3 — 2026-11-07
 
 Scans from `/` no longer report folders you may not read, a contents query

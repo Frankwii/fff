@@ -513,7 +513,16 @@ fn forgotten_and_replaced_paths_leave_the_rows_in_order() {
 fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() {
     use fuzzy_file_finder::rows::{Criterion, Sort};
     let paths = tree();
-    for by in [Criterion::Name, Criterion::Extension, Criterion::Depth] {
+    for by in [
+        Criterion::Name,
+        Criterion::Extension,
+        Criterion::Depth,
+        Criterion::Shallowest,
+        Criterion::Linear,
+        Criterion::Sqrt,
+        Criterion::Log,
+        Criterion::Quadratic,
+    ] {
         for descending in [false, true] {
             let sort = Some(Sort { by, descending });
             let sorted = |query: &str, paths: &[Candidate]| {
@@ -565,6 +574,56 @@ fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() 
     app.set_sort(None);
     assert_eq!(names(&app)[0], "/fixture/f1");
     assert_eq!(names(&app)[1], "/fixture/f10");
+}
+
+#[test]
+fn a_depth_penalty_weighs_the_match_against_the_depth() {
+    use fuzzy_file_finder::rows::{Criterion, Sort};
+    let sorted = |by, temperature, query: &str| {
+        let mut app = app(Program::Roam);
+        app.temperature = temperature;
+        // Per letter of "abc", the deep name scores 29, the shallow one 14.
+        for (name, depth) in [("xaxbxc", 1), ("d/abc", 2), ("d/e/abc", 3)] {
+            app.insert(0, candidate(name, false, depth, 0));
+        }
+        app.query = query.into();
+        app.set_sort(Some(Sort {
+            by,
+            descending: false,
+        }));
+        names(&app)
+    };
+    let (shallow, better, deepest) = ("/fixture/xaxbxc", "/fixture/d/abc", "/fixture/d/e/abc");
+    // A level costs 8 points per letter at temperature 1: one more level
+    // is worth the better match, two are not.
+    assert_eq!(
+        sorted(Criterion::Linear, 1.0, "abc"),
+        [better, shallow, deepest]
+    );
+    // Without a cost, the best match first; at a high one, the shallowest.
+    assert_eq!(sorted(Criterion::Linear, 0.0, "abc")[2], shallow);
+    assert_eq!(
+        sorted(Criterion::Linear, 3.0, "abc"),
+        [shallow, better, deepest]
+    );
+    assert_eq!(
+        sorted(Criterion::Quadratic, 1000.0, "abc"),
+        sorted(Criterion::Shallowest, 1.0, "abc")
+    );
+    // The logarithm counts the first levels most: its third costs less.
+    assert_eq!(
+        sorted(Criterion::Log, 1.0, "abc"),
+        [better, deepest, shallow]
+    );
+    // An empty query ranks by depth, whichever the penalty.
+    for by in [
+        Criterion::Linear,
+        Criterion::Sqrt,
+        Criterion::Log,
+        Criterion::Quadratic,
+    ] {
+        assert_eq!(sorted(by, 1.0, ""), [shallow, better, deepest], "{by:?}");
+    }
 }
 
 #[test]

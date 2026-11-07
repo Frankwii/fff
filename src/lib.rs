@@ -254,6 +254,8 @@ pub struct App {
     /// The sorting picker's choice (`[ui] sort` to start): the matches
     /// sorted by it rather than as the program ranks them (`order`).
     pub sort: Option<rows::Sort>,
+    /// What depth costs a match in a sort by a penalty (`[ui] temperature`).
+    pub temperature: f64,
     /// What `short_labels` was when the rows on screen were last labelled:
     /// while another ranking labels them again, they keep their labels.
     shown_labels: Option<bool>,
@@ -408,6 +410,7 @@ impl App {
             kinds: Kinds::All,
             short_labels: false,
             sort: None,
+            temperature: rows::TEMPERATURE,
             shown_labels: None,
             labels_chosen: false,
             labels: HashMap::new(),
@@ -574,6 +577,7 @@ impl App {
         rows::Order {
             rank: self.program().rank(),
             sort: self.sort,
+            temperature: self.temperature,
         }
     }
     /// Sort the matches by `sort`, or rank them as the program does with
@@ -1294,6 +1298,7 @@ impl App {
         known::discard(stale, len);
         let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
+        let letters = matcher.letters();
         let order = self.order();
         let totals = self.details.totals();
         // In budgeted rounds, each about a millisecond, at least one per call.
@@ -1329,7 +1334,7 @@ impl App {
             }
             let mut added: Vec<_> = listed
                 .into_iter()
-                .filter_map(|c| Some((order.key(&c, score_of(&c)?, &totals), c)))
+                .filter_map(|c| Some((order.key(&c, score_of(&c)?, letters, &totals), c)))
                 .collect();
             added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
             if !added.is_empty() {

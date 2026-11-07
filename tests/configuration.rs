@@ -603,3 +603,15 @@ fn sessions_start_ranked_unless_a_sort_is_configured() {
     );
     assert!(parse("[ui]\nsort_descending = 'yes'").is_err());
 }
+#[test]
+fn the_temperature_is_1_unless_configured_and_never_negative() {
+    assert_eq!(parse("").unwrap().temperature, 1.0);
+    assert_eq!(parse("[ui]\ntemperature = 2").unwrap().temperature, 2.0);
+    assert_eq!(parse("[ui]\ntemperature = 0.5").unwrap().temperature, 0.5);
+    for wrong in ["-1", "1001", "nan", "inf"] {
+        let error = parse(&format!("[ui]\ntemperature = {wrong}"))
+            .err()
+            .unwrap();
+        assert!(error.contains("ui.temperature"), "{error}");
+    }
+}
