@@ -87,10 +87,12 @@ the rows; `App::refresh` decides when they are ranked again or merged.
 
 - **The order** is one value, `rows::Order`, which every comparison of rows
   goes through (`Order::cmp`, on a row and its key). It is the program's
-  ranking (`Program::rank`): `Rank::Depth` (depth, folders first, best
-  match, root order, then the path's bytes, which break every tie) or
-  `Rank::Score` (`fff pick` and `fff seek`: best match first, then as
-  `Depth`) or `Rank::Listed` (a list read from stdin: best match first,
+  ranking (`Program::rank`): `Rank::Log` (every program but `fff seek`
+  and a list read from stdin: the best merit first, the score per letter
+  of the query less a penalty for depth, `rows::merit`, then as `Score`)
+  or `Rank::Score` (`fff seek`: best match first, then depth, folders
+  first, root order, then the path's bytes, which break every tie) or
+  `Rank::Listed` (a list read from stdin: best match first,
   then the list's order, `Candidate::order`); with a sort chosen in the sorting picker (`App::sort`, `gs`,
   `[ui] sort`), the `Sort`'s criterion first and the ranking for its ties.
   `App::order` puts the two together. The order is part of what the rows
@@ -99,12 +101,14 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   a sort by size, dates or kind, a value read from the filesystem (an
   `lstat`; a folder's size from the totals `sizes::Totals` holds, which
   sort last until added up) and, for a sort by a depth penalty
-  (`linear`, `sqrt`, `log`, `quadratic`), the row's merit: its score per
-  letter of the query less the penalty for its depth at
-  `Order::temperature` (`Criterion::merit`). `Order::key` reads or computes it when a row
+  (`log`), the row's merit: its score per letter of the query less the
+  penalty for its depth at `Order::temperature` (`rows::merit`). In
+  `Rank::Log` the key's score is the merit too, so a sort's ties are
+  broken by it. `Order::key` reads or computes it when a row
   is scored, in `Job::rank_piece` and `App::merge`, so comparisons never
   touch the filesystem; rows ranked again for a longer query keep the
-  values read and have their merits computed again (`Order::penalises`).
+  values read and have their scores and merits computed again
+  (`Order::rescore`).
   Names, extensions, depth and `shallowest` need no value. `App::set_sort` ranks every
   known path again, reading the values afresh.
 - **The rows** (`rows::Rows`) are sorted runs (`Run`: rows and their scores,
@@ -186,10 +190,11 @@ planner share runs, so merging a run they share copies it, as it did before.
   output is based on the invocation directory, never the current browsing location.
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
-- Sort by depth, directories before files, fuzzy score, root order, then original
-  absolute pathname bytes; `fff pick` and `fff seek` put fuzzy score before
-  depth (`Program::rank`), and a list read from stdin keeps its order after
-  the score; a sort from the sorting picker comes before
+- Sort by fuzzy score per letter less a logarithmic penalty for depth, then
+  depth, directories before files, root order, then original absolute
+  pathname bytes; `fff seek` puts the fuzzy score itself first
+  (`Program::rank`), and a list read from stdin keeps its order after the
+  score; a sort from the sorting picker comes before
   either, which then breaks its ties (see [how rows are kept](#how-rows-are-kept-and-ordered)).
   Query edits do not restart discovery. Scans merge new paths into the ranked
   rows within a time budget, as sorted runs of their own: no row already

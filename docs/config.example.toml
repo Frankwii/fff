@@ -14,16 +14,15 @@ message_seconds = 4
 # Details on the right of each result row, any of "permissions", "size"
 # (directories: entry count) and "modified" (time since); [] shows none.
 columns = ["size", "modified"]
-# The order results start in: "program" (each program's own: depth, then the
-# best match; the best match first in fff pick and fff seek), or "name",
-# "size", "modified", "accessed", "created", "extension", "kind", "depth",
-# "shallowest", or a depth penalty: "linear", "sqrt", "log" or "quadratic"
-# (gs chooses for the session).
+# The order results start in: "program" (each program's own: the best match
+# less a penalty for depth, as "log"; the best match first in fff seek), or
+# "name", "size", "modified", "accessed", "created", "extension", "kind",
+# "depth", "shallowest" or "log" (gs chooses for the session).
 sort = "program"
 # With a criterion, false reverses its own order (names from Z, the smallest,
 # the oldest, the deepest or the worst match first).
 sort_descending = true
-# What depth costs a match with a depth penalty, 0..1000.
+# What depth costs a match in the programs' ranking and with "log", 0..1000.
 temperature = 1.0
 # Clicks, drags and the wheel act on the results; false leaves the mouse to
 # the terminal (text selection).

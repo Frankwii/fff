@@ -214,13 +214,14 @@ or output paths, and the row layout has the same width either way.
 ```toml
 [ui]
 sort = "program"          # or "name", "size", "modified", "accessed", "created", "extension", "kind", "depth",
-                          # "shallowest", "linear", "sqrt", "log", "quadratic"
+                          # "shallowest", "log"
 sort_descending = true    # with a criterion: its own order; false reverses it
-temperature = 1.0         # what depth costs a match with "linear", "sqrt", "log" and "quadratic": 0..1000
+temperature = 1.0         # what depth costs a match in the programs' ranking and with "log": 0..1000
 ```
 
-The order sessions start in; `"program"` is each program's own (depth, then
-the best match; the best match first in `fff pick` and `fff seek`).
+The order sessions start in; `"program"` is each program's own (the best
+match less a penalty for depth, as `"log"` sorts; the best match first in
+`fff seek`).
 Descending is each criterion's own order: names from A, the largest, the
 newest, folders first, the shallowest, the best match first; `false`
 reverses it. `gs`
@@ -229,25 +230,25 @@ changes it for the session (see [sorting](../README.md#sorting)); like
 order as it is. Sizes, dates and kinds are read for every match before it
 is ranked, which takes a moment in a large listing.
 
-The depth penalties rank each match by its score per letter of the query
-less `temperature × p(depth)`, the highest first:
+The programs but `fff seek` rank each match, and `"log"` sorts it, by its
+score per letter of the query less `temperature × p(depth)`, the highest
+first, where p(depth) = 32·ln(1 + depth) / ln 5:
 
-| sort        | p(depth)          | 1 level | 2   | 4   | 8   |
-|-------------|-------------------|---------|-----|-----|-----|
-| `linear`    | 8·d               | 8       | 16  | 32  | 64  |
-| `sqrt`      | 16·√d             | 16      | 23  | 32  | 45  |
-| `log`       | 32·ln(1+d) / ln 5 | 14      | 22  | 32  | 44  |
-| `quadratic` | 2·d²              | 2       | 8   | 32  | 128 |
+| depth    | 1  | 2  | 3  | 4  | 6  | 8  |
+|----------|----|----|----|----|----|----|
+| p(depth) | 14 | 22 | 28 | 32 | 39 | 44 |
 
-All four cost the same four levels down, so one temperature means about
-the same for each: `sqrt` and `log` count the first levels most,
-`quadratic` the deep ones. A level costs 8 points per letter at
-temperature 1, nucleo's bonus for a letter starting a word: per letter,
+The first levels cost most; four levels down, a level has cost 8 points
+per letter on average at temperature 1, nucleo's bonus for a letter
+starting a word: per letter,
 matches score from about 3 to 31 (over a home folder, half of them above
 13), and a good match scores some 6 to 14 more than a typical one. The
 score is taken per letter so that depth weighs the same as the query
-grows. At `temperature = 0` depth only breaks ties, as in `fff pick`; a
-large one ranks as `shallowest`. Ties go to the program's ranking.
+grows. At `temperature = 0` depth only breaks ties, as in `fff seek`; a
+large one ranks as `shallowest`. Ties go to depth, folders first. A
+temperature from 0.25 to 1 is where it weighs most; from 2 on, a long name
+near the top that matches almost any query poorly comes before deep good
+matches.
 
 ## Result details
 

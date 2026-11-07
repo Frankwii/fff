@@ -119,8 +119,6 @@ impl Job {
     ) -> Option<(Vec<(Key, Arc<Candidate>)>, Vec<Arc<Candidate>>)> {
         let matcher = Matcher::new(&self.query);
         let letters = matcher.letters();
-        // Decided once, not per row: ranking is that much slower otherwise.
-        let penalises = self.order.penalises();
         let mut ranked = Vec::new();
         let mut listed = Vec::new();
         let rows = chunk.iter().flat_map(|&(rows, keys)| {
@@ -139,8 +137,8 @@ impl Job {
             }
             if let Some(score) = matcher.score_candidate(c) {
                 let key = match key {
-                    Some(key) if !penalises => Key { score, ..*key },
-                    _ => self.order.key(c, score, letters, &self.totals),
+                    Some(key) => self.order.rescore(*key, c, score, letters),
+                    None => self.order.key(c, score, letters, &self.totals),
                 };
                 ranked.push((key, Arc::clone(c)));
             }

@@ -85,14 +85,15 @@ impl Program {
             Self::Pick | Self::Seek | Self::ExplorerSave | Self::Piped
         )
     }
-    /// How its rows are ranked: `fff pick` and `fff seek` choose files from
-    /// deep below, so the best match comes first whatever its depth; a list
-    /// read from stdin keeps its order among matches as good.
+    /// How its rows are ranked: the best match less a penalty for depth;
+    /// `fff seek` chooses files from deep below, so the best match comes
+    /// first whatever its depth; a list read from stdin keeps its order
+    /// among matches as good.
     pub fn rank(self) -> crate::rows::Rank {
         match self {
-            Self::Pick | Self::Seek => crate::rows::Rank::Score,
+            Self::Seek => crate::rows::Rank::Score,
             Self::Piped => crate::rows::Rank::Listed,
-            _ => crate::rows::Rank::Depth,
+            _ => crate::rows::Rank::Log,
         }
     }
     /// Flat lists start labelled by name, with only the parents that tell

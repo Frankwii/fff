@@ -182,25 +182,26 @@ fn overlap_and_root_order() {
     assert_eq!(app.known[&path].root, 2);
 }
 #[test]
-fn subsequence_and_depth_before_score_except_when_picking() {
+fn subsequence_and_depth_weighed_against_score_except_when_seeking() {
     assert!(score("Downloads", "dwn").is_some());
     assert!(score("report.tex", "rpx").is_some());
     assert!(score("scratch", "sh").is_some());
     assert!(score("short_notes", "sh") > score("scratch", "sh"));
-    let mut app = app();
-    app.query = "ab".into();
-    app.insert(0, candidate("a_x_b", false, 1));
-    app.insert(0, candidate("dir/ab", true, 2));
-    app.refresh();
-    assert_eq!(app.rows[0].depth, 1);
-    // `fff pick`, like `fff seek`, puts the best match first.
-    let mut pick = App::new(vec![PathBuf::from("/fixture")], 3, Policy::default());
-    pick.set_program(fuzzy_file_finder::program::Program::Pick);
-    pick.query = "ab".into();
-    pick.insert(0, candidate("a_x_b", false, 1));
-    pick.insert(0, candidate("dir/ab", true, 2));
-    pick.refresh();
-    assert_eq!(pick.rows[0].depth, 2);
+    // A match nearly as good a level up comes first in fff roam and fff
+    // pick; `fff seek` puts the best match first whatever its depth.
+    for (program, depth) in [
+        (fuzzy_file_finder::program::Program::Roam, 1),
+        (fuzzy_file_finder::program::Program::Pick, 1),
+        (fuzzy_file_finder::program::Program::Seek, 2),
+    ] {
+        let mut app = App::new(vec![PathBuf::from("/fixture")], 3, Policy::default());
+        app.set_program(program);
+        app.query = "ab".into();
+        app.insert(0, candidate("a_x_b", false, 1));
+        app.insert(0, candidate("dir/ab", false, 2));
+        app.refresh();
+        assert_eq!(app.rows[0].depth, depth, "{program:?}");
+    }
 }
 #[test]
 fn a_query_with_a_slash_matches_paths_below_the_root() {

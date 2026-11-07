@@ -74,7 +74,7 @@ fn tree() -> Vec<Candidate> {
 }
 
 #[test]
-fn the_same_name_at_several_depths_ranks_by_depth_or_by_match_first() {
+fn the_same_name_at_several_depths_weighs_depth_or_ranks_by_match_first() {
     let paths = [
         candidate("d/notes", false, 2, 0),
         candidate("notes", true, 1, 0),
@@ -106,30 +106,23 @@ fn the_same_name_at_several_depths_ranks_by_depth_or_by_match_first() {
             "d/e/f/notes"
         ]
     );
-    assert_eq!(
-        listed(Program::Roam, "notes"),
-        [
-            "notes",
-            "pinned:notes",
-            "nxoxtxexs",
-            "d/notes",
-            "d/notes.md",
-            "d/e/notes",
-            "d/e/f/notes"
-        ]
-    );
-    assert_eq!(
-        listed(Program::Pick, "notes"),
-        [
-            "notes",
-            "pinned:notes",
-            "d/notes",
-            "d/notes.md",
-            "d/e/notes",
-            "d/e/f/notes",
-            "nxoxtxexs"
-        ]
-    );
+    // fff roam and fff pick weigh depth against the match: a level down,
+    // a whole match beats a scattered one, which beats it two levels down.
+    for program in [Program::Roam, Program::Pick] {
+        assert_eq!(
+            listed(program, "notes"),
+            [
+                "notes",
+                "pinned:notes",
+                "d/notes",
+                "d/notes.md",
+                "nxoxtxexs",
+                "d/e/notes",
+                "d/e/f/notes"
+            ],
+            "{program:?}"
+        );
+    }
     assert_eq!(
         listed(Program::Seek, "notes"),
         [
@@ -518,10 +511,7 @@ fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() 
         Criterion::Extension,
         Criterion::Depth,
         Criterion::Shallowest,
-        Criterion::Linear,
-        Criterion::Sqrt,
         Criterion::Log,
-        Criterion::Quadratic,
     ] {
         for descending in [false, true] {
             let sort = Some(Sort { by, descending });
@@ -577,56 +567,78 @@ fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() 
 }
 
 #[test]
-fn a_depth_penalty_weighs_the_match_against_the_depth() {
+fn the_log_penalty_weighs_the_match_against_the_depth() {
     use fuzzy_file_finder::rows::{Criterion, Sort};
-    // Descending: the best match first, as the largest size is.
-    let sorted_as = |by, temperature, query: &str, descending| {
-        let mut app = app(Program::Roam);
+    // Per letter of "abc", the deep names score 29, the shallow one 14.
+    let ranked = |program, sort, temperature, query: &str| {
+        let mut app = app(program);
         app.temperature = temperature;
-        // Per letter of "abc", the deep name scores 29, the shallow one 14.
         for (name, depth) in [("xaxbxc", 1), ("d/abc", 2), ("d/e/abc", 3)] {
             app.insert(0, candidate(name, false, depth, 0));
         }
         app.query = query.into();
-        app.set_sort(Some(Sort { by, descending }));
+        app.set_sort(sort);
         names(&app)
+    };
+    let sorted_as = |by, temperature, query: &str, descending| {
+        ranked(
+            Program::Seek,
+            Some(Sort { by, descending }),
+            temperature,
+            query,
+        )
     };
     let sorted = |by, temperature, query: &str| sorted_as(by, temperature, query, true);
     let (shallow, better, deepest) = ("/fixture/xaxbxc", "/fixture/d/abc", "/fixture/d/e/abc");
-    // A level costs 8 points per letter at temperature 1: one more level
-    // is worth the better match, two are not.
-    assert_eq!(
-        sorted(Criterion::Linear, 1.0, "abc"),
-        [better, shallow, deepest]
-    );
-    // Without a cost, the best match first; at a high one, the shallowest.
-    assert_eq!(sorted(Criterion::Linear, 0.0, "abc")[2], shallow);
-    assert_eq!(
-        sorted(Criterion::Linear, 3.0, "abc"),
-        [shallow, better, deepest]
-    );
-    assert_eq!(
-        sorted(Criterion::Quadratic, 1000.0, "abc"),
-        sorted(Criterion::Shallowest, 1.0, "abc")
-    );
-    // Ascending, the worst first.
-    assert_eq!(
-        sorted_as(Criterion::Linear, 1.0, "abc", false),
-        [deepest, shallow, better]
-    );
-    // The logarithm counts the first levels most: its third costs less.
+    // The first levels cost most: a level is worth the better match, the
+    // third costs little more than the second.
     assert_eq!(
         sorted(Criterion::Log, 1.0, "abc"),
         [better, deepest, shallow]
     );
-    // An empty query ranks by depth, whichever the penalty.
-    for by in [
-        Criterion::Linear,
-        Criterion::Sqrt,
-        Criterion::Log,
-        Criterion::Quadratic,
+    // Without a cost, the best match first; at a high one, the shallowest.
+    assert_eq!(
+        sorted(Criterion::Log, 0.0, "abc"),
+        [better, deepest, shallow]
+    );
+    assert_eq!(
+        sorted(Criterion::Log, 3.0, "abc"),
+        [shallow, better, deepest]
+    );
+    assert_eq!(
+        sorted(Criterion::Log, 1000.0, "abc"),
+        sorted(Criterion::Shallowest, 1.0, "abc")
+    );
+    // Ascending, the worst first.
+    assert_eq!(
+        sorted_as(Criterion::Log, 1.0, "abc", false),
+        [shallow, deepest, better]
+    );
+    // An empty query ranks by depth.
+    assert_eq!(sorted(Criterion::Log, 1.0, ""), [shallow, better, deepest]);
+    // It is how fff roam, pick, a window and the file dialogs rank; fff
+    // seek ranks the best match first whatever its depth.
+    for program in [Program::Roam, Program::Pick, Program::Window] {
+        for temperature in [1.0, 3.0] {
+            assert_eq!(
+                ranked(program, None, temperature, "abc"),
+                sorted(Criterion::Log, temperature, "abc"),
+                "{program:?}"
+            );
+        }
+    }
+    assert_eq!(
+        ranked(Program::Seek, None, 3.0, "abc"),
+        [better, deepest, shallow]
+    );
+    // The file dialogs, which run only with their caller, rank so too.
+    for dialog in [
+        Program::ExplorerOpen,
+        Program::ExplorerMultiple,
+        Program::ExplorerFolder,
+        Program::ExplorerSave,
     ] {
-        assert_eq!(sorted(by, 1.0, ""), [shallow, better, deepest], "{by:?}");
+        assert_eq!(dialog.rank(), fuzzy_file_finder::rows::Rank::Log);
     }
 }
 

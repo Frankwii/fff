@@ -4,10 +4,23 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.20.0 — 2026-11-07
+
+Depth weighs against the match: every program but `fff seek` ranks the best
+match less a penalty for depth, so a much better match deeper down comes
+before a poor one near the top. Sorts start descending, in each criterion's
+own order.
 
 ### Changed
 
+- **`fff roam`, `fff pick`, `fff window` and the file dialogs rank by the
+  match less a penalty for depth**, growing as its logarithm so that the
+  first levels down cost most, rather than by depth first (`fff roam`, the
+  window and the dialogs) or by the match first (`fff pick`). An empty
+  query still lists by depth, folders first, and `[ui] temperature` sets
+  how much depth costs (0 ranks by the match first, as `fff pick` did; a
+  large one by depth first). `fff seek` and lists read from stdin rank as
+  before; `shallowest` in `gs` still sorts depth first.
 - **Sorts are descending to start, and descending is each criterion's own
   order:** names from A, the largest, the newest, folders first, the
   shallowest and the best match first; ascending (`sort_descending =
@@ -16,6 +29,11 @@ history.
   `depth` with `sort_descending = false` now list in reverse.
 - **The program's own order is called `program`** in `gs`, `[ui] sort` and
   workspaces, rather than `ranking`.
+
+### Removed
+
+- **The `linear`, `sqrt` and `quadratic` sorts.** `log` stays, and is how
+  the programs rank.
 
 ## 0.19.4 — 2026-11-07
 

@@ -123,17 +123,7 @@ and how the row shows which part matched.
 
 ### Improvements to matching
 
-Two changes to how a query matches and ranks: depth weighed against match
-quality by default, and queries that tolerate a typo.
-
-**Depth as a penalty by default.** The depth penalties (`linear`, `sqrt`,
-`log`, `quadratic`, with `[ui] temperature`; see
-[configuration](CONFIGURATION.md#sorting)) are sorts chosen with `gs` or
-`[ui] sort`; each program still ranks as before, `fff roam` depth first
-and `fff pick` and `fff seek` by the match first. Once they are tried, one
-could become a program's own ranking (`Program::rank`), with a
-temperature per program. While a scan runs, a deep good match could then
-arrive above rows already shown, as in `fff pick` today.
+A change to how a query matches: queries that tolerate a typo.
 
 **Queries with a typo.** A query matches when its letters appear in order, so a letter left out is
 forgiven (`thre lnes` finds `three lines theorem.pdf`) but a wrong, extra or

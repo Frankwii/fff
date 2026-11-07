@@ -133,7 +133,8 @@ order, and the last part matches the basename: `pde/` lists everything inside
 folders matching `pde`, and a leading `/` (`/stab`) only switches to path
 ranking. Parts naming whole components, and parts on consecutive components,
 rank higher; the matched letters are highlighted along the whole label. Depth
-and directories still sort first, except in `fff pick` and `fff seek`.
+still weighs against the match, and directories come first among matches as
+good (see [sorting](#sorting)).
 
 Enter depends on the editing mode:
 
@@ -228,8 +229,13 @@ Labels are presentation only: output paths are never shortened.
 
 ### Sorting
 
-Rows are ranked by depth, then by how well they match (`fff pick` and `fff
-seek`: the best match first). `gs` in Normal mode (`show_sorting`) opens the
+Rows are ranked by how well they match less a penalty for their depth,
+growing as its logarithm, so that the first levels down cost most: a much
+better match deeper down comes before a poor one above it, and an empty
+query lists by depth, directories first. `[ui] temperature` sets how much
+depth costs (see [configuration](docs/CONFIGURATION.md#sorting)). `fff
+seek`, which chooses files from deep below, puts the best match first
+whatever its depth. `gs` in Normal mode (`show_sorting`) opens the
 sorting picker instead: type or move to a criterion and Enter sorts by it,
 Tab switching between descending and ascending first. Descending (↓), as
 the picker opens, is each criterion's own order, as listed below;
@@ -247,14 +253,9 @@ ties:
 - `extension`, then name;
 - `kind`: folders, then files, then links;
 - `depth`, the shallowest first, then name;
-- `shallowest`: depth, folders first, then the best match, as `fff roam`
-  ranks;
-- `linear`, `sqrt`, `log` and `quadratic`: the best match, less a penalty
-  for its depth growing in proportion to it, as its square root, its
-  logarithm or its square, so that a much better match deeper down can
-  come before a poor one above it. `[ui] temperature` sets how much
-  depth costs (see [configuration](docs/CONFIGURATION.md#sorting)); an
-  empty query lists by depth;
+- `shallowest`: depth, folders first, then the best match;
+- `log`: the best match less the penalty for depth, as the programs but
+  `fff seek` rank;
 - `program`: back to the program's own order, which has no direction.
 
 The results' bottom border names the order (`sorted by size ↓`). `[ui] sort`
