@@ -165,10 +165,10 @@ color for that role. Unspecified roles are inherited.
 | `text` | Main foreground text. |
 | `muted` | Metadata, paths, and keyboard hints. |
 | `border` | Unfocused pane borders. |
-| `accent` | Directories and active result/filter borders. |
-| `marked` | Marks, matched query letters, and chooser accents. |
-| `success` | Completed-discovery indicator. |
-| `error` | Missing paths and error messages. |
+| `accent` | Directories, active result/filter borders, and the query box in Normal mode. |
+| `marked` | Marks, matched query letters, chooser accents, and the query box in Command, Operator and Pending modes. |
+| `success` | Completed-discovery indicator and the query box in Insert mode. |
+| `error` | Missing paths, error messages, and the query box in Replace mode. |
 | `selection` | Highlighted-row background. |
 | `current_directory` | Background of the `@ <current directory>` segment below the filter. |
 | `current_directory_text` | Foreground of that segment; `@` and the basename are bold, the basename underlined. |
@@ -176,7 +176,7 @@ color for that role. Unspecified roles are inherited.
 | `executable` | Result names of regular files with any execute bit. Built-ins reuse `success`. |
 | `empty` | Result names of empty (zero-byte) regular files. Built-ins reuse `error`. |
 | `function` | Function names on the Keys screen (F1), in the `:` picker and where a key clashes. Built-ins reuse `error`. |
-| `staged_folder` | Names of folders a copy or extraction is still writing (`.fff-stage-*` and the folders in it, listed with hidden entries); the files in them use `marked`. Built-ins use a pink no other role uses. |
+| `staged_folder` | Names of folders a copy or extraction is still writing (`.fff-stage-*` and the folders in it, listed with hidden entries); the files in them use `marked`. Built-ins use a pink no other result role uses. It also colors the query box in Visual and Select modes. |
 
 Result names use the first matching role: `staged_folder` or `marked` for
 what an operation is still writing, `link`, `accent` for directories,

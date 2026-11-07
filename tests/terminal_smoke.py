@@ -346,11 +346,11 @@ class TerminalTests(unittest.TestCase):
         (self.root / "notes.txt").write_text("intro\nfirst canard\nmiddle\nsecond canard here\n")
         (self.root / "other.txt").write_text("nothing to see\n")
         s = self.start(implicit_root=True, typing=True)
-        s.wait_ui("Query · INSERT")
+        s.wait_ui("Query  INSERT")
         self.assertNotIn("Contents", s.screen.text)
         # Tab goes to the contents query, beside the names query, in the
         # mode it was pressed in.
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         self.assertIn("Names", s.screen.text)
         s.send(b"canard", "❯ canard")
         s.wait_ui("2 matches in 1 file")
@@ -365,7 +365,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[B", "Preview · l. 4 · match 2 of 2")
         # Tab goes back to the names query, which chooses the files read,
         # still typing.
-        s.send(b"\t", "Names · INSERT")
+        s.send(b"\t", "Names  INSERT")
         s.send(b"zzz", "No matches")
         s.send(b"\x7f\x7f\x7f", "Matches · 2")
         # Enter prints the file.
@@ -377,7 +377,7 @@ class TerminalTests(unittest.TestCase):
     def test_a_file_with_more_matches_than_are_kept_says_so(self):
         (self.root / "many.txt").write_text("canard\n" * 250)
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         s.send(b"canard", "200+ matches in 1 file · first 200 per file")
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
@@ -385,9 +385,9 @@ class TerminalTests(unittest.TestCase):
         for name in ("one", "two"):
             (self.root / name).write_text("hello world\nhello again\n")
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         s.send(b"hello", "4 matches in 2 files")
-        s.send(b"\x1b[27u", "Contents · NORMAL")
+        s.send(b"\x1b[27u", "Contents  NORMAL")
         # Each file's two matches share its mark: Space goes on to the next
         # file, so pressing it again marks that one instead of unmarking.
         s.send(b" ", "Marks (1)")
@@ -402,7 +402,7 @@ class TerminalTests(unittest.TestCase):
         lines[49] = "line 50 canard"
         (self.root / "notes.txt").write_text("\n".join(lines) + "\n")
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         s.send(b"canard", "❯ canard")
         s.wait_ui("Preview · l. 30 · match 1 of 2")
         s.send(b"\x1b[27u", "NORMAL")
@@ -460,21 +460,21 @@ class TerminalTests(unittest.TestCase):
         (self.root / "notes.txt").write_text("a canard here\n")
         (self.root / "other.txt").write_text("nothing\n")
         s = self.start(implicit_root=True, typing=True)
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         s.send(b"canard", "1 match in 1 file")
-        s.send(b"\x1b[27u", "Contents · NORMAL")
+        s.send(b"\x1b[27u", "Contents  NORMAL")
         s.send(b"gm", "Switch program")
         self.assertNotIn("grep", s.screen.text)
         # fff seek keeps the contents query and its matches, still in
         # Normal mode.
         s.send(b"s", "Now fff seek")
-        s.wait_ui("Contents · NORMAL")
+        s.wait_ui("Contents  NORMAL")
         s.wait_ui("1 match in 1 file")
         # Tab goes to the names query, in the mode it was pressed in; Alt+/
         # comes back,
         # and clearing the contents query lists the files.
-        s.send(b"\t", "Names · NORMAL")
-        s.send(b"\x1b/", "Contents · NORMAL")
+        s.send(b"\t", "Names  NORMAL")
+        s.send(b"\x1b/", "Contents  NORMAL")
         s.send(b"\x1b[27u", "Files · 2")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -484,19 +484,19 @@ class TerminalTests(unittest.TestCase):
         (self.root / "notes.txt").write_text("intro\na canard here\n")
         (self.root / "other.txt").write_text("nothing\n")
         s = self.start(implicit_root=True, output_paths=False)
-        s.wait_ui("Query · NORMAL")
+        s.wait_ui("Query  NORMAL")
         self.assertNotIn("Contents", s.screen.text)
         # Alt+/ opens the contents query beside the names query.
-        s.send(b"\x1b/", "Contents · NORMAL")
+        s.send(b"\x1b/", "Contents  NORMAL")
         self.assertIn("Names", s.screen.text)
-        s.send(b"i", "Contents · INSERT")
+        s.send(b"i", "Contents  INSERT")
         s.send(b"canard", "1 match in 1 file")
         s.wait_ui("Matches · 1")
         row = next(l for l in s.screen.text.splitlines() if "notes.txt" in l)
         self.assertIn("l. 2", row)
         # Back to the names query, still typing; the contents bar stays
         # while it is set.
-        s.send(b"\x1b/", "Names · INSERT")
+        s.send(b"\x1b/", "Names  INSERT")
         self.assertIn("Contents", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -505,7 +505,7 @@ class TerminalTests(unittest.TestCase):
     def test_pick_starts_typing_the_query(self):
         (self.root / "one").touch()
         s = self.start("--depth", "1", implicit_root=True, typing=True)
-        s.wait_ui("Query · INSERT")
+        s.wait_ui("Query  INSERT")
         s.send(b"one", "❯ one")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -521,11 +521,11 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("Marks (1)", s.screen.text)
         s.send(b" ", "Marks (2)")
         # Tab never marks: it switches to the contents query and back.
-        s.send(b"\t", "Contents · NORMAL")
-        s.send(b"\t", "Query · NORMAL")
+        s.send(b"\t", "Contents  NORMAL")
+        s.send(b"\t", "Query  NORMAL")
         # From Insert mode, both are typed into in Insert mode.
-        s.send(b"i\t", "Contents · INSERT")
-        s.send(b"\t", "Query · INSERT")
+        s.send(b"i\t", "Contents  INSERT")
+        s.send(b"\t", "Query  INSERT")
         self.assertIn("Marks (2)", s.screen.text)
         # With a query, Escape clears it first and keeps the marks.
         s.send(b"t", "❯ t")
@@ -660,7 +660,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         s = self.start("seek")
         # A file choice starts ready to type: "!" is query text here.
-        s.send(b"", "Query · INSERT")
+        s.send(b"", "Query  INSERT")
         s.send(b"!", "❯ !")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯ type to filter")
@@ -717,7 +717,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"izzzz", b"No matching results")
         # While typing, Enter with no matches stays open; so does Ctrl+9.
         s.send(b"\x1b[57;5u")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         # In Normal mode, Enter with nothing listed takes the current directory.
         s.send(b"\x1b[57;5u")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\0"))
@@ -774,7 +774,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bk", "›   1    a")
         # Enter while typing returns the highlighted file (Normal-mode Enter
         # would exit into its folder instead).
-        s.send(b"i", "Query · INSERT")
+        s.send(b"i", "Query  INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a") + b"\n"))
 
@@ -854,7 +854,7 @@ class TerminalTests(unittest.TestCase):
             with self.subTest(enter=enter):
                 s = self.start("--depth", "1", implicit_root=True)
                 # Typing: Enter enters directories and returns a file.
-                s.send(b"i", "Query · INSERT")
+                s.send(b"i", "Query  INSERT")
                 s.send(enter, ("cwd", self.root / "alpha"))
                 s.send(enter, ("cwd", nested))
                 s.send(enter)
@@ -1021,7 +1021,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"toggle_hid", "toggle_hidden")
         s.send(b"\r", "hidden shown")
         self.assertNotIn("Commands ·", s.screen.text)
-        self.assertIn("Query · NORMAL", s.screen.text)
+        self.assertIn("Query  NORMAL", s.screen.text)
         # Escape leaves typing for Normal mode, where j, k, gg and G move,
         # and a second Escape goes back without running anything.
         s.send(b":", "Commands · INSERT")
@@ -1240,9 +1240,9 @@ class TerminalTests(unittest.TestCase):
             s.send(key, f"({function}) does not work in fff reading paths from stdin")
         # The contents query searches the listed files; Enter prints the
         # chosen one as the list spelled it.
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         s.send(b"canard", "1 match in 1 file")
-        s.send(b"\x1b[27u", "Contents · NORMAL")
+        s.send(b"\x1b[27u", "Contents  NORMAL")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, b"./src/main.rs\n"))
 
@@ -1637,7 +1637,7 @@ class TerminalTests(unittest.TestCase):
         self.assertIn("old", s.screen.text)  # recent snapshot intentionally stays usable
         s.send(b"\x1b[15~", " new ")  # F5 forces freshness
         self.assertIn("✓ complete", s.screen.text)
-        s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
+        s.send(b"i", "Query  INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(new) + b"\n"))
 
@@ -1768,8 +1768,8 @@ class TerminalTests(unittest.TestCase):
         def save():
             s = self.session = Session(self.root, "explorer", "save", str(docs / "a.pdf"),
                                        implicit_root=True, output_paths=False)
-            s.wait_ui("Save as a.pdf · INSERT")
-            s.send(b"new.pdf", "Save as new.pdf · INSERT")
+            s.wait_ui("Save as a.pdf  INSERT")
+            s.send(b"new.pdf", "Save as new.pdf  INSERT")
             return s
         # Ctrl+3 is Enter on other.txt: it offers to replace that file, not
         # to save under the typed name.
@@ -1803,7 +1803,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start()
         s.send(b"izzzz", b"No matching results")
         s.send(b"\r", 'Nothing matches "zzzz"; Esc clears the query')
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"i\x1b[57;5u", 'Nothing matches "zzzz"')  # Ctrl+9 while typing
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -1852,7 +1852,7 @@ class TerminalTests(unittest.TestCase):
             self.assertTrue(dropped.exists())
             self.assertIn("Marks (1)", s.screen.text)
             # While typing, the same paste is only text in the query.
-            s.send(b"i", "Query · INSERT")
+            s.send(b"i", "Query  INSERT")
             s.send(b"\x1b[200~" + os.fsencode(dropped) + b"\x1b[201~", "fff-drop-")
             self.assertNotIn("Copy here", s.screen.text)
             s.send(b"\x03")
@@ -1931,7 +1931,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u")
         s.wait_absent("Commands ·")
         self.assertIn("❯ world", s.screen.text)
-        s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
+        s.send(b"i", "Query  INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "world.txt") + b"\n"))
 
@@ -1975,7 +1975,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "Edit exclusions")
         self.assertIn("Edit exclusions", s.screen.text)
-        s.send(b":q!\r", "Query · NORMAL")
+        s.send(b":q!\r", "Query  NORMAL")
         s.wait_absent("Edit exclusions")
         s.send(b"gE", "Edit exclusions")
         self.assertIn("build", s.screen.text)
@@ -2038,7 +2038,7 @@ class TerminalTests(unittest.TestCase):
         # G = last, k = Alt+k, gg = first, j = Alt+j; the query is untouched.
         s.send(b"Gkggjj")
         s.send(b"k")
-        s.send(b"i", "Query · INSERT")  # Enter while typing returns the file
+        s.send(b"i", "Query  INSERT")  # Enter while typing returns the file
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "beta") + b"\n"))
         s.close()
@@ -2052,7 +2052,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"ix", "❯ xgamma")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"ctg\x1b[27u", "❯ gamma")
-        s.send(b"i", "Query · INSERT")
+        s.send(b"i", "Query  INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "gamma") + b"\n"))
 
@@ -2065,9 +2065,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"l", ("cwd", directory))
         # Normal-mode navigation stays Normal, so h needs no Escape first.
-        self.assertIn("Query · NORMAL", s.screen.text)
+        self.assertIn("Query  NORMAL", s.screen.text)
         s.send(b"h", ("cwd", self.root))
-        self.assertIn("Query · NORMAL", s.screen.text)
+        self.assertIn("Query  NORMAL", s.screen.text)
         # i returns to Insert; typing filters as usual.
         s.send(b"ifol", "❯ fol")
         s.send(b"\x03")
@@ -2132,14 +2132,14 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--depth", "1", implicit_root=True)
         s.send(b"ifol", "❯ fol")
         s.send(b"\x1bl", ("cwd", directory))
-        self.assertIn("Query · INSERT", s.screen.text)
+        self.assertIn("Query  INSERT", s.screen.text)
         s.send(b"file", "❯ file")
         s.send(b"\x1bh", ("cwd", self.root))
-        self.assertIn("Query · INSERT", s.screen.text)
+        self.assertIn("Query  INSERT", s.screen.text)
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u", "❯")
         s.send(b"l", ("cwd", directory))
-        self.assertIn("Query · NORMAL", s.screen.text)
+        self.assertIn("Query  NORMAL", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -2304,7 +2304,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"n", "Press f to create a file")
         s.send(b"f", "New file · INSERT")
         s.send(b"discarded", "discarded")
-        s.send(b"\x1b[27u:q!\r", "Query · NORMAL")
+        s.send(b"\x1b[27u:q!\r", "Query  NORMAL")
         self.assertFalse((self.root / "discarded").exists())
         for choice, name in [(b"f", "new-file"), (b"d", "new-folder")]:
             s.send(b"n", "Press f to create a file")
@@ -2366,7 +2366,7 @@ class TerminalTests(unittest.TestCase):
         # X deletes permanently, after confirmation.
         s.send(b"X", "permanently delete")
         self.assertIn("19.5 KiB", s.screen.text)
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         self.assertTrue((self.root / "beta").exists())
         s.send(b"X", "permanently delete")
         s.send(b"\r", "Deleted beta permanently")
@@ -2807,7 +2807,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"i" + name.encode(), "❯ " + name)
             s.send(b"\x1b[27uE", "Cannot extract ")
             self.assertNotIn("Extract archive", s.screen.text)
-            self.assertIn("Query · NORMAL", s.screen.text)
+            self.assertIn("Query  NORMAL", s.screen.text)
             s.send(b"\x1b[27u", "❯")
         s.send(b"imissing", "No matching results")
         s.send(b"\x1b[27uE", "Select an extractable archive first")
@@ -2842,7 +2842,7 @@ class TerminalTests(unittest.TestCase):
             z.writestr("unpacked", "payload")
         s = self.start(implicit_root=True)
         s.send(b"E", "Extract archive · NORMAL")
-        s.send(b"ZQ", "Query · NORMAL")
+        s.send(b"ZQ", "Query  NORMAL")
         s.wait_absent("Extract archive")
         self.assertFalse((self.root / "unpacked").exists())
         s.send(b"E", "Extract archive · NORMAL")
@@ -2980,9 +2980,9 @@ class TerminalTests(unittest.TestCase):
                                        *args, implicit_root=True, output_paths=False)
             s.wait_ui(("cwd", docs))
             # Save dialogs start ready to type a name.
-            s.wait_ui("Save as a.pdf · INSERT")
+            s.wait_ui("Save as a.pdf  INSERT")
             s.wait_ui("Type a custom name, then press Enter or Ctrl+s to save it here.")
-            s.send(b"\x1b[27u", "Save as a.pdf · NORMAL")
+            s.send(b"\x1b[27u", "Save as a.pdf  NORMAL")
             s.wait_ui("Press ! or Ctrl+s to save a.pdf here. Press i to type a custom name.")
             return s
         s = save()
@@ -3008,7 +3008,7 @@ class TerminalTests(unittest.TestCase):
         # A name changing the suggested extension is warned about first;
         # saving again takes it.
         s = save()
-        s.send(b"inew.txt", "Save as new.txt · INSERT")
+        s.send(b"inew.txt", "Save as new.txt  INSERT")
         s.send(b"\r", "new.txt ends in .txt, unlike the suggested a.pdf")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.txt") + b"\n"))
@@ -3025,7 +3025,7 @@ class TerminalTests(unittest.TestCase):
         # when the name matches nothing.
         for key in [b"\x13", b"\r"]:
             s = save()
-            s.send(b"inew.pdf", "Save as new.pdf · INSERT")
+            s.send(b"inew.pdf", "Save as new.pdf  INSERT")
             # The name does not filter the folder: a.pdf stays listed.
             self.assertIn("Files · 1", s.screen.text)
             self.assertIn("F1 keys  Ctrl+c quit", s.screen.text)
@@ -3036,8 +3036,8 @@ class TerminalTests(unittest.TestCase):
         # never the contents query's.
         (docs / "notes.txt").write_text("a canard here\n")
         s = save()
-        s.send(b"inew.pdf", "Save as new.pdf · INSERT")
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"inew.pdf", "Save as new.pdf  INSERT")
+        s.send(b"\t", "Contents  INSERT")
         self.assertIn("Save as new.pdf", s.screen.text)
         s.send(b"canard", "❯ canard")
         s.wait_ui("Matches · 1")
@@ -3047,7 +3047,7 @@ class TerminalTests(unittest.TestCase):
         # Enter on a match chooses its file.
         s = self.session = Session(self.root, "explorer", "open", "docs",
                                    implicit_root=True, output_paths=False)
-        s.send(b"\t", "Contents · NORMAL")
+        s.send(b"\t", "Contents  NORMAL")
         s.send(b"icanard", "❯ canard")
         s.wait_ui("Matches · 1")
         s.send(b"\r")
@@ -3221,7 +3221,7 @@ class TerminalTests(unittest.TestCase):
                     s = self.start("--depth", "3", *args, implicit_root=True)
                     s.send(SHIFT_SPACE, "Marks (1)")  # marks are ignored
                     s.send(b"i" + query, "❯ " + query.decode())
-                    s.send(b"\x1b[27u", "Query · NORMAL")
+                    s.send(b"\x1b[27u", "Query  NORMAL")
                     s.send(key)
                     self.assertEqual(s.finish(), (0, expected))
                     s.close()
@@ -3242,7 +3242,7 @@ class TerminalTests(unittest.TestCase):
             s = self.start("--depth", "3", "--cd-file", str(cd_file), "--config",
                            str(config), implicit_root=True, output_paths=False, environment=env)
             s.send(b"i" + query, "❯ " + query.decode())
-            s.send(b"\x1b[27u", "Query · NORMAL")
+            s.send(b"\x1b[27u", "Query  NORMAL")
             s.send(b"\r")
             return s
         # A directory: fff leaves into it.
@@ -3349,7 +3349,7 @@ class TerminalTests(unittest.TestCase):
         s.wait_absent("❯ 0f")
         self.wait_highlight(s, "0first.txt")
         # Still typing, as after moving to another folder: letters are text.
-        s.wait_ui("Query · INSERT")
+        s.wait_ui("Query  INSERT")
         s.send(b"zz", "❯ zz")
         self.assertIn(str(more), next(l for l in s.screen.text.splitlines() if l.lstrip().startswith("@ ")))
         s.send(b"\x03")
@@ -3378,11 +3378,11 @@ class TerminalTests(unittest.TestCase):
             rules="[[open.rules]]\ncommand = 'viewer --page 2'\nextensions = ['PDF']\n")
         s = self.start("--depth", "3", "--config", str(config), implicit_root=True, environment=env)
         s.send(b"ia.pdf", "❯ a.pdf")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"l", "Opened a.pdf with viewer")
         self.wait_file(log, ["--page", "2", str(more / "a.pdf")])
         # fff keeps the keyboard, still in Normal mode.
-        self.assertIn("Query · NORMAL", s.screen.text)
+        self.assertIn("Query  NORMAL", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -3393,7 +3393,7 @@ class TerminalTests(unittest.TestCase):
         env, config, log = self.opener_setup(
             rules="[[open.rules]]\ncommand = 'viewer'\npatterns = ['*']\nat_grep_match = '+{line}'\n")
         s = self.start("--config", str(config), implicit_root=True, environment=env, typing=True)
-        s.send(b"\t", "Contents · INSERT")
+        s.send(b"\t", "Contents  INSERT")
         s.send(b"canard", "❯ canard")
         s.wait_ui("4 matches in 2 files")
         # Each row's own match, not the first of its file's.
@@ -3422,14 +3422,14 @@ class TerminalTests(unittest.TestCase):
         env, config, log = self.opener_setup(body=f'printf "%s\\n" "$@" > "{log}"; echo VIEWER-RAN\n')
         s = self.start("--depth", "1", "--config", str(config), implicit_root=True, environment=env)
         s.send(b"ifolder", "❯ folder")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"o", "o opens files")
         self.assertFalse(log.exists())
         # Marked files share an opener: one foreground run gets both.
         s.send(b"\x1b[27u", "❯ type to filter")
         s.send(b"i.pdf", "❯ .pdf")
         s.send(SHIFT_SPACE * 2, "Marks (2)")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"o")
         s.wait_raw(b"VIEWER-RAN")
         s.wait_ui("viewer finished")
@@ -3437,10 +3437,10 @@ class TerminalTests(unittest.TestCase):
                          [str(self.root / "a.pdf"), str(self.root / "b.pdf")])
         # Alt+o does the same while typing the query.
         log.unlink()
-        s.send(b"i", "Query · INSERT")
+        s.send(b"i", "Query  INSERT")
         s.send(b"\x1b[111;3u")
         self.wait_file(log, [str(self.root / "a.pdf"), str(self.root / "b.pdf")])
-        s.wait_ui("Query · INSERT")
+        s.wait_ui("Query  INSERT")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -3459,14 +3459,14 @@ class TerminalTests(unittest.TestCase):
         s = self.start("--depth", "1", "--config", str(config), implicit_root=True,
                        environment={**env, "EDITOR": "myedit"})
         s.send(b"inotes", "❯ notes")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"l", "Opened notes.txt with term")
         self.wait_file(log, ["-e", bin_dir + "/pager", "-R", str(self.root / "notes.txt")])
         # Unmatched files use $EDITOR, also as a terminal program.
         log.unlink()
         s.send(b"\x1b[27u", "❯ type to filter")
         s.send(b"iother", "❯ other")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"l", "Opened other.md with term")
         self.wait_file(log, ["-e", bin_dir + "/myedit", str(self.root / "other.md")])
         s.send(b"\x03")
@@ -3537,7 +3537,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"gx", "Run · INSERT")
         s.send(b"echo\x1b[27u", "Run · NORMAL")
         self.assertIn("❯ echo", s.screen.text)
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.wait_absent("Run · ")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -3594,7 +3594,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"nf", "New file · INSERT")
         self.assertIn("Enter: Create ─── Esc: Cancel", s.screen.text)
         s.send(b"dropped\x1b[27u", "New file · NORMAL")
-        s.send(b"\x1b[27u", "Query · NORMAL")
+        s.send(b"\x1b[27u", "Query  NORMAL")
         s.wait_absent("New file")
         self.assertFalse((self.root / "dropped").exists())
         # Validation errors keep the buffer open for correction.
@@ -3626,9 +3626,9 @@ class TerminalTests(unittest.TestCase):
         # (o opens files instead; see the opener tests.)
         (self.root / "file").touch()
         s = self.start(implicit_root=True)
-        s.send(b"O", "Query · INSERT")
+        s.send(b"O", "Query  INSERT")
         s.send(b"file", "❯ file")
-        s.send(b"\x1b[27uO", "Query · INSERT")
+        s.send(b"\x1b[27uO", "Query  INSERT")
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
@@ -3677,7 +3677,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"gP", "Palette midnight reloaded")
         s.send(b"gpiforest", "Find: forest")
         s.send(b"\r", "Palette forest applied for this session")
-        s.send(b"i", "Query · INSERT")
+        s.send(b"i", "Query  INSERT")
         mark = len(s.ui)
         s.send(b"\x1b[112;4u", "Palette midnight reloaded")  # CSI-u Alt+Shift+p
         self.assertIn(b"48;2;15;23;36", s.ui[mark:])

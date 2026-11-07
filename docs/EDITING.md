@@ -38,7 +38,12 @@ edit, delete and reload workspaces in the workspace chooser's Normal mode (Alt+n
 Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers
 retain their editing keys.
 
-Borders show the mode. Normal/Visual uses a block cursor; Insert uses a bar.
+Titles show the mode. The query box (names and contents) shows it as a
+filled label after its title, as a statusline does, and takes the mode's
+color on its border, title and prompt: `accent` in Normal, `success` in
+Insert, `staged_folder` in Visual/Select, `error` in Replace and `marked` in
+Command, Operator and Pending modes. Other boxes keep their border color and
+add `· MODE` to their title. Normal/Visual uses a block cursor; Insert uses a bar.
 Horizontal scrolling follows the cursor, and exclusions and filters have a multiline viewport.
 Neovim command entry appears on a separate line below the buffer, keeping its
 contents visible while entering commands such as `:wq`.

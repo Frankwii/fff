@@ -1294,7 +1294,14 @@ fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {
         })
         .unwrap();
     let buffer = terminal.backend().buffer();
-    assert!(text(buffer).contains("Query · VISUAL"));
+    assert!(text(buffer).contains("Query  VISUAL"));
+    // The query box takes the mode's color; its label is filled with it.
+    let label = (0..buffer.area.width)
+        .find(|&x| buffer[(x, 0)].symbol() == "V")
+        .unwrap();
+    assert_eq!(buffer[(label, 0)].bg, app.palette.staged_folder);
+    assert_eq!(buffer[(label, 0)].fg, app.palette.background);
+    assert_eq!(buffer[(1, 0)].fg, app.palette.staged_folder);
     assert_eq!(buffer[(5, 1)].bg, app.palette.selection);
     assert_eq!(buffer[(6, 1)].bg, app.palette.selection);
     let cursor = terminal.get_cursor_position().unwrap();

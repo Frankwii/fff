@@ -864,6 +864,16 @@ pub(super) fn query_widths(width: u16, names: &str, contents: &str, editing: boo
         (wide, width - wide)
     }
 }
+/// A query box's color in a Neovim mode (an `EditView` label).
+fn mode_color(theme: Palette, mode: &str) -> Color {
+    match mode {
+        "INSERT" => theme.success,
+        "REPLACE" => theme.error,
+        "VISUAL" | "SELECT" => theme.staged_folder,
+        "COMMAND" | "OPERATOR" | "PENDING" => theme.marked,
+        _ => theme.accent,
+    }
+}
 /// A query's box: its title and mode, its text (or `hint` while empty),
 /// the cursor when `focused`, and `bottom` in the lower border.
 fn field_box(
@@ -876,13 +886,23 @@ fn field_box(
     bottom: Vec<Line<'static>>,
 ) {
     let theme = app.palette;
-    let mut block = panel(
-        app.palette,
-        mode_title(app, field, title),
-        focused,
-        theme.accent,
-    )
-    .padding(Padding::horizontal(1));
+    // The Neovim mode, as a statusline shows it: a filled label, and its
+    // color on the border, the title and the prompt.
+    let mode = app
+        .edit_view
+        .as_ref()
+        .filter(|v| v.field == field)
+        .map(|v| v.label());
+    let color = mode.map_or(theme.accent, |mode| mode_color(theme, mode));
+    let label = mode.map_or_else(Vec::new, |mode| {
+        let fill = Style::default().fg(theme.background).bg(color);
+        vec![
+            Span::styled(format!(" {mode} "), fill.add_modifier(Modifier::BOLD)),
+            styled("\u{e0b0} ", color),
+        ]
+    });
+    let mut block = panel_with(app.palette, format!(" {title} "), label, focused, color)
+        .padding(Padding::horizontal(1));
     for line in bottom {
         block = block.title_bottom(line);
     }
@@ -899,7 +919,7 @@ fn field_box(
     if text.is_empty() {
         line = Line::from(styled(hint, theme.muted));
     }
-    line.spans.insert(0, bold(prefix, theme.accent));
+    line.spans.insert(0, bold(prefix, color));
     frame.render_widget(Paragraph::new(line), inner);
     if focused && inner.width > 0 {
         frame.set_cursor_position((inner.x + prefix.width() as u16 + cursor, inner.y));

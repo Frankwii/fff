@@ -4,6 +4,16 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **The query box shows the Neovim mode in color**: a filled label after
+  its title and the mode's color on its border, title and prompt (Normal
+  in `accent`, Insert in `success`, Visual and Select in `staged_folder`,
+  Replace in `error`, Command, Operator and Pending in `marked`), in every
+  palette. Other boxes still name the mode in their title.
+
 ## 0.20.0 — 2026-11-07
 
 Depth weighs against the match: every program but `fff seek` ranks the best
