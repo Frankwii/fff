@@ -130,6 +130,13 @@ impl Criterion {
             Self::Size | Self::Modified | Self::Accessed | Self::Created | Self::Kind
         )
     }
+    /// A penalty, whose values are costs (`cost`).
+    fn costs(self) -> bool {
+        matches!(
+            self,
+            Self::Linear | Self::Sqrt | Self::Log | Self::Quadratic
+        )
+    }
     /// What a match at `depth` costs, in points per letter of the query,
     /// at temperature 1. Each penalty is scaled so that all cost the same
     /// `ALIKE_AT` levels down: as many `LEVEL`s as levels. `None` for the
@@ -219,7 +226,8 @@ pub struct Order {
     pub sort: Option<Sort>,
     /// How much depth costs a match in a sort by a penalty: 0 not at all,
     /// a large one ranks as `Criterion::Shallowest` (`[ui] temperature`).
-    pub temperature: f64,
+    /// An `f32` keeps the order to 8 bytes, copied into every comparison.
+    pub temperature: f32,
 }
 impl Default for Order {
     fn default() -> Self {
@@ -231,7 +239,7 @@ impl From<Rank> for Order {
         Self {
             rank,
             sort: None,
-            temperature: TEMPERATURE,
+            temperature: TEMPERATURE as f32,
         }
     }
 }
@@ -253,21 +261,16 @@ impl Order {
             Some(sort) if sort.by.reads() => value(sort.by, c, totals),
             Some(sort) => sort
                 .by
-                .cost(c.depth, score, letters, self.temperature)
+                .cost(c.depth, score, letters, f64::from(self.temperature))
                 .unwrap_or(0),
             None => 0,
         };
         Key { score, value }
     }
-    /// `key` for another query: a value read is kept, a cost computed again.
-    pub fn rescore(self, key: Key, c: &Candidate, score: i64, letters: usize) -> Key {
-        let cost = self
-            .sort
-            .and_then(|sort| sort.by.cost(c.depth, score, letters, self.temperature));
-        Key {
-            score,
-            value: cost.unwrap_or(key.value),
-        }
+    /// Its keys' values are costs, which another query changes: rows
+    /// ranked again take a new `key` rather than keeping their values.
+    pub fn costs(self) -> bool {
+        self.sort.is_some_and(|sort| sort.by.costs())
     }
 }
 

@@ -104,7 +104,7 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   query (`Criterion::cost`). `Order::key` reads or computes it when a row
   is scored, in `Job::rank_piece` and `App::merge`, so comparisons never
   touch the filesystem; rows ranked again for a longer query keep the
-  values read and have their costs computed again (`Order::rescore`).
+  values read and have their costs computed again (`Order::costs`).
   Names, extensions, depth and `shallowest` need no value. `App::set_sort` ranks every
   known path again, reading the values afresh.
 - **The rows** (`rows::Rows`) are sorted runs (`Run`: rows and their scores,

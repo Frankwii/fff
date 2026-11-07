@@ -577,7 +577,7 @@ impl App {
         rows::Order {
             rank: self.program().rank(),
             sort: self.sort,
-            temperature: self.temperature,
+            temperature: self.temperature as f32,
         }
     }
     /// Sort the matches by `sort`, or rank them as the program does with
