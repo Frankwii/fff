@@ -1007,7 +1007,10 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         // The desktop integration, if set up: warnings, since the
         // configuration itself is valid.
         if let (Ok(terminal), Ok(dirs), Ok(fff)) = (
-            fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref()),
+            settings
+                .open
+                .fff_terminal()
+                .and_then(|line| fuzzy_file_finder::run::split(&line, home.as_deref())),
             fuzzy_file_finder::setup::Dirs::from_env(),
             std::env::current_exe(),
         ) {
@@ -1035,7 +1038,10 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
     } else {
         fuzzy_file_finder::setup::Target::FileChooser
     };
-    let terminal = fuzzy_file_finder::run::split(&settings.open.fff_terminal, home.as_deref())
+    let terminal = settings
+        .open
+        .fff_terminal()
+        .and_then(|line| fuzzy_file_finder::run::split(&line, home.as_deref()))
         .map_err(|e| format!("[open] fff_terminal: {e}"))?;
     let dirs = fuzzy_file_finder::setup::Dirs::from_env()?;
     let fff = std::env::current_exe()?;

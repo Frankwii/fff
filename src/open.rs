@@ -6,6 +6,7 @@
 //! programs in a new terminal window (`[open] terminal`). `o` instead hands
 //! fff's terminal to the opener, like `E`.
 use crate::run::{Plan, resolve_or_suggest, split};
+use crate::terminal::Purpose;
 use serde::Deserialize;
 use std::{
     fs::OpenOptions,
@@ -15,25 +16,18 @@ use std::{
 };
 
 /// `[open]`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OpenConfig {
-    /// Prefix that runs a command in a new terminal window, e.g. `st -e`.
-    pub terminal: String,
+    /// Prefix that runs a command in a new terminal window, e.g. `st -e`;
+    /// unset, the terminal fff runs in (see `crate::terminal`).
+    pub terminal: Option<String>,
     /// Prefix for fff's own windows, which `fff setup` installs (the desktop
-    /// entry, the file chooser): a class a window manager can float.
-    pub fff_terminal: String,
+    /// entry, the file chooser): a class a window manager can float. Unset,
+    /// the detected terminal with that class where it has one.
+    pub fff_terminal: Option<String>,
     /// `[[open.rules]]`, first match wins.
     pub rules: Vec<Rule>,
-}
-impl Default for OpenConfig {
-    fn default() -> Self {
-        Self {
-            terminal: "st -e".into(),
-            fff_terminal: "st -c fff-picker -e".into(),
-            rules: vec![],
-        }
-    }
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -140,12 +134,21 @@ impl OpenConfig {
     pub fn validate(&self) -> Result<(), String> {
         // Only the syntax matters here; `~` expands when a command runs.
         let split = |line: &str| split(line, Some(Path::new("/")));
-        if split(&self.terminal).map_or(true, |w| w.is_empty()) {
-            return Err("open.terminal must name a terminal command, e.g. \"st -e\"".into());
-        }
-        if split(&self.fff_terminal).map_or(true, |w| w.is_empty()) {
+        let names = |line: &Option<String>| {
+            line.as_deref()
+                .is_none_or(|line| split(line).is_ok_and(|w| !w.is_empty()))
+        };
+        if !names(&self.terminal) {
             return Err(
-                "open.fff_terminal must name a terminal command, e.g. \"st -c fff-picker -e\""
+                "open.terminal must name a terminal command, e.g. \"st -e\"; \
+                 leave it out to use the terminal fff runs in"
+                    .into(),
+            );
+        }
+        if !names(&self.fff_terminal) {
+            return Err(
+                "open.fff_terminal must name a terminal command, e.g. \"st -c fff-picker -e\"; \
+                 leave it out to use the terminal fff runs in"
                     .into(),
             );
         }
@@ -178,23 +181,35 @@ impl OpenConfig {
         Ok(())
     }
     /// Programs named by rules and by configured terminals that are not
-    /// installed. The built-in terminals are not checked: a configuration
-    /// that never names one is not wrong for lacking it.
+    /// installed. Detected terminals are not checked: they are installed.
     pub fn missing(&self, cwd: &Path, home: Option<&Path>) -> Vec<String> {
-        let defaults = Self::default();
-        [
-            (&self.terminal, &defaults.terminal),
-            (&self.fff_terminal, &defaults.fff_terminal),
-        ]
-        .into_iter()
-        .filter(|(line, default)| line != default)
-        .map(|(line, _)| line)
-        .chain(self.rules.iter().map(|r| &r.command))
-        .filter_map(|line| {
-            let name = split(line, home).ok()?.into_iter().next()?;
-            resolve_or_suggest(&name, cwd).err()
-        })
-        .collect()
+        [&self.terminal, &self.fff_terminal]
+            .into_iter()
+            .flatten()
+            .chain(self.rules.iter().map(|r| &r.command))
+            .filter_map(|line| {
+                let name = split(line, home).ok()?.into_iter().next()?;
+                resolve_or_suggest(&name, cwd).err()
+            })
+            .collect()
+    }
+    /// `terminal`, or the detected terminal.
+    pub fn terminal(&self) -> Result<String, String> {
+        Self::or_detected(&self.terminal, Purpose::Open, "terminal")
+    }
+    /// `fff_terminal`, or the detected terminal with fff's window class.
+    pub fn fff_terminal(&self) -> Result<String, String> {
+        Self::or_detected(&self.fff_terminal, Purpose::Fff, "fff_terminal")
+    }
+    fn or_detected(line: &Option<String>, purpose: Purpose, key: &str) -> Result<String, String> {
+        line.clone()
+            .or_else(|| crate::terminal::current(purpose))
+            .ok_or_else(|| {
+                format!(
+                    "no terminal found: fff runs in none it knows, $TERMINAL is unset and \
+                     no known terminal is installed; set [open] {key}, e.g. \"xterm -e\""
+                )
+            })
     }
     /// The first rule matching the file's extension or name; else `$EDITOR`.
     pub fn opener(&self, path: &Path) -> Result<Opener, String> {
@@ -319,14 +334,17 @@ pub fn background_plan(
     if !opener.terminal {
         return Ok(inner);
     }
+    let terminal = config
+        .terminal()
+        .map_err(|e| format!("[open] terminal: {e}"))?;
     let mut outer =
-        plan(&config.terminal, vec![], cwd, home).map_err(|e| format!("[open] terminal: {e}"))?;
+        plan(&terminal, vec![], cwd, home).map_err(|e| format!("[open] terminal: {e}"))?;
     outer
         .args
         .push(inner.program.to_string_lossy().into_owned());
     outer.args.extend(inner.args);
     outer.paths = inner.paths;
-    outer.line = format!("{} {}", config.terminal, opener.line);
+    outer.line = format!("{terminal} {}", opener.line);
     Ok(outer)
 }
 

@@ -6,6 +6,16 @@ history.
 
 ## Unreleased
 
+### Changed
+
+- **`[open] terminal` and `fff_terminal` default to the terminal fff runs
+  in** rather than st: fff finds it among its parent processes, else uses
+  `$TERMINAL`, `x-terminal-emulator` or the first known terminal installed
+  (st, Alacritty, kitty, WezTerm, Ghostty, foot, Konsole, GNOME Terminal,
+  Xfce Terminal, urxvt, xterm), each with its own way to run a command and,
+  for fff's windows, the `fff-picker` class where it has one. st is no
+  longer needed; setting either key works as before.
+
 ### Added
 
 - **The query box shows the Neovim mode in color**: a filled label after

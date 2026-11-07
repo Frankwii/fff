@@ -109,8 +109,9 @@ ask_above = "10 GiB" # Larger entries ask: delete permanently or trash anyway.
 # Openers: l / Alt+l / Alt+number open a file in the background, o in this
 # terminal. First match wins; unmatched files use $EDITOR. See CONFIGURATION.md.
 [open]
-terminal = "st -e"   # runs terminal openers in a new window
-fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup
+# Unset, both use the terminal fff runs in (see CONFIGURATION.md).
+# terminal = "st -e"   # runs terminal openers in a new window
+# fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup
 
 [[open.rules]]
 command = "zathura"

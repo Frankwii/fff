@@ -258,9 +258,14 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
     let root = std::env::temp_dir().join(format!("fff-setup-cli-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
+    // Not the terminal the tests run in.
+    let config = root.join("config.toml");
+    std::fs::write(&config, "[open]\nfff_terminal = \"st -c fff-picker -e\"\n").unwrap();
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_fff"))
-            .args(["--no-config", "setup", "--desktop"])
+            .arg("--config")
+            .arg(&config)
+            .args(["setup", "--desktop"])
             .env("HOME", &root)
             .env("XDG_DATA_HOME", root.join("data"))
             // No xdg-mime: setup says how to make fff the default instead.

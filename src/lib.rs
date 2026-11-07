@@ -34,6 +34,7 @@ pub mod run;
 pub mod setup;
 pub mod sizes;
 pub mod state;
+pub mod terminal;
 pub mod trash;
 pub mod ui;
 mod view;

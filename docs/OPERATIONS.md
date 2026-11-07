@@ -217,7 +217,8 @@ Each file type can have an **opener**, configured under `[open]` (see the
   with no terminal input and its output appended to `open.log` next to the
   remembered state (`~/.local/state/fff/open.log`). A terminal opener (one with
   `terminal = true`, and `$EDITOR`) cannot share fff's terminal, so it opens in
-  a new terminal window, using `[open] terminal` (`st -e` by default). The status
+  a new terminal window, using `[open] terminal` (unset, the terminal fff runs in; see
+  [openers](CONFIGURATION.md#openers)). The status
   line says what was opened; if the program later fails, a **Notice** pop-up
   appears at the top right with its exit status and the log's location, and
   fades after a few seconds.

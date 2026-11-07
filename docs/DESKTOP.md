@@ -11,20 +11,22 @@ fff setup --browser   # pick files with fff in Firefox and other apps
 ```
 
 Both run fff in a new terminal window using `[open] fff_terminal` from the
-configuration (`st -c fff-picker -e` by default; see
-[openers](CONFIGURATION.md#openers)), which a window manager can
-[float](#floating-windows). Set it before running setup, and run setup again
-after changing it or after moving the fff binary: the files it writes name
-both. `fff setup --check-config` warns when they are missing, out of date, or
+configuration (unset, the terminal setup runs in, with the class
+`fff-picker`; see [openers](CONFIGURATION.md#openers)), which a window
+manager can [float](#floating-windows). Set it, or run setup from the
+terminal you want, and run setup again after changing it or after moving
+the fff binary: the files it writes name both. A check run from another
+terminal than setup reports the files as out of date while `fff_terminal`
+is unset. `fff setup --check-config` warns when they are missing, out of date, or
 run another fff binary than the one checking, and when folders open in
 another application than fff (`xdg-mime query default inode/directory`).
 
 ## Floating windows
 
 fff started from another program is a short-lived picker, best shown as a
-floating window over the current layout rather than a new tile. The default
-`fff_terminal`, `st -c fff-picker -e`, gives every such window the X11 class
-`fff-picker`. fff does not float the window itself: that is up to your window
+floating window over the current layout rather than a new tile. Unset,
+`fff_terminal` gives every such window the X11 class (or Wayland app id)
+`fff-picker` in the terminals that have one (in st, `st -c fff-picker -e`). fff does not float the window itself: that is up to your window
 manager, which needs a rule for that class. In i3 (`~/.config/i3/config`),
 for example:
 

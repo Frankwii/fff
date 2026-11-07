@@ -915,8 +915,8 @@ Which program opens a file, by extension or name, for `l` / Alt+l / Alt+number
 
 ```toml
 [open]
-terminal = "st -e"   # how to run a terminal program in a new window (default)
-fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup (default)
+terminal = "st -e"   # how to run a terminal program in a new window (unset: detected)
+fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup (unset: detected)
 
 [[open.rules]]
 command = "zathura"
@@ -1018,11 +1018,30 @@ fff {page} {query} {nth} {count} {path}
 `terminal` must start a terminal window running the rest of the line: `st -e`,
 `alacritty -e`, `foot`, `kitty`. `fff_terminal` does the same for fff itself
 when the desktop entry or the file chooser installed by `fff setup` starts
-it; its default gives the window the class `fff-picker`, so a window manager
+it; give the window a class, such as `fff-picker`, so that a window manager
 rule can float it (see [desktop integration](DESKTOP.md#floating-windows)).
-`fff setup --check-config` reports the opener and terminal programs the
-configuration names that are not installed (the built-in `st` defaults are
-not checked).
+The file chooser waits for the terminal to exit, so it must not hand the
+window to a running server and return at once.
+
+Unset, both are detected, in this order:
+
+1. the terminal fff runs in, found among its parent processes;
+2. `$TERMINAL`, a known terminal in its own syntax, any other with `-e`;
+3. `x-terminal-emulator -e` (Debian's choice of terminal);
+4. the first of the known terminals installed: st, Alacritty, kitty,
+   WezTerm, Ghostty, foot (under Wayland), Konsole, GNOME Terminal, Xfce
+   Terminal, urxvt and xterm.
+
+A known terminal runs a command in the foreground (`gnome-terminal --wait
+--`, `konsole --nofork -e`, `xfce4-terminal --disable-server -x`, `wezterm
+start --always-new-process --`), and for `fff_terminal` gives the window
+the class `fff-picker` where it can: `st -c`, `alacritty --class`, `kitty
+--class`, `wezterm start --class`, `xterm -class`, and the app id `foot
+--app-id`. Ghostty (whose class must be a dotted application id), Konsole,
+GNOME Terminal, Xfce Terminal and urxvt get no class: set `fff_terminal` for
+one. When nothing is found, opening a terminal program and `fff setup` say
+so and ask for the setting. `fff setup --check-config` reports the opener
+and terminal programs the configuration names that are not installed.
 
 ## Modal text editing
 

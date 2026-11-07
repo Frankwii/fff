@@ -49,6 +49,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, workspaces and zoxide suggestions. |
+| `src/terminal.rs` | The terminal `[open] terminal` and `fff_terminal` default to: the one fff runs in, `$TERMINAL`, or an installed known one, each in its own syntax. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Per-directory highlights, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback, deletion review, progress and stopping. |
