@@ -1,6 +1,6 @@
 # Maintainer: Frank Hammond <frank dot william dot hammond at gmail dot com>
 pkgname=fuzzy-file-finder
-pkgver=0.19.2
+pkgver=0.19.3
 pkgrel=1
 pkgdesc='Terminal file finder and manager with fuzzy filtering, content search and Neovim editing (fff)'
 arch=('x86_64' 'aarch64')
