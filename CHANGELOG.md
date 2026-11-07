@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.19.4 — 2026-11-07
+
+Depth can weigh against the match: four sorts rank the best match first
+less a penalty for its depth, set by `[ui] temperature`.
 
 ### Added
 
