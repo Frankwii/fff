@@ -884,7 +884,7 @@ fn the_sorting_picker_names_the_direction_and_the_border_the_order() {
         screen.contains("›   2 name        current ↓   Names alphabetically"),
         "{screen}"
     );
-    assert!(screen.contains("ranking"));
+    assert!(screen.contains("program"));
     assert!(screen.contains("depth 3 · sorted by name ↓"));
     if let Focus::Picker { query, .. } = &mut focus {
         *query = "newest".into();
@@ -894,10 +894,10 @@ fn the_sorting_picker_names_the_direction_and_the_border_the_order() {
         .unwrap();
     let screen = text(terminal.backend().buffer());
     assert!(screen.contains("No order matches."), "{screen}");
-    // The rows themselves, names descending.
+    // The rows themselves, descending: names from A.
     let rows: Vec<_> = app.rows.iter().map(|c| c.path.clone()).collect();
-    assert_eq!(rows[0], app.cwd.join("todo.txt"));
-    assert_eq!(rows[4], app.cwd.join("algorithms"));
+    assert_eq!(rows[0], app.cwd.join("algorithms"));
+    assert_eq!(rows[4], app.cwd.join("todo.txt"));
 }
 #[test]
 fn palette_chooser_filters_marks_current_and_details_list_palette_keys() {

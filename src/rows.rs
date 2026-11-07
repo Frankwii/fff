@@ -153,7 +153,7 @@ impl Criterion {
     }
     /// A row's merit for a penalty: its score per letter of the query,
     /// less the penalty at `temperature`, in fixed point (the best match
-    /// the highest, first when descending). An empty query scores every
+    /// the highest). An empty query scores every
     /// row 0, so its rows rank by depth.
     fn merit(self, depth: usize, score: i64, letters: usize, temperature: f64) -> Option<i64> {
         let penalty = self.penalty(depth)?;
@@ -185,7 +185,8 @@ impl Sort {
     pub fn label(self) -> String {
         format!("{} {}", self.by.name(), self.arrow())
     }
-    /// Its direction: ↑ ascending, ↓ descending.
+    /// Its direction: ↓ descending, the criterion's own order, ↑
+    /// ascending, that order reversed.
     pub fn arrow(self) -> &'static str {
         if self.descending { "↓" } else { "↑" }
     }
@@ -193,6 +194,9 @@ impl Sort {
         // Values not known come last, whichever the direction.
         let unknown = (value_a == UNKNOWN).cmp(&(value_b == UNKNOWN));
         let name = || natural(&name(&a.path), &name(&b.path));
+        // Each criterion's own order, which descending keeps and ascending
+        // reverses: names from A, the shallowest, the largest, the newest
+        // and the best match first.
         let by = match self.by {
             Criterion::Name => name(),
             Criterion::Extension => {
@@ -201,17 +205,17 @@ impl Sort {
             Criterion::Depth => a.depth.cmp(&b.depth).then_with(name),
             // The best match comes from the ranking breaking the tie.
             Criterion::Shallowest => a.depth.cmp(&b.depth).then(b.directory.cmp(&a.directory)),
+            Criterion::Kind => value_a.cmp(&value_b),
             Criterion::Size
             | Criterion::Modified
             | Criterion::Accessed
             | Criterion::Created
-            | Criterion::Kind
             | Criterion::Linear
             | Criterion::Sqrt
             | Criterion::Log
-            | Criterion::Quadratic => value_a.cmp(&value_b),
+            | Criterion::Quadratic => value_b.cmp(&value_a),
         };
-        unknown.then(if self.descending { by.reverse() } else { by })
+        unknown.then(if self.descending { by } else { by.reverse() })
     }
 }
 
@@ -838,11 +842,17 @@ mod tests {
         assert!(size.cmp(&a, key(0, 9), &b, key(0, 5)).is_lt());
         // Equal sizes: the best match first.
         assert!(size.cmp(&a, key(1, 5), &b, key(9, 5)).is_gt());
-        let depth = sort(Criterion::Depth, false);
+        let depth = sort(Criterion::Depth, true);
         assert!(depth.cmp(&b, key(0, 0), &c, key(9, 0)).is_lt());
         assert!(depth.cmp(&b, key(0, 0), &a, key(9, 0)).is_lt());
+        // Descending keeps a criterion's own order: names from A.
         assert!(
             sort(Criterion::Name, true)
+                .cmp(&a, key(0, 0), &b, key(0, 0))
+                .is_lt()
+        );
+        assert!(
+            sort(Criterion::Name, false)
                 .cmp(&a, key(0, 0), &b, key(0, 0))
                 .is_gt()
         );

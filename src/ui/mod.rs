@@ -864,7 +864,7 @@ impl Choice {
         match self {
             Self::Function(f) => f.name(),
             Self::Sort(Some(by)) => by.name(),
-            Self::Sort(None) => "ranking",
+            Self::Sort(None) => "program",
         }
     }
     pub fn description(self) -> &'static str {
@@ -872,7 +872,7 @@ impl Choice {
             Self::Function(f) => f.description(),
             Self::Sort(Some(by)) => by.description(),
             Self::Sort(None) => {
-                "As the program ranks them: by depth, then the best match; in fff pick and seek, the best match first."
+                "As this program ranks them: fff roam and the others by depth, then the best match; fff pick and seek the best match first; a list from stdin the best match, then its order."
             }
         }
     }

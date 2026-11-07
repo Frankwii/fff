@@ -8,9 +8,14 @@ history.
 
 ### Changed
 
-- **The depth penalties list the best match first when descending**
-  (`linear ↓`, `sort_descending = true`), as sizes list the largest and
-  dates the newest; ascending now lists the worst first.
+- **Sorts are descending to start, and descending is each criterion's own
+  order:** names from A, the largest, the newest, folders first, the
+  shallowest and the best match first; ascending (`sort_descending =
+  false`, Tab in `gs`) reverses it. `gs` opens descending, and
+  `sort_descending` is `true` unless set: `name`, `extension`, `kind` and
+  `depth` with `sort_descending = false` now list in reverse.
+- **The program's own order is called `program`** in `gs`, `[ui] sort` and
+  workspaces, rather than `ranking`.
 
 ## 0.19.4 — 2026-11-07
 

@@ -552,7 +552,7 @@ impl Session {
     fn show_sorting(&mut self, app: &App) {
         let current = Choice::Sort(app.sort.map(|s| s.by));
         let kind = Picker::Sort {
-            descending: app.sort.is_some_and(|s| s.descending),
+            descending: app.sort.is_none_or(|s| s.descending),
         };
         let index = kind.choices("").iter().position(|&c| c == current);
         self.open_picker(kind, index.unwrap_or(0));

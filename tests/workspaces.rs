@@ -446,7 +446,7 @@ fn every_setting_is_saved_read_back_and_removed_with_its_keys() {
         exclusions: Some(vec!["target".into()]),
         sort: Some(Some(fuzzy_file_finder::rows::Sort {
             by: fuzzy_file_finder::rows::Criterion::Modified,
-            descending: true,
+            descending: false,
         })),
         hidden: Some(false),
         kinds: Some(fuzzy_file_finder::Kinds::Files),
@@ -470,7 +470,7 @@ fn every_setting_is_saved_read_back_and_removed_with_its_keys() {
         "program = \"pick\"",
         "depth = 10",
         "sort = \"modified\"",
-        "sort_descending = true",
+        "sort_descending = false",
         "kinds = \"files\"",
     ] {
         assert!(text.contains(key), "{key} missing from {text}");

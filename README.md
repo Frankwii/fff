@@ -231,29 +231,31 @@ Labels are presentation only: output paths are never shortened.
 Rows are ranked by depth, then by how well they match (`fff pick` and `fff
 seek`: the best match first). `gs` in Normal mode (`show_sorting`) opens the
 sorting picker instead: type or move to a criterion and Enter sorts by it,
-Tab switching between ascending and descending first. The query still
+Tab switching between descending and ascending first. Descending (↓), as
+the picker opens, is each criterion's own order, as listed below;
+ascending (↑) reverses it. The query still
 decides what is listed; the sort only how, with the ranking breaking its
 ties:
 
-- `name`: alphabetically, ignoring case, numbers by value (`file2` before
-  `file10`);
-- `size`: a folder's is the files below it, as the size column shows it,
-  once added up (until then it comes last; choosing the order again sorts
-  by the totals found since);
-- `modified`, `accessed`, and `created` where the filesystem records it;
+- `name`: alphabetically from A, ignoring case, numbers by value (`file2`
+  before `file10`);
+- `size`: the largest first; a folder's is the files below it, as the size
+  column shows it, once added up (until then it comes last; choosing the
+  order again sorts by the totals found since);
+- `modified`, `accessed`, and `created` where the filesystem records it:
+  the newest first;
 - `extension`, then name;
 - `kind`: folders, then files, then links;
-- `depth`, then name;
+- `depth`, the shallowest first, then name;
 - `shallowest`: depth, folders first, then the best match, as `fff roam`
   ranks;
 - `linear`, `sqrt`, `log` and `quadratic`: the best match, less a penalty
   for its depth growing in proportion to it, as its square root, its
   logarithm or its square, so that a much better match deeper down can
-  come before a poor one above it. Descending (↓) lists the best first,
-  as it lists the largest size first. `[ui] temperature` sets how much
+  come before a poor one above it. `[ui] temperature` sets how much
   depth costs (see [configuration](docs/CONFIGURATION.md#sorting)); an
   empty query lists by depth;
-- `ranking`: back to the program's order.
+- `program`: back to the program's own order, which has no direction.
 
 The results' bottom border names the order (`sorted by size ↓`). `[ui] sort`
 and `sort_descending` choose the one sessions start in (see
@@ -546,7 +548,7 @@ key says which one.
 | Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d and D reach Neovim there) |
 | Alt+D / D in Normal | Hide files, listing only folders; again to show them |
 | Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
-| gs in Normal | [Sort](#sorting) the matches by name, size, a date, extension, kind or depth; Tab there switches ascending and descending |
+| gs in Normal | [Sort](#sorting) the matches by name, size, a date, extension, kind or depth; Tab there switches descending and ascending |
 | gd in Normal | Label rows by name (with the parents that tell same-named entries apart) or by path below the folder searched |
 | Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
 | Alt+H / ge in Normal | Toggle exclusion enforcement |

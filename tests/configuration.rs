@@ -131,7 +131,7 @@ fn workspaces_keep_any_of_the_settings_with_or_without_a_folder() {
     let s = parse(
         "[[workspaces]]\nname='findnotes'\nprogram='pick'\nroots=['~/phd', 'books']\n\
          depth=10\nfilters=['*.pdf']\nsort='size'\nsort_descending=true\nkinds='files'\n\
-         [[workspaces]]\nname='ranked'\nsort='ranking'\nhidden=false",
+         [[workspaces]]\nname='ranked'\nsort='program'\nhidden=false",
     )
     .unwrap();
     let w = &s.workspaces[0];
@@ -579,21 +579,22 @@ fn exclusion_rules_are_kept_in_order_as_written() {
 fn sessions_start_ranked_unless_a_sort_is_configured() {
     use fuzzy_file_finder::rows::{Criterion, Sort};
     assert_eq!(parse("").unwrap().sort, None);
-    assert_eq!(parse("[ui]\nsort = 'ranking'").unwrap().sort, None);
+    assert_eq!(parse("[ui]\nsort = 'program'").unwrap().sort, None);
     assert_eq!(
-        parse("[ui]\nsort = 'modified'\nsort_descending = true")
+        parse("[ui]\nsort = 'modified'\nsort_descending = false")
             .unwrap()
             .sort,
         Some(Sort {
             by: Criterion::Modified,
-            descending: true
+            descending: false
         })
     );
+    // Descending unless configured otherwise: each criterion's own order.
     assert_eq!(
         parse("[ui]\nsort = 'name'").unwrap().sort,
         Some(Sort {
             by: Criterion::Name,
-            descending: false
+            descending: true
         })
     );
     let error = parse("[ui]\nsort = 'date'").err().unwrap();

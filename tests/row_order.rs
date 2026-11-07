@@ -561,7 +561,7 @@ fn a_sort_orders_the_matches_as_a_fresh_ranking_would_while_a_scan_adds_paths() 
     }
     app.set_sort(Some(Sort {
         by: Criterion::Name,
-        descending: false,
+        descending: true,
     }));
     let want = [
         "/fixture/f1",
@@ -607,7 +607,7 @@ fn a_depth_penalty_weighs_the_match_against_the_depth() {
     );
     assert_eq!(
         sorted(Criterion::Quadratic, 1000.0, "abc"),
-        sorted_as(Criterion::Shallowest, 1.0, "abc", false)
+        sorted(Criterion::Shallowest, 1.0, "abc")
     );
     // Ascending, the worst first.
     assert_eq!(
@@ -687,7 +687,7 @@ fn sizes_dates_and_kinds_are_read_from_the_filesystem() {
         ["small", "medium", "large"]
     );
     assert_eq!(
-        sorted(&mut app, Criterion::Kind, false),
+        sorted(&mut app, Criterion::Kind, true),
         ["folder", "large", "medium", "small", "link"]
     );
     std::fs::remove_dir_all(&root).unwrap();

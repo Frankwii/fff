@@ -1052,26 +1052,28 @@ class TerminalTests(unittest.TestCase):
                 found += [n for n in names if n in words and n not in found]
             return found
 
-        s.send(b"gs", "Sort ascending · INSERT")
+        # Descending to start: each criterion's own order, names from A.
+        s.send(b"gs", "Sort descending · INSERT")
         self.assertIn("Tab: Toggle ordering ─── Enter: Sort", s.screen.text)
         s.send(b"name", "Names alphabetically")
-        s.send(b"\r", "sorted by name ↑")
-        self.assertNotIn("Sort ascending", s.screen.text)
+        s.send(b"\r", "sorted by name ↓")
+        self.assertNotIn("Sort descending", s.screen.text)
         self.assertEqual(order(), ["file1", "file2", "file10"])
         # Tab reverses; the picker opens at the current order.
-        s.send(b"gs", "Sort ascending")
-        s.send(b"\t", "Sort descending · INSERT")
-        s.send(b"\r", "sorted by name ↓")
+        s.send(b"gs", "Sort descending")
+        s.send(b"\t", "Sort ascending · INSERT")
+        s.send(b"\r", "sorted by name ↑")
         self.assertEqual(order(), ["file10", "file2", "file1"])
         # In Normal mode j and k move: the next order after name is size.
-        s.send(b"gs", "Sort descending · INSERT")
+        s.send(b"gs", "Sort ascending · INSERT")
+        s.send(b"\t", "Sort descending · INSERT")
         s.send(b"\x1b[27uj")
         s.send(b"\r", "sorted by size ↓")
         s.send(b"gs", "Sort descending")
         s.send(b"size", "Sizes")
         s.send(b"\r", "sorted by size ↓")
         self.assertEqual(order(), ["file2", "file1", "file10"])
-        # Escape leaves the order as it is; ranking goes back to the
+        # Escape leaves the order as it is; program goes back to the
         # program's order, named nowhere.
         s.send(b"gs", "Sort descending")
         s.send(b"\x1b[27u", "Sort descending · NORMAL")
@@ -1080,15 +1082,15 @@ class TerminalTests(unittest.TestCase):
         s.wait_absent("Sort descending")
         self.assertIn("sorted by size ↓", s.screen.text)
         s.send(b"gs", "Sort descending")
-        s.send(b"ranking", "As the program ranks")
+        s.send(b"program", "As this program ranks")
         s.send(b"\r")
         s.wait_absent("sorted by")
         # Rows are numbered as the results are: Alt+2 is Enter on the
         # second, name.
-        s.send(b"gs", "Sort ascending")
+        s.send(b"gs", "Sort descending")
         self.assertIn("  2 name", s.screen.text)
-        s.send(b"\x1b2", "sorted by name ↑")
-        self.assertNotIn("Sort ascending", s.screen.text)
+        s.send(b"\x1b2", "sorted by name ↓")
+        self.assertNotIn("Sort descending", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 

@@ -387,7 +387,7 @@ impl Setting {
             Self::Exclusions => w.exclusions.as_deref().map(list).unwrap_or_default(),
             Self::Sorting => match w.sort {
                 Some(Some(sort)) => sort.label(),
-                Some(None) => "ranking".into(),
+                Some(None) => "program".into(),
                 None => String::new(),
             },
             Self::Toggles => [
@@ -467,8 +467,8 @@ impl Default for UiConfig {
             watch: true,
             preview: true,
             highlight: true,
-            sort: "ranking".into(),
-            sort_descending: false,
+            sort: "program".into(),
+            sort_descending: true,
             temperature: crate::rows::TEMPERATURE,
         }
     }
@@ -797,14 +797,14 @@ const MAX_TEMPERATURE: f64 = 1000.0;
 /// `[ui] sort` and a workspace's `sort`: `None` for the program's ranking.
 /// The error lists the names allowed.
 fn sort_named(name: &str, descending: bool) -> Result<Option<crate::rows::Sort>, String> {
-    if name == "ranking" {
+    if name == "program" {
         return Ok(None);
     }
     match crate::rows::Criterion::named(name) {
         Some(by) => Ok(Some(crate::rows::Sort { by, descending })),
         None => {
             let names: Vec<_> = crate::rows::Criterion::ALL.map(|c| c.name()).into();
-            Err(format!("\"ranking\" or one of {}", names.join(", ")))
+            Err(format!("\"program\" or one of {}", names.join(", ")))
         }
     }
 }
@@ -875,7 +875,7 @@ fn resolve_workspaces(
         }
         let sort = match (&raw.sort, raw.sort_descending) {
             (Some(sort), descending) => Some(
-                sort_named(sort, descending.unwrap_or(false))
+                sort_named(sort, descending.unwrap_or(true))
                     .map_err(|names| error(&format!("sort must be {names}, got {sort:?}")))?,
             ),
             (None, Some(_)) => return Err(error("sort_descending needs a sort")),

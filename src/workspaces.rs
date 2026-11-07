@@ -399,7 +399,7 @@ fn keys(workspace: &Workspace) -> Result<Vec<(&'static str, Option<Value>)>, Str
     };
     let sort = workspace.sort.map(|sort| match sort {
         Some(sort) => (sort.by.name(), sort.descending),
-        None => ("ranking", false),
+        None => ("program", true),
     });
     Ok(vec![
         ("name", Some(text(&workspace.name))),
@@ -415,8 +415,8 @@ fn keys(workspace: &Workspace) -> Result<Vec<(&'static str, Option<Value>)>, Str
         ("sort", sort.map(|(name, _)| text(name))),
         (
             "sort_descending",
-            sort.filter(|&(_, descending)| descending)
-                .map(|_| Value::from(true)),
+            sort.filter(|&(_, descending)| !descending)
+                .map(|_| Value::from(false)),
         ),
         ("hidden", workspace.hidden.map(Value::from)),
         (
