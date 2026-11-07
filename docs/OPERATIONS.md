@@ -476,7 +476,7 @@ Copies preserve file contents, ordinary permission bits, symlinks and
 access/modification times. Like `cp -r`, `rm -r` and overwriting, fff copies,
 deletes and replaces directories without owner write permission: such a
 directory gains it only for the instant it is renamed into or out of staging
-(Linux requires it to change a directory's parent) and is left with its exact
+(Linux and macOS require it to change a directory's parent) and is left with its exact
 mode. Moving such a directory to another folder works the same way, where
 `mv` fails. They are not filesystem snapshots: ownership,
 extended attributes, ACLs, hard-link relationships and sparse allocation are not
@@ -487,14 +487,26 @@ the extraction prompt run on other threads while the screen shows their
 
 ## Archives and system requirements
 
-The Linux operation engine uses `openat2`, mount-root detection through `statx`
-(Linux 5.8+) and no-replace rename.
+On Linux, the operation engine opens paths with `openat2` refusing symlinks,
+detects mount roots through `statx` (Linux 5.8+) and publishes with no-replace
+renames. On macOS (13+ for `O_SEARCH`, which walks through folders that cannot
+be listed) it opens each component of a path in the one before with
+`O_NOFOLLOW`, so a symlink anywhere is refused just as well, takes a change of
+device for a mount root, and publishes with `renameatx_np(RENAME_EXCL)`.
+Copied and extracted files are written through with `fsync` there before
+they are published, as on Linux, rather than `F_FULLFSYNC`, which empties the
+drive's cache for every file (minutes for a large tree): whatever ends fff,
+nothing is ever partly there under its name, though a power cut can lose
+writes the drive had not yet stored.
 Building/running requires **libarchive**, including its development linker files
-when building (for example `libarchive-dev` on Debian/Ubuntu). Browsing also links
-to this library. No shell or external extractor is invoked by fff.
+when building (for example `libarchive-dev` on Debian/Ubuntu; macOS includes
+it). Browsing also links to this library. No shell or external extractor is
+invoked by fff.
 
-libarchive reads supported ZIP, RAR, 7z, tar and compressed-tar archives. Built-in
-gzip, bzip2, xz and zstd filters are enabled. Before opening the destination buffer, `E` performs a read-only validation of
+libarchive reads supported ZIP, RAR, 7z, tar and compressed-tar archives. Its
+built-in gzip, bzip2, xz and zstd filters are enabled; one a libarchive lacks
+(macOS's has no zstd) is left off rather than run as an external program, so
+those archives are reported unsupported. Before opening the destination buffer, `E` performs a read-only validation of
 the highlighted file's contents, paths, payloads and extraction limits.
 Directories, unsupported, encrypted, corrupt or unsafe archives report an
 explanation and leave the main view open; no staging is created.

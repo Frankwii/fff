@@ -5,8 +5,7 @@
 //! name can be read as syntax.
 use std::{
     ffi::OsString,
-    fs::{self, OpenOptions},
-    io,
+    fs, io,
     os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
@@ -532,7 +531,7 @@ impl Plan {
     /// The program reads and writes the terminal directly: fff's stdout may
     /// be a pipe carrying selected paths.
     fn command(&self) -> io::Result<Command> {
-        let tty = || OpenOptions::new().read(true).write(true).open("/dev/tty");
+        let tty = crate::platform::open_terminal;
         let mut command = Command::new(&self.program);
         command
             .arg0(&self.name)
@@ -620,7 +619,7 @@ pub fn shell_plan(cwd: &Path) -> Result<Plan, String> {
 /// After a failed program, keeps its messages on screen until Enter.
 pub fn pause_after_failure(line: &str, status: ExitStatus) {
     use io::{BufRead, Write};
-    let Ok(mut tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") else {
+    let Ok(mut tty) = crate::platform::open_terminal() else {
         return;
     };
     let _ = write!(

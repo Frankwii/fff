@@ -238,7 +238,6 @@ pub fn decode_path(path: &str) -> PathBuf {
 /// The session bus's socket address: `DBUS_SESSION_BUS_ADDRESS`'s first
 /// usable `unix:path=` or `unix:abstract=` entry, else `$XDG_RUNTIME_DIR/bus`.
 fn socket(address: Option<&str>) -> io::Result<UnixStream> {
-    use std::os::linux::net::SocketAddrExt;
     let address = address
         .map(String::from)
         .or_else(|| std::env::var("DBUS_SESSION_BUS_ADDRESS").ok());
@@ -256,10 +255,9 @@ fn socket(address: Option<&str>) -> io::Result<UnixStream> {
                     .expect("set above");
                 let connected = match key {
                     "path" => UnixStream::connect(&value),
-                    "abstract" => std::os::unix::net::SocketAddr::from_abstract_name(
-                        value.as_os_str().as_encoded_bytes(),
-                    )
-                    .and_then(|a| UnixStream::connect_addr(&a)),
+                    "abstract" => {
+                        crate::platform::connect_abstract(value.as_os_str().as_encoded_bytes())
+                    }
                     _ => continue,
                 };
                 if let Ok(stream) = connected {

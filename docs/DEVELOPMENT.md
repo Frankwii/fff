@@ -44,8 +44,9 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
 | `src/sizes.rs` | Folders' sizes: the files below each added up by a worker per mount, the folders a frame wants first (`Sizes::commit` after each drawn frame), read on several threads. A tree of folders with their own files' bytes and stamps (inode, mtime, ctime), saved to `$XDG_CACHE_HOME/fff/sizes` at exit and read at the first frame; only folders whose stamp changed (or that a watch or F5 marked) are read again. |
-| `src/mounts.rs` | The mount table (`/proc/self/mounts`), read by name and again after each scan: a path's mount point and filesystem kind (kernel, local, other). Kernel filesystems are not added up, entered by scans from outside, searched, watched, or read past 4 KiB for the preview. |
-| `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates. |
+| `src/platform/` | What differs between Linux (`linux.rs`) and macOS (`macos.rs`): the controlling terminal (macOS's `poll` refuses `/dev/tty`, so the device it stands for is opened), opening a path without following symlinks, an opened directory's path, mount roots and identities, the mount table, a process's executable, abstract sockets, whether there is a freedesktop.org desktop. Entries are read relative to directory descriptors (`lstat_at`, `read_dir`), never through `/proc/self/fd`. `cfg(target_os)` stays in this module; elsewhere fff is one code for both. |
+| `src/mounts.rs` | The mount table (`/proc/self/mounts` on Linux, `getmntinfo` on macOS), read by name and again after each scan: a path's mount point and filesystem kind (kernel, local, other). Kernel filesystems are not added up, entered by scans from outside, searched, watched, or read past 4 KiB for the preview. |
+| `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates; elsewhere `src/platform/watch_none.rs`, which watches nothing. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
 | `src/location.rs` | The Alt+g prompt: typed paths, workspaces and zoxide suggestions. |
@@ -315,6 +316,13 @@ cargo build --offline
 python3 tests/terminal_smoke.py
 ```
 
+fff builds for Linux and macOS. Run these on both after changing
+`src/platform/`, file operations, the trash or the mount table. On macOS the
+tests that need a user namespace (`unshare`), names that are not UTF-8
+(APFS refuses them) or paths longer than its 1024-byte `PATH_MAX` return
+early, and fixtures canonicalize their temporary directory, which is below the
+`/var` symlink there.
+
 `src/operations_tests.rs` covers collisions, confirmation binding, injected
 races and rollback, mount points (bind mounts in a user namespace via `unshare`),
 the trash, undo, purge, progress and stopping (`src/trash_tests.rs`, with
@@ -349,7 +357,7 @@ input and discovery events; `tests/discovery_cache.rs` covers filesystem fixture
 and snapshot reconciliation. Neovim tests use the installed engine and skip when
 it is unavailable.
 
-The Linux PTY suite runs `target/debug/fff`; `tests/terminal_screen.py` models
+The PTY suite runs `target/debug/fff` (it needs Python 3.11+ for `tomllib`); `tests/terminal_screen.py` models
 its committed frames. It checks real Crossterm decoding, modes, navigation,
 policies, marks, paging, cancellation and separate stdout. It does not establish
 a physical keyboard/terminal compatibility matrix.

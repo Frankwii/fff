@@ -11,8 +11,9 @@
 //! moves an entry to `expunged/` and drops its record before deleting it, so
 //! one cut short (fff quit meanwhile) never leaves a half-deleted entry that
 //! looks whole; the next purge finishes what is there.
-use crate::operations::{Result, child_dir, err, fdpath, open_dir, remove_tree, reparent, unique};
-use rustix::fs::{self as sys, AtFlags, Mode, OFlags, StatxFlags};
+use crate::operations::{Result, child_dir, err, names, open_dir, remove_tree, reparent, unique};
+use crate::platform::{self, Place};
+use rustix::fs::{self as sys, AtFlags, Mode, OFlags};
 use std::{
     ffi::{OsStr, OsString},
     fs::{self, File},
@@ -136,17 +137,16 @@ impl Trash {
             };
             // What an interrupted purge left half deleted.
             if let Ok(expunged) = child_dir(&bin.root, OsStr::new(EXPUNGED))
-                && let Ok(leftovers) = fs::read_dir(fdpath(&expunged))
+                && let Ok(leftovers) = names(&expunged)
             {
-                for item in leftovers.flatten() {
-                    let _ = remove_tree(&expunged, &item.file_name());
+                for name in leftovers {
+                    let _ = remove_tree(&expunged, &name);
                 }
             }
-            let Ok(listing) = fs::read_dir(fdpath(&bin.info)) else {
+            let Ok(listing) = names(&bin.info) else {
                 continue;
             };
-            for item in listing.flatten() {
-                let info = item.file_name();
+            for info in listing {
                 let Some(slot) = info.as_bytes().strip_suffix(b".trashinfo") else {
                     continue;
                 };
@@ -155,7 +155,7 @@ impl Trash {
                     continue;
                 }
                 let slot = OsStr::from_bytes(slot);
-                let Ok(text) = fs::read(item.path()) else {
+                let Some(text) = bin.read_record(&info) else {
                     continue;
                 };
                 // Undated entries are never deleted.
@@ -421,8 +421,7 @@ impl Bin {
             return Some((slot.to_owned(), text));
         }
         let mut found: Option<(OsString, Vec<u8>, Option<SystemTime>)> = None;
-        for item in fs::read_dir(fdpath(&self.info)).ok()?.flatten() {
-            let name = item.file_name();
+        for name in names(&self.info).ok()? {
             let Some(other) = name.as_bytes().strip_suffix(b".trashinfo") else {
                 continue;
             };
@@ -458,20 +457,15 @@ impl Bin {
     /// The entry of files/ with this inode that has no record of its own,
     /// for a record whose entry is gone from its slot.
     fn renamed(&self, inode: u64) -> Option<OsString> {
-        use std::os::unix::fs::DirEntryExt;
-        fs::read_dir(fdpath(&self.files))
+        platform::read_dir(&self.files)
             .ok()?
-            .flatten()
+            .into_iter()
             .find(|item| {
-                item.ino() == inode
-                    && sys::statat(
-                        &self.info,
-                        info_name(&item.file_name()),
-                        AtFlags::SYMLINK_NOFOLLOW,
-                    )
-                    .is_err()
+                item.ino == inode
+                    && sys::statat(&self.info, info_name(&item.name), AtFlags::SYMLINK_NOFOLLOW)
+                        .is_err()
             })
-            .map(|item| item.file_name())
+            .map(|item| item.name)
     }
 }
 fn info_name(slot: &OsStr) -> OsString {
@@ -480,16 +474,12 @@ fn info_name(slot: &OsStr) -> OsString {
     name
 }
 /// The mount and device of a directory: a rename works only within both.
-fn place(dir: &File) -> Result<(u64, u32, u32)> {
-    let x = sys::statx(dir, "", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID).map_err(err)?;
-    if x.stx_mask & StatxFlags::MNT_ID.bits() == 0 {
-        return Err("Cannot identify mounts; Linux 5.8 or newer is required".into());
-    }
-    Ok((x.stx_mnt_id, x.stx_dev_major, x.stx_dev_minor))
+fn place(dir: &File) -> Result<Place> {
+    platform::place(dir).map_err(err)
 }
 /// The highest directory above `dir` (canonical) on the same mount and
 /// device: where a filesystem's bin goes.
-fn top(dir: &Path, here: (u64, u32, u32)) -> Result<PathBuf> {
+fn top(dir: &Path, here: Place) -> Result<PathBuf> {
     let mut top = dir.to_path_buf();
     for ancestor in dir.ancestors().skip(1) {
         let Ok(opened) = open_dir(ancestor) else {

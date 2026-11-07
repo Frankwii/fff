@@ -1,5 +1,10 @@
 # Desktop integration
 
+This needs a freedesktop.org desktop (desktop entries, D-Bus, the portal),
+so it is Linux's: on macOS, `fff setup --desktop`, `--browser` and `fff
+dbus-file-manager` say so and change nothing, and `--check-config` skips these
+checks. `fff window` and `fff explorer` run in any terminal.
+
 fff can be the machine's file manager, not only a launcher from the shell:
 directories opened by other programs (`xdg-open`, a launcher) open in fff, a
 browser's "Show in folder" opens fff with the file highlighted, and Firefox and other applications that use the

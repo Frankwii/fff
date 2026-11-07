@@ -563,6 +563,9 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         },
         Some(Command::Setup(setup)) => return run_setup(setup, args),
         Some(Command::DbusFileManager(dbus)) => {
+            if !fuzzy_file_finder::setup::FREEDESKTOP {
+                return Err(fuzzy_file_finder::setup::NO_DESKTOP.into());
+            }
             fuzzy_file_finder::dbus::serve(None, &dbus.launcher, fuzzy_file_finder::dbus::IDLE)?;
             return Ok(true);
         }
@@ -1006,6 +1009,9 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         report.done("every program [open] names is installed")?;
         // The desktop integration, if set up: warnings, since the
         // configuration itself is valid.
+        if !fuzzy_file_finder::setup::FREEDESKTOP {
+            return Ok(true);
+        }
         // Unset, any terminal will do: the one detected depends on where
         // the check runs.
         let terminal = settings
@@ -1038,6 +1044,9 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
             }
         }
         return Ok(true);
+    }
+    if !fuzzy_file_finder::setup::FREEDESKTOP {
+        return Err(fuzzy_file_finder::setup::NO_DESKTOP.into());
     }
     let target = if setup.desktop {
         fuzzy_file_finder::setup::Target::Desktop

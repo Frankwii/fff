@@ -21,6 +21,22 @@ use std::{
     time::SystemTime,
 };
 
+/// `st_mode` bits as the `u32` that `MetadataExt::mode` returns. POSIX fixes
+/// their values; libc declares them `u32` on Linux and `u16` on macOS.
+pub mod bits {
+    pub const S_IFMT: u32 = 0o170000;
+    pub const S_IFSOCK: u32 = 0o140000;
+    pub const S_IFLNK: u32 = 0o120000;
+    pub const S_IFREG: u32 = 0o100000;
+    pub const S_IFBLK: u32 = 0o060000;
+    pub const S_IFDIR: u32 = 0o040000;
+    pub const S_IFCHR: u32 = 0o020000;
+    pub const S_IFIFO: u32 = 0o010000;
+    pub const S_ISUID: u32 = 0o4000;
+    pub const S_ISGID: u32 = 0o2000;
+    pub const S_ISVTX: u32 = 0o1000;
+}
+
 /// `[ui] columns`: what the right-hand side of each result row shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -71,7 +87,7 @@ impl Info {
     }
     /// The entry itself is a directory (a link to one is not).
     pub fn is_dir(&self) -> bool {
-        self.mode & libc::S_IFMT == libc::S_IFDIR
+        self.mode & bits::S_IFMT == bits::S_IFDIR
     }
     pub fn broken(&self) -> bool {
         self.link.as_ref().is_some_and(|(_, resolves)| !resolves)
@@ -391,20 +407,20 @@ fn account_name(&(user, id): &Account) -> String {
 
 /// `ls -l` permissions: type, then rwx for user, group and others.
 pub fn permissions(mode: u32) -> String {
-    let kind = match mode & libc::S_IFMT {
-        libc::S_IFDIR => 'd',
-        libc::S_IFLNK => 'l',
-        libc::S_IFIFO => 'p',
-        libc::S_IFSOCK => 's',
-        libc::S_IFCHR => 'c',
-        libc::S_IFBLK => 'b',
+    let kind = match mode & bits::S_IFMT {
+        bits::S_IFDIR => 'd',
+        bits::S_IFLNK => 'l',
+        bits::S_IFIFO => 'p',
+        bits::S_IFSOCK => 's',
+        bits::S_IFCHR => 'c',
+        bits::S_IFBLK => 'b',
         _ => '-',
     };
     let mut text = String::from(kind);
     for (shift, special, set, unset) in [
-        (6, libc::S_ISUID, 's', 'S'),
-        (3, libc::S_ISGID, 's', 'S'),
-        (0, libc::S_ISVTX, 't', 'T'),
+        (6, bits::S_ISUID, 's', 'S'),
+        (3, bits::S_ISGID, 's', 'S'),
+        (0, bits::S_ISVTX, 't', 'T'),
     ] {
         let bits = (mode >> shift) & 7;
         text.push(if bits & 4 != 0 { 'r' } else { '-' });
@@ -539,10 +555,10 @@ mod tests {
         assert_eq!(ago(130 * 86_400), "4mo");
         assert_eq!(ago(800 * 86_400), "2y");
         assert_eq!(age(now + Duration::from_secs(9), now), "now");
-        assert_eq!(permissions(libc::S_IFDIR | 0o755), "drwxr-xr-x");
-        assert_eq!(permissions(libc::S_IFREG | 0o4754), "-rwsr-xr--");
-        assert_eq!(permissions(libc::S_IFDIR | 0o1777), "drwxrwxrwt");
-        assert_eq!(permissions(libc::S_IFLNK | 0o777), "lrwxrwxrwx");
+        assert_eq!(permissions(bits::S_IFDIR | 0o755), "drwxr-xr-x");
+        assert_eq!(permissions(bits::S_IFREG | 0o4754), "-rwsr-xr--");
+        assert_eq!(permissions(bits::S_IFDIR | 0o1777), "drwxrwxrwt");
+        assert_eq!(permissions(bits::S_IFLNK | 0o777), "lrwxrwxrwx");
     }
     #[test]
     fn links_counts_and_forgetting() {

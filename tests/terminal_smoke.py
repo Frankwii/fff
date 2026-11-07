@@ -12,6 +12,7 @@ import pty
 import select
 import signal
 import struct
+import sys
 import termios
 import tempfile
 import time
@@ -19,6 +20,11 @@ import unittest
 import tomllib
 import shutil
 from terminal_screen import Screen
+
+# Canonical, as the paths fff prints are, and short as Linux's /tmp, so that
+# paths fit on the tests' screens: macOS's own temporary directory is long
+# and below the /var symlink.
+tempfile.tempdir = os.path.realpath("/tmp" if sys.platform == "darwin" else tempfile.gettempdir())
 
 # Shift+Space in the kitty keyboard protocol: marks, also while typing.
 SHIFT_SPACE = b"\x1b[32;2u"
@@ -162,6 +168,27 @@ class Session:
         if token not in self.ui:
             raise AssertionError(f"terminal did not show {token!r}")
 
+    def kill(self):
+        """SIGKILL, reading the terminal until fff has ended: on macOS a
+        session leader cannot finish exiting while a child (Neovim) holds the
+        terminal and its output is left unread."""
+        os.kill(self.pid, signal.SIGKILL)
+        while not os.waitpid(self.pid, os.WNOHANG)[0]:
+            self.drain(0.02)
+        self.status = -signal.SIGKILL
+
+    def drain(self, seconds):
+        """Reads what fff draws for `seconds`: a frame left unread blocks it
+        (macOS's terminals buffer much less than Linux's)."""
+        if select.select([self.master], [], [], seconds)[0]:
+            try:
+                self.take(os.read(self.master, 65536))
+            except OSError as e:
+                # Linux: the terminal's other end is closed once fff has ended.
+                if e.errno != errno.EIO:
+                    raise
+                time.sleep(seconds)
+
     def take(self, chunk):
         self.ui += chunk
         self.screen.feed(chunk)
@@ -199,13 +226,15 @@ class Session:
         return self.status, output
 
     def close(self):
+        # The terminal is closed before waiting: on macOS a process exiting
+        # with output the terminal has not read waits for it, killed or not.
+        os.close(self.master)
         if self.status is None:
             try:
                 os.kill(self.pid, signal.SIGKILL)
                 os.waitpid(self.pid, 0)
             except ProcessLookupError:
                 pass
-        os.close(self.master)
         os.close(self.output)
 
 
@@ -1533,7 +1562,7 @@ class TerminalTests(unittest.TestCase):
         def wait_order(expected):
             deadline = time.monotonic() + 5
             while order() != expected and time.monotonic() < deadline:
-                time.sleep(0.02)
+                s.drain(0.02)
             self.assertEqual(order(), expected)
 
         s = self.start("--config", str(config), implicit_root=True)
@@ -1652,6 +1681,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    @unittest.skipIf(sys.platform == "darwin", "no live updates on macOS (no inotify)")
     def test_watched_directory_updates_without_waiting_for_freshness(self):
         (self.root / "old").touch()
         with tempfile.TemporaryDirectory(prefix="fff-watch-") as folder:
@@ -1670,6 +1700,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
 
+    @unittest.skipIf(sys.platform == "darwin", "no live updates on macOS (no inotify)")
     def test_deeper_folders_and_pinned_roots_update_live(self):
         (self.root / "sub" / "inner").mkdir(parents=True)
         with tempfile.TemporaryDirectory(prefix="fff-watch-") as folder:
@@ -2715,9 +2746,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1b[27ul", ("cwd", target))
             s.send(b"p")
             time.sleep(delay)
-            os.kill(s.pid, signal.SIGKILL)
-            os.waitpid(s.pid, 0)
-            s.status = -signal.SIGKILL
+            s.kill()
             self.assertEqual(len(os.listdir(tree)), 20000)
             names = os.listdir(target)
             if "tree" in names:
@@ -2743,9 +2772,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1b[27uX", "Delete permanently")
             s.send(b"\r")
             time.sleep(delay)
-            os.kill(s.pid, signal.SIGKILL)
-            os.waitpid(s.pid, 0)
-            s.status = -signal.SIGKILL
+            s.kill()
             if victim.exists():
                 self.assertEqual(len(os.listdir(victim)), 20000, delay)
 

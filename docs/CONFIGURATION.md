@@ -453,7 +453,7 @@ At most 4096 folders are watched, the roots first and then the shallowest
 listed folders, leaving the system's inotify watches (often 8192 per user) to
 other programs too; folders beyond that, or past the system's limit, follow the
 [freshness](#discovery-cache-and-performance) rules and F5. Where inotify is
-unavailable or a directory cannot be watched, fff works as with
+unavailable (macOS has no inotify) or a directory cannot be watched, fff works as with
 `watch = false`. Folders on [kernel filesystems](#kernel-filesystems) are not
 watched.
 
@@ -832,10 +832,9 @@ on navigation instead of speculatively reading them again.
 - Highlight/query changes, leaving results focus, foreground work and navigation
   cancel an outstanding job. No successor starts until that worker has exited,
   even if its filesystem call is slow. Results from cancelled jobs are discarded.
-- On Linux, mount metadata admits only known local filesystem types and rejects
-  separate mounts (including bind mounts), remote/unknown filesystems and ambiguous
-  escaped mount paths. Symlink targets are skipped. Other platforms currently
-  disable speculative reads while retaining normal discovery and caching.
+- Mount metadata admits only known local filesystem types (APFS on macOS) and
+  rejects separate mounts (including bind mounts), remote/unknown filesystems and
+  ambiguous escaped mount paths. Symlink targets are skipped.
 - A prefetched listing can skip the foreground scan only if it is exhaustive,
   recent, nonempty, and covers the whole new depth-1 scope. With pinned scopes,
   truncation, symlink entries or a greater requested depth, it is only a prefix.
@@ -843,7 +842,7 @@ on navigation instead of speculatively reading them again.
 Budgets are checked between filesystem calls. A blocking call cannot be interrupted
 at 100 ms; it never blocks input or creates a growing chain of speculative threads.
 No user file contents are read, and no cache/index files are written. Mount
-classification reads `/proc/self/mountinfo`.
+classification reads `/proc/self/mounts` on Linux and `getmntinfo` on macOS.
 
 ### `[performance]` settings
 

@@ -35,7 +35,8 @@ them: after switching to the package, run them again as `/usr/bin/fff`.
 Each release updates `packaging/aur`; run `makepkg -si` there again to update
 (see [packaging](docs/DEVELOPMENT.md#packaging)).
 
-Run in a Linux/Unix terminal with `/dev/tty`. The interface uses the controlling
+Run in a terminal with `/dev/tty`, on Linux or macOS (where the [desktop
+integration](docs/DESKTOP.md) and live updates are not available). The interface uses the controlling
 terminal, never stdout. Put the binary on your PATH as `fff` and add the
 [shell integration](#shell-integration) line so that leaving fff can change your
 shell's directory. `-h` summarizes options; `--help` includes defaults, examples
@@ -604,7 +605,8 @@ can be undone with `u`; long
 ones show their progress and stop safely with Ctrl+c. Name and destination buffers use Enter to apply and Escape to
 cancel; the multiline rename buffer uses `ZZ` to apply or `ZQ` to discard. See [file operations](docs/OPERATIONS.md) for confirmations, guarantees,
 archive limits and current boundaries. Building
-requires libarchive development files; the operation engine requires Linux 5.8+.
+requires libarchive development files (macOS has them); the operation engine
+requires Linux 5.8+ or macOS 13+.
 
 ## Configuration and responsiveness
 

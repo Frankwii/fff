@@ -1,15 +1,13 @@
 //! File operations. All mutations go through Engine.
-//! Linux directory descriptors pin parents; publishing never replaces an entry.
-use rustix::fs::{self as sys, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags};
+//! Directory descriptors pin parents; publishing never replaces an entry.
+use crate::platform::{self, Meta};
+use rustix::fs::{self as sys, AtFlags, Mode, OFlags, RenameFlags};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs::{self, File},
     io::{self, Read},
-    os::{
-        fd::AsRawFd,
-        unix::fs::{MetadataExt, PermissionsExt},
-    },
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Component, Path, PathBuf},
     sync::{
         Arc,
@@ -36,21 +34,17 @@ pub(crate) fn unique() -> String {
         NEXT.fetch_add(1, Ordering::Relaxed)
     )
 }
-/// A path that names the open file `f`, for APIs that take paths.
-pub(crate) fn fdpath(f: &File) -> PathBuf {
-    PathBuf::from(format!("/proc/self/fd/{}", f.as_raw_fd()))
-}
 pub(crate) fn open_dir(path: &Path) -> Result<File> {
     let path = path.canonicalize().map_err(err)?;
-    sys::openat2(
-        sys::CWD,
-        &path,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-        ResolveFlags::NO_SYMLINKS,
-    )
-    .map(File::from)
-    .map_err(err)
+    platform::open_dir_nofollow(&path).map_err(err)
+}
+/// The names in the opened directory `dir`.
+pub(crate) fn names(dir: &File) -> Result<Vec<OsString>> {
+    Ok(platform::read_dir(dir)
+        .map_err(err)?
+        .into_iter()
+        .map(|e| e.name)
+        .collect())
 }
 pub(crate) fn child_dir(parent: &File, name: &OsStr) -> Result<File> {
     sys::openat(
@@ -114,7 +108,7 @@ fn umask() -> u32 {
 }
 /// Where an opened directory is now, without symlinks.
 pub(crate) fn canonical_dir(dir: &File) -> Result<PathBuf> {
-    fs::read_link(fdpath(dir)).map_err(err)
+    platform::dir_path(dir).map_err(err)
 }
 struct Entry {
     parent: File,
@@ -165,14 +159,14 @@ impl Stamp {
         self.mode & 0o170000 == 0o100000
     }
 }
-fn stamp(m: &fs::Metadata) -> Stamp {
+fn stamp(m: &Meta) -> Stamp {
     Stamp {
-        dev: m.dev(),
-        ino: m.ino(),
-        len: m.len(),
-        mtime: (m.mtime(), m.mtime_nsec()),
-        ctime: (m.ctime(), m.ctime_nsec()),
-        mode: m.mode(),
+        dev: m.dev,
+        ino: m.ino,
+        len: m.len,
+        mtime: (m.mtime, m.mtime_nsec),
+        ctime: (m.ctime, m.ctime_nsec),
+        mode: m.mode,
     }
 }
 fn inventory(
@@ -185,13 +179,11 @@ fn inventory(
     if depth > 128 || out.len() >= 100_000 {
         return Err("Directory tree is too large or deep".into());
     }
-    let m = fs::symlink_metadata(fdpath(parent).join(name)).map_err(err)?;
+    let m = platform::lstat_at(parent, name).map_err(err)?;
     // Never copy or delete through anything mounted inside a tree, including
     // bind mounts from the same filesystem, which keep the device number.
     if depth > 0
-        && (out
-            .get(Path::new(""))
-            .is_some_and(|root| root.dev != m.dev())
+        && (out.get(Path::new("")).is_some_and(|root| root.dev != m.dev)
             || mount_root(parent, name)?)
     {
         return Err(format!(
@@ -204,8 +196,7 @@ fn inventory(
     if m.is_dir() {
         let dir = child_dir(parent, name)?;
         let mut total = 0u64;
-        for item in fs::read_dir(fdpath(&dir)).map_err(err)? {
-            let name = item.map_err(err)?.file_name();
+        for name in names(&dir)? {
             total = total
                 .checked_add(inventory(
                     &dir,
@@ -218,7 +209,7 @@ fn inventory(
         }
         Ok(total)
     } else if m.is_file() || m.is_symlink() {
-        Ok(m.len())
+        Ok(m.len)
     } else {
         Err("Sockets, devices and special files are not supported".into())
     }
@@ -237,27 +228,14 @@ fn detached_matches(
     }
     Ok(&current == expected)
 }
-/// Whether `name` is the root of a mount, as reported by statx (Linux 5.8+).
+/// Whether `name` is the root of a mount.
 fn mount_root(parent: &File, name: &OsStr) -> Result<bool> {
-    let x = sys::statx(
-        parent,
-        name,
-        AtFlags::SYMLINK_NOFOLLOW | AtFlags::NO_AUTOMOUNT,
-        sys::StatxFlags::BASIC_STATS,
-    )
-    .map_err(err)?;
-    if !x
-        .stx_attributes_mask
-        .contains(sys::StatxAttributes::MOUNT_ROOT)
-    {
-        return Err("Cannot detect mount points; Linux 5.8 or newer is required".into());
-    }
-    Ok(x.stx_attributes.contains(sys::StatxAttributes::MOUNT_ROOT))
+    platform::is_mount_root(parent, name).map_err(err)
 }
 /// Device and inode of `name`, without following a final symlink.
 fn identity(parent: &File, name: &OsStr) -> Option<(u64, u64)> {
-    let m = fs::symlink_metadata(fdpath(parent).join(name)).ok()?;
-    Some((m.dev(), m.ino()))
+    let m = platform::lstat_at(parent, name).ok()?;
+    Some((m.dev, m.ino))
 }
 /// Every directory from `dir` up to the filesystem root, by identity, so
 /// aliases (bind mounts, case-insensitive names) cannot hide an ancestor.
@@ -270,14 +248,7 @@ fn ancestors(dir: &File) -> Result<HashSet<(u64, u64)>> {
         if !seen.insert((m.dev(), m.ino())) {
             break;
         }
-        current = sys::openat(
-            &current,
-            "..",
-            OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map(File::from)
-        .map_err(err)?;
+        current = platform::open_parent(&current).map_err(err)?;
     }
     Ok(seen)
 }
@@ -309,13 +280,13 @@ pub fn validate_archive(path: &Path) -> Result<()> {
         )
         .map_err(err)?,
     );
-    let before = input.metadata().map_err(err)?;
+    let before = platform::fstat(&input).map_err(err)?;
     if !before.is_file() {
         return Err("Select a regular archive file".into());
     }
     let check = input.try_clone().map_err(err)?;
     crate::archive::validate(input)?;
-    if stamp(&before) != stamp(&check.metadata().map_err(err)?) {
+    if stamp(&before) != stamp(&platform::fstat(&check).map_err(err)?) {
         return Err("Archive changed while being checked".into());
     }
     Ok(())
@@ -326,15 +297,15 @@ pub fn weight(path: &Path) -> Result<u64> {
     inventory(&e.parent, &e.name, Path::new(""), &mut BTreeMap::new(), 0)
 }
 // Copies keep access and modification times; the copy's ctime is necessarily new.
-fn keep_times(dir: &File, name: &OsStr, m: &fs::Metadata) -> Result<()> {
+fn keep_times(dir: &File, name: &OsStr, m: &Meta) -> Result<()> {
     let times = sys::Timestamps {
         last_access: sys::Timespec {
-            tv_sec: m.atime(),
-            tv_nsec: m.atime_nsec() as _,
+            tv_sec: m.atime,
+            tv_nsec: m.atime_nsec as _,
         },
         last_modification: sys::Timespec {
-            tv_sec: m.mtime(),
-            tv_nsec: m.mtime_nsec() as _,
+            tv_sec: m.mtime,
+            tv_nsec: m.mtime_nsec as _,
         },
     };
     sys::utimensat(dir, name, &times, AtFlags::SYMLINK_NOFOLLOW).map_err(err)
@@ -354,7 +325,7 @@ fn copy_entry(
     nested: bool,
     tick: &Tick,
 ) -> Result<()> {
-    let m = fs::symlink_metadata(fdpath(src).join(name)).map_err(err)?;
+    let m = platform::lstat_at(src, name).map_err(err)?;
     if nested && mount_root(src, name)? {
         return Err("Tree contains a mount point".into());
     }
@@ -364,20 +335,19 @@ fn copy_entry(
         keep_times(dst, to, &m)?;
     } else if m.is_dir() {
         let input = child_dir(src, name)?;
-        if stamp(&input.metadata().map_err(err)?) != stamp(&m) {
+        if stamp(&platform::fstat(&input).map_err(err)?) != stamp(&m) {
             return Err("Source directory changed".into());
         }
         sys::mkdirat(dst, to, Mode::RUSR | Mode::WUSR | Mode::XUSR).map_err(err)?;
         let output = child_dir(dst, to)?;
-        for item in fs::read_dir(fdpath(&input)).map_err(err)? {
-            let name = item.map_err(err)?.file_name();
+        for name in names(&input)? {
             copy_entry(&input, &name, &output, &name, true, tick)?;
         }
         output
-            .set_permissions(fs::Permissions::from_mode(m.mode() & 0o777))
+            .set_permissions(fs::Permissions::from_mode(m.mode & 0o777))
             .map_err(err)?;
         keep_times(dst, to, &m)?;
-        output.sync_all().map_err(err)?;
+        platform::sync(&output).map_err(err)?;
     } else if m.is_file() {
         let input = File::from(
             sys::openat(
@@ -388,7 +358,7 @@ fn copy_entry(
             )
             .map_err(err)?,
         );
-        if stamp(&input.metadata().map_err(err)?) != stamp(&m) {
+        if stamp(&platform::fstat(&input).map_err(err)?) != stamp(&m) {
             return Err("Source changed while copying".into());
         }
         let mut output = new_file(dst, to)?;
@@ -401,11 +371,11 @@ fn copy_entry(
             tick(n)?;
         }
         output
-            .set_permissions(fs::Permissions::from_mode(m.mode() & 0o777))
+            .set_permissions(fs::Permissions::from_mode(m.mode & 0o777))
             .map_err(err)?;
         keep_times(dst, to, &m)?;
-        output.sync_all().map_err(err)?;
-        if stamp(&input.metadata().map_err(err)?) != stamp(&m) {
+        platform::sync(&output).map_err(err)?;
+        if stamp(&platform::fstat(&input).map_err(err)?) != stamp(&m) {
             return Err("Source changed while copying".into());
         }
     } else {
@@ -1225,7 +1195,7 @@ impl Engine {
             sys::mkdirat(&d.parent, &d.name, Mode::from_raw_mode(0o755)).map_err(err)?;
         } else {
             // Ordinary permissions, as the user's umask allows.
-            File::from(
+            platform::sync(&File::from(
                 sys::openat(
                     &d.parent,
                     &d.name,
@@ -1237,8 +1207,7 @@ impl Engine {
                     Mode::from_raw_mode(0o666),
                 )
                 .map_err(err)?,
-            )
-            .sync_all()
+            ))
             .map_err(err)?;
         }
         if let Some(id) = identity(&d.parent, &d.name) {
@@ -1316,8 +1285,7 @@ impl Engine {
                 return Err("Extraction destination changed".into());
             }
             if let Some(dest) = dest {
-                for item in fs::read_dir(fdpath(&stage.dir)).map_err(err)? {
-                    let name = item.map_err(err)?.file_name();
+                for name in names(&stage.dir)? {
                     if exists(dest, &name)? {
                         return Err(format!("{:?} already contains {:?}", d.path, name));
                     }
@@ -1698,7 +1666,7 @@ pub fn stranded(dir: &Path) -> Vec<PathBuf> {
             // Names start with the creating process id; skip operations still
             // running in a live fff (the same executable, despite pid reuse).
             let pid = rest.split('-').next().unwrap_or_default();
-            let exe = fs::read_link(Path::new("/proc").join(pid).join("exe")).ok();
+            let exe = platform::executable(pid);
             pid.is_empty() || exe.is_none() || exe != std::env::current_exe().ok()
         })
         .map(|e| e.path())
@@ -1717,7 +1685,7 @@ pub(crate) fn remove_tree(parent: &File, name: &OsStr) -> Result<()> {
 /// `remove_tree`, telling `tick` of every entry removed; an error from it
 /// (Ctrl+c) stops with the rest in place.
 fn remove_counting(parent: &File, name: &OsStr, tick: &Tick) -> Result<()> {
-    let m = fs::symlink_metadata(fdpath(parent).join(name)).map_err(err)?;
+    let m = platform::lstat_at(parent, name).map_err(err)?;
     // Recheck while deleting: nothing mounted since validation is entered.
     if mount_root(parent, name)? {
         return Err(format!("{name:?} is a mount point"));
@@ -1726,15 +1694,15 @@ fn remove_counting(parent: &File, name: &OsStr, tick: &Tick) -> Result<()> {
         let dir = child_dir(parent, name)?;
         // Read-only directories must be writable to empty them; if deletion
         // then fails, the directory gets its exact mode back.
-        let original = m.mode() & 0o7777;
+        let original = m.mode & 0o7777;
         let unlocked = original & 0o700 != 0o700;
         if unlocked {
             dir.set_permissions(fs::Permissions::from_mode(original | 0o700))
                 .map_err(err)?;
         }
         let emptied = (|| {
-            for item in fs::read_dir(fdpath(&dir)).map_err(err)? {
-                remove_counting(&dir, &item.map_err(err)?.file_name(), tick)?;
+            for name in names(&dir)? {
+                remove_counting(&dir, &name, tick)?;
             }
             Ok(())
         })();

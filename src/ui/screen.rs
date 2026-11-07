@@ -9,7 +9,7 @@ pub(super) struct Terminal(
 );
 impl Terminal {
     pub(super) fn enter(mouse: bool) -> io::Result<Self> {
-        let mut file = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
+        let mut file = crate::platform::open_terminal()?;
         terminal::enable_raw_mode()?;
         let support = Support::probe(&mut file);
         let tui = TuiTerminal::new(CrosstermBackend::new(Tty::new(file)))?;
@@ -274,7 +274,7 @@ impl Input {
         let sending = waiting.clone();
         // Waiting is done here rather than in crossterm, which reads a
         // hung-up terminal's end of file forever without returning.
-        let tty = std::fs::File::open("/dev/tty").ok();
+        let tty = crate::platform::open_terminal().ok();
         let thread = std::thread::spawn(move || {
             while !stopped.load(Ordering::Relaxed) {
                 let wait = Duration::from_millis(20);

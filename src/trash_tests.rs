@@ -56,7 +56,13 @@ fn trashed_entries_keep_everything_and_undo_puts_them_back() {
     fs::write(dir.join(".hidden"), b"hidden").unwrap();
     symlink("/does/not/exist", dir.join("broken")).unwrap();
     locked_dir(&dir.join("sub"));
-    let odd = f.work.join(OsString::from_vec(b"bad-\xff name".to_vec()));
+    // APFS takes UTF-8 names only.
+    let (odd_name, escaped): (&[u8], &str) = if takes_any_bytes(&f.work) {
+        (b"bad-\xff name", "bad-%FF%20name")
+    } else {
+        ("bad-\u{e9} name".as_bytes(), "bad-%C3%A9%20name")
+    };
+    let odd = f.work.join(OsString::from_vec(odd_name.to_vec()));
     fs::write(&odd, b"bytes").unwrap();
     let before = [&a, &dir, &odd].map(|p| contents(p));
     let out = trash_all(&f, vec![a.clone(), dir.clone(), odd.clone()]);
@@ -95,16 +101,13 @@ fn trashed_entries_keep_everything_and_undo_puts_them_back() {
     );
     let info = fs::read_to_string(bin(&f).join("info/bad-\u{fffd} name.trashinfo"));
     assert!(info.is_err(), "the record keeps the name's bytes");
-    let info = fs::read(
-        bin(&f)
-            .join("info")
-            .join(OsString::from_vec(b"bad-\xff name.trashinfo".to_vec())),
-    )
-    .unwrap();
+    let mut record_name = odd_name.to_vec();
+    record_name.extend(b".trashinfo");
+    let info = fs::read(bin(&f).join("info").join(OsString::from_vec(record_name))).unwrap();
     assert!(
         String::from_utf8(info)
             .unwrap()
-            .contains("bad-%FF%20name\n")
+            .contains(&format!("{escaped}\n"))
     );
     assert!(stranded(&f.work).is_empty());
     let back = engine(&f).undo(&record(out)).unwrap();

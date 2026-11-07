@@ -23,6 +23,7 @@ pub mod open;
 pub mod operations;
 mod palettes;
 pub mod piped;
+mod platform;
 mod policy;
 mod prefetch;
 pub mod preview;
@@ -38,6 +39,8 @@ pub mod terminal;
 pub mod trash;
 pub mod ui;
 mod view;
+// inotify is Linux's own; elsewhere fff works without live updates.
+#[cfg_attr(not(target_os = "linux"), path = "platform/watch_none.rs")]
 pub mod watch;
 pub mod workspaces;
 

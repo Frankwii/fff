@@ -15,7 +15,9 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let p = std::env::temp_dir().join(format!(
+        // Canonical, as fff's paths are (macOS's temporary directory is below
+        // the `/var` symlink).
+        let p = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "fff-cache-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)

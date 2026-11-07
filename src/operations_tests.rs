@@ -7,7 +7,12 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("fff-ops-test-{}", unique()));
+        // Canonical, as the paths operations report are (macOS's temporary
+        // directory is below the `/var` symlink).
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("fff-ops-test-{}", unique()));
         fs::create_dir(&root).unwrap();
         let work = root.join("work");
         let dest = root.join("dest");
@@ -22,6 +27,28 @@ impl Fixture {
         let p = self.work.join(name);
         fs::write(&p, data).unwrap();
         p
+    }
+}
+/// Whether `dir`'s filesystem takes names that are not UTF-8 (APFS refuses
+/// them with `EILSEQ`).
+fn takes_any_bytes(dir: &Path) -> bool {
+    let probe = dir.join(OsString::from_vec(b"probe-\xff".to_vec()));
+    let taken = fs::write(&probe, b"").is_ok();
+    let _ = fs::remove_file(probe);
+    taken
+}
+/// A socket listening at `path`, bound at a short path and moved there
+/// when `path` is longer than a socket address holds (104 bytes on macOS).
+fn socket_at(path: &Path) -> std::os::unix::net::UnixListener {
+    use std::os::unix::net::UnixListener;
+    match UnixListener::bind(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
+            let short = Path::new("/tmp").join(format!("fff-{}", unique()));
+            let listener = UnixListener::bind(&short).unwrap();
+            fs::rename(&short, path).unwrap();
+            listener
+        }
+        bound => bound.unwrap(),
     }
 }
 impl Drop for Fixture {
@@ -132,6 +159,9 @@ fn symlink_uses_real_absolute_paths_and_keeps_source_unchanged() {
 #[test]
 fn non_utf8_paths_work_for_copy_move_delete_and_symlink() {
     let f = Fixture::new();
+    if !takes_any_bytes(&f.work) {
+        return;
+    }
     let name = OsString::from_vec(b"bad-\xff".to_vec());
     let src = f.work.join(&name);
     fs::write(&src, b"bytes").unwrap();
@@ -255,7 +285,7 @@ fn missing_source_and_special_files_abort_everything() {
             .is_err()
     );
     let socket = f.work.join("socket");
-    let _socket = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let _socket = socket_at(&socket);
     assert!(
         f.engine()
             .execute(Request::Delete {

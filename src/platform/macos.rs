@@ -1,0 +1,171 @@
+//! macOS: no `openat2`, `statx` or `/proc`. Paths are walked one component
+//! at a time with `O_NOFOLLOW`, mount roots are where the device changes,
+//! and the mount table and processes are asked of the kernel directly.
+use rustix::fs::{self as sys, Mode, OFlags};
+use std::{
+    ffi::{CStr, OsStr, OsString},
+    fs::File,
+    io,
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        net::UnixStream,
+    },
+    path::{Component, Path, PathBuf},
+};
+
+/// No freedesktop.org desktop: no desktop entries, session bus or portal.
+pub const FREEDESKTOP: bool = false;
+
+/// The controlling terminal, for reading and writing. `poll` and `kqueue`
+/// refuse `/dev/tty` on macOS (`POLLNVAL`), so the device it stands for is
+/// opened instead: that of stdin, stderr or stdout when one is this session's
+/// terminal. `/dev/tty` itself only when none is.
+pub fn open_terminal() -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let session = unsafe { libc::getsid(0) };
+    for fd in [0, 2, 1] {
+        if unsafe { libc::isatty(fd) } != 1 || unsafe { libc::tcgetsid(fd) } != session {
+            continue;
+        }
+        let mut name = [0 as libc::c_char; 128];
+        if unsafe { libc::ttyname_r(fd, name.as_mut_ptr(), name.len()) } != 0 {
+            continue;
+        }
+        let name = unsafe { CStr::from_ptr(name.as_ptr()) };
+        let device = Path::new(OsStr::from_bytes(name.to_bytes()));
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOCTTY)
+            .open(device)
+        {
+            return Ok(file);
+        }
+    }
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+}
+/// Writes `file` through to the disk before what depends on it is published:
+/// `fsync`, ordering the writes as on Linux. std's `sync_all` is
+/// `F_FULLFSYNC`, which empties the drive's own cache for every file (about
+/// 3 ms each: minutes for a large tree) and adds safety only against power loss.
+pub fn sync(file: &File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+/// `O_SEARCH` (macOS 13+): a directory opened only to look names up in it,
+/// with search permission alone, like Linux's `O_PATH`.
+fn search() -> OFlags {
+    OFlags::from_bits_retain(libc::O_SEARCH as u32) | OFlags::CLOEXEC
+}
+/// `name` in `dir` as a directory to walk through, without following a
+/// symlink; read permission is needed only where `O_SEARCH` is unknown.
+fn walk(dir: &File, name: &OsStr) -> io::Result<File> {
+    let open = |flags| sys::openat(dir, name, flags | OFlags::NOFOLLOW, Mode::empty());
+    match open(search()) {
+        Err(rustix::io::Errno::INVAL) => {
+            open(OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC).map(File::from)
+        }
+        other => other.map(File::from),
+    }
+    .map_err(io::Error::from)
+}
+/// Opens the directory at `path` (absolute, canonical) without following a
+/// symlink anywhere along it: each component is opened in the one before
+/// with `O_NOFOLLOW`, so a link swapped in meanwhile is refused (`ELOOP`).
+pub fn open_dir_nofollow(path: &Path) -> io::Result<File> {
+    let listable = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut components = path.components().peekable();
+    if components.next() != Some(Component::RootDir) {
+        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+    }
+    if components.peek().is_none() {
+        return Ok(File::from(sys::openat(
+            sys::CWD,
+            "/",
+            listable,
+            Mode::empty(),
+        )?));
+    }
+    let mut dir = File::from(sys::openat(sys::CWD, "/", search(), Mode::empty())?);
+    while let Some(component) = components.next() {
+        let Component::Normal(name) = component else {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        };
+        dir = if components.peek().is_some() {
+            walk(&dir, name)?
+        } else {
+            File::from(sys::openat(&dir, name, listable, Mode::empty())?)
+        };
+    }
+    Ok(dir)
+}
+/// The parent of the opened directory `dir`, opened only to be stat'ed and
+/// walked through, so one that cannot be listed (mode 0711) opens too.
+pub fn open_parent(dir: &File) -> io::Result<File> {
+    walk(dir, OsStr::new(".."))
+}
+/// Where the opened directory `dir` is now, without symlinks.
+pub fn dir_path(dir: &File) -> io::Result<PathBuf> {
+    Ok(PathBuf::from(OsString::from_vec(
+        sys::getpath(dir)?.into_bytes(),
+    )))
+}
+/// Whether `name` in `parent` is the root of a mount: its device differs
+/// from its parent's.
+pub fn is_mount_root(parent: &File, name: &OsStr) -> io::Result<bool> {
+    let entry = super::lstat_at(parent, name)?;
+    Ok(entry.is_dir() && entry.dev != super::fstat(parent)?.dev)
+}
+/// The filesystem and device of an opened directory: a rename works only
+/// within both.
+pub type Place = (u64, u64);
+pub fn place(dir: &File) -> io::Result<Place> {
+    // `fsid_t` is two `i32`s, its field private in `libc`.
+    let fsid: [u32; 2] = unsafe { std::mem::transmute(sys::fstatfs(dir)?.f_fsid) };
+    let fsid = (u64::from(fsid[0]) << 32) | u64::from(fsid[1]);
+    Ok((fsid, super::fstat(dir)?.dev))
+}
+/// The mounted filesystems; empty when they cannot be read.
+pub fn mounts() -> crate::mounts::Mounts {
+    let mut table: *mut libc::statfs = std::ptr::null_mut();
+    // MNT_NOWAIT: what the kernel knows, without asking each filesystem
+    // (a hung network mount would block).
+    let count = unsafe { libc::getmntinfo(&mut table, libc::MNT_NOWAIT) };
+    if count <= 0 || table.is_null() {
+        return crate::mounts::Mounts::default();
+    }
+    let table = unsafe { std::slice::from_raw_parts(table, count as usize) };
+    let text = |field: &[libc::c_char]| unsafe { CStr::from_ptr(field.as_ptr()) };
+    crate::mounts::Mounts::new(
+        table
+            .iter()
+            .map(|m| crate::mounts::Mount {
+                point: PathBuf::from(OsString::from_vec(text(&m.f_mntonname).to_bytes().to_vec())),
+                fstype: text(&m.f_fstypename).to_string_lossy().into_owned(),
+            })
+            .collect(),
+    )
+}
+/// The executable process `pid` runs, if it can be found.
+pub fn executable(pid: &str) -> Option<PathBuf> {
+    let pid: libc::c_int = pid.parse().ok()?;
+    let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let length =
+        unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
+    if length <= 0 {
+        return None;
+    }
+    buffer.truncate(length as usize);
+    Some(PathBuf::from(OsString::from_vec(buffer)))
+}
+/// Abstract sockets are Linux's own.
+pub fn connect_abstract(_name: &[u8]) -> io::Result<UnixStream> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}

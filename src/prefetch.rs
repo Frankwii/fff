@@ -443,7 +443,11 @@ mod tests {
         for _ in 0..8 {
             target.push("a".repeat(120));
         }
-        fs::create_dir_all(&target).unwrap();
+        // Paths this long exceed macOS's PATH_MAX (1024 bytes).
+        if fs::create_dir_all(&target).is_err_and(|e| e.raw_os_error() == Some(libc::ENAMETOOLONG))
+        {
+            return;
+        }
         let parent = target.parent().unwrap();
         if !crate::mounts::current().local_same_mount(parent, &target) {
             return;

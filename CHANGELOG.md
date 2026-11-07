@@ -4,6 +4,27 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **fff runs on macOS** (13 or newer), from the same code as on Linux:
+  browsing, the contents query, previews, file operations with their
+  guarantees, the trash and undo, archives and the shell integration all
+  work. Live updates are not available there yet (F5 reads a folder again),
+  and the desktop integration, which needs a freedesktop.org desktop, is
+  Linux's: `fff setup --desktop`, `--browser` and `fff dbus-file-manager`
+  say so instead of installing anything.
+
+### Fixed
+
+- **Archives open with a libarchive that lacks one of its compression
+  filters** (zstd is missing from some builds): that filter is left off, and
+  its archives are reported unsupported, instead of every archive failing to
+  open.
+- **File operations work without `/proc` mounted**, as in some containers
+  and chroots: entries are read relative to their folders' descriptors.
+
 ## 0.20.1 — 2026-11-08
 
 fff no longer needs st: terminal windows open in the terminal fff runs in.

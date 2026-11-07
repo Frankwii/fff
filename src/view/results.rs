@@ -345,7 +345,9 @@ pub(super) fn info_color(
     info: Option<&crate::details::Info>,
     directory: bool,
 ) -> Color {
-    let file = |i: &crate::details::Info| i.mode & libc::S_IFMT == libc::S_IFREG;
+    let file = |i: &crate::details::Info| {
+        i.mode & crate::details::bits::S_IFMT == crate::details::bits::S_IFREG
+    };
     match info {
         Some(i) if i.broken() => theme.error,
         Some(i) if i.link.is_some() => theme.link,

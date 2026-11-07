@@ -1,6 +1,6 @@
 //! The mount table: which mount a path is on and its filesystem's type, read
-//! from `/proc/self/mounts` by name, so that looking a path up never waits
-//! for a mount. Read once and again after `refresh` (each new scan, F5).
+//! by name (from `/proc/self/mounts` on Linux, `getmntinfo` on macOS), so
+//! that looking a path up never waits for a mount. Read once and again after `refresh` (each new scan, F5).
 //!
 //! Kernel filesystems (`/proc`, `/sys`, `/dev`, ...) hold no files of their
 //! own: their sizes are made up (`/proc/kcore` claims the address space),
@@ -17,7 +17,7 @@ use std::{
 /// What a filesystem is, as far as fff treats them differently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// Made up by the kernel: `proc`, `sysfs`, `devtmpfs`, ...
+    /// Made up by the kernel: `proc`, `sysfs`, `devtmpfs`, `devfs`, ...
     Kernel,
     /// A local disk (or memory) filesystem known to answer quickly.
     Local,
@@ -25,8 +25,9 @@ pub enum Kind {
     Other,
 }
 
-/// The kernel's own filesystems: a closed list, fixed by Linux.
-const KERNEL: [&str; 19] = [
+/// The kernel's own filesystems: a closed list, fixed by Linux (and
+/// `devfs`, macOS's `/dev`).
+const KERNEL: [&str; 20] = [
     "proc",
     "sysfs",
     "devtmpfs",
@@ -46,10 +47,11 @@ const KERNEL: [&str; 19] = [
     "binfmt_misc",
     "nsfs",
     "rpc_pipefs",
+    "devfs",
 ];
 /// Local filesystems quick enough to read ahead of the highlight (prefetch).
-const LOCAL: [&str; 9] = [
-    "ext2", "ext3", "ext4", "btrfs", "xfs", "tmpfs", "overlay", "f2fs", "zfs",
+const LOCAL: [&str; 10] = [
+    "ext2", "ext3", "ext4", "btrfs", "xfs", "tmpfs", "overlay", "f2fs", "zfs", "apfs",
 ];
 
 /// One line of the table.
@@ -78,7 +80,7 @@ impl Mounts {
     /// A `/proc/self/mounts` table, whose fields escape spaces, tabs,
     /// newlines and backslashes in octal.
     pub fn parse(table: &str) -> Self {
-        let mut mounts: Vec<Mount> = table
+        let mounts: Vec<Mount> = table
             .lines()
             .filter_map(|line| {
                 let mut fields = line.split(' ');
@@ -87,15 +89,17 @@ impl Mounts {
                 Some(Mount { point, fstype })
             })
             .collect();
+        Self::new(mounts)
+    }
+    /// The mounts in the order they were mounted.
+    pub fn new(mut mounts: Vec<Mount>) -> Self {
         mounts.reverse();
         mounts.sort_by_key(|m| std::cmp::Reverse(m.point.as_os_str().len()));
         Self(mounts)
     }
     /// This process's mount table; empty when it cannot be read.
     pub fn read() -> Self {
-        std::fs::read_to_string("/proc/self/mounts")
-            .map(|table| Self::parse(&table))
-            .unwrap_or_default()
+        crate::platform::mounts()
     }
     /// The mount `path` is on, by its name; `None` without a table.
     pub fn of(&self, path: &Path) -> Option<&Mount> {

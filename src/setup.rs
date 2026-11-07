@@ -63,6 +63,13 @@ impl Dirs {
 
 /// Runs one setup, reporting each step. `terminal` is the
 /// `[open] fff_terminal` command, split into words.
+/// Whether this system has the freedesktop.org desktop `fff setup
+/// --desktop` and `--browser` set fff up in (Linux's; macOS has none).
+pub const FREEDESKTOP: bool = crate::platform::FREEDESKTOP;
+/// Why the desktop integration is unavailable here.
+pub const NO_DESKTOP: &str = "the desktop integration (desktop entry, D-Bus, file chooser portal) \
+     needs a freedesktop.org desktop, which this system does not have";
+
 pub fn run(
     target: Target,
     dirs: &Dirs,

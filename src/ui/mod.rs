@@ -22,7 +22,7 @@ use crossterm::{
     },
 };
 use ratatui::{Terminal as TuiTerminal, backend::CrosstermBackend};
-use std::{fs::OpenOptions, io, path::PathBuf, time::Duration};
+use std::{io, path::PathBuf, time::Duration};
 
 mod actions;
 mod configure;

@@ -274,6 +274,16 @@ fn desktop_setup_writes_an_entry_without_touching_stdout() {
             .unwrap()
     };
     let output = run();
+    if !fuzzy_file_finder::setup::FREEDESKTOP {
+        // macOS: said so, and nothing is written.
+        assert!(!output.status.success(), "{output:?}");
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("freedesktop.org desktop"), "{stderr}");
+        assert!(!root.join("data").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
     assert!(output.status.success(), "{output:?}");
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();

@@ -1,15 +1,13 @@
 //! Read archives through libarchive, but create entries ourselves. No shell or
 //! external extractor is invoked. Links, devices and escaping paths are refused.
-use crate::operations::Result;
+use crate::operations::{Result, child_dir, err};
+use rustix::fs::{self as sys, Mode, OFlags};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{CStr, OsString, c_char, c_int, c_void},
-    fs::{self, File, OpenOptions},
+    fs::File,
     io::Write,
-    os::{
-        fd::AsRawFd,
-        unix::{ffi::OsStringExt, fs::OpenOptionsExt},
-    },
+    os::{fd::AsRawFd, unix::ffi::OsStringExt},
     path::{Component, Path, PathBuf},
     ptr,
 };
@@ -28,10 +26,10 @@ unsafe extern "C" {
     fn archive_read_free(a: *mut c_void) -> c_int;
     fn archive_error_string(a: *mut c_void) -> *const c_char;
     fn archive_entry_pathname(e: *mut c_void) -> *const c_char;
-    fn archive_entry_filetype(e: *mut c_void) -> u32;
+    fn archive_entry_filetype(e: *mut c_void) -> libc::mode_t;
     fn archive_entry_hardlink(e: *mut c_void) -> *const c_char;
     fn archive_entry_size(e: *mut c_void) -> i64;
-    fn archive_entry_perm(e: *mut c_void) -> u32;
+    fn archive_entry_perm(e: *mut c_void) -> libc::mode_t;
 }
 struct Reader(*mut c_void);
 impl Drop for Reader {
@@ -143,23 +141,46 @@ pub fn list(input: File, limit: usize, stop: &dyn Fn() -> bool) -> Result<(Vec<E
         entries.push((path, kind == 0o040000, size.max(0) as u64));
     }
 }
+type Filter = unsafe extern "C" fn(*mut c_void) -> c_int;
+/// The decompression filters fff reads with, where libarchive has them
+/// built in.
+const FILTERS: [Filter; 4] = [
+    archive_read_support_filter_gzip,
+    archive_read_support_filter_bzip2,
+    archive_read_support_filter_xz,
+    archive_read_support_filter_zstd,
+];
+/// Which of `FILTERS` this libarchive has built in. Without one it
+/// answers `ARCHIVE_WARN` and would run an external program instead
+/// (macOS's libarchive has no zstd), so that filter stays off.
+fn built_in() -> &'static [bool; 4] {
+    static BUILT_IN: std::sync::OnceLock<[bool; 4]> = std::sync::OnceLock::new();
+    BUILT_IN.get_or_init(|| {
+        FILTERS.map(|filter| {
+            let probe = Reader(unsafe { archive_read_new() });
+            !probe.0.is_null() && unsafe { filter(probe.0) } == 0
+        })
+    })
+}
 /// A reader for `input` with the built-in filters and every format.
 fn open(input: &File) -> Result<Reader> {
     let a = Reader(unsafe { archive_read_new() });
     if a.0.is_null() {
         return Err("Cannot allocate archive reader".into());
     }
-    // These built-in filters avoid libarchive's optional external helper programs.
+    // These built-in filters avoid libarchive's optional external helper
+    // programs: one this libarchive lacks is left out.
     unsafe {
         for code in [
             archive_read_support_filter_none(a.0),
-            archive_read_support_filter_gzip(a.0),
-            archive_read_support_filter_bzip2(a.0),
-            archive_read_support_filter_xz(a.0),
-            archive_read_support_filter_zstd(a.0),
             archive_read_support_format_all(a.0),
         ] {
             if code != 0 {
+                return Err(a.error());
+            }
+        }
+        for (filter, built_in) in FILTERS.iter().zip(built_in()) {
+            if *built_in && filter(a.0) != 0 {
                 return Err(a.error());
             }
         }
@@ -169,11 +190,26 @@ fn open(input: &File) -> Result<Reader> {
     }
     Ok(a)
 }
+/// The directory `path` (relative, already checked by `safe_path`) below
+/// `stage`, made with the default mode where missing, like `mkdir -p`.
+fn directories(stage: &File, path: &Path) -> Result<File> {
+    let mut dir = stage.try_clone().map_err(err)?;
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            return Err("Archive path is not relative".into());
+        };
+        match sys::mkdirat(&dir, name, Mode::from_bits_truncate(0o777)) {
+            Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+            Err(e) => return Err(err(e)),
+        }
+        dir = child_dir(&dir, name)?;
+    }
+    Ok(dir)
+}
 /// Validation and extraction share entry checks and read every payload, including
 /// integrity checks, without writing anything when no staging directory is given.
 fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> Result<()> {
     let a = open(&input)?;
-    let root = stage.map(|stage| PathBuf::from(format!("/proc/self/fd/{}", stage.as_raw_fd())));
     let mut names = HashSet::new();
     let mut types = HashMap::new();
     let mut count = 0;
@@ -191,6 +227,8 @@ fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> 
         if count > 10_000 {
             return Err("Archive exceeds 10,000 entries".into());
         }
+        // `mode_t` is `u16` on macOS.
+        #[allow(clippy::unnecessary_cast)]
         let (path, kind, size, mode, hardlink) = unsafe {
             let p = archive_entry_pathname(entry);
             if p.is_null() {
@@ -198,9 +236,9 @@ fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> 
             }
             (
                 PathBuf::from(OsString::from_vec(CStr::from_ptr(p).to_bytes().to_vec())),
-                archive_entry_filetype(entry),
+                archive_entry_filetype(entry) as u32,
                 archive_entry_size(entry),
-                archive_entry_perm(entry),
+                archive_entry_perm(entry) as u32,
                 !archive_entry_hardlink(entry).is_null(),
             )
         };
@@ -236,25 +274,28 @@ fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> 
         {
             return Err("Archive has conflicting file and directory paths".into());
         }
-        let mut file = if let Some(root) = &root {
-            let target = root.join(&path);
+        let mut file = if let Some(stage) = stage {
             // Stage is private and archive links are refused.
             if is_dir {
-                fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+                directories(stage, &path)?;
                 None
             } else {
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-                Some(
-                    OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
+                let parent = directories(stage, path.parent().unwrap_or(Path::new("")))?;
+                let name = path.file_name().ok_or("Archive has an empty filename")?;
+                Some(File::from(
+                    sys::openat(
+                        &parent,
+                        name,
+                        OFlags::WRONLY
+                            | OFlags::CREATE
+                            | OFlags::EXCL
+                            | OFlags::NOFOLLOW
+                            | OFlags::CLOEXEC,
                         // The archive's permission bits, limited by the umask.
-                        .mode(mode & 0o777)
-                        .open(&target)
-                        .map_err(|e| e.to_string())?,
-                )
+                        crate::platform::mode(mode & 0o777),
+                    )
+                    .map_err(err)?,
+                ))
             }
         } else {
             None
@@ -284,7 +325,7 @@ fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> 
             }
         }
         if let Some(file) = file {
-            file.sync_all().map_err(|e| e.to_string())?;
+            crate::platform::sync(&file).map_err(|e| e.to_string())?;
         }
     }
     Ok(())
