@@ -18,7 +18,7 @@ optdepends=(
 # Both install /usr/bin/fff.
 conflicts=('fff')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('3a1c9d2a53b8e32503e84052613e292d6e23f71cf87fab73055eabf367659705')
+sha256sums=('c0e429c8e8ccb6e93dbcfc50936d8289b62fce597af7c1c7e677e45ecfa954a5')
 
 prepare() {
   cd "fff-$pkgver"
