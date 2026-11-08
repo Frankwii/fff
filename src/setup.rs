@@ -193,17 +193,21 @@ pub enum Finding {
 /// terminal), whether folders still open in fff (`folders` asks for the
 /// default application of directories, None when it cannot tell), and, with
 /// the file chooser set up, whether Qt applications ask the portal for their
-/// dialogs. `var` reads this environment.
+/// dialogs. `var` reads this environment. `terminal` is `[open]
+/// fff_terminal`; unset (None), the files may name any terminal, since the
+/// one detected depends on where the check runs.
 pub fn check(
     dirs: &Dirs,
     fff: &Path,
-    terminal: &[String],
+    terminal: Option<&[String]>,
     var: impl Fn(&str) -> Option<String>,
     folders: impl Fn() -> Option<String>,
 ) -> Vec<Section> {
     let Some(fff) = fff.to_str() else {
         return vec![];
     };
+    let any = [ANY_TERMINAL.to_owned()];
+    let terminal = terminal.unwrap_or(&any);
     let mut sections = vec![];
     let launcher = dirs.data_home.join("fff/open-folder");
     let launcher_text = launcher.to_str().unwrap_or_default();
@@ -249,7 +253,7 @@ pub fn check(
         let mut findings = vec![];
         let stale: Vec<String> = written
             .iter()
-            .filter(|(_, want, has)| has.as_deref() != Some(want.as_str()))
+            .filter(|(_, want, has)| !has.as_deref().is_some_and(|has| same(has, want)))
             .map(|(path, want, has)| {
                 let how = match has {
                     None => "missing",
@@ -296,6 +300,20 @@ pub fn check(
         sections.push(Section { title, findings });
     }
     sections
+}
+/// Stands for any terminal in the files `check` expects.
+const ANY_TERMINAL: &str = "\u{0}terminal\u{0}";
+/// Whether a written file `has` is the expected `want`, where any text may
+/// take the place of `ANY_TERMINAL`.
+fn same(has: &str, want: &str) -> bool {
+    match want.split_once(&shell_quote(ANY_TERMINAL)) {
+        Some((before, after)) => {
+            has.len() > before.len() + after.len()
+                && has.starts_with(before)
+                && has.ends_with(after)
+        }
+        None => has == want,
+    }
 }
 /// The application xdg-open uses for folders, or None without xdg-mime.
 pub fn folder_default() -> Option<String> {
@@ -741,7 +759,7 @@ mod tests {
         let ours = || Some(DESKTOP_ID.to_string());
         // The problems found, each with its fix.
         let problems = |fff: &str, var: &dyn Fn(&str) -> Option<String>, folders: Option<&str>| {
-            check(&dirs, Path::new(fff), &terminal, var, || {
+            check(&dirs, Path::new(fff), Some(&terminal), var, || {
                 folders.map(String::from)
             })
             .into_iter()
@@ -753,7 +771,7 @@ mod tests {
             .collect::<Vec<_>>()
         };
         // Nothing set up: nothing to say.
-        assert!(check(&dirs, Path::new("/bin/fff"), &terminal, none, ours).is_empty());
+        assert!(check(&dirs, Path::new("/bin/fff"), Some(&terminal), none, ours).is_empty());
         run(
             Target::FileChooser,
             &dirs,
@@ -763,15 +781,24 @@ mod tests {
         )
         .unwrap();
         let qt = |name: &str| (name == "QT_QPA_PLATFORMTHEME").then(|| "xdgdesktopportal".into());
-        let sections = check(&dirs, Path::new("/bin/fff"), &terminal, qt, ours);
-        assert!(
+        let fine = |sections: &[Section]| {
             sections.len() == 1
                 && sections[0]
                     .findings
                     .iter()
-                    .all(|f| matches!(f, Finding::Fine(_))),
-            "{sections:?}"
-        );
+                    .all(|f| matches!(f, Finding::Fine(_)))
+        };
+        let sections = check(&dirs, Path::new("/bin/fff"), Some(&terminal), qt, ours);
+        assert!(fine(&sections), "{sections:?}");
+        // With fff_terminal unset, any terminal is the expected one, but
+        // not any binary.
+        let sections = check(&dirs, Path::new("/bin/fff"), None, qt, ours);
+        assert!(fine(&sections), "{sections:?}");
+        let sections = check(&dirs, Path::new("/usr/bin/fff"), None, qt, ours);
+        assert!(!fine(&sections), "{sections:?}");
+        let other = words("xterm -e");
+        let sections = check(&dirs, Path::new("/bin/fff"), Some(&other), qt, ours);
+        assert!(!fine(&sections), "{sections:?}");
         let found = problems("/bin/fff", &none, None);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("QT_QPA_PLATFORMTHEME"));

@@ -1006,17 +1006,23 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         report.done("every program [open] names is installed")?;
         // The desktop integration, if set up: warnings, since the
         // configuration itself is valid.
+        // Unset, any terminal will do: the one detected depends on where
+        // the check runs.
+        let terminal = settings
+            .open
+            .fff_terminal
+            .as_deref()
+            .map(|line| fuzzy_file_finder::run::split(line, home.as_deref()))
+            .transpose();
         if let (Ok(terminal), Ok(dirs), Ok(fff)) = (
-            settings
-                .open
-                .fff_terminal()
-                .and_then(|line| fuzzy_file_finder::run::split(&line, home.as_deref())),
+            terminal,
             fuzzy_file_finder::setup::Dirs::from_env(),
             std::env::current_exe(),
         ) {
             use fuzzy_file_finder::setup::{self, Finding};
             let var = |name: &str| std::env::var(name).ok();
-            for section in setup::check(&dirs, &fff, &terminal, var, setup::folder_default) {
+            let terminal = terminal.as_deref();
+            for section in setup::check(&dirs, &fff, terminal, var, setup::folder_default) {
                 report.heading(section.title)?;
                 for finding in section.findings {
                     match finding {

@@ -15,9 +15,9 @@ configuration (unset, the terminal setup runs in, with the class
 `fff-picker`; see [openers](CONFIGURATION.md#openers)), which a window
 manager can [float](#floating-windows). Set it, or run setup from the
 terminal you want, and run setup again after changing it or after moving
-the fff binary: the files it writes name both. A check run from another
-terminal than setup reports the files as out of date while `fff_terminal`
-is unset. `fff setup --check-config` warns when they are missing, out of date, or
+the fff binary: the files it writes name both. While `fff_terminal` is unset, the
+check accepts any terminal in those files, since the one detected depends on
+where it runs. `fff setup --check-config` warns when they are missing, out of date, or
 run another fff binary than the one checking, and when folders open in
 another application than fff (`xdg-mime query default inode/directory`).
 
