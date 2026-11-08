@@ -4,7 +4,11 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.22.0 — 2026-11-08
+
+The query can have the focus, where Normal mode edits it as Neovim does;
+every function does one thing wherever it works, and the default keys are
+new: mostly Normal-mode keys, Vim's where it has one.
 
 ### Added
 
