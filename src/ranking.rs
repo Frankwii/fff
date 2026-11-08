@@ -4,23 +4,15 @@
 #[cfg(test)]
 use crate::score;
 use crate::{
-    Candidate, Listing, Matcher, disambiguate,
+    Candidate, Listing, Matcher,
+    labels::Names,
     rows::{Key, Order, Run},
     sizes::Totals,
 };
-use std::{
-    collections::HashMap,
-    ffi::OsString,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
-
-/// Listed entries by basename, for `fff pick` and `fff seek` labels.
-pub(crate) type Names = HashMap<OsString, Vec<Arc<Candidate>>>;
-pub(crate) type Labels = HashMap<PathBuf, PathBuf>;
 
 /// Candidates from which ranking runs on its own thread.
 pub(crate) const BACKGROUND_AT: usize = 16_384;
@@ -40,7 +32,8 @@ pub(crate) struct Job {
     pub listing: Option<Listing>,
     /// The lowercased query.
     pub query: String,
-    /// Recompute the labels; `Some(true)` when they are shown.
+    /// Group the listed entries for their labels again; `Some(true)` when
+    /// they are shown (else the groups are left empty).
     pub labels: Option<bool>,
     /// The order to rank in.
     pub order: Order,
@@ -49,7 +42,7 @@ pub(crate) struct Job {
 }
 pub(crate) struct Ranked {
     pub run: Run,
-    pub labels: Option<(Names, Labels)>,
+    pub names: Option<Names>,
 }
 
 impl Job {
@@ -101,14 +94,16 @@ impl Job {
             listed.extend(kept);
         }
         let rows = merge_all(sorted, self.order, cancel)?;
-        let labels = match self.labels {
-            Some(shown) => Some(label(if shown { listed } else { Vec::new() }, cancel)?),
-            None => None,
-        };
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        let names = self
+            .labels
+            .map(|shown| Names::new(if shown { listed } else { Vec::new() }));
         let (keys, rows) = rows.into_iter().unzip();
         Some(Ranked {
             run: Run { rows, keys },
-            labels,
+            names,
         })
     }
     /// One piece's listed rows, sorted, with every listed candidate when
@@ -215,24 +210,6 @@ fn merge_two(
     merged.extend(b);
     Some(merged)
 }
-/// Group `listed` by basename and label the groups that share one.
-fn label(listed: Vec<Arc<Candidate>>, cancel: &AtomicBool) -> Option<(Names, Labels)> {
-    let mut names: Names = HashMap::new();
-    for c in listed {
-        if let Some(name) = c.path.file_name() {
-            names.entry(name.to_os_string()).or_default().push(c);
-        }
-    }
-    let mut labels = HashMap::new();
-    for (i, group) in names.values().filter(|g| g.len() > 1).enumerate() {
-        if i % 256 == 0 && cancel.load(Ordering::Relaxed) {
-            return None;
-        }
-        labels.extend(disambiguate(group.iter().map(|c| c.path.as_path())));
-    }
-    Some((names, labels))
-}
-
 #[cfg(test)]
 #[test]
 fn typing_over_a_pending_ranking_narrows_the_rows_shown() {

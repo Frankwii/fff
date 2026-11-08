@@ -19,7 +19,9 @@ clap_complete = { version = "4.6", features = ["unstable-dynamic"] }
 clap_mangen = "0.3"
 color-print = "0.3"
 crossterm = "0.29.0"
+foldhash = "0.2"
 globset = "0.4.21"
+hashbrown = { version = "0.17", default-features = false }
 libc = "0.2.191"
 memchr = "2"
 nucleo-matcher = { version = "0.3.1", default-features = false, features = ["unicode-casefold", "unicode-normalization"] }

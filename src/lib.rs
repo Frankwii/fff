@@ -14,6 +14,7 @@ pub mod icons;
 mod index;
 pub mod keymap;
 pub mod known;
+mod labels;
 pub mod location;
 pub mod marks;
 mod matching;
@@ -52,7 +53,6 @@ use policy::{eligible, shown};
 use std::{
     cell::Cell,
     collections::{HashMap, HashSet},
-    ffi::OsString,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -269,16 +269,9 @@ pub struct App {
     shown_labels: Option<bool>,
     /// `toggle_labels` chose the labels: `switch_program` keeps them.
     pub labels_chosen: bool,
-    /// Short row labels for entries whose basename another listed entry shares
-    /// (presentation only); other rows show their bare name.
-    pub labels: HashMap<PathBuf, PathBuf>,
-    /// With labels shown: listed entries by basename. Labels only depend on the
-    /// entries sharing a basename, so a change relabels just the groups it touches.
-    names: HashMap<OsString, Vec<Arc<Candidate>>>,
-    /// Basenames whose groups changed and wait to be relabelled, in order
-    /// and as a set, so a group changed again meanwhile is queued once.
-    relabel: Vec<OsString>,
-    relabelling: HashSet<OsString>,
+    /// With labels shown: listed entries by basename, from which a drawn
+    /// row's label is worked out (`label`), grouped on a thread of its own.
+    names: labels::Labeller,
     /// Home directory, shown as `~` in the location line (presentation only).
     pub home: Option<PathBuf>,
     /// Status messages clear after this long; `None` keeps them until replaced.
@@ -422,10 +415,7 @@ impl App {
             temperature: rows::TEMPERATURE,
             shown_labels: None,
             labels_chosen: false,
-            labels: HashMap::new(),
-            names: HashMap::new(),
-            relabel: Vec::new(),
-            relabelling: HashSet::new(),
+            names: Default::default(),
             home: None,
             status_timeout: Some(std::time::Duration::from_secs(4)),
             positions: Vec::new(),
@@ -526,6 +516,15 @@ impl App {
     /// once a ranking has labelled the rows for it.
     pub fn labels_shown(&self) -> bool {
         self.shown_labels.unwrap_or(self.short_labels)
+    }
+    /// A listed entry's short label: the parents that tell it apart from
+    /// other entries of its name, `None` when no other has it.
+    pub fn label(&self, path: &Path) -> Option<PathBuf> {
+        self.names.label(path)
+    }
+    /// Every short label, by path.
+    pub fn labels(&self) -> HashMap<PathBuf, PathBuf> {
+        self.names.all()
     }
     /// Typing goes into the contents query, not the names query.
     pub fn typing_contents(&self) -> bool {
@@ -966,24 +965,10 @@ impl App {
         }
     }
     fn store(&mut self, candidate: Candidate, delivered: Option<u64>) {
-        // Rescans deliver mostly what is already known: keep those rows.
-        if self
-            .known
-            .get(&candidate.path)
-            .is_some_and(|c| **c == candidate)
-        {
-            if let Some(generation) = delivered {
-                self.known.confirm(&candidate.path, generation);
-            }
-            return;
+        if let Some((candidate, replaced)) = self.known.store(candidate, delivered) {
+            self.outdated.extend(replaced);
+            self.added.push(candidate);
         }
-        let candidate = Arc::new(candidate);
-        // Replays are unconfirmed: no scan has generation 0.
-        let stamp = delivered.unwrap_or(0);
-        if let Some(old) = self.known.insert(Arc::clone(&candidate), stamp) {
-            self.outdated.push(old);
-        }
-        self.added.push(candidate);
     }
     /// The scan of `generation` completed: forget the paths it did not
     /// deliver. The next refresh drops their rows.
@@ -1054,8 +1039,7 @@ impl App {
                 self.cancel_ranking();
             }
         }
-        let listing_changed =
-            !self.added.is_empty() || !self.outdated.is_empty() || !self.relabel.is_empty();
+        let listing_changed = !self.added.is_empty() || !self.outdated.is_empty();
         // Rows already match the previous query under the same basis. A query
         // that only appends letters (after lowercasing, as `score` does; see
         // `narrows`) can only remove matches, so re-score those rows instead
@@ -1111,15 +1095,13 @@ impl App {
             }
             _ => {
                 // Ranking every known path covers what was added or forgotten,
-                // and relabels it all.
+                // and groups the listed entries again for their labels.
                 let kept = self.earlier.iter().map(|(_, rows)| rows.len()).sum();
                 known::discard(std::mem::take(&mut self.earlier), kept);
                 let added = self.added.len();
                 known::discard(std::mem::take(&mut self.added), added);
                 let outdated = self.outdated.len();
                 known::discard(std::mem::take(&mut self.outdated), outdated);
-                self.relabel.clear();
-                self.relabelling.clear();
                 let job = ranking::Job {
                     base: vec![Arc::new(rows::Run {
                         rows: self.known.values().cloned().collect(),
@@ -1209,13 +1191,8 @@ impl App {
         self.rows_version += 1;
         let len = old.len();
         known::discard(old, len);
-        if let Some((names, labels)) = ranked.labels {
-            let old = std::mem::replace(&mut self.names, names);
-            let len = old.values().map(Vec::len).sum();
-            known::discard(old, len);
-            let old = std::mem::replace(&mut self.labels, labels);
-            let len = old.len();
-            known::discard(old, len);
+        if let Some(names) = ranked.names {
+            self.names.replace(names);
             self.shown_labels = Some(basis.short_labels);
         }
         self.keep_highlight(&query);
@@ -1305,25 +1282,17 @@ impl App {
         if !stale.is_empty() {
             self.rows_version += 1;
             self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
-            if self.short_labels {
-                for c in &self.outdated {
-                    if let Some(name) = c.path.file_name()
-                        && let Some(group) = self.names.get_mut(name)
-                    {
-                        group.retain(|g| !Arc::ptr_eq(g, c));
-                        self.labels.remove(&c.path);
-                        if self.relabelling.insert(name.to_os_string()) {
-                            self.relabel.push(name.to_os_string());
-                        }
-                    }
-                }
-            }
         }
         // Only the latest candidate inserted for a path is still known.
         self.added.retain(|c| !stale.contains(&Arc::as_ptr(c)));
         let stale = std::mem::take(&mut self.outdated);
-        let len = stale.len();
-        known::discard(stale, len);
+        if self.short_labels {
+            // Freed on the labeller's thread.
+            self.names.remove(stale);
+        } else {
+            let len = stale.len();
+            known::discard(stale, len);
+        }
         let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
         let letters = matcher.letters();
@@ -1341,24 +1310,7 @@ impl App {
             let round: Vec<_> = self.added.drain(..take).collect();
             let listed: Vec<_> = round.into_iter().filter(|c| self.listed(c)).collect();
             if self.short_labels {
-                for c in &listed {
-                    if let Some(name) = c.path.file_name() {
-                        // A name is copied only for a group or a queue it
-                        // is not in yet. A new group of one has no label to
-                        // make (removing a path removes its label).
-                        match self.names.get_mut(name) {
-                            Some(group) => group.push(Arc::clone(c)),
-                            None => {
-                                self.names.insert(name.to_os_string(), vec![Arc::clone(c)]);
-                                continue;
-                            }
-                        }
-                        if !self.relabelling.contains(name) {
-                            self.relabelling.insert(name.to_os_string());
-                            self.relabel.push(name.to_os_string());
-                        }
-                    }
-                }
+                self.names.insert(listed.clone());
             }
             let mut added: Vec<_> = listed
                 .into_iter()
@@ -1375,38 +1327,6 @@ impl App {
                 break;
             }
         }
-        // Relabel with what is left of the budget, at least one group per
-        // call.
-        while let Some(name) = self.relabel.pop() {
-            self.relabelling.remove(&name);
-            if let Some(group) = self.names.get(&name) {
-                if group.len() > 1 {
-                    // Most labels stay as they were: only those that change
-                    // are made again.
-                    let paths: Vec<&Path> = group.iter().map(|c| c.path.as_path()).collect();
-                    for (path, length) in paths.iter().zip(label_lengths(&paths)) {
-                        match self.labels.get_mut(*path) {
-                            Some(label) if label.components().count() == length => {}
-                            Some(label) => *label = label_of(path, length),
-                            None => {
-                                self.labels
-                                    .insert(path.to_path_buf(), label_of(path, length));
-                            }
-                        }
-                    }
-                } else {
-                    for c in group {
-                        self.labels.remove(&c.path);
-                    }
-                    if group.is_empty() {
-                        self.names.remove(&name);
-                    }
-                }
-            }
-            if self.yield_now(budget, start) {
-                break;
-            }
-        }
     }
     /// Inserted candidates the rows do not reflect yet.
     pub fn unmerged(&self) -> usize {
@@ -1414,7 +1334,7 @@ impl App {
     }
     /// The rows and their labels reflect every known path.
     pub fn settled(&self) -> bool {
-        self.added.is_empty() && self.relabel.is_empty() && self.ranking.is_none()
+        self.added.is_empty() && self.ranking.is_none()
     }
     /// After the rows change, for `query`: a row to restore once listed,
     /// else the best match when the query changed (typing), else the same
@@ -1832,48 +1752,16 @@ impl App {
 /// that no other path with that basename ends in; unique basenames get no entry.
 /// A path whose whole length still collides keeps all of it.
 pub fn disambiguate<'a>(paths: impl Iterator<Item = &'a Path>) -> HashMap<PathBuf, PathBuf> {
-    let mut groups: HashMap<_, Vec<_>> = HashMap::new();
-    for path in paths {
-        if let Some(name) = path.file_name() {
-            groups.entry(name).or_default().push(path);
-        }
-    }
-    let mut labels = HashMap::new();
-    for group in groups.into_values().filter(|g| g.len() > 1) {
-        for (path, length) in group.iter().zip(label_lengths(&group)) {
-            labels.insert(path.to_path_buf(), label_of(path, length));
-        }
-    }
-    labels
-}
-
-/// How many trailing parts each path of `group` (two or more sharing a
-/// basename) keeps in its label: one past the most it ends in common with
-/// another, and at least its parent, short of the whole path.
-fn label_lengths(group: &[&Path]) -> Vec<usize> {
-    // Each path's parts from its name up, sorted: the path sharing the
-    // longest ending with one is beside it.
-    let mut parts: Vec<(Vec<_>, usize)> = group
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.components().rev().collect(), i))
-        .collect();
-    parts.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    let shared = |a: &[std::path::Component], b: &[std::path::Component]| {
-        a.iter().zip(b).take_while(|(a, b)| a == b).count()
-    };
-    let mut lengths = vec![0; group.len()];
-    for (i, (own, at)) in parts.iter().enumerate() {
-        let before = i.checked_sub(1).map_or(0, |j| shared(&parts[j].0, own));
-        let after = parts.get(i + 1).map_or(0, |next| shared(&next.0, own));
-        lengths[*at] = (before.max(after) + 1).max(2).min(own.len());
-    }
-    lengths
-}
-/// The last `length` parts of `path`.
-fn label_of(path: &Path, length: usize) -> PathBuf {
-    let parts: Vec<_> = path.components().collect();
-    parts[parts.len() - length..].iter().collect()
+    labels::Names::new(paths.map(|path| {
+        Arc::new(Candidate {
+            path: path.to_path_buf(),
+            directory: false,
+            depth: 0,
+            root: 0,
+            order: 0,
+        })
+    }))
+    .all()
 }
 
 /// Relative output is always based on the invocation directory, including `..`.

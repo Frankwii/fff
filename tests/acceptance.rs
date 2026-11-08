@@ -971,8 +971,8 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
         assert_eq!(paths(&merged), paths(&ranked), "query {query:?}");
         assert!(!merged.rows.is_empty());
         // Short labels tell apart entries that share a basename.
-        assert_eq!(merged.labels, ranked.labels, "query {query:?}");
-        assert_eq!(!merged.labels.is_empty(), short_labels);
+        assert_eq!(merged.labels(), ranked.labels(), "query {query:?}");
+        assert_eq!(!merged.labels().is_empty(), short_labels);
     }
 }
 #[test]
@@ -1095,7 +1095,7 @@ fn large_rankings_run_in_the_background_and_match_ranking_in_place() {
                 assert!(background.poll_ranking());
             }
             assert_eq!(rows(&background), rows(&here), "query {query:?}");
-            assert_eq!(background.labels, here.labels, "query {query:?}");
+            assert_eq!(background.labels(), here.labels(), "query {query:?}");
         }
         // A newer query supersedes a running ranking; waiting gives its rows.
         background.query.clear();

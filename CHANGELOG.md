@@ -6,12 +6,20 @@ history.
 
 ## 0.23.0 — 2026-11-08
 
-New documentation for users, current keys in `fff --help`, and fixes from
-an audit: a contents match's preview stays small, long names go into the
-trash on macOS, and saved files are never written through a link.
+Large trees list more than twice as fast, new documentation for users,
+current keys in `fff --help`, and fixes from an audit: a contents match's
+preview stays small, long names go into the trash on macOS, and saved
+files are never written through a link.
 
 ### Changed
 
+- **Large trees list more than twice as fast**: the 620,000 entries of
+  `/usr` take about 0.4 seconds, where they took 0.9 in `fff roam` and 1.6
+  in `fff pick` and `fff seek`. Storing each path found takes a fifth of
+  the work, an empty query no longer reads the paths it lists, and short
+  labels are worked out only for the rows on screen, the entries sharing a
+  name grouped on a thread of their own. Keys and moving the highlight are
+  as quick as before.
 - **New documentation for users.** A short README with recordings of fff at
   work, a step-by-step [tutorial](docs/GETTING_STARTED.md), and guides to
   [browsing](docs/BROWSING.md), [finding files](docs/SEARCHING.md),

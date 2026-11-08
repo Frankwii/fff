@@ -8,6 +8,10 @@ use fuzzy_file_finder::{App, Policy, config::CacheConfig, discovery::Discovery, 
 use std::{path::PathBuf, time::Instant};
 
 fn list(program: Program, query: &str) {
+    listing(program, query, true);
+}
+/// List the tree, telling how long it took when `report`.
+fn listing(program: Program, query: &str, report: bool) {
     let root = PathBuf::from(std::env::var("FFF_SCAN_ROOT").unwrap_or_else(|_| "/usr".into()));
     let mut app = App::browse(root, 64, Policy::default());
     app.set_program(program);
@@ -26,6 +30,9 @@ fn list(program: Program, query: &str) {
         std::thread::yield_now();
     }
     let listed = start.elapsed();
+    if !report {
+        return;
+    }
     let all = Instant::now();
     let first = app.rows.first().map(|c| c.path.clone());
     let count = app.rows.len();
@@ -34,12 +41,33 @@ fn list(program: Program, query: &str) {
         listed.as_secs_f64(),
         all.elapsed().as_secs_f64(),
     );
+    if program.short_labels() {
+        // What labelling a screen of rows adds to a frame: the first time,
+        // when their groups are sorted, and again.
+        for time in ["first", "again"] {
+            let start = Instant::now();
+            for c in app.rows.iter().take(SCREEN) {
+                std::hint::black_box(app.label(&c.path));
+            }
+            println!(
+                "  labels of {SCREEN} rows, {time}: {:.3} ms",
+                start.elapsed().as_secs_f64() * 1e3
+            );
+        }
+    }
 }
+
+/// Rows a tall terminal shows.
+const SCREEN: usize = 100;
 
 #[test]
 #[ignore]
 fn listing_a_large_tree() {
+    // The first listing is slower, the filesystem's caches cold.
+    listing(Program::Roam, "", false);
     list(Program::Roam, "");
     list(Program::Pick, "");
     list(Program::Pick, "lib");
+    // The largest groups of a name in /usr.
+    list(Program::Pick, "__init__");
 }

@@ -909,8 +909,9 @@ tree takes longer instead of delaying keys; it completes only after its last
 paths are merged. The index of known paths is sharded so it grows without
 rehashing everything at once, a scan marks the paths it delivers instead of
 keeping a separate reconciliation set, and large listings are freed on another
-thread. With rows labelled by name (`fff pick`, or after `gl`),
-only basenames that changed are relabelled, with the time left over, so a scan completes once its labels catch up.
+thread. With rows labelled by name (`fff pick`, or after `gl`), the paths
+are grouped by name on a thread of their own, and only the rows drawn are
+labelled.
 
 Ranking every known path again (changing depth, hidden files, exclusions,
 filters or directories-hidden, or a query that no kept result narrows) and
