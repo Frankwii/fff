@@ -586,6 +586,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let work = dir.join("a 'dir'");
         std::fs::create_dir_all(&work).unwrap();
+        // As `pwd` prints it: macOS's temporary folder is below the /var symlink.
+        let work = work.canonicalize().unwrap();
         // `open` stands in for macOS's, printing its arguments.
         let open = dir.join("open");
         std::fs::write(&open, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
