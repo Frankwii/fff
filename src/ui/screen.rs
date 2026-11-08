@@ -14,13 +14,15 @@ impl Terminal {
         let support = Support::probe(&mut file);
         let tui = TuiTerminal::new(CrosstermBackend::new(Tty::new(file)))?;
         let mut guard = Self(tui, mouse, support);
-        guard.keyboard(true)?;
         execute!(
             guard.0.backend_mut(),
             EnterAlternateScreen,
             Hide,
             EnableBracketedPaste,
         )?;
+        // Each screen keeps its own keyboard flags (kitty, Ghostty): pushed
+        // here on the alternate one, they are popped there before leaving it.
+        guard.keyboard(true)?;
         guard.capture_mouse(true)?;
         Ok(guard)
     }

@@ -16,9 +16,9 @@ history.
   media and office files (`open` first on macOS), then shows what it would
   add to the configuration file and writes it once you confirm. Settings the
   file already has are left alone: it asks only about the files your own
-  `[[open.rules]]` do not open, and adds the new rules after them. `fff setup --check-config` reports the
-  same programs, and a session started without a configuration file
-  suggests `fff setup`.
+  `[[open.rules]]` do not open, and adds the new rules after them.
+  `fff setup --check-config` reports the same programs, and a session
+  started without a configuration file suggests `fff setup`.
 - **Opening a terminal program works on macOS without configuration**:
   with `[open] terminal` unset, fff finds the terminal it runs in there too
   (among its parent processes, else by `$TERM_PROGRAM`, which covers iTerm2
@@ -26,6 +26,16 @@ history.
   the program typed into a new window through `osascript`, Ghostty a new
   instance through `open`; kitty, Alacritty and WezTerm run from their app
   bundles when not on the PATH.
+
+### Fixed
+
+- **A rename may change only a name's case on macOS's case-insensitive
+  disks** (`notes` to `Notes`) instead of being refused as a collision.
+- **The shell reads keys normally after fff exits** in terminals with the
+  kitty keyboard protocol that keep the main and alternate screens' keyboard
+  modes apart (kitty, Ghostty, WezTerm): typing no longer shows escape codes.
+- **Operations on many marked entries start sooner on macOS**: each folder
+  they are in is opened once, not once per entry.
 
 ## 0.20.2 — 2026-11-08
 

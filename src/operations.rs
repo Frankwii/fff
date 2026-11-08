@@ -103,8 +103,17 @@ struct Entry {
     name: OsString,
     path: PathBuf,
 }
+/// Parent folders already opened, by the path given, with where each is
+/// without symlinks: entries sharing a folder open it once, which matters on
+/// macOS, where each open walks every component of the path.
+type Parents = HashMap<PathBuf, (PathBuf, File)>;
 impl Entry {
     fn at(path: &Path) -> Result<Self> {
+        Self::among(path, &mut Parents::new())
+    }
+    /// As `at`, sharing the folders opened for earlier entries. Each entry
+    /// still holds its own descriptor (a duplicate) of its parent.
+    fn among(path: &Path, parents: &mut Parents) -> Result<Self> {
         if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
             return Err("Use an absolute path without '..'".into());
         }
@@ -112,14 +121,20 @@ impl Entry {
             .file_name()
             .ok_or("Cannot operate on a filesystem root")?
             .to_owned();
-        let parent_path = path
-            .parent()
-            .ok_or("Missing parent directory")?
-            .canonicalize()
-            .map_err(err)?;
+        let given = path.parent().ok_or("Missing parent directory")?;
+        let (parent_path, parent) = match parents.get(given) {
+            Some((parent_path, dir)) => (parent_path.clone(), dir.try_clone().map_err(err)?),
+            None => {
+                let parent_path = given.canonicalize().map_err(err)?;
+                let dir = open_dir(&parent_path)?;
+                let kept = (parent_path.clone(), dir.try_clone().map_err(err)?);
+                parents.insert(given.to_owned(), kept);
+                (parent_path, dir)
+            }
+        };
         Ok(Self {
-            parent: open_dir(&parent_path)?,
             path: parent_path.join(&name),
+            parent,
             name,
         })
     }
@@ -219,6 +234,18 @@ fn detached_matches(
 /// Whether `name` is the root of a mount.
 fn mount_root(parent: &File, name: &OsStr) -> Result<bool> {
     platform::is_mount_root(parent, name).map_err(err)
+}
+/// Whether rename destination `d` is its own source under a name that
+/// differs in case only, as a case-insensitive filesystem (macOS's default)
+/// finds it: renaming `a` to `A` there is no collision. A hard link with such
+/// a name on a case-sensitive one is still refused by the no-replace rename.
+fn case_alias(src: &[Entry], i: usize, d: &Entry, renaming: bool) -> bool {
+    let Some(s) = src.get(i).filter(|_| renaming) else {
+        return false;
+    };
+    s.name != d.name
+        && s.name.to_string_lossy().to_lowercase() == d.name.to_string_lossy().to_lowercase()
+        && identity(&s.parent, &s.name).is_some_and(|id| identity(&d.parent, &d.name) == Some(id))
 }
 /// Device and inode of `name`, without following a final symlink.
 fn identity(parent: &File, name: &OsStr) -> Option<(u64, u64)> {
@@ -675,20 +702,22 @@ impl Engine {
                 return Ok(None);
             }
         }
+        // Selections are mostly many entries of a few folders.
+        let mut parents = Parents::new();
         let src = sources
             .iter()
-            .map(|p| Entry::at(p))
+            .map(|p| Entry::among(p, &mut parents))
             .collect::<Result<Vec<_>>>()?;
         let dst = targets
             .iter()
-            .map(|p| Entry::at(p))
+            .map(|p| Entry::among(p, &mut parents))
             .collect::<Result<Vec<_>>>()?;
         let old = match &request {
             Request::Move { replace, .. }
             | Request::Copy { replace, .. }
             | Request::Restore { replace, .. } => replace
                 .iter()
-                .map(|p| Entry::at(p))
+                .map(|p| Entry::among(p, &mut parents))
                 .collect::<Result<Vec<_>>>()?,
             _ => vec![],
         };
@@ -729,7 +758,7 @@ impl Engine {
             if !seen.insert(d.path.clone()) {
                 return Err("Duplicate destination".into());
             }
-            let existing = exists(&d.parent, &d.name)?;
+            let existing = exists(&d.parent, &d.name)? && !case_alias(&src, i, d, renaming);
             match request {
                 Request::Extract { .. } => {
                     if !existing {

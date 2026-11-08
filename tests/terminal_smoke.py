@@ -9,6 +9,7 @@ import fcntl
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import signal
 import struct
@@ -269,6 +270,27 @@ class TerminalTests(unittest.TestCase):
             self.assertEqual(s.finish(), (0, b""))
             self.session.close()
         self.session = None
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_quit_leaves_the_shell_screen_without_keyboard_flags(self):
+        # The main and alternate screens keep their own kitty keyboard flag
+        # stacks (as in kitty and Ghostty): what fff pushes, it must push and
+        # pop on the same screen, or the shell is left reading escape codes.
+        (self.root / "child").touch()
+        s = self.start("--depth", "1", implicit_root=True)
+        s.send(b"", "child")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+        stacks, alternate = {False: 0, True: 0}, False
+        for seq in re.findall(rb"\x1b\[(\?1049[hl]|>\d*u|<\d*u)", s.ui):
+            if seq.startswith(b"?1049"):
+                alternate = seq.endswith(b"h")
+            elif seq.startswith(b">"):
+                stacks[alternate] += 1
+            else:
+                stacks[alternate] = max(0, stacks[alternate] - int(seq[1:-1] or 1))
+        self.assertFalse(alternate)
+        self.assertEqual(stacks, {False: 0, True: 0})
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_folder_sizes_are_kept_for_the_next_session(self):
