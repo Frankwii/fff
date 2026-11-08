@@ -40,23 +40,7 @@ integration](SETUP.md) has more, such as completions and man pages.
 
 Go to a folder with some files in it, say `cd ~/Documents`, and run `fff`.
 
-```
-╭ Query  NORMAL  ─────────────────────────────────────────────────────╮
-│ ❯ type to filter names…                                             │
-╰──────────────────────────────────────────────────────── ✓ complete ╯
-  @  ~/Documents
-╭ Files · 4 ─────────────────────────────  1  2  3  ╮ ╭ Marks (0) ─────╮
-│›   1    notes/                       43B   now │ │                │
-│    2    papers/                      24B   2d  │ │ Collect paths  │
-│    3    taxes/                       1.2M  3w  │ │ as you browse. │
-│  4/0    README.md                    6B    now │ │                │
-╰ depth 1 ──────────────────────────── 1–4 of 4 ╯ ╰────────────────╯
-╭ Preview · directory · 2 entries ───────────────────────────────────╮
-│ analysis/                                                          │
-│ todo.md                                                            │
-╰────────────────────────────────────────────────────────────────────╯
-  notes  43 B  2 entries  2026-11-08 18:33  drwxr-xr-x  you:you   F1 keys  q quit
-```
+![fff's main screen](demos/screen.png)
 
 From top to bottom:
 

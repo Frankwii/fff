@@ -35,19 +35,13 @@ The **focus** is what keys act on. There are three places it can be:
 
 The one without the focus is drawn dimmed. They connect like this:
 
-```
-                 i, a (start typing)
-   ┌──────────┐ ───────────────────────▶ ┌─────────────────────────────┐
-   │ results  │                          │ query, Insert mode          │
-   │ (Normal) │ ◀──── Escape ──────┐     └─────────────────────────────┘
-   └──────────┘                    │                │ Escape
-     ▲     │                       │                ▼
-     │     │ Ctrl+k          ┌─────┴───────────────────────────────────┐
-     │     ▼                 │ query, Normal mode: edits the query as  │
-   ┌──────────┐              │ Neovim does; j / k go down to the first │
-   │  marked  │              │ or last result                          │
-   │   list   │              └─────────────────────────────────────────┘
-   └──────────┘
+```mermaid
+flowchart LR
+  R["Results<br/>Normal mode"] -- "i or a" --> QI["Query, Insert mode<br/>you type"]
+  QI -- "Escape" --> QN["Query, Normal mode<br/>Neovim edits the query"]
+  QN -- "Escape, or j / k" --> R
+  R -- "Ctrl+k" --> M["Marked list"]
+  M -- "Ctrl+k" --> R
 ```
 
 So: `i` to type, Escape to stop typing, Escape again (or `j`) to get back
