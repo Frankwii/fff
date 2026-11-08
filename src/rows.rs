@@ -510,7 +510,21 @@ pub struct Rows {
     /// Every row in order, once something needed them all; it is then the
     /// only run, and stays merged as rows are pushed.
     all: OnceCell<Arc<Run>>,
+    /// Two large runs being merged on another thread (`push`): the rows
+    /// keep both until it is done.
+    merging: Option<Arc<Merging>>,
 }
+
+/// A merge of two runs next to each other on a thread of its own, and its
+/// result once done.
+struct Merging {
+    runs: [Arc<Run>; 2],
+    merged: std::sync::OnceLock<Arc<Run>>,
+}
+/// Runs at least this large together are merged on another thread: on
+/// this one, merging them would hold up input (merging the 620,000 rows
+/// of `/usr` takes about 10 ms, 30 in a sort by size).
+const MERGE_ELSEWHERE: usize = 16_384;
 impl Rows {
     /// Rows ranked all at once.
     pub(crate) fn sorted(order: Order, run: Run) -> Self {
@@ -525,6 +539,7 @@ impl Rows {
             },
             len,
             all: OnceCell::new(),
+            merging: None,
         }
     }
     /// How many rows there are; nothing is merged to count them.
@@ -544,6 +559,18 @@ impl Rows {
             [] => Arc::default(),
             [run] => Arc::clone(run),
             runs => {
+                // A merge done on another thread is used as it is.
+                let runs = match self.merged_elsewhere() {
+                    Some((at, merged)) => {
+                        let mut runs = runs.to_vec();
+                        runs.splice(at..at + 2, [merged]);
+                        runs
+                    }
+                    None => runs.to_vec(),
+                };
+                if let [run] = runs.as_slice() {
+                    return Arc::clone(run);
+                }
                 // Smallest first, so that each row moves about twice.
                 let mut runs = runs.iter().rev().map(|r| Run::clone(r));
                 let first = runs.next().expect("several runs");
@@ -632,6 +659,7 @@ impl Rows {
         if run.is_empty() {
             return;
         }
+        self.settle();
         if self.len == 0 {
             self.order = order;
         }
@@ -666,14 +694,78 @@ impl Rows {
         while let [.., before, last] = self.runs.as_slice()
             && before.len() <= 2 * last.len()
         {
+            // Runs being merged elsewhere wait for it; so do two more as
+            // large, rather than hold up input here.
+            let large = before.len() + last.len() >= MERGE_ELSEWHERE;
+            if let Some(merging) = &self.merging {
+                if large || merging.runs.iter().any(|r| Arc::ptr_eq(r, before)) {
+                    break;
+                }
+            } else if large && self.merge_elsewhere() {
+                break;
+            }
             let last = owned(self.runs.pop().expect("two runs"));
             let before = owned(self.runs.pop().expect("two runs"));
             self.runs
                 .push(Arc::new(merge_two(self.order, before, last)));
         }
     }
+    /// Merges the last two runs on another thread, the rows keeping both
+    /// meanwhile; whether one could be started.
+    fn merge_elsewhere(&mut self) -> bool {
+        let [.., before, last] = self.runs.as_slice() else {
+            return false;
+        };
+        let merging = Arc::new(Merging {
+            runs: [Arc::clone(before), Arc::clone(last)],
+            merged: std::sync::OnceLock::new(),
+        });
+        let (order, done) = (self.order, Arc::clone(&merging));
+        let started = std::thread::Builder::new().spawn(move || {
+            let [a, b] = &done.runs;
+            let merged = merge_two(order, Run::clone(a), Run::clone(b));
+            let _ = done.merged.set(Arc::new(merged));
+        });
+        if started.is_ok() {
+            self.merging = Some(merging);
+        }
+        started.is_ok()
+    }
+    /// A merge done on another thread, and where its runs are, when the
+    /// rows still have both, side by side.
+    fn merged_elsewhere(&self) -> Option<(usize, Arc<Run>)> {
+        let merging = self.merging.as_ref()?;
+        let merged = merging.merged.get()?;
+        let [a, b] = &merging.runs;
+        let at = self.runs.iter().position(|r| Arc::ptr_eq(r, a))?;
+        let next = self.runs.get(at + 1)?;
+        Arc::ptr_eq(next, b).then(|| (at, Arc::clone(merged)))
+    }
+    /// Takes the merge done on another thread in place of its runs; one
+    /// whose runs changed meanwhile is dropped.
+    fn settle(&mut self) {
+        let Some(merging) = &self.merging else {
+            return;
+        };
+        if merging.merged.get().is_none() && self.all.get().is_none() {
+            let [a, b] = &merging.runs;
+            let kept = |run: &Arc<Run>| self.runs.iter().any(|r| Arc::ptr_eq(r, run));
+            if kept(a) && kept(b) {
+                return;
+            }
+        }
+        let mut old = Vec::new();
+        if let Some((at, merged)) = self.merged_elsewhere()
+            && self.all.get().is_none()
+        {
+            old = self.runs.splice(at..at + 2, [merged]).collect();
+        }
+        // It holds the runs too: freed with them, elsewhere when large.
+        crate::known::discard((old, self.merging.take()), self.len);
+    }
     /// Keep only the rows `keep` holds for, in order.
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&Arc<Candidate>) -> bool) {
+        self.settle();
         let whole = self.thaw();
         for run in &mut self.runs {
             let kept: Vec<bool> = run.rows.iter().map(&mut keep).collect();
@@ -1015,6 +1107,81 @@ mod tests {
                 .cmp(&a, key(0, 0), &b, key(0, 0))
                 .is_gt()
         );
+    }
+    #[test]
+    fn large_runs_merge_on_another_thread_and_read_as_one_sorted_run() {
+        let row = |i: u64| {
+            let n = i.wrapping_mul(2_654_435_761) % 1_000_003;
+            let key = Key {
+                score: (n % 13) as i64,
+                value: (n % 1000) as i64,
+            };
+            let path = format!("/r/d{}/f{i:06}", n % 17).into();
+            let c = Candidate {
+                path,
+                directory: false,
+                depth: 1 + (n % 3) as usize,
+                root: 0,
+                order: 0,
+            };
+            (key, c)
+        };
+        let rows_of = |from: u64, to: u64| (from..to).map(row).collect::<Vec<_>>();
+        let wait = |rows: &Rows| {
+            let merging = rows.merging.as_ref().expect("merging elsewhere");
+            while merging.merged.get().is_none() {
+                std::thread::yield_now();
+            }
+        };
+        for order in orders() {
+            let mut rows = Rows::default();
+            rows.push(order, run(order, rows_of(0, 12_000)));
+            // Together large enough: merged elsewhere, the rows keeping both.
+            rows.push(order, run(order, rows_of(12_000, 20_000)));
+            assert!(rows.merging.is_some() && rows.runs.len() == 2);
+            // Read meanwhile, or once done, they are in order.
+            let expected = run(order, rows_of(0, 20_000));
+            assert_eq!(rows.clone().all(), expected.rows.as_slice());
+            wait(&rows);
+            assert_eq!(rows.clone().all(), expected.rows.as_slice());
+            // The next push takes the merge in place of its runs.
+            rows.push(order, run(order, rows_of(20_000, 20_100)));
+            assert!(rows.merging.is_none() && rows.runs.len() == 2);
+            assert_eq!(rows.runs[0].len(), 20_000);
+            let mut every = run(order, rows_of(0, 20_100));
+            assert_eq!(rows.head.rows, every.rows[..LAZY]);
+            assert_eq!(rows.all(), every.rows.as_slice());
+            assert_eq!(rows.merged().keys, every.keys);
+            // Rows dropped while merging elsewhere, or after, leave the rest
+            // in order.
+            let mut rows = Rows::default();
+            rows.push(order, run(order, rows_of(0, 12_000)));
+            rows.push(order, run(order, rows_of(12_000, 20_000)));
+            let odd = |c: &Candidate| c.path.to_string_lossy().ends_with(['1', '3']);
+            rows.retain(|c| !odd(c));
+            every = run(order, rows_of(0, 20_000));
+            let kept: Vec<_> = every.rows.iter().filter(|c| !odd(c)).cloned().collect();
+            assert_eq!(rows.clone().all(), kept.as_slice());
+            rows.push(order, run(order, Vec::new()));
+            assert_eq!(rows.all(), kept.as_slice());
+            // A merge of runs the rows no longer have is dropped unused.
+            let mut rows = Rows::default();
+            rows.push(order, run(order, rows_of(0, 3000)));
+            rows.push(order, run(order, rows_of(3000, 4000)));
+            let stale = |from| Arc::new(run(order, rows_of(from, from + 10)));
+            let merged = std::sync::OnceLock::new();
+            let _ = merged.set(stale(9000));
+            rows.merging = Some(Arc::new(Merging {
+                runs: [stale(5000), stale(6000)],
+                merged,
+            }));
+            assert_eq!(
+                rows.clone().all(),
+                run(order, rows_of(0, 4000)).rows.as_slice()
+            );
+            rows.settle();
+            assert!(rows.merging.is_none() && rows.runs.len() == 2);
+        }
     }
     #[test]
     fn runs_pushed_one_by_one_read_as_one_sorted_run() {

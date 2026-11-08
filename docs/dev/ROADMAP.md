@@ -87,19 +87,13 @@ paths among the known ones takes about 0.13 seconds, filtering each round
 of new paths 0.035, sorting it 0.07 and pushing it among the rows 0.07.
 What could still go:
 
-- **Long merges.** Pushing a round merges runs while the one before is not
-  twice as large, so now and then two large runs are merged at once: over
-  `/usr` that holds the interface thread for 7 to 11 ms, past the 4 ms a
-  merge is given. Such a merge could be split across refreshes, or made on
-  another thread while the rows keep both runs.
 - **Packed paths.** Each path is its own allocation (a `PathBuf` in an
   `Arc`), where fzf packs its input into chunks. It is no longer the larger
   cost, and the deepest change to make.
 
 Tried and left out, as they changed nothing measurable: keys of 8 bytes
 rather than 16 (the score and a sort's value, kept apart so that the
-default order moves less), and merging three or four runs at once, which
-would also make the long merges longer.
+default order moves less), and merging three or four runs at once.
 
 ### A tree view
 

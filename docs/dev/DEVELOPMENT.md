@@ -156,7 +156,14 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   the round size of them (about ten for `/usr`), the largest first, and each
   row is moved once per doubling (a merge takes whole stretches of a run
   that rank before the other's next row, found by searching, rather than
-  comparing row by row).
+  comparing row by row). Two runs of `rows::MERGE_ELSEWHERE` (16,384) rows
+  or more together are merged on a thread of their own (`Rows::merging`),
+  one such merge at a time: the rows keep both runs meanwhile, runs as
+  large wait for it rather than merge here, and the next push or `retain`
+  takes the merged run in their place (`Rows::settle`), or drops it when
+  either run changed since; reading every row meanwhile uses it once done.
+  Merging the 620,000 rows of `/usr` would otherwise hold the interface
+  thread for about 10 ms, 30 ms in a sort by size.
 - **Lazy merging.** The first `rows::LAZY` rows (2048) are kept merged
   as runs are pushed (`Rows::head`: the new run's first rows merged into
   them, when any rank before their last), so reading them (`Rows::row`,

@@ -17,6 +17,10 @@ history.
   values are read by the scan as it finds each path, rather than as the
   rows take it in: a scan of `/usr` sorted by date settles in half the
   time, and a stalled network mount no longer holds up the interface.
+- **Keys stay quick while a large tree lists.** The largest merges of the
+  rows found happen on another thread: listing `/usr` holds keys up for at
+  most about 10 ms at a time, where it was up to 17 ms, and 15 ms sorted
+  by size, where it was up to 37.
 
 ## 0.23.0 — 2026-11-08
 
