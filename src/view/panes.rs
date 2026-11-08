@@ -283,11 +283,7 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
         .match_text
         .as_ref()
         .filter(|(path, _)| Some(path) == app.highlight.as_ref())
-        .and_then(|(_, lines)| {
-            let own = lines.starts.binary_search(&hit.start).ok()?;
-            let first = own.checked_sub(hit.at)?;
-            Some((lines, first))
-        });
+        .and_then(|(_, lines)| lines.around(hit.start, hit.at, hit.context.len(), AROUND));
     let push_plain = |rows: &mut Vec<Line<'static>>, line: &str| {
         let spans = vec![styled(safe(line), theme.muted)];
         for mut row in fit(spans, width.saturating_sub(2), wrap) {
@@ -295,8 +291,8 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
             rows.push(row);
         }
     };
-    if let Some((lines, first)) = file {
-        for line in &lines.text[first.saturating_sub(AROUND)..first] {
+    if let Some((before, _)) = &file {
+        for line in before {
             push_plain(&mut rows, line);
         }
     }
@@ -326,10 +322,8 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
             rows.push(row);
         }
     }
-    if let Some((lines, first)) = file {
-        let after = first + hit.context.len();
-        let end = (after + AROUND).min(lines.text.len());
-        for line in lines.text.get(after..end).unwrap_or_default() {
+    if let Some((_, after)) = &file {
+        for line in after {
             push_plain(&mut rows, line);
         }
     }

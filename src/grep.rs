@@ -89,31 +89,55 @@ pub struct Hit {
     /// [`Lines`].
     pub start: usize,
 }
-/// A file's text as lines, for a preview that scrolls past a match's
-/// context: each line as shown, and where it starts in the text.
+/// A file's text, for a preview that scrolls past a match's context. Its
+/// lines are found as they are shown, so a file of many short lines takes
+/// no more room than its text.
+#[derive(Default)]
 pub struct Lines {
-    pub text: Vec<String>,
-    pub starts: Vec<usize>,
+    text: Vec<u8>,
 }
 /// The lines of `path`'s text, read as the search reads it (a document's
 /// from the cache); `None` when it has none.
 pub fn lines(path: &Path) -> Option<Lines> {
     let text = text_of(path, cache_dir().as_deref()).ok()?.bytes;
-    let mut lines = Lines {
-        text: Vec::new(),
-        starts: Vec::new(),
-    };
-    let mut at = 0;
-    loop {
-        let end = line_end(&text, at);
-        lines.starts.push(at);
-        lines.text.push(shown_line(&text[at..end]));
-        if end >= text.len() {
-            break;
+    Some(Lines { text })
+}
+impl Lines {
+    /// Up to `most` lines, as shown, before and after the `count` lines
+    /// whose `at`th starts at `start`; `None` when no line starts there or
+    /// too few lines come before it (the file changed since it was searched).
+    pub fn around(
+        &self,
+        start: usize,
+        at: usize,
+        count: usize,
+        most: usize,
+    ) -> Option<(Vec<String>, Vec<String>)> {
+        let text = &self.text[..];
+        if start > text.len() || start > 0 && !matches!(text[start - 1], b'\n' | 0x0c) {
+            return None;
         }
-        at = end + 1;
+        let previous = |s: usize| (s > 0).then(|| line_start(text, s - 1));
+        let next = |s: usize| {
+            let end = line_end(text, s);
+            (end < text.len()).then_some(end + 1)
+        };
+        let mut first = start;
+        for _ in 0..at {
+            first = previous(first)?;
+        }
+        let mut before: Vec<_> = std::iter::successors(previous(first), |&s| previous(s))
+            .take(most)
+            .collect();
+        before.reverse();
+        let after = (0..count).try_fold(first, |s, _| next(s));
+        let after = std::iter::successors(after, |&s| next(s)).take(most);
+        let shown = |s: usize| shown_line(&text[s..line_end(text, s)]);
+        Some((
+            before.into_iter().map(shown).collect(),
+            after.map(shown).collect(),
+        ))
     }
-    Some(lines)
 }
 impl Hit {
     /// The match's line with those it goes on to, joined by a space and
@@ -1756,6 +1780,60 @@ mod tests {
         let status = Path::new("/proc/self/status");
         assert_eq!(search_file(status, &pattern, files), Err(Skip::NoText));
         assert!(lines(status).is_none());
+    }
+    #[test]
+    fn a_match_s_lines_are_found_around_it_in_the_text() {
+        let text = "zero\none\ntwo\r\nthree\x0cfour\n\nsix\n";
+        let lines = Lines {
+            text: text.as_bytes().to_vec(),
+        };
+        let split: Vec<&str> = text.split(['\n', '\x0c']).collect();
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(text.match_indices(['\n', '\x0c']).map(|(i, _)| i + 1))
+            .collect();
+        let shown = |range: &[&str]| -> Vec<String> {
+            range.iter().map(|l| shown_line(l.as_bytes())).collect()
+        };
+        for (own, &start) in starts.iter().enumerate() {
+            for at in 0..=own {
+                let first = own - at;
+                for count in 1..=split.len() - first {
+                    for most in [0, 1, 2, 10] {
+                        let after = (first + count).min(split.len());
+                        assert_eq!(
+                            lines.around(start, at, count, most),
+                            Some((
+                                shown(&split[first.saturating_sub(most)..first]),
+                                shown(&split[after..(after + most).min(split.len())]),
+                            )),
+                            "line {own}, at {at}, count {count}, most {most}"
+                        );
+                    }
+                }
+            }
+            // More lines before the match than the file has.
+            assert_eq!(lines.around(start, own + 1, 1, 5), None);
+        }
+        // A changed file: no line starts there any more.
+        assert_eq!(lines.around(2, 0, 1, 5), None);
+        assert_eq!(lines.around(text.len() + 1, 0, 1, 5), None);
+        assert_eq!(Lines::default().around(0, 0, 1, 5), Some((vec![], vec![])));
+    }
+    #[test]
+    fn a_file_of_many_short_lines_takes_the_room_of_its_text() {
+        let dir = std::env::temp_dir().join(format!("fff-grep-short-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("many-lines.txt");
+        let mut bytes = b"needle\n".to_vec();
+        bytes.resize(4 << 20, b'\n');
+        fs::write(&path, &bytes).unwrap();
+        let read = lines(&path).unwrap();
+        assert!(read.text.capacity() <= bytes.len() + 4096);
+        let (before, after) = read.around(0, 0, 1, 500).unwrap();
+        assert!(before.is_empty());
+        assert_eq!(after.len(), 500);
+        fs::remove_dir_all(&dir).unwrap();
     }
     #[test]
     fn the_index_rules_files_out_before_they_are_read() {

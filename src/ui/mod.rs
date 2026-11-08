@@ -352,10 +352,15 @@ struct Session {
     invocation: PathBuf,
     palettes: crate::reload::PaletteWatcher,
     /// A contents query: the highlighted match's file being read as lines.
-    match_lines: Option<(
-        PathBuf,
-        std::sync::mpsc::Receiver<Option<crate::grep::Lines>>,
-    )>,
+    match_lines: Option<MatchLines>,
+}
+/// A file being read for a contents match's preview, one at a time: its
+/// text is kept only if its file is still the one wanted when it arrives.
+struct MatchLines {
+    path: PathBuf,
+    lines: std::sync::mpsc::Receiver<Option<crate::grep::Lines>>,
+    /// The file changed while it was read.
+    stale: bool,
 }
 impl Session {
     fn start(
@@ -496,10 +501,10 @@ impl Session {
             {
                 app.match_text = None;
             }
-            if let Some((path, _)) = &self.match_lines
-                && changes.touched.contains(path)
+            if let Some(reading) = &mut self.match_lines
+                && changes.touched.contains(&reading.path)
             {
-                self.match_lines = None;
+                reading.stale = true;
             }
             self.dirty |= !changes.touched.is_empty();
             // Coalesce bursts (an extraction, a copy) into one quiet rescan;
@@ -679,25 +684,31 @@ impl Session {
             });
         app.preview.follow_match(showing);
         // Its file's lines, read on another thread, let it scroll past the
-        // match's context.
-        let path = showing.and(app.highlight.clone());
-        if let Some((reading, lines)) = &self.match_lines
-            && let Ok(lines) = lines.try_recv()
-        {
-            // A file with no lines to read (gone, say) is remembered as
-            // such, rather than read again on every pass.
-            let lines = lines.unwrap_or(crate::grep::Lines {
-                text: Vec::new(),
-                starts: Vec::new(),
-            });
-            app.match_text = Some((reading.clone(), std::sync::Arc::new(lines)));
-            app.preview.more_match_lines();
-            self.match_lines = None;
-            self.dirty = true;
+        // match's context; a hidden preview needs none.
+        if !app.preview.shown {
+            app.match_text = None;
         }
+        let path = showing
+            .and(app.highlight.clone())
+            .filter(|_| app.preview.shown);
+        if let Some(reading) = &self.match_lines
+            && let Ok(lines) = reading.lines.try_recv()
+        {
+            if !reading.stale && path.as_ref() == Some(&reading.path) {
+                // A file with no lines to read (gone, say) is remembered as
+                // such, rather than read again on every pass.
+                let lines = lines.unwrap_or_default();
+                app.match_text = Some((reading.path.clone(), std::sync::Arc::new(lines)));
+                app.preview.more_match_lines();
+                self.dirty = true;
+            }
+            self.match_lines = None;
+        }
+        // Another file waits for the one being read: moving quickly over
+        // matches in large files reads one of them at a time.
         if let Some(path) = path
             && app.match_text.as_ref().is_none_or(|(p, _)| *p != path)
-            && self.match_lines.as_ref().is_none_or(|(p, _)| *p != path)
+            && self.match_lines.is_none()
         {
             let (send, lines) = std::sync::mpsc::channel();
             let wake = self.wake.clone();
@@ -706,7 +717,11 @@ impl Session {
                 let _ = send.send(crate::grep::lines(&reading));
                 let _ = wake.try_send(());
             });
-            self.match_lines = Some((path, lines));
+            self.match_lines = Some(MatchLines {
+                path,
+                lines,
+                stale: false,
+            });
         }
     }
     /// A bar while typing, a block in Neovim's other modes.

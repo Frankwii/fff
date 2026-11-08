@@ -516,6 +516,32 @@ class TerminalTests(unittest.TestCase):
         s.finish()
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    @unittest.skipUnless(Path("/proc/self/status").exists(), "needs /proc")
+    def test_match_preview_of_many_short_lines_takes_the_room_of_its_text(self):
+        # Millions of empty lines, each once kept as its own string.
+        (self.root / "many-lines.txt").write_bytes(b"needle\n" + b"\n" * (8 << 20))
+        config = Path(str(self.root) + "-config") / "fff" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text("[ui]\npreview = false\nhighlight = false\n")
+        s = self.start(implicit_root=True, typing=True)
+
+        def peak_mib():
+            status = Path(f"/proc/{s.pid}/status").read_text()
+            return int(re.search(r"VmHWM:\s+(\d+) kB", status)[1]) // 1024
+
+        s.send(b"\t", "Contents  INSERT")
+        s.send(b"needle", "1 match in 1 file")
+        # Hidden, the preview reads nothing; shown, the file's text alone.
+        time.sleep(1)
+        hidden = peak_mib()
+        s.send(b"\x1bv", "Preview · l. 1 · match 1 of 1")
+        time.sleep(1)
+        self.assertLess(hidden, 120)
+        self.assertLess(peak_mib(), 120)
+        s.send(b"\x03")
+        s.finish()
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_switch_program_goes_on_as_pick_at_its_depth_and_prints_the_file(self):
         (self.root / "sub").mkdir()
         (self.root / "sub" / "deep.txt").touch()
