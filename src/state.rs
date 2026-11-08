@@ -75,9 +75,14 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let temporary = dir.join(format!(".{name}-{}", std::process::id()));
     let mut file = private_file(&temporary)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)
+    let written = file
+        .write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| fs::rename(&temporary, path));
+    if written.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    written
 }
 /// Opens `path` for writing, emptied and readable only by the user (mode
 /// 0600), whatever the umask.
@@ -88,6 +93,8 @@ pub(crate) fn private_file(path: &Path) -> std::io::Result<fs::File> {
         .create(true)
         .truncate(true)
         .mode(0o600)
+        // A link planted at the name is not followed to its target.
+        .custom_flags(libc::O_NOFOLLOW)
         .open(path)?;
     // A leftover file keeps its mode when reopened.
     file.set_permissions(fs::Permissions::from_mode(0o600))?;
@@ -142,6 +149,21 @@ mod tests {
             loaded.positions.last().unwrap().0,
             PathBuf::from(format!("/d{}", CAPACITY + 6))
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn a_link_at_the_temporary_name_is_not_written_through() {
+        let dir = std::env::temp_dir().join(format!("fff-state-link-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target");
+        fs::write(&target, b"keep me").unwrap();
+        let file = dir.join("state");
+        let temporary = dir.join(format!(".state-{}", std::process::id()));
+        std::os::unix::fs::symlink(&target, &temporary).unwrap();
+        assert!(save(&file, &State::default()).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"keep me");
+        assert!(!file.exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }
