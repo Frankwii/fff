@@ -4,7 +4,11 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.23.0 — 2026-11-08
+
+New documentation for users, current keys in `fff --help`, and fixes from
+an audit: a contents match's preview stays small, long names go into the
+trash on macOS, and saved files are never written through a link.
 
 ### Changed
 
@@ -27,6 +31,21 @@ history.
   for several files or folders, still gave the keys of before 0.22.0
   (Alt+w, Ctrl+w, Alt+←/→…).
 - **`config.example.toml` names the current keys** in its comments.
+- **A contents match's preview stays small on files of many short lines.**
+  It kept each line of the match's file as a string of its own, so a few
+  MiB of short lines (logs, generated data) took hundreds of MiB; it now
+  keeps the file's text and finds the lines it shows. It reads nothing
+  while the preview is hidden, and one file at a time while moving quickly
+  over matches in large files.
+- **Long names go into the trash on macOS.** A name too long for the trash
+  was shortened by bytes, which could cut a character in two; macOS's
+  filesystems refuse such a name, so trashing the entry failed. Names are
+  now shortened between characters.
+- **Files opened in the background on macOS start in the exact folder**
+  (Ghostty, Terminal, iTerm2): a folder whose name ended in a newline lost
+  it on the way.
+- **Saved state and caches are never written through a symbolic link** left
+  at the name of their temporary file; saving fails instead.
 
 ## 0.22.1 — 2026-11-08
 
