@@ -4,8 +4,9 @@
 //! A name is scored by nucleo, fzf's algorithm: the best alignment of the
 //! query's letters, in order, rewarding runs and word starts (after `_`, `-`,
 //! `.`, a space or a lowercase-to-uppercase step) and penalizing gaps. A
-//! result is scored by its path below its root, a `/` also starting a word,
-//! with a bonus when the query's letters are in its basename too.
+//! result is scored by its path below its root, a `/` also starting a word:
+//! a gap that crosses a `/` costs `CROSSING` however long it is, and each
+//! letter matched in the basename earns `BASENAME`.
 use crate::Candidate;
 use nucleo_matcher::{
     Config, Utf32Str,
@@ -38,18 +39,20 @@ thread_local! {
     });
 }
 
-/// Points per letter of the query for a path whose basename has the
-/// query's letters in order too: a level of depth (`rows::LEVEL`), so the
-/// folders a query names rank before what is inside them.
-const BASENAME: i64 = 8;
+/// Points for each letter of the query matched in the basename: half a
+/// level of depth (`rows::LEVEL`), so that among matches as good the folder
+/// a query names ranks before what is inside it.
+const BASENAME: i64 = 4;
+/// What a gap between matched letters costs when it crosses a `/`, instead
+/// of nucleo's 3 plus 1 per skipped letter: skipping the rest of a folder's
+/// name and the folders after it is how a path is typed, not a scattered
+/// match. Twice what starting a gap costs.
+const CROSSING: i64 = 6;
 
 /// A query lowercased once, for scoring many names.
 pub struct Matcher {
     letters: Vec<char>,
     atom: Atom,
-    /// Whether accents are ignored: the query has none (nucleo's smart
-    /// normalization).
-    normalize: bool,
 }
 /// Lowercase for matching. Whole-string lowercasing turns a word-final Σ
 /// into ς but a lone one into σ: both become σ, so either spelling matches.
@@ -59,10 +62,6 @@ pub(crate) fn fold(text: &str) -> String {
 impl Matcher {
     pub fn new(query: &str) -> Self {
         let folded = fold(query);
-        let letters: Vec<char> = folded.chars().collect();
-        let normalize = letters
-            .iter()
-            .all(|&c| nucleo_matcher::chars::normalize(c) == c);
         Self {
             // Smart normalization folds accents only for a query without any.
             atom: Atom::new(
@@ -72,8 +71,7 @@ impl Matcher {
                 AtomKind::Fuzzy,
                 false,
             ),
-            letters,
-            normalize,
+            letters: folded.chars().collect(),
         }
     }
     /// How many letters the query has: what a sort by a depth penalty takes
@@ -141,54 +139,44 @@ impl Matcher {
             }
         })
     }
-    /// Score a result by its path below its root, plus `BASENAME` per
-    /// letter when its basename has the query's letters in order.
+    /// Score a result by its path below its root (see `score_path`).
     pub fn score_candidate(&self, c: &Candidate) -> Option<i64> {
         self.score_path(&relative(c))
     }
     /// Score a path below a root (components joined by `/`, the basename
-    /// last), as `score_candidate` does.
+    /// last): nucleo's score of its best alignment, with each gap crossing a
+    /// `/` costing `CROSSING` instead, plus `BASENAME` for each letter the
+    /// alignment puts in the basename.
     pub fn score_path(&self, path: &str) -> Option<i64> {
         if self.letters.is_empty() {
             return Some(0);
         }
-        let score = i64::from(self.nucleo(path, true, None)?);
-        let basename = path.rsplit('/').next().unwrap_or(path);
-        Some(if self.in_order(basename) {
-            score + BASENAME * self.letters.len() as i64
-        } else {
-            score
-        })
-    }
-    /// Whether `name` has the query's letters in order, folded as nucleo
-    /// folds them: a single pass, far cheaper than scoring it.
-    fn in_order(&self, name: &str) -> bool {
-        let mut wanted = self.letters.iter().peekable();
-        if name.is_ascii() && self.letters.iter().all(char::is_ascii) {
-            for b in name.bytes() {
-                match wanted.peek() {
-                    None => break,
-                    Some(&&c) if c as u32 == u32::from(b.to_ascii_lowercase()) => {
-                        wanted.next();
-                    }
-                    Some(_) => {}
-                }
+        let mut at = Vec::new();
+        let mut score = i64::from(self.nucleo(path, true, Some(&mut at))?);
+        at.sort_unstable();
+        let crosses = |from: usize, to: usize| -> bool {
+            if path.is_ascii() {
+                path.as_bytes()[from..to].contains(&b'/')
+            } else {
+                path.chars().skip(from).take(to - from).any(|c| c == '/')
             }
-        } else {
-            for c in name.chars() {
-                let Some(&&next) = wanted.peek() else {
-                    break;
-                };
-                let mut c = nucleo_matcher::chars::to_lower_case(c);
-                if self.normalize {
-                    c = nucleo_matcher::chars::normalize(c);
-                }
-                if c == next {
-                    wanted.next();
-                }
+        };
+        for pair in at.windows(2) {
+            let (from, to) = (pair[0] as usize + 1, pair[1] as usize);
+            if to > from && crosses(from, to) {
+                // nucleo charged 3 for the gap's first letter, 1 for each other.
+                let charged = (to - from) as i64 + 2;
+                score += (charged - CROSSING).max(0);
             }
         }
-        wanted.peek().is_none()
+        let basename = path.rsplit('/').next().unwrap_or(path);
+        let start = if path.is_ascii() {
+            path.len() - basename.len()
+        } else {
+            path.chars().count() - basename.chars().count()
+        };
+        let in_basename = at.iter().filter(|&&i| i as usize >= start).count();
+        Some(score + BASENAME * in_basename as i64)
     }
 }
 
@@ -233,12 +221,21 @@ fn a_path_below_the_root_is_its_last_components() {
 }
 #[cfg(test)]
 #[test]
-fn the_basename_bonus_folds_case_and_accents_as_nucleo_does() {
-    let m = Matcher::new("evaluacion");
-    assert!(m.in_order("Evaluación.pdf") && m.in_order("EVALUACION"));
-    assert!(!Matcher::new("evaluación").in_order("Evaluacion.pdf"));
-    assert!(Matcher::new("σ").in_order("ΟΔΟΣ") && Matcher::new("ος").in_order("οδος"));
-    assert!(!Matcher::new("ab").in_order("ba"));
+fn skipped_folders_cost_less_than_scattered_letters() {
+    // Two runs across folders beat letters scattered through one name.
+    let m = Matcher::new("turinpdf");
+    let folders = m.score_path("phd/presentations/turing_patterns_uib_2026/figures/heat.pdf");
+    let scattered =
+        m.score_path("Desktop/books/coding/the_C_programming_language_kernighan_ritchie.pdf");
+    assert!(folders > scattered, "{folders:?} {scattered:?}");
+    assert!(folders > m.score_path("Desktop/documents/trabajo/fueib/titularidad_banco.pdf"));
+    // The query in the basename is better still.
+    let named =
+        m.score_path("phd/presentations/turing_patterns_uib_2026/references/turing_paper.pdf");
+    assert!(named > folders);
+    // Among matches as good, the letters in the basename win.
+    let notes = Matcher::new("notes");
+    assert!(notes.score_path("pde/notes") > notes.score_path("notes/a.tex"));
 }
 #[cfg(test)]
 #[test]

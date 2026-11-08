@@ -10,7 +10,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | --- | --- |
 | `src/main.rs` | CLI parsing, configuration setup, completion registration and exit codes. |
 | `src/lib.rs` | Session state (`App`): navigation, tabs, when rows are ranked again or merged (`refresh`), the rows on screen (`shown`), the highlight, marks and path output. |
-| `src/matching.rs` | Fuzzy scoring of names (nucleo, fzf's algorithm) and of paths below their roots (with a bonus when the basename has the query's letters too), and the matched characters to highlight. |
+| `src/matching.rs` | Fuzzy scoring of names (nucleo, fzf's algorithm) and of paths below their roots (a gap crossing a `/` costs a fixed amount, and letters matched in the basename earn a bonus), and the matched characters to highlight. |
 | `src/policy.rs` | Hidden entries, exclusions and file filters (`Policy`), the kinds listed, and which found paths are rows. |
 | `src/marks.rs` | Marked paths in order with constant-time membership. |
 | `src/piped.rs` | `fff` with paths on stdin (`Program::Piped`): whether stdin is a list, reading it into rows (resolved, numbered in order, each path once, missing ones counted) and each path's line as spelled, which is what is printed. Discovery reads it once in place of a scan (`Scan::read`), and never rescans, caches or watches it. |

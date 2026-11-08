@@ -127,13 +127,16 @@ the query's letters, so runs and word starts (after `_`, `-`, `.`, `/`, a
 space or a lowercase-to-uppercase step) beat letters scattered from the
 start, however long the name. `pdestab` finds `pde/notes/stability.tex`, and
 a `/` is a letter like any other, so `pde/stab` finds it too and `pde/` lists
-what is inside folders matching `pde`. A path whose basename has the query's
-letters in order as well ranks higher, a level of depth's worth, so `notes`
-lists the folder `notes` before the files inside it. Latin accents are
-ignored unless the query has some: `evaluacion` finds `Evaluación`. The
-matched letters are highlighted along the whole label. Depth still weighs
-against the match, and directories come first among matches as good (see
-[sorting](#sorting)).
+what is inside folders matching `pde`. Skipping the rest of a folder's name
+and the folders after it costs the same however long they are, so
+`turinpdf` ranks `turing_patterns/figures/heat.pdf` (two runs) above
+`the_C_programming_language_kernighan_ritchie.pdf` (letters scattered
+through one name). Each letter matched in the basename counts a little
+more, so `notes` lists the folder `notes` before the files inside it. Latin
+accents are ignored unless the query has some: `evaluacion` finds
+`Evaluación`. The matched letters are highlighted along the whole label.
+Depth still weighs against the match, and directories come first among
+matches as good (see [sorting](#sorting)).
 
 Enter depends on the editing mode:
 
