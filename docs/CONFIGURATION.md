@@ -76,10 +76,13 @@ a usage error (exit 2). In order:
    their [`at_grep_match`](#opening-at-a-contents-match). `0` leaves a kind
    to `$EDITOR`. Kinds opened by the same program share one rule.
 
+   Extensions the file's own `[[open.rules]]` already open (by extension or
+   pattern) are not asked about; a kind they all open is skipped.
+
 It then shows the TOML it would add and asks before writing. Nothing the file
-sets is asked about or changed: `[ui] icons` once set, the openers once there
-are `[[open.rules]]`; everything else in the file, comments included, stays as
-it was. The end of input (Ctrl+d) stops it with nothing written. Its last
+sets is asked about or changed: `[ui] icons` once set, and its rules, after
+which the new ones are added, so that its own still match first; everything
+else in the file, comments included, stays as it was. The end of input (Ctrl+d) stops it with nothing written. Its last
 part, **Next**, lists what is left: the shell integration and completions
 for `$SHELL`, the desktop integration on Linux, and where every setting is
 described.

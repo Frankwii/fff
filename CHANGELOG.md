@@ -15,7 +15,8 @@ history.
   does not) and which of the installed programs open documents, images,
   media and office files (`open` first on macOS), then shows what it would
   add to the configuration file and writes it once you confirm. Settings the
-  file already has are left alone. `fff setup --check-config` reports the
+  file already has are left alone: it asks only about the files your own
+  `[[open.rules]]` do not open, and adds the new rules after them. `fff setup --check-config` reports the
   same programs, and a session started without a configuration file
   suggests `fff setup`.
 - **Opening a terminal program works on macOS without configuration**:

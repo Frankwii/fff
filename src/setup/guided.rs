@@ -4,7 +4,8 @@
 //! of the installed programs open documents, images, media and office files,
 //! shows what it would add to the configuration file and adds it once
 //! confirmed. What the file sets already is never asked about or changed:
-//! `[ui] icons` once set, the openers once there are `[[open.rules]]`.
+//! `[ui] icons` once set, and the files its `[[open.rules]]` open; rules
+//! for the others are added after the file's own.
 use super::{Finding, Report, Section};
 use std::{
     fs,
@@ -402,11 +403,10 @@ impl Plan {
     fn is_empty(&self) -> bool {
         self.icons.is_none() && self.rules.is_empty()
     }
-    /// `viewer` for `kind`'s files: one rule per program, so that kinds
-    /// opening with the same one share it.
-    fn open_with(&mut self, kind: &Kind, viewer: &Viewer) {
-        let extensions = kind
-            .extensions
+    /// `viewer` for `extensions`, of `kind`: one rule per program, so that
+    /// kinds opening with the same one share it.
+    fn open_with(&mut self, kind: &Kind, extensions: &[&str], viewer: &Viewer) {
+        let extensions = extensions
             .iter()
             .filter(|e| viewer.only.is_empty() || viewer.only.contains(e))
             .map(|e| e.to_string());
@@ -463,7 +463,16 @@ pub fn apply(text: Option<&str>, plan: &Plan) -> Result<String, String> {
     }
     if !plan.rules.is_empty() {
         table(&mut document, "open")?;
-        let mut rules = ArrayOfTables::new();
+        // After the file's own rules, which match first.
+        let mut rules = match document["open"].get_mut("rules").map(std::mem::take) {
+            None | Some(Item::None) => ArrayOfTables::new(),
+            Some(Item::ArrayOfTables(rules)) => rules,
+            Some(_) => {
+                return Err("open.rules is not a list of [[open.rules]] tables in the \
+                            configuration file; add the rules by hand"
+                    .into());
+            }
+        };
         for rule in &plan.rules {
             let mut table = Table::new();
             table
@@ -544,6 +553,18 @@ pub fn run(
         .parse()
         .map_err(|e| invalid(format!("{}: {e}", path.display())))?;
     let sets = |table: &str, key: &str| document.get(table).and_then(|t| t.get(key)).is_some();
+    // The file's own openers, read as fff reads them.
+    let mine: crate::open::OpenConfig = match before {
+        Some(text) => toml::from_str::<toml::Table>(text)
+            .ok()
+            .and_then(|t| t.get("open").cloned())
+            .map(|open| open.try_into())
+            .transpose()
+            .map_err(|e| invalid(format!("{}: [open]: {e}", path.display())))?
+            .unwrap_or_default(),
+        None => Default::default(),
+    };
+    let opened = |extension: &str| mine.rule(Path::new(&format!("file.{extension}"))).is_some();
     let mut plan = Plan::default();
     let mut next: Vec<(String, Option<String>)> = vec![];
 
@@ -592,34 +613,39 @@ pub fn run(
     }
 
     report.heading("Opening files")?;
-    if sets("open", "rules") {
-        report.same("[[open.rules]] are set already")?;
-    } else {
-        report.line(
-            "Which program opens each kind of file? Files no rule matches open in $EDITOR.",
-        )?;
-        for kind in KINDS {
-            let viewers: Vec<&Viewer> = kind.viewers.iter().filter(|v| v.offered(system)).collect();
-            let what = format!("{} ({})", kind.title, kind.extensions.join(", "));
-            if viewers.is_empty() {
-                report.same(&format!("{what}: no program for them is installed"))?;
-                continue;
-            }
-            report.line("")?;
-            report.line(&format!("{what}:"))?;
-            let width = viewers.iter().map(|v| v.command.len()).max().unwrap_or(0);
-            for (i, viewer) in viewers.iter().enumerate() {
-                let line = format!("  {}  {:width$}  {}", i + 1, viewer.command, viewer.note);
-                report.line(line.trim_end())?;
-            }
-            report.line(&format!("  0  {:width$}  no rule", "none"))?;
-            let chosen = ask(report, input, "Choice [1]:", |answer| match answer {
-                "" => Some(1),
-                _ => answer.parse::<usize>().ok().filter(|&n| n <= viewers.len()),
-            })?;
-            if chosen > 0 {
-                plan.open_with(kind, viewers[chosen - 1]);
-            }
+    report.line("Which program opens each kind of file? Files no rule matches open in $EDITOR.")?;
+    for kind in KINDS {
+        // Only what the file's rules leave out, so that its own stay first.
+        let extensions: Vec<&str> = kind
+            .extensions
+            .iter()
+            .copied()
+            .filter(|e| !opened(e))
+            .collect();
+        if extensions.is_empty() {
+            report.same(&format!("{}: your [[open.rules]] open them", kind.title))?;
+            continue;
+        }
+        let viewers: Vec<&Viewer> = kind.viewers.iter().filter(|v| v.offered(system)).collect();
+        let what = format!("{} ({})", kind.title, extensions.join(", "));
+        if viewers.is_empty() {
+            report.same(&format!("{what}: no program for them is installed"))?;
+            continue;
+        }
+        report.line("")?;
+        report.line(&format!("{what}:"))?;
+        let width = viewers.iter().map(|v| v.command.len()).max().unwrap_or(0);
+        for (i, viewer) in viewers.iter().enumerate() {
+            let line = format!("  {}  {:width$}  {}", i + 1, viewer.command, viewer.note);
+            report.line(line.trim_end())?;
+        }
+        report.line(&format!("  0  {:width$}  no rule", "none"))?;
+        let chosen = ask(report, input, "Choice [1]:", |answer| match answer {
+            "" => Some(1),
+            _ => answer.parse::<usize>().ok().filter(|&n| n <= viewers.len()),
+        })?;
+        if chosen > 0 {
+            plan.open_with(kind, &extensions, viewers[chosen - 1]);
         }
     }
 
@@ -787,7 +813,14 @@ mod tests {
         // the end of the answers would stop it.
         let (result, out) = guided(&mac, &path, "y\n");
         result.unwrap();
-        assert!(out.contains("[[open.rules]] are set already"), "{out}");
+        assert!(
+            out.contains("Documents: your [[open.rules]] open them"),
+            "{out}"
+        );
+        assert!(
+            out.contains("Office documents: your [[open.rules]] open them"),
+            "{out}"
+        );
         assert!(out.contains("nothing to add to"), "{out}");
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
     }
@@ -829,6 +862,44 @@ mod tests {
         assert_eq!(open("a.mkv").unwrap(), "xdg-open");
         assert_eq!(open("a.odt").unwrap(), "xdg-open");
         assert_eq!(text.matches("[[open.rules]]").count(), 2, "{text}");
+    }
+
+    #[test]
+    fn rules_are_added_after_the_files_own_for_what_they_leave_out() {
+        let dir = scratch("appended");
+        let path = dir.join("config.toml");
+        let mine = "[ui]\nicons = true\n\n[open]\nterminal = \"st -e\" # mine\n\n\
+                    # my viewer\n[[open.rules]]\ncommand = \"zathura\"\nextensions = [\"pdf\"]\n\n\
+                    [[open.rules]]\ncommand = \"nvim\"\npatterns = [\"*.jpg\", \"*.jpeg\"]\nterminal = true\n\n\
+                    [trash]\ndays = 7\n";
+        fs::write(&path, mine).unwrap();
+        let linux = system(false, &["zathura", "feh"]);
+        // Documents with zathura again, images with feh; then write.
+        let (result, out) = guided(&linux, &path, "\n\ny\n");
+        result.unwrap();
+        assert!(out.contains("Documents (djvu, epub):"), "{out}");
+        assert!(
+            out.contains("Images (png, gif, webp, bmp, tif, tiff):"),
+            "{out}"
+        );
+        assert!(!out.contains("Icons\n  ? "), "icons are set: {out}");
+        let text = fs::read_to_string(&path).unwrap();
+        // The file as it was, then the new rules after its own.
+        let (kept, added) = text.split_at(mine.len() - "\n[trash]\ndays = 7\n".len());
+        assert_eq!(kept, &mine[..kept.len()], "{text}");
+        assert!(text.contains("[trash]\ndays = 7\n"), "{text}");
+        assert!(added.contains("# Documents\n[[open.rules]]\ncommand = \"zathura\"\nextensions = [\"djvu\", \"epub\"]"), "{text}");
+        let settings = crate::config::Settings::parse(&text, &dir, None, None).unwrap();
+        let open = |name: &str| settings.open.opener(Path::new(name)).unwrap();
+        assert_eq!(settings.open.rules.len(), 4);
+        assert_eq!(open("a.pdf").line, "zathura");
+        assert!(
+            open("a.pdf").at_grep_match.is_empty(),
+            "the file's own rule wins"
+        );
+        assert_eq!(open("a.epub").at_grep_match, "--page {page} --find {query}");
+        assert!(open("a.jpg").terminal);
+        assert_eq!(open("a.png").line, "feh");
     }
 
     #[test]

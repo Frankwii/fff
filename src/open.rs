@@ -211,21 +211,28 @@ impl OpenConfig {
                 )
             })
     }
+    /// The first rule matching the file's extension or name.
+    pub fn rule(&self, path: &Path) -> Option<&Rule> {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default();
+        let lowercase = name.to_lowercase();
+        self.rules.iter().find(|rule| {
+            rule.extensions.iter().any(|e| has_extension(&lowercase, e))
+                || rule
+                    .patterns
+                    .iter()
+                    .any(|p| crate::glob(p).is_ok_and(|g| g.is_match(name.as_ref())))
+        })
+    }
     /// The first rule matching the file's extension or name; else `$EDITOR`.
     pub fn opener(&self, path: &Path) -> Result<Opener, String> {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy())
             .unwrap_or_default();
-        let lowercase = name.to_lowercase();
-        let matched = self.rules.iter().find(|rule| {
-            rule.extensions.iter().any(|e| has_extension(&lowercase, e))
-                || rule
-                    .patterns
-                    .iter()
-                    .any(|p| crate::glob(p).is_ok_and(|g| g.is_match(name.as_ref())))
-        });
-        if let Some(rule) = matched {
+        if let Some(rule) = self.rule(path) {
             return Ok(Opener {
                 line: rule.command.clone(),
                 terminal: rule.terminal,
