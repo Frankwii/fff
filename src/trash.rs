@@ -345,8 +345,13 @@ impl Bin {
         text: &[u8],
     ) -> Result<OsString> {
         let mut base = base.as_bytes().to_vec();
-        // Room for a numeric suffix and ".trashinfo" within NAME_MAX.
-        base.truncate(200);
+        // Room for a numeric suffix and ".trashinfo" within NAME_MAX; a
+        // name in UTF-8 stays so (macOS's filesystems take nothing else).
+        let mut cut = base.len().min(200);
+        if let Ok(name) = std::str::from_utf8(&base) {
+            cut = name.floor_char_boundary(cut);
+        }
+        base.truncate(cut);
         for n in 1..=10_000u32 {
             let mut slot = base.clone();
             if n > 1 {

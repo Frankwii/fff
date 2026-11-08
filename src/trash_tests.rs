@@ -143,6 +143,54 @@ fn equal_names_get_their_own_slots_and_come_back_to_their_own_places() {
     assert_eq!(fs::read(&path).unwrap(), b"long");
 }
 #[test]
+fn a_long_name_is_shortened_between_its_characters() {
+    let f = Fixture::new();
+    let files = bin(&f).join("files");
+    // Two-, three- and four-byte characters across the 200-byte cutoff.
+    for (lead, wide) in [(199, "é"), (199, "€"), (198, "€"), (199, "𝄞"), (197, "𝄞")] {
+        let name = format!("{}{wide}tail", "a".repeat(lead));
+        let one = f.file(&name, b"one");
+        fs::create_dir_all(f.work.join("other")).unwrap();
+        let two = f.work.join("other").join(&name);
+        fs::write(&two, b"two").unwrap();
+        let first = trash_all(&f, vec![one.clone()]);
+        let second = trash_all(&f, vec![two.clone()]);
+        let short = "a".repeat(lead);
+        assert_eq!(listing(&files), [short.clone(), format!("{short}.2")]);
+        assert!(
+            fs::read_dir(&files)
+                .unwrap()
+                .all(|e| e.unwrap().file_name().to_str().is_some())
+        );
+        engine(&f).undo(&record(second)).unwrap();
+        engine(&f).undo(&record(first)).unwrap();
+        assert_eq!(fs::read(&one).unwrap(), b"one");
+        assert_eq!(fs::read(&two).unwrap(), b"two");
+        assert!(listing(&files).is_empty());
+        fs::remove_file(&one).unwrap();
+        fs::remove_file(&two).unwrap();
+    }
+}
+// Names that are not UTF-8 (Linux takes any bytes) are cut where they reach
+// the limit.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_long_name_of_other_bytes_is_shortened_to_its_limit() {
+    use std::os::unix::ffi::OsStrExt;
+    let f = Fixture::new();
+    let name = std::ffi::OsStr::from_bytes(&[0xff; 250]);
+    let path = f.work.join(name);
+    fs::write(&path, b"odd").unwrap();
+    let out = trash_all(&f, vec![path.clone()]);
+    let slots: Vec<_> = fs::read_dir(bin(&f).join("files"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().as_bytes().to_vec())
+        .collect();
+    assert_eq!(slots, [vec![0xff; 200]]);
+    engine(&f).undo(&record(out)).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"odd");
+}
+#[test]
 fn large_entries_ask_and_answers_trash_or_delete_them() {
     let f = Fixture::new();
     let small = f.file("small", b"tiny");
