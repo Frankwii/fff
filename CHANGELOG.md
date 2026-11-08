@@ -25,7 +25,9 @@ history.
   and `pde/` still find what they did. Skipping folders costs the same
   however long their names are when the match goes on at a word start, so letters in runs across folders beat
   letters scattered through one name, and letters matched in the basename
-  count a little more, so a folder comes before what is inside it.
+  count a little more, so a folder comes before what is inside it. A long
+  gap costs in full, however good the letters after it, so letters
+  scattered through a long name rank low even near the top of the tree.
 - **Rankings of large listings use up to 16 threads** rather than 8, fewer
   on machines with fewer.
 

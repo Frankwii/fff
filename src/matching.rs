@@ -5,8 +5,10 @@
 //! query's letters, in order, rewarding runs and word starts (after `_`, `-`,
 //! `.`, a space or a lowercase-to-uppercase step) and penalizing gaps. A
 //! result is scored by its path below its root, a `/` also starting a word:
-//! a gap that crosses a `/` costs `CROSSING` however long it is, and each
-//! letter matched in the basename earns `BASENAME`.
+//! nucleo finds the best alignment, which is then scored as nucleo scores
+//! it but without letting a long gap's cost stop at zero, a gap that skips
+//! folders costing `CROSSING` up to its last `/`, and each letter matched
+//! in the basename earning `BASENAME`.
 use crate::Candidate;
 use nucleo_matcher::{
     Config, Utf32Str,
@@ -44,11 +46,23 @@ thread_local! {
 /// a query names ranks before what is inside it.
 const BASENAME: i64 = 4;
 /// What a gap between matched letters costs up to its last `/`, instead of
-/// nucleo's 3 plus 1 per skipped letter: skipping the rest of a folder's
-/// name and the folders after it is how a path is typed, not a scattered
-/// match. Twice what starting a gap costs. Only a gap landing on a word
-/// start gets it, and the letters skipped after the `/` still cost 1 each.
+/// 3 plus 1 per skipped letter: skipping the rest of a folder's name and the
+/// folders after it is how a path is typed, not a scattered match. Twice
+/// what starting a gap costs. Only a gap landing on a word start gets it,
+/// and the letters skipped after the `/` still cost 1 each.
 const CROSSING: i64 = 6;
+/// nucleo's scoring (`nucleo_matcher::score`): a matched letter, a gap's
+/// first and further letters, the bonuses for a word start after a space,
+/// a `/` or another separator, for camelCase and digits, the least bonus in
+/// a run, and the first letter's multiplier.
+const MATCH: i64 = 16;
+const GAP_START: i64 = 3;
+const GAP_EXTENSION: i64 = 1;
+const BOUNDARY: i64 = MATCH / 2;
+const AFTER_SLASH: i64 = BOUNDARY + 1;
+const CAMEL: i64 = BOUNDARY - GAP_START;
+const CONSECUTIVE: i64 = GAP_START + GAP_EXTENSION;
+const FIRST: i64 = 2;
 
 /// A query lowercased once, for scoring many names.
 pub struct Matcher {
@@ -145,16 +159,19 @@ impl Matcher {
         self.score_path(&relative(c))
     }
     /// Score a path below a root (components joined by `/`, the basename
-    /// last): nucleo's score of its best alignment, with each gap crossing a
-    /// `/` costing `CROSSING` instead, plus `BASENAME` for each letter the
-    /// alignment puts in the basename.
+    /// last): nucleo's best alignment, scored as nucleo does with
+    /// `match_paths` but with every gap charged in full (nucleo stops a
+    /// score at zero, so a long gap costs no more than what came before
+    /// it), a gap skipping folders to a word start costing `CROSSING` up to
+    /// its last `/`, and `BASENAME` for each letter in the basename.
     pub fn score_path(&self, path: &str) -> Option<i64> {
         if self.letters.is_empty() {
             return Some(0);
         }
         let mut at = Vec::new();
-        let mut score = i64::from(self.nucleo(path, true, Some(&mut at))?);
+        self.nucleo(path, true, Some(&mut at))?;
         at.sort_unstable();
+        at.dedup();
         // The path's characters, read from its bytes when it is ASCII.
         let ascii = path.is_ascii();
         let wide: Vec<char> = if ascii {
@@ -169,17 +186,32 @@ impl Matcher {
                 wide[i]
             }
         };
+        let bonus = |i: usize| match i.checked_sub(1) {
+            Some(before) => bonus(class(char_at(before)), class(char_at(i))),
+            None => bonus(Class::Delimiter, class(char_at(0))),
+        };
+        let mut first = bonus(at[0] as usize);
+        let mut score = MATCH + first * FIRST;
         for pair in at.windows(2) {
             let (from, to) = (pair[0] as usize + 1, pair[1] as usize);
-            let Some(slash) = (from..to).rev().find(|&i| char_at(i) == '/') else {
-                continue;
-            };
-            if word_start(char_at(to - 1), char_at(to)) {
-                // nucleo charged 3 for the gap's first letter, 1 for each other.
-                let charged = (to - from) as i64 + 2;
-                let landing = (to - slash - 1) as i64;
-                score += (charged - CROSSING - landing).max(0);
+            let mut own = bonus(to);
+            if from == to {
+                // In a run, a letter earns at least the run's best word start.
+                if own >= BOUNDARY && own > first {
+                    first = own;
+                }
+                own = own.max(first).max(CONSECUTIVE);
+            } else {
+                let gap = GAP_START + GAP_EXTENSION * (to - from - 1) as i64;
+                let folders = (from..to)
+                    .rev()
+                    .find(|&i| char_at(i) == '/')
+                    .filter(|_| own >= CAMEL)
+                    .map(|slash| CROSSING + GAP_EXTENSION * (to - slash - 1) as i64);
+                score -= folders.map_or(gap, |folders| folders.min(gap));
+                first = own;
             }
+            score += MATCH + own;
         }
         let basename = path.rsplit('/').next().unwrap_or(path);
         let start = if ascii {
@@ -192,10 +224,53 @@ impl Matcher {
     }
 }
 
-/// Whether `c` after `before` starts a word: after a separator or a space,
-/// or an uppercase letter after a lowercase one, as nucleo's bonuses have it.
-fn word_start(before: char, c: char) -> bool {
-    !before.is_alphanumeric() || (before.is_lowercase() && c.is_uppercase())
+/// A character's class, as nucleo's (`chars::CharClass`) with `match_paths`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Class {
+    Whitespace,
+    NonWord,
+    Delimiter,
+    Lower,
+    Upper,
+    Letter,
+    Number,
+}
+fn class(c: char) -> Class {
+    if c == '/' {
+        Class::Delimiter
+    } else if c.is_whitespace() {
+        Class::Whitespace
+    } else if c.is_lowercase() {
+        Class::Lower
+    } else if c.is_uppercase() {
+        Class::Upper
+    } else if c.is_numeric() {
+        Class::Number
+    } else if c.is_alphabetic() {
+        Class::Letter
+    } else {
+        Class::NonWord
+    }
+}
+/// A letter's bonus after the one before it, as nucleo's `Config::bonus_for`.
+fn bonus(before: Class, class: Class) -> i64 {
+    if class > Class::Delimiter {
+        match before {
+            Class::Whitespace => return BOUNDARY,
+            Class::Delimiter => return AFTER_SLASH,
+            Class::NonWord => return BOUNDARY,
+            _ => {}
+        }
+    }
+    if before == Class::Lower && class == Class::Upper
+        || before != Class::Number && class == Class::Number
+    {
+        CAMEL
+    } else if matches!(class, Class::Whitespace | Class::NonWord) {
+        BOUNDARY
+    } else {
+        0
+    }
 }
 /// A result's path below its root, the basename last: its last `depth`
 /// components joined by `/`, borrowed from its path when that is UTF-8.
@@ -246,10 +321,12 @@ fn skipped_folders_cost_less_than_scattered_letters() {
         m.score_path("Desktop/books/coding/the_C_programming_language_kernighan_ritchie.pdf");
     assert!(folders > scattered, "{folders:?} {scattered:?}");
     assert!(folders > m.score_path("Desktop/documents/trabajo/fueib/titularidad_banco.pdf"));
-    // Skipping into the middle of a long name, or of a word, is scattered.
+    // Skipping into the middle of a long name, or of a word, is scattered,
+    // and so is a long gap, however good what follows it.
     for stray in [
         "Desktop/documents/phd/contractes/fpi/Fitxa dades personals contractació-Ficha datos personales contratación-Personal data sheet recruitment.pdf",
         "testdir/phd/courses/summer_school_on_pattern_formation/handwritten_notes/Spatial_patterns_in_biology.pdf",
+        "Downloads/Introduction to the theory of linear nonselfadjoint operators (Gohberg, I. (Israel) ,1928-, Kreĭn etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
     ] {
         assert!(folders > m.score_path(stray), "{stray}");
     }
