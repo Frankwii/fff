@@ -346,5 +346,5 @@ starts a preprocessor for every file on every search (1.85 s and about 25 CPU-se
 Behavior, keybindings and persistence for these features remain to be designed
 when the work is requested.
 
-The current release is 0.22.0. Version 1.0 is planned once the roadmap before
+The current release is 0.22.1. Version 1.0 is planned once the roadmap before
 [Post-launch](#post-launch) is implemented. Earlier versions will not be retroactively renumbered.

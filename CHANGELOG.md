@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.22.1 — 2026-11-08
+
+Keys that feel more like Neovim's: j and k go down from the query into
+the results, g. toggles hidden entries and gc works from the query.
 
 ### Changed
 
