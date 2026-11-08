@@ -155,7 +155,7 @@ mod tests {
     use std::time::Instant;
 
     fn wait(watcher: &PaletteWatcher) -> Result<PaletteState, String> {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(300);
         loop {
             if let Some(update) = watcher.updates().pop() {
                 return update;

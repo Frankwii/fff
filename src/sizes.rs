@@ -947,7 +947,7 @@ mod tests {
             sizes.want(path, PathBuf::from("/"));
         }
         sizes.commit();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(300);
         let done = |p: &PathBuf| {
             let state = sizes.shared.state.lock().unwrap();
             state.tree.lookup(p).is_some_and(|at| state.tree.fresh(at))
@@ -961,7 +961,7 @@ mod tests {
         size.map(|s| s.bytes)
     }
     fn wait_for(sizes: &Sizes, path: &Path, want: u64) -> Option<u64> {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(300);
         while bytes(sizes.get(path)) != Some(want) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(2));
         }

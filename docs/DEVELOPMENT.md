@@ -329,6 +329,20 @@ tests that need a user namespace (`unshare`), names that are not UTF-8
 early, and fixtures canonicalize their temporary directory, which is below the
 `/var` symlink there.
 
+Tests pass however slow or busy the machine is, and never fail by chance:
+
+- **Waiting for something** (a scan, a job, a frame on the PTY) has a
+  deadline of minutes, which only something broken reaches: `WAIT` in the
+  PTY suite, 300 s in the Rust tests. Waiting longer costs a passing test
+  nothing.
+- **How quick something is** is measured in processor time, which a busy
+  machine does not stretch, and against the same work on fewer rows rather
+  than a fixed budget, so that a slow machine passes and quadratic work
+  fails on any machine (`tests/quick_operations.rs`, the many-marks test in
+  `src/ui/jobs.rs`).
+- **Order between processes** is waited for, not assumed: a test starts the
+  next step once the previous one is seen to have happened.
+
 GitHub Actions (`.github/workflows/ci.yml`) runs these on Linux and macOS,
 with Neovim 0.12, after every push to `main` and on pull requests. The stress
 tests run there only when started by hand: `gh workflow run ci.yml -f
@@ -360,10 +374,11 @@ and mark reconciliation. Some safety tests create temporary Unix sockets and
 need an environment that permits them.
 
 The Rust tests cover state transitions, discovery, caching, configuration,
-completion, frames and exact output bytes. `tests/quick_operations.rs` times what
-a key waits for on 30 000 rows (each query key's ranking, `G`/`gg`, `m`/`M`,
-printing paths, scoring, natural ordering) against budgets generous enough
-for a debug build, so that only work growing out of proportion fails them. `tests/acceptance.rs` injects decoded
+completion, frames and exact output bytes. `tests/quick_operations.rs` measures
+what a key waits for (each query key's ranking, `G`/`gg`, `m`/`M`, printing
+paths, scoring, natural ordering) on 30 000 rows and on 3 000, in processor
+time: work ten times the rows take far more than ten times as long for, as
+quadratic work does, fails them. `tests/acceptance.rs` injects decoded
 input and discovery events; `tests/discovery_cache.rs` covers filesystem fixtures
 and snapshot reconciliation. Neovim tests use the installed engine and skip when
 it is unavailable.

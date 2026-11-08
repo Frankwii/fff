@@ -31,6 +31,10 @@ tempfile.tempdir = os.path.realpath("/tmp" if sys.platform == "darwin" else temp
 SHIFT_SPACE = b"\x1b[32;2u"
 BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
 SMOKE_KEYS = Path(__file__).with_name("smoke_keys.toml")
+# How long a test waits for what it expects, in seconds: what takes a
+# moment here can take many on a busy machine, and waiting longer costs a
+# passing test nothing.
+WAIT = 120
 
 
 def smoke_keys(folder):
@@ -151,7 +155,7 @@ class Session:
             self.send(b"\x1b[27u", "NORMAL")
             self.send(b"\x1b[27u")
 
-    def wait_ui(self, token, after=None, timeout=5):
+    def wait_ui(self, token, after=None, timeout=WAIT):
         deadline = time.monotonic() + timeout
         location = token[1] if isinstance(token, tuple) else None
         token = token.decode("utf-8") if isinstance(token, bytes) else token
@@ -176,7 +180,7 @@ class Session:
                     return
         raise AssertionError(f"UI did not show {token!r}:\n{self.screen.text}")
 
-    def wait_absent(self, token, timeout=5):
+    def wait_absent(self, token, timeout=WAIT):
         deadline = time.monotonic() + timeout
         while token in self.screen.text and time.monotonic() < deadline:
             if select.select([self.master], [], [], 0.05)[0]:
@@ -191,7 +195,7 @@ class Session:
             data = self.ui[after:]
             position = data.find(token)
             return position >= 0 and b"\x1b[?2026l" in data[position:]
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WAIT
         while not committed() and time.monotonic() < deadline:
             if select.select([self.master], [], [], 0.02)[0]:
                 chunk = os.read(self.master, 65536)
@@ -199,7 +203,7 @@ class Session:
         if not committed():
             raise AssertionError(f"UI did not emit {token!r} in a completed frame")
 
-    def wait_raw(self, token, timeout=5):
+    def wait_raw(self, token, timeout=WAIT):
         # Output outside fff's frames (e.g. after it hands over the terminal).
         deadline = time.monotonic() + timeout
         while token not in self.ui and time.monotonic() < deadline:
@@ -246,7 +250,7 @@ class Session:
             self.wait_ui(wait, after=after)
 
     def finish(self):
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WAIT
         while time.monotonic() < deadline:
             pid, status = os.waitpid(self.pid, os.WNOHANG)
             if pid:
@@ -1294,7 +1298,7 @@ class TerminalTests(unittest.TestCase):
             s = self.start("seek", "--config", str(config))
             s.send(b"\x1bh", "does not work in fff seek")
             started = time.monotonic()
-            s.wait_absent("does not work in fff seek", timeout=4)
+            s.wait_absent("does not work in fff seek")
             self.assertGreaterEqual(time.monotonic() - started, 0.8)
             s.send(b"\x03")
             self.assertEqual(s.finish(), (130, b""))
@@ -1394,7 +1398,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start("seek", "--depth", "2", implicit_root=True)
         s.send(b"", b"nested.txt")
         def highlight(name):
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + WAIT
             while time.monotonic() < deadline:
                 if any("›" in l and name in l for l in s.screen.text.splitlines()):
                     return
@@ -1724,7 +1728,7 @@ class TerminalTests(unittest.TestCase):
         order = lambda: [b["name"] for b in tomllib.loads(config.read_text())["workspaces"]]
 
         def wait_order(expected):
-            deadline = time.monotonic() + 5
+            deadline = time.monotonic() + WAIT
             while order() != expected and time.monotonic() < deadline:
                 s.drain(0.02)
             self.assertEqual(order(), expected)
@@ -2792,7 +2796,7 @@ class TerminalTests(unittest.TestCase):
         (trash / "info/recent.trashinfo").write_text(f"[Trash Info]\nPath=/x/recent\nDeletionDate={recent}\n")
         (trash / "info/undated.trashinfo").write_text("[Trash Info]\nPath=/x/undated\n")
         s = self.start(implicit_root=True)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WAIT
         while (trash / "files/old").exists() and time.monotonic() < deadline:
             time.sleep(0.02)
         self.assertEqual(sorted(os.listdir(trash / "files")), ["recent", "undated"])
@@ -2801,7 +2805,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
         # A shorter setting purges sooner.
         s = self.session = Session(self.root, "--config", self.config("[trash]\ndays = 2\n"), implicit_root=True)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WAIT
         while (trash / "files/recent").exists() and time.monotonic() < deadline:
             time.sleep(0.02)
         self.assertEqual(os.listdir(trash / "files"), ["undated"])
@@ -2829,7 +2833,7 @@ class TerminalTests(unittest.TestCase):
             s.send(b"\x1b[27uitarget", "❯ target")
             s.send(b"\x1b[27u\x1b[27ul", ("cwd", target))
             s.send(b"p", "Copying tree")
-            s.wait_ui(" of 4.9 MiB · ", timeout=10)
+            s.wait_ui(" of 4.9 MiB · ")
             # It takes its marks as it starts, and runs in the jobs list.
             self.assertIn("Jobs (1)", s.screen.text)
             self.assertIn("Marks (0)", s.screen.text)
@@ -2881,10 +2885,10 @@ class TerminalTests(unittest.TestCase):
         # with it waits, and the folder it deletes cannot be entered.
         s.send(b"X", "Delete permanently")
         s.send(b"\r", "Deleting tree")
-        s.wait_ui(" of 80001 entries · ", timeout=15)
+        s.wait_ui(" of 80001 entries · ")
         s.send(b"x", "Deleting tree uses tree; wait for it to finish")
         s.send(b"l", "tree is being moved or deleted")
-        s.wait_ui("Deleted tree permanently", timeout=30)
+        s.wait_ui("Deleted tree permanently")
         self.assertFalse(tree.exists())
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -2902,11 +2906,11 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u\x1b[27uitarget", "❯ target")
         s.send(b"\x1b[27u\x1b[27ul", ("cwd", target))
         s.send(b"p", "Copying tree")
-        s.wait_ui(" of 4.9 MiB · ", timeout=10)
+        s.wait_ui(" of 4.9 MiB · ")
         # The terminal goes away mid-copy: fff gets SIGHUP and its screen is
         # gone, yet the copy is published whole before fff ends. Syncing
         # 80,000 files takes over a minute on slow disks (CI's macOS).
-        self.assertEqual(self.hang_up(s, timeout=180), -signal.SIGHUP)
+        self.assertEqual(self.hang_up(s, timeout=max(WAIT, 180)), -signal.SIGHUP)
         self.assertEqual(os.listdir(target), ["tree"])
         self.assertEqual(len(os.listdir(target / "tree")), 80000)
 
@@ -2958,7 +2962,7 @@ class TerminalTests(unittest.TestCase):
             if victim.exists():
                 self.assertEqual(len(os.listdir(victim)), 20000, delay)
 
-    def hang_up(self, s, timeout=5):
+    def hang_up(self, s, timeout=WAIT):
         """Closes the terminal under `s` and returns how fff ended."""
         os.close(s.master)
         s.master = os.open(os.devnull, os.O_RDWR)
@@ -3465,7 +3469,7 @@ class TerminalTests(unittest.TestCase):
         return next((l for l in s.screen.text.splitlines() if "›" in l and "❯" not in l), "")
 
     def wait_highlight(self, s, name):
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + WAIT
         while name not in self.highlighted(s) and time.monotonic() < deadline:
             if select.select([s.master], [], [], 0.05)[0]:
                 chunk = os.read(s.master, 65536)
@@ -3775,7 +3779,7 @@ class TerminalTests(unittest.TestCase):
         config.write_text((f"[open]\nterminal = {terminal!r}\n" if terminal else "") + rules)
         return env, config, log
 
-    def wait_file(self, path, lines, timeout=5):
+    def wait_file(self, path, lines, timeout=WAIT):
         # Background programs write their log on their own schedule.
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

@@ -287,7 +287,7 @@ mod tests {
         let start = Instant::now();
         while prefetch.job.is_some() {
             prefetch.tick(app, true, now, None);
-            assert!(start.elapsed() < Duration::from_secs(2));
+            assert!(start.elapsed() < Duration::from_secs(300));
             thread::yield_now();
         }
     }
@@ -393,7 +393,7 @@ mod tests {
         let start = Instant::now();
         while app.scanning {
             discovery.drain(app);
-            assert!(start.elapsed() < Duration::from_secs(2));
+            assert!(start.elapsed() < Duration::from_secs(300));
             thread::yield_now();
         }
     }
@@ -418,7 +418,7 @@ mod tests {
         d.idle(&app, true, now);
         d.idle(&app, true, now + Duration::from_millis(501));
         // Woken by the bounded speculative job, without a keyboard event or sleeps.
-        waking.recv_timeout(Duration::from_secs(2)).unwrap();
+        waking.recv_timeout(Duration::from_secs(300)).unwrap();
         app.navigate(f.0.join("child"), false);
         d.start(&mut app, true);
         assert!(
@@ -524,7 +524,7 @@ mod tests {
         let start = Instant::now();
         while p.job.is_some() {
             p.tick(&app, false, now, None);
-            assert!(start.elapsed() < Duration::from_secs(2));
+            assert!(start.elapsed() < Duration::from_secs(300));
             thread::yield_now();
         }
         assert!(p.seeds.is_empty());

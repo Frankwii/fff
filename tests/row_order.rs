@@ -469,7 +469,7 @@ fn forgotten_and_replaced_paths_leave_the_rows_in_order() {
         let start = std::time::Instant::now();
         while app.scanning || !app.settled() {
             discovery.drain(app);
-            assert!(start.elapsed() < Duration::from_secs(10), "scan timed out");
+            assert!(start.elapsed() < Duration::from_secs(300), "scan timed out");
             std::thread::yield_now();
         }
     };

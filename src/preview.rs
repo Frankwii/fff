@@ -1478,7 +1478,7 @@ mod tests {
         // Once rested, the preview is read in the background.
         pane.tick(Some(key(&file)), start + DWELL);
         assert_eq!(pane.remaining(start + DWELL), None);
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(300);
         while pane.current().is_none() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
             pane.tick(Some(key(&file)), start + DWELL);
@@ -1521,7 +1521,7 @@ mod tests {
         assert!(!pane.tick(Some(key.clone()), start + DWELL));
         pane.reading.fetch_sub(1, Ordering::Relaxed);
         pane.tick(Some(key.clone()), start + DWELL);
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(300);
         while pane.current().unwrap().lines[0].0 != "one" && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
             pane.tick(Some(key.clone()), start + DWELL);

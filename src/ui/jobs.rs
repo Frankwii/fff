@@ -1243,7 +1243,7 @@ mod tests {
         );
         undo(&mut app, &mut discovery);
         while let Some(job) = app.jobs.first() {
-            let result = job.poll(Duration::from_secs(5)).unwrap();
+            let result = job.poll(Duration::from_secs(300)).unwrap();
             let job = app.jobs.remove(0);
             ended(&mut app, &mut discovery, job, result);
         }
@@ -1271,7 +1271,7 @@ mod tests {
         };
         perform_operation(&mut app, &mut discovery, &mut focus, request, false);
         while let Some(job) = app.jobs.first() {
-            let result = job.poll(Duration::from_secs(5)).unwrap();
+            let result = job.poll(Duration::from_secs(300)).unwrap();
             let job = app.jobs.remove(0);
             ended(&mut app, &mut discovery, job, result);
         }
@@ -1294,13 +1294,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    #[test]
-    fn starting_an_operation_on_many_marks_is_quick() {
-        let dir = scratch("many marks");
+    /// The processor time this thread has used: what a busy machine does
+    /// not stretch, as it stretches the time waited.
+    fn thread_time() -> Duration {
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `now` is a valid timespec for the call to fill.
+        let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+        assert_eq!(status, 0, "{}", std::io::Error::last_os_error());
+        Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
+    }
+
+    /// The processor time starting a deletion of `count` marked entries
+    /// takes this thread, once the marks are in place.
+    fn start_on_marks(count: usize) -> Duration {
+        let dir = scratch(&format!("many marks {count}"));
         let mut app = App::browse(dir.clone(), 1, crate::Policy::default());
         let mut discovery = Discovery::new(Default::default());
         let mut focus = Focus::Results;
-        let sources: Vec<PathBuf> = (0..30_000)
+        let sources: Vec<PathBuf> = (0..count)
             .map(|i| dir.join(format!("missing-{i:05}")))
             .collect();
         app.marks = sources.clone().into();
@@ -1310,20 +1324,35 @@ mod tests {
             confirmed: vec![],
             trash: vec![],
         };
-        // A regression to comparing every mark with every source takes
-        // minutes in an unoptimized build; slow machines (CI's macOS) take
-        // a few seconds without one.
-        let start = std::time::Instant::now();
+        let start = thread_time();
         perform_operation(&mut app, &mut discovery, &mut focus, request, false);
-        let took = start.elapsed();
-        assert!(took < Duration::from_secs(30), "took {took:?}");
+        let took = thread_time() - start;
         assert_eq!(app.marks.to_vec(), [dir.join("kept")]);
         while let Some(job) = app.jobs.first() {
-            let result = job.poll(Duration::from_secs(5)).unwrap();
+            // However long a busy machine makes it.
+            let result = loop {
+                if let Some(result) = job.poll(Duration::from_secs(1)) {
+                    break result;
+                }
+            };
             let job = app.jobs.remove(0);
             ended(&mut app, &mut discovery, job, result);
         }
         std::fs::remove_dir_all(dir).unwrap();
+        took
+    }
+
+    #[test]
+    fn starting_an_operation_on_many_marks_is_quick() {
+        // Ten times the marks take about ten times the work; a regression
+        // to comparing every mark with every source, about a hundred times
+        // (49 s against 0.5 s in an unoptimized build). The ratio is the
+        // same on a fast machine and a slow one, and a busy one does not
+        // change the work, unlike the time it takes.
+        let few = start_on_marks(3_000);
+        let many = start_on_marks(30_000);
+        let ratio = many.as_secs_f64() / few.as_secs_f64().max(1e-6);
+        assert!(ratio < 30.0, "{few:?} for 3000 marks, {many:?} for 30000");
     }
 
     #[test]

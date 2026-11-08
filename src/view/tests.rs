@@ -183,7 +183,7 @@ fn rows_and_footer_show_details_that_fit() {
     };
     // Details and folders' sizes arrive from workers, asked for by a drawn
     // frame; until then the column is blank.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
     let mut wide = draw(&mut app, 100);
     assert!(!wide.contains("1.6K"), "{wide}");
     while !wide.contains("1.6K") && std::time::Instant::now() < deadline {
@@ -714,7 +714,7 @@ fn match_rows_fit_their_labels_and_keep_them_until_relabelled() {
     app.set_contents("canard".into());
     let start = std::time::Instant::now();
     while app.grep.progress().is_some() || app.shown().is_empty() {
-        assert!(start.elapsed() < std::time::Duration::from_secs(10));
+        assert!(start.elapsed() < std::time::Duration::from_secs(300));
         app.poll_grep();
         std::thread::sleep(std::time::Duration::from_millis(5));
     }

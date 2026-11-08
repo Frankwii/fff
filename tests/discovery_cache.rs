@@ -44,7 +44,7 @@ fn complete(discovery: &mut Discovery, app: &mut App) {
     let start = Instant::now();
     while app.scanning {
         discovery.drain(app);
-        assert!(start.elapsed() < Duration::from_secs(5), "scan timed out");
+        assert!(start.elapsed() < Duration::from_secs(300), "scan timed out");
         std::thread::yield_now();
     }
 }
@@ -597,7 +597,7 @@ fn worker_notifies_ui_without_keyboard_input() {
     d.set_waker(wake);
     d.start(&mut app, true);
     waking
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(Duration::from_secs(300))
         .expect("discovery must wake a sleeping UI");
     complete(&mut d, &mut app);
     assert_eq!(app.rows.len(), 1);
@@ -700,7 +700,7 @@ fn a_ranking_on_another_thread_leaves_the_loop_idle_until_it_is_done() {
     // Nothing to merge or draw until the ranking thread wakes the loop.
     assert!(!d.catching_up(&app));
     assert!(!d.drain(&mut app));
-    woken.recv_timeout(Duration::from_secs(10)).unwrap();
+    woken.recv_timeout(Duration::from_secs(300)).unwrap();
     assert!(app.poll_ranking());
     assert!(!d.catching_up(&app) && app.settled());
     assert_eq!(app.rows.len(), 20_001);

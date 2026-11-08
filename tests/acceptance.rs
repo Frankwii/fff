@@ -351,7 +351,7 @@ fn complete(scan: &mut Scan, app: &mut App) {
     let start = Instant::now();
     while app.scanning {
         scan.drain(app);
-        assert!(start.elapsed() < Duration::from_secs(5));
+        assert!(start.elapsed() < Duration::from_secs(300));
         std::thread::yield_now();
     }
 }
@@ -1091,7 +1091,7 @@ fn large_rankings_run_in_the_background_and_match_ranking_in_place() {
             here.query = query.into();
             here.refresh();
             if background.ranking_pending() {
-                woken.recv_timeout(Duration::from_secs(10)).unwrap();
+                woken.recv_timeout(Duration::from_secs(300)).unwrap();
                 assert!(background.poll_ranking());
             }
             assert_eq!(rows(&background), rows(&here), "query {query:?}");
@@ -1160,7 +1160,7 @@ fn a_contents_query_shows_one_row_per_match_in_the_files_names_choose() {
     assert_eq!(app.shown().len(), 3);
     let settle = |app: &mut App| {
         let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(10) {
+        while start.elapsed() < std::time::Duration::from_secs(300) {
             app.poll_grep();
             if app.grep.progress().is_none() {
                 return;
@@ -1295,7 +1295,7 @@ fn the_highlighted_match_stays_as_matches_arrive_above_it() {
     };
     let settle = |app: &mut App| {
         let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(10) {
+        while start.elapsed() < std::time::Duration::from_secs(300) {
             app.poll_grep();
             if app.grep.progress().is_none() {
                 return;
@@ -1344,7 +1344,7 @@ fn files_changed_during_a_contents_query_are_searched_again() {
     app.refresh();
     let settle = |app: &mut App| {
         let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(10) {
+        while start.elapsed() < std::time::Duration::from_secs(300) {
             app.poll_grep();
             if app.grep.progress().is_none() {
                 return;
@@ -1392,7 +1392,7 @@ fn a_file_with_too_many_matches_says_it_shows_only_the_first() {
     app.refresh();
     let settle = |app: &mut App| {
         let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(10) {
+        while start.elapsed() < std::time::Duration::from_secs(300) {
             app.poll_grep();
             if app.grep.progress().is_none() {
                 return;

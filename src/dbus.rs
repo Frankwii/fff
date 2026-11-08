@@ -640,17 +640,31 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_private_bus_starts_fff_on_each_item() {
+    /// Waits for `done`, however long a busy machine makes it; minutes
+    /// mean something is broken.
+    fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
+        let started = std::time::Instant::now();
+        while !done() {
+            assert!(
+                started.elapsed() < Duration::from_secs(300),
+                "gave up waiting for {what}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// A bus of its own in a new folder named after `name`, and its
+    /// address; `None` without dbus-daemon and dbus-send.
+    fn private_bus(name: &str) -> Option<(std::process::Child, String, PathBuf)> {
         let tools = ["dbus-daemon", "dbus-send"];
         if tools
             .iter()
             .any(|t| Command::new(t).arg("--version").output().is_err())
         {
             eprintln!("dbus-daemon or dbus-send unavailable; skipping");
-            return;
+            return None;
         }
-        let dir = std::env::temp_dir().join(format!("fff-dbus-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fff-dbus-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("bus");
@@ -668,18 +682,25 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut daemon = Command::new("dbus-daemon")
+        let daemon = Command::new("dbus-daemon")
             .arg(format!("--config-file={}", config.display()))
             .arg("--nofork")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        let started = std::time::Instant::now();
-        while !socket.exists() && started.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let address = format!("unix:path={}", socket.display());
+        // The socket exists a moment before the bus listens on it.
+        wait_for("the bus", || {
+            std::os::unix::net::UnixStream::connect(&socket).is_ok()
+        });
+        Some((daemon, format!("unix:path={}", socket.display()), dir))
+    }
+
+    #[test]
+    fn a_private_bus_starts_fff_on_each_item() {
+        let Some((mut daemon, address, dir)) = private_bus("items") else {
+            return;
+        };
         let log = dir.join("log");
         let launcher = dir.join("open-folder");
         std::fs::write(
@@ -692,13 +713,16 @@ mod tests {
             std::os::unix::fs::PermissionsExt::from_mode(0o755),
         )
         .unwrap();
+        // Idle for this long, it would end before the test does; the bus
+        // going away ends it instead.
         let service = {
             let (address, launcher) = (address.clone(), launcher.clone());
-            std::thread::spawn(move || serve(Some(&address), &launcher, Duration::from_secs(2)))
+            std::thread::spawn(move || serve(Some(&address), &launcher, Duration::from_secs(3600)))
         };
         let send = |member: &str, uri: &str| {
-            let mut tries = 0;
-            loop {
+            let mut sent = false;
+            // The service may not own the name yet.
+            wait_for("the service to answer", || {
                 let output = Command::new("dbus-send")
                     .arg(format!("--bus={address}"))
                     .args(["--print-reply", "--dest=org.freedesktop.FileManager1"])
@@ -708,28 +732,38 @@ mod tests {
                     .arg("string:")
                     .output()
                     .unwrap();
-                // The service may not own the name yet.
-                if output.status.success() || tries == 50 {
-                    return output.status.success();
-                }
-                tries += 1;
-                std::thread::sleep(Duration::from_millis(50));
-            }
+                sent = output.status.success();
+                sent || service.is_finished()
+            });
+            sent
         };
+        let logged = || std::fs::read_to_string(&log).unwrap_or_default();
+        // Each launcher runs on its own: the next call waits for it, so
+        // that the two do not race to the log.
         assert!(send("ShowItems", "file:///downloads/My%20paper.pdf"));
+        wait_for("the first launcher", || !logged().is_empty());
+        assert_eq!(logged(), "/downloads/My paper.pdf\n");
         assert!(send("ShowFolders", "file:///downloads"));
-        let wanted = "/downloads/My paper.pdf\n/downloads\n";
-        let started = std::time::Instant::now();
-        while std::fs::read_to_string(&log).unwrap_or_default() != wanted
-            && started.elapsed() < Duration::from_secs(5)
-        {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        assert_eq!(std::fs::read_to_string(&log).unwrap_or_default(), wanted);
-        // Idle, it exits, having owned the name.
-        assert!(service.join().unwrap().unwrap());
-        let _ = daemon.kill();
-        let _ = daemon.wait();
+        wait_for("the second launcher", || logged().lines().count() == 2);
+        assert_eq!(logged(), "/downloads/My paper.pdf\n/downloads\n");
+        daemon.kill().unwrap();
+        daemon.wait().unwrap();
+        // Its bus gone, it ends: an end of file, or a reset connection.
+        assert!(service.join().unwrap().is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_service_called_by_nobody_ends_having_owned_the_name() {
+        let Some((mut daemon, address, dir)) = private_bus("idle") else {
+            return;
+        };
+        // Nothing calls it, so however late its wait starts it ends idle.
+        let launcher = dir.join("never-run");
+        assert!(serve(Some(&address), &launcher, Duration::from_millis(100)).unwrap());
+        assert!(!launcher.exists());
+        daemon.kill().unwrap();
+        daemon.wait().unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

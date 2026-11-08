@@ -23,14 +23,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # Ubuntu's Neovim is too old; fff embeds one in every text field. The
+      # release is kept between runs, so GitHub's downloads failing for a
+      # while (504s) does not fail the run.
+      - name: Neovim release, kept between runs
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/nvim-linux-x86_64.tar.gz
+          key: nvim-v0.12.6-linux-x86_64
       - name: libarchive and Neovim
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-dev
-          # Ubuntu's Neovim is too old; fff embeds one in every text field.
-          curl -fsSL --retry 5 --retry-all-errors https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz \
-            | sudo tar -xz -C /opt
+          if [ ! -s ~/nvim-linux-x86_64.tar.gz ]; then
+            curl -fsSL --retry 10 --retry-all-errors --retry-max-time 600 -o ~/nvim-linux-x86_64.tar.gz \
+              https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz
+          fi
+          sudo tar -xzf ~/nvim-linux-x86_64.tar.gz -C /opt
           echo /opt/nvim-linux-x86_64/bin >> "$GITHUB_PATH"
           # The mount tests make bind mounts in a user namespace.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

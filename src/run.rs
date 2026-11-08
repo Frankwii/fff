@@ -803,7 +803,8 @@ some prose mentioning --not-a-flag
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let started = std::time::Instant::now();
         assert!(flags(&script, "definitely-no-man-page-xyz", &dir).is_empty());
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        // Long before the background sleep ends, however busy the machine.
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
         let quick = dir.join("quick");
         fs::write(&quick, "#!/bin/sh\n( : > /dev/tty ) 2>/dev/null && echo '  --had-a-tty'\necho '  -q, --quiet  hush' >&2\n").unwrap();
         fs::set_permissions(&quick, fs::Permissions::from_mode(0o755)).unwrap();

@@ -579,7 +579,7 @@ mod tests {
         assert_eq!(details.info(&dir.join("sub/a")).unwrap().size, 3);
         assert_eq!(details.info(&dir.join("nothing")), None);
         assert_eq!(details.count(&dir.join("sub")), None);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
         while !details.drain() && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -603,7 +603,7 @@ mod tests {
         let (wake, woken) = mpsc::sync_channel(1);
         details.set_waker(wake);
         let settle = |details: &Details| {
-            woken.recv_timeout(Duration::from_secs(5)).unwrap();
+            woken.recv_timeout(Duration::from_secs(300)).unwrap();
             assert!(details.drain());
         };
         // Unknown until the worker answers; then known, missing or not.
@@ -635,7 +635,7 @@ mod tests {
             account_name(&(false, info.gid))
         );
         // The user's and the group's names may arrive separately.
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
         while details.owner(&info) != names && std::time::Instant::now() < deadline {
             let _ = woken.recv_timeout(Duration::from_millis(50));
             details.drain();

@@ -378,7 +378,7 @@ mod tests {
             lines,
             Arc::new(AtomicBool::new(false)),
         )
-        .recv_timeout(Duration::from_secs(10))
+        .recv_timeout(Duration::from_secs(300))
         .unwrap();
         assert_eq!(answer[0], vec![(0, 7, Syntax::Comment)]);
         assert_eq!(answer[1].first(), Some(&(0, 2, Syntax::Keyword)));
