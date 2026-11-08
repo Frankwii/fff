@@ -121,21 +121,19 @@ depth. Default depth is **1** (**3** in `fff pick`, **6** in `fff seek`); immedi
 1. Shallower matches come first, followed within each depth by directories
 and fuzzy ranking; `fff pick` and `fff seek` rank by fuzzy score
 first, then depth. The depth is shown on the results' bottom border, under the count.
-Matching is a case-insensitive ordered subsequence of the basename, scored as
-fzf does: the best alignment of the query's letters, so runs and word starts
-(after `_`, `-`, `.`, a space or a lowercase-to-uppercase step) beat letters
-scattered from the start, however long the name. Latin accents are ignored
-unless the query has some: `evaluacion` finds `Evaluación`.
-
-A query containing `/` matches the path below the result's root instead, so
-`pde/stab` lists `pde/notes/stability.tex` but not `notes/stability.tex`.
-Each `/`-separated part is a subsequence of a component, the components in
-order, and the last part matches the basename: `pde/` lists everything inside
-folders matching `pde`, and a leading `/` (`/stab`) only switches to path
-ranking. Parts naming whole components, and parts on consecutive components,
-rank higher; the matched letters are highlighted along the whole label. Depth
-still weighs against the match, and directories come first among matches as
-good (see [sorting](#sorting)).
+Matching is a case-insensitive ordered subsequence of the path below the
+result's root, folders included, scored as fzf does: the best alignment of
+the query's letters, so runs and word starts (after `_`, `-`, `.`, `/`, a
+space or a lowercase-to-uppercase step) beat letters scattered from the
+start, however long the name. `pdestab` finds `pde/notes/stability.tex`, and
+a `/` is a letter like any other, so `pde/stab` finds it too and `pde/` lists
+what is inside folders matching `pde`. A path whose basename has the query's
+letters in order as well ranks higher, a level of depth's worth, so `notes`
+lists the folder `notes` before the files inside it. Latin accents are
+ignored unless the query has some: `evaluacion` finds `Evaluación`. The
+matched letters are highlighted along the whole label. Depth still weighs
+against the match, and directories come first among matches as good (see
+[sorting](#sorting)).
 
 Enter depends on the editing mode:
 

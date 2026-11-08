@@ -3,13 +3,15 @@
 //!
 //! A name is scored by nucleo, fzf's algorithm: the best alignment of the
 //! query's letters, in order, rewarding runs and word starts (after `_`, `-`,
-//! `.`, a space or a lowercase-to-uppercase step) and penalizing gaps.
+//! `.`, a space or a lowercase-to-uppercase step) and penalizing gaps. A
+//! result is scored by its path below its root, a `/` also starting a word,
+//! with a bonus when the query's letters are in its basename too.
 use crate::Candidate;
 use nucleo_matcher::{
-    Utf32Str,
+    Config, Utf32Str,
     pattern::{Atom, AtomKind, CaseMatching, Normalization},
 };
-use std::cell::RefCell;
+use std::{borrow::Cow, cell::RefCell};
 
 /// Case-insensitive basename subsequence score: the best alignment of the
 /// query's letters, rewarding runs and word starts and penalizing gaps.
@@ -19,27 +21,35 @@ pub fn score(name: &str, query: &str) -> Option<i64> {
     Matcher::new(query).score(name)
 }
 
+/// nucleo's working memory (about 135 KB each, allocated at once): one for
+/// names, one with bonuses after `/` for paths.
+struct Scratch {
+    names: nucleo_matcher::Matcher,
+    paths: nucleo_matcher::Matcher,
+    /// A haystack's characters.
+    chars: Vec<char>,
+}
 thread_local! {
-    /// nucleo's working memory (about 135 KB, allocated at once) and a
-    /// name's characters, reused by every match on this thread.
-    static SCRATCH: RefCell<(nucleo_matcher::Matcher, Vec<char>)> =
-        RefCell::new((nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT), Vec::new()));
+    /// Reused by every match on this thread.
+    static SCRATCH: RefCell<Scratch> = RefCell::new(Scratch {
+        names: nucleo_matcher::Matcher::new(Config::DEFAULT),
+        paths: nucleo_matcher::Matcher::new(Config::DEFAULT.match_paths()),
+        chars: Vec::new(),
+    });
 }
 
-/// Path-aware matching: bonus for a query part naming a whole component.
-const WHOLE: i64 = 40;
-/// Path-aware matching: bonus for consecutive parts matching consecutive
-/// components (the last folder part next to the basename included).
-const NEXT: i64 = 20;
+/// Points per letter of the query for a path whose basename has the
+/// query's letters in order too: a level of depth (`rows::LEVEL`), so the
+/// folders a query names rank before what is inside them.
+const BASENAME: i64 = 8;
 
 /// A query lowercased once, for scoring many names.
 pub struct Matcher {
     letters: Vec<char>,
     atom: Atom,
-    /// A query containing `/` matches the path below a result's root: the
-    /// parts before the last (empty ones dropped) match ancestors in order,
-    /// the last matches the basename.
-    path: Option<(Vec<Matcher>, Box<Matcher>)>,
+    /// Whether accents are ignored: the query has none (nucleo's smart
+    /// normalization).
+    normalize: bool,
 }
 /// Lowercase for matching. Whole-string lowercasing turns a word-final Σ
 /// into ς but a lone one into σ: both become σ, so either spelling matches.
@@ -49,76 +59,74 @@ pub(crate) fn fold(text: &str) -> String {
 impl Matcher {
     pub fn new(query: &str) -> Self {
         let folded = fold(query);
-        let atom = |part: &str| {
+        let letters: Vec<char> = folded.chars().collect();
+        let normalize = letters
+            .iter()
+            .all(|&c| nucleo_matcher::chars::normalize(c) == c);
+        Self {
             // Smart normalization folds accents only for a query without any.
-            Atom::new(
-                part,
+            atom: Atom::new(
+                &folded,
                 CaseMatching::Ignore,
                 Normalization::Smart,
                 AtomKind::Fuzzy,
                 false,
-            )
-        };
-        let plain = |part: &str| Matcher {
-            letters: part.chars().collect(),
-            atom: atom(part),
-            path: None,
-        };
-        let path = folded.rsplit_once('/').map(|(folders, last)| {
-            let folders = folders
-                .split('/')
-                .filter(|part| !part.is_empty())
-                .map(plain)
-                .collect();
-            (folders, Box::new(plain(last)))
-        });
-        Self {
-            letters: folded.chars().collect(),
-            atom: atom(&folded),
-            path,
+            ),
+            letters,
+            normalize,
         }
     }
-    /// How many letters the query has, `/` not counted: what a sort by a
-    /// depth penalty takes scores per.
+    /// How many letters the query has: what a sort by a depth penalty takes
+    /// scores per.
     pub fn letters(&self) -> usize {
-        self.letters.iter().filter(|&&c| c != '/').count()
-    }
-    /// Whether the query matches paths rather than basenames.
-    pub fn paths(&self) -> bool {
-        self.path.is_some()
+        self.letters.len()
     }
     /// Score `name` as a whole: a basename, a workspace or palette name.
     pub fn score(&self, name: &str) -> Option<i64> {
         if self.letters.is_empty() {
             return Some(0);
         }
-        self.nucleo(name, None).map(i64::from)
+        self.nucleo(name, false, None).map(i64::from)
     }
     /// The char indices of `name` the query matches, in order, as drawn:
     /// the alignment that scored best. `None` when it does not match.
     pub fn positions(&self, name: &str) -> Option<Vec<usize>> {
+        self.indices(name, false)
+    }
+    /// The char indices of a result's path below its root (`relative`) the
+    /// query matches, as `score_candidate` aligns them.
+    pub fn path_positions(&self, path: &str) -> Option<Vec<usize>> {
+        self.indices(path, true)
+    }
+    fn indices(&self, text: &str, paths: bool) -> Option<Vec<usize>> {
         if self.letters.is_empty() {
             return Some(Vec::new());
         }
         let mut indices = Vec::new();
-        self.nucleo(name, Some(&mut indices))?;
+        self.nucleo(text, paths, Some(&mut indices))?;
         indices.sort_unstable();
         indices.dedup();
         Some(indices.into_iter().map(|i| i as usize).collect())
     }
-    /// nucleo's score of `name`, and its matched indices when asked for.
-    /// The name is passed as chars (not graphemes), so indices are chars.
-    fn nucleo(&self, name: &str, indices: Option<&mut Vec<u32>>) -> Option<u16> {
-        SCRATCH.with_borrow_mut(|(matcher, chars)| {
-            let haystack = if name.is_ascii() {
-                Utf32Str::Ascii(name.as_bytes())
+    /// nucleo's score of `text`, and its matched indices when asked for.
+    /// The text is passed as chars (not graphemes), so indices are chars.
+    fn nucleo(&self, text: &str, paths: bool, indices: Option<&mut Vec<u32>>) -> Option<u16> {
+        SCRATCH.with_borrow_mut(|scratch| {
+            let Scratch {
+                names,
+                paths: path_matcher,
+                chars,
+            } = scratch;
+            let matcher = if paths { path_matcher } else { names };
+            let haystack = if text.is_ascii() {
+                Utf32Str::Ascii(text.as_bytes())
             } else {
                 // nucleo case-folds only uppercase letters while matching
                 // (and every letter when ignoring accents), so a lowercase
                 // letter with another folding, like ς (σ), is folded here.
                 // Uppercase stays: it marks word starts.
                 chars.clear();
-                chars.extend(name.chars().map(|c| {
+                chars.extend(text.chars().map(|c| {
                     if c.is_lowercase() {
                         nucleo_matcher::chars::to_lower_case(c)
                     } else {
@@ -133,138 +141,104 @@ impl Matcher {
             }
         })
     }
-    /// Score a result: its basename, or with a `/` in the query, its path
-    /// below its root.
+    /// Score a result by its path below its root, plus `BASENAME` per
+    /// letter when its basename has the query's letters in order.
     pub fn score_candidate(&self, c: &Candidate) -> Option<i64> {
-        if self.path.is_none() {
-            return self.score(&c.path.file_name()?.to_string_lossy());
-        }
-        self.score_path(&relative_parts(c))
+        self.score_path(&relative(c))
     }
-    /// Score a path's components below its root, the basename last.
-    pub fn score_path<S: AsRef<str>>(&self, parts: &[S]) -> Option<i64> {
-        match &self.path {
-            None => self.score(parts.last()?.as_ref()),
-            Some(_) => self.assign(parts).map(|(score, _)| score),
+    /// Score a path below a root (components joined by `/`, the basename
+    /// last), as `score_candidate` does.
+    pub fn score_path(&self, path: &str) -> Option<i64> {
+        if self.letters.is_empty() {
+            return Some(0);
         }
+        let score = i64::from(self.nucleo(path, true, None)?);
+        let basename = path.rsplit('/').next().unwrap_or(path);
+        Some(if self.in_order(basename) {
+            score + BASENAME * self.letters.len() as i64
+        } else {
+            score
+        })
     }
-    /// The letters of `parts` (a path's components below its root) a path
-    /// query matches, as char indices within each component; `None` when it
-    /// does not match.
-    pub fn path_positions<S: AsRef<str>>(&self, parts: &[S]) -> Option<Vec<Vec<usize>>> {
-        let (folders, last) = self.path.as_ref()?;
-        let (_, chosen) = self.assign(parts)?;
-        let mut positions = vec![Vec::new(); parts.len()];
-        for (folder, &at) in folders.iter().zip(&chosen) {
-            positions[at] = folder.positions(parts[at].as_ref())?;
-        }
-        positions[parts.len() - 1] = last.positions(parts[parts.len() - 1].as_ref())?;
-        Some(positions)
-    }
-    /// The best path score and, for each folder part, the component it
-    /// matches: parts match components in order, the last part the basename.
-    fn assign<S: AsRef<str>>(&self, parts: &[S]) -> Option<(i64, Vec<usize>)> {
-        let (folders, last) = self.path.as_ref()?;
-        let (basename, ancestors) = parts.split_last()?;
-        let basename = basename.as_ref();
-        let mut total = last.score(basename)? + last.whole(basename);
-        if folders.is_empty() {
-            return Some((total, Vec::new()));
-        }
-        if folders.len() > ancestors.len() {
-            return None;
-        }
-        // best[i][j]: the best score of folder parts 0..=i with part i on
-        // ancestor j, and the ancestor part i - 1 is on.
-        let mut best: Vec<Vec<Option<(i64, usize)>>> = Vec::with_capacity(folders.len());
-        for (i, folder) in folders.iter().enumerate() {
-            let mut row = vec![None; ancestors.len()];
-            for (j, part) in ancestors.iter().enumerate() {
-                // Leave room for the parts still to place.
-                if j < i || ancestors.len() - j < folders.len() - i {
-                    continue;
+    /// Whether `name` has the query's letters in order, folded as nucleo
+    /// folds them: a single pass, far cheaper than scoring it.
+    fn in_order(&self, name: &str) -> bool {
+        let mut wanted = self.letters.iter().peekable();
+        if name.is_ascii() && self.letters.iter().all(char::is_ascii) {
+            for b in name.bytes() {
+                match wanted.peek() {
+                    None => break,
+                    Some(&&c) if c as u32 == u32::from(b.to_ascii_lowercase()) => {
+                        wanted.next();
+                    }
+                    Some(_) => {}
                 }
-                let Some(own) = folder.score(part.as_ref()) else {
-                    continue;
-                };
-                let own = own + folder.whole(part.as_ref());
-                row[j] = if i == 0 {
-                    Some((own, 0))
-                } else {
-                    (0..j)
-                        .filter_map(|k| {
-                            let (score, _) = best[i - 1][k]?;
-                            Some((score + own + if k + 1 == j { NEXT } else { 0 }, k))
-                        })
-                        .max_by_key(|&(score, k)| (score, std::cmp::Reverse(k)))
-                };
             }
-            best.push(row);
-        }
-        let (end, score) = best[folders.len() - 1]
-            .iter()
-            .enumerate()
-            .filter_map(|(j, cell)| {
-                let (score, _) = (*cell)?;
-                Some((j, score + if j + 1 == ancestors.len() { NEXT } else { 0 }))
-            })
-            .max_by_key(|&(j, score)| (score, std::cmp::Reverse(j)))?;
-        total += score;
-        let mut chosen = vec![end; folders.len()];
-        for i in (1..folders.len()).rev() {
-            chosen[i - 1] = best[i][chosen[i]].expect("on the best path").1;
-        }
-        Some((total, chosen))
-    }
-    /// `WHOLE` when this part names all of `name`, ignoring case.
-    fn whole(&self, name: &str) -> i64 {
-        let same = if name.is_ascii() {
-            name.len() == self.letters.len()
-                && name
-                    .bytes()
-                    .zip(&self.letters)
-                    .all(|(b, &l)| b.to_ascii_lowercase() as u32 == l as u32)
         } else {
-            fold(name).chars().eq(self.letters.iter().copied())
-        };
-        if same && !self.letters.is_empty() {
-            WHOLE
-        } else {
-            0
+            for c in name.chars() {
+                let Some(&&next) = wanted.peek() else {
+                    break;
+                };
+                let mut c = nucleo_matcher::chars::to_lower_case(c);
+                if self.normalize {
+                    c = nucleo_matcher::chars::normalize(c);
+                }
+                if c == next {
+                    wanted.next();
+                }
+            }
         }
+        wanted.peek().is_none()
     }
 }
 
-/// A result's components below its root, the basename last: its last
-/// `depth` components.
-pub fn relative_parts(c: &Candidate) -> Vec<std::borrow::Cow<'_, str>> {
-    let mut parts: Vec<_> = c
-        .path
-        .components()
-        .rev()
-        .take(c.depth.max(1))
-        .map(|part| part.as_os_str().to_string_lossy())
-        .collect();
-    parts.reverse();
-    parts
+/// A result's path below its root, the basename last: its last `depth`
+/// components joined by `/`, borrowed from its path when that is UTF-8.
+pub fn relative(c: &Candidate) -> Cow<'_, str> {
+    match c.path.to_string_lossy() {
+        Cow::Borrowed(path) => Cow::Borrowed(tail(path, c.depth)),
+        Cow::Owned(path) => Cow::Owned(tail(&path, c.depth).to_owned()),
+    }
+}
+/// The last `depth` (at least one) components of `path`.
+fn tail(path: &str, depth: usize) -> &str {
+    let mut at = path.len();
+    for _ in 0..depth.max(1) {
+        match path[..at].rfind('/') {
+            Some(slash) => at = slash,
+            None => return path,
+        }
+    }
+    &path[at + 1..]
 }
 /// Whether every match of the (lowercased) query `longer` is among those of
-/// `shorter`: it appends letters, but no `/`, which turns the part before it
-/// into a folder (or a basename query into a path query).
+/// `shorter`: it appends letters.
 pub(crate) fn narrows(shorter: &str, longer: &str) -> bool {
-    longer
-        .strip_prefix(shorter)
-        .is_some_and(|added| !added.contains('/'))
+    longer.starts_with(shorter)
 }
 #[cfg(test)]
 #[test]
-fn appended_letters_narrow_but_a_slash_does_not() {
+fn appended_letters_narrow() {
     assert!(narrows("rep", "repo") && narrows("", "a") && narrows("rep", "rep"));
+    assert!(narrows("rep", "rep/") && narrows("pde", "pde/stab") && narrows("", "/s"));
     assert!(!narrows("repo", "rep") && !narrows("abc", "xbc"));
-    // A slash turns the basename query into a path query, or the last part
-    // into a folder; letters after one narrow again.
-    assert!(!narrows("rep", "rep/") && !narrows("pde", "pde/stab") && !narrows("", "/s"));
-    assert!(narrows("pde/", "pde/stab"));
+}
+#[cfg(test)]
+#[test]
+fn a_path_below_the_root_is_its_last_components() {
+    assert_eq!(tail("/home/me/pde/notes/a.tex", 3), "pde/notes/a.tex");
+    assert_eq!(tail("/home/me/a.tex", 1), "a.tex");
+    assert_eq!(tail("/home/me/a.tex", 0), "a.tex");
+    assert_eq!(tail("a.tex", 2), "a.tex");
+}
+#[cfg(test)]
+#[test]
+fn the_basename_bonus_folds_case_and_accents_as_nucleo_does() {
+    let m = Matcher::new("evaluacion");
+    assert!(m.in_order("Evaluación.pdf") && m.in_order("EVALUACION"));
+    assert!(!Matcher::new("evaluación").in_order("Evaluacion.pdf"));
+    assert!(Matcher::new("σ").in_order("ΟΔΟΣ") && Matcher::new("ος").in_order("οδος"));
+    assert!(!Matcher::new("ab").in_order("ba"));
 }
 #[cfg(test)]
 #[test]

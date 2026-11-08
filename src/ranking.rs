@@ -28,6 +28,9 @@ pub(crate) const BACKGROUND_AT: usize = 16_384;
 type Slice<'a> = (&'a [Arc<Candidate>], &'a [Key]);
 /// Candidates checked between looks at the cancellation flag.
 const CHECK_EVERY: usize = 4096;
+/// The most threads a ranking uses, fewer when the machine has fewer: past
+/// about 16, efficiency cores and second threads of a core slow it down.
+const MAX_THREADS: usize = 16;
 
 pub(crate) struct Job {
     /// Every known path, filtered by `listing`, or rows that are already
@@ -58,7 +61,7 @@ impl Job {
     pub fn run(self, cancel: &AtomicBool) -> Option<Ranked> {
         let threads = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
-            .clamp(1, 8)
+            .clamp(1, MAX_THREADS)
             .min(self.len() / CHECK_EVERY + 1);
         let piece = self.len().div_ceil(threads).max(1);
         let slices: Vec<Slice> = self

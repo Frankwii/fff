@@ -562,40 +562,18 @@ pub(super) fn name_window(
         window
     }
 }
-/// Char indices of `label` the query matches: letters of the name, or with
-/// a `/` in the query, along the whole path. Only a row the query matches is
-/// highlighted (a save dialog lists the others too).
+/// Char indices of `label` the query matches, along the path below the
+/// root. Only a row the query matches is highlighted (a save dialog lists
+/// the others too).
 pub(super) fn matched_letters(label: &str, candidate: &Candidate, query: &str) -> HashSet<usize> {
-    let matcher = crate::Matcher::new(query);
-    let (parts, positions) = if matcher.paths() {
-        let parts = crate::relative_parts(candidate);
-        let Some(positions) = matcher.path_positions(&parts) else {
-            return HashSet::new();
-        };
-        (parts, positions)
-    } else {
-        let basename = candidate
-            .path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
-        let Some(positions) = matcher.positions(&basename) else {
-            return HashSet::new();
-        };
-        (vec![basename], vec![positions])
+    let relative = crate::relative(candidate);
+    let Some(wanted) = crate::Matcher::new(query).path_positions(&relative) else {
+        return HashSet::new();
     };
+    let path: Vec<char> = relative.chars().collect();
     // The label ends with the name, or the path below the root (and a slash
     // after a folder); align from the end, where elision and shared-name
     // labels keep it intact.
-    let mut path = Vec::new();
-    let mut wanted = HashSet::new();
-    for (part, at) in parts.iter().zip(&positions) {
-        if !path.is_empty() {
-            path.push('/');
-        }
-        wanted.extend(at.iter().map(|i| path.len() + i));
-        path.extend(part.chars());
-    }
     let label: Vec<char> = label.chars().collect();
     let end = label.len() - usize::from(candidate.directory && label.last() == Some(&'/'));
     wanted

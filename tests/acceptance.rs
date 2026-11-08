@@ -204,40 +204,24 @@ fn subsequence_and_depth_weighed_against_score_except_when_seeking() {
     }
 }
 #[test]
-fn a_query_with_a_slash_matches_paths_below_the_root() {
+fn queries_match_the_path_below_the_root() {
     use fuzzy_file_finder::Matcher;
-    let matcher = Matcher::new("pde/stab");
+    // Folders' letters count, a slash is a letter like any other, and a
+    // query whose letters are in the basename too scores higher.
+    let stab = Matcher::new("pdestab");
+    assert!(stab.score_path("pde/notes/stability.tex").is_some());
+    assert!(stab.score_path("notes/stability.tex").is_none());
     assert!(
-        matcher
-            .score_path(&["pde", "notes", "stability.tex"])
+        Matcher::new("pde/stab")
+            .score_path("pde/notes/stability.tex")
             .is_some()
     );
-    assert!(matcher.score_path(&["notes", "stability.tex"]).is_none());
-    // The last part matches the basename, the others ancestors in order.
-    assert!(matcher.score_path(&["stab", "pde.tex"]).is_none());
-    assert!(
-        Matcher::new("notes/pde/s")
-            .score_path(&["pde", "notes", "s"])
-            .is_none()
-    );
-    // Whole components and consecutive ones score higher.
-    let no = Matcher::new("no/stab");
-    assert!(no.score_path(&["no", "stability.tex"]) > no.score_path(&["notes", "stability.tex"]));
-    assert!(
-        no.score_path(&["notes", "x", "stability.tex"])
-            < no.score_path(&["x", "notes", "stability.tex"])
-    );
-    // Empty parts are dropped; a trailing slash lists what is below.
-    assert!(
-        Matcher::new("/stab")
-            .score_path(&["stability.tex"])
-            .is_some()
-    );
-    assert!(Matcher::new("pde/").score_path(&["pde", "x"]).is_some());
-    assert!(Matcher::new("pde/").score_path(&["pde"]).is_none());
+    assert!(Matcher::new("pde/").score_path("pde").is_none());
+    let notes = Matcher::new("notes");
+    assert!(notes.score_path("pde/notes") > notes.score_path("notes/stability.tex"));
     assert_eq!(
-        Matcher::new("pde/stab").path_positions(&["pde", "notes", "stability.tex"]),
-        Some(vec![vec![0, 1, 2], vec![], vec![0, 1, 2, 3]])
+        Matcher::new("pdestab").path_positions("pde/notes/stability.tex"),
+        Some(vec![0, 1, 2, 10, 11, 12, 13])
     );
     // Names alone never contain a slash.
     assert!(score("pde", "pde/").is_none());
@@ -277,21 +261,32 @@ fn a_query_with_a_slash_matches_paths_below_the_root() {
         assert_eq!(fresh.rows, app.rows, "{:?}", app.query);
         rows
     };
-    // Typing a slash turns basename matches into path matches, so it does
-    // not narrow; the letters after it do.
+    // Typing narrows, a slash too; deleting returns to the shorter query.
     for (query, rows) in [
-        ("pde", vec!["pde", "pdes.txt"]),
+        (
+            "pde",
+            vec!["pde", "pdes.txt", "pde/notes", "pde/notes/stability.tex"],
+        ),
         ("pde/", vec!["pde/notes", "pde/notes/stability.tex"]),
         ("pde/st", vec!["pde/notes/stability.tex"]),
-        ("pde/", vec!["pde/notes", "pde/notes/stability.tex"]),
-        ("pde", vec!["pde", "pdes.txt"]),
+        (
+            "pde",
+            vec!["pde", "pdes.txt", "pde/notes", "pde/notes/stability.tex"],
+        ),
+        ("pdestab", vec!["pde/notes/stability.tex"]),
         (
             "stab",
             vec!["notes/stability.tex", "pde/notes/stability.tex"],
         ),
+        // The folder a query names comes before what is inside it.
         (
-            "no/stab",
-            vec!["notes/stability.tex", "pde/notes/stability.tex"],
+            "notes",
+            vec![
+                "notes",
+                "pde/notes",
+                "notes/stability.tex",
+                "pde/notes/stability.tex",
+            ],
         ),
     ] {
         app.query = query.into();

@@ -1719,7 +1719,7 @@ fn export_preview(buffer: &Buffer) {
     }
 }
 #[test]
-fn path_queries_highlight_letters_along_the_whole_label() {
+fn queries_highlight_letters_along_the_whole_label() {
     let mut app = App::browse("/home/frank/notes".into(), 3, crate::Policy::default());
     for (name, directory, depth) in [
         ("pde", true, 1),
@@ -1739,34 +1739,37 @@ fn path_queries_highlight_letters_along_the_whole_label() {
         );
     }
     app.scanning = false;
-    app.query = "pde/stab".into();
-    app.refresh();
-    let (screen, targets) = draw(&mut app, 80, 14);
-    assert_eq!(
-        targets,
-        [PathBuf::from("/home/frank/notes/pde/notes/stability.tex")],
-        "{screen}"
-    );
-    let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
-    let mut focus = Focus::Results;
-    terminal
-        .draw(|f| _ = render(f, &mut app, &mut focus))
-        .unwrap();
-    let buffer = terminal.backend().buffer();
-    let row = (0..buffer.area.height)
-        .find(|&y| {
-            text(buffer)
-                .lines()
-                .nth(y as usize)
-                .unwrap()
-                .contains("stability")
-        })
-        .unwrap();
-    let underlined: String = (0..buffer.area.width)
-        .filter(|&x| buffer[(x, row)].modifier.contains(Modifier::UNDERLINED))
-        .map(|x| buffer[(x, row)].symbol())
-        .collect();
-    assert_eq!(underlined, "pdestab");
+    // A slash in the query is a letter like the others.
+    for (query, expected) in [("pdestab", "pdestab"), ("pde/stab", "pde/stab")] {
+        app.query = query.into();
+        app.refresh();
+        let (screen, targets) = draw(&mut app, 80, 14);
+        assert_eq!(
+            targets,
+            [PathBuf::from("/home/frank/notes/pde/notes/stability.tex")],
+            "{screen}"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+        let mut focus = Focus::Results;
+        terminal
+            .draw(|f| _ = render(f, &mut app, &mut focus))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let row = (0..buffer.area.height)
+            .find(|&y| {
+                text(buffer)
+                    .lines()
+                    .nth(y as usize)
+                    .unwrap()
+                    .contains("stability")
+            })
+            .unwrap();
+        let underlined: String = (0..buffer.area.width)
+            .filter(|&x| buffer[(x, row)].modifier.contains(Modifier::UNDERLINED))
+            .map(|x| buffer[(x, row)].symbol())
+            .collect();
+        assert_eq!(underlined, expected);
+    }
 }
 #[test]
 fn marks_and_chooser_rows_record_where_they_were_drawn() {

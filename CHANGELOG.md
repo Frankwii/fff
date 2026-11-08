@@ -16,6 +16,18 @@ history.
   Linux's: `fff setup --desktop`, `--browser` and `fff dbus-file-manager`
   say so instead of installing anything.
 
+### Changed
+
+- **Queries match the path below each result's root, folders included**,
+  as fzf does: `pdestab` finds `pde/notes/stability.tex` without typing a
+  slash. A `/` in the query is a letter like any other rather than a
+  separator between parts matched component by component, so `pde/stab`
+  and `pde/` still find what they did. A path whose basename has the
+  query's letters too ranks higher, so a folder comes before what is
+  inside it.
+- **Rankings of large listings use up to 16 threads** rather than 8, fewer
+  on machines with fewer.
+
 ### Fixed
 
 - **Archives open with a libarchive that lacks one of its compression

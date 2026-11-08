@@ -2648,9 +2648,16 @@ class TerminalTests(unittest.TestCase):
         target.mkdir()
         s = self.start(implicit_root=True)
 
-        def copy_tree():
+        def highlight_tree():
+            # The files in tree match "tree" too: gg highlights the folder,
+            # the best match, once it is listed.
             s.send(b"itree", "❯ tree")
-            s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
+            s.send(b"\x1b[27u", " tree/ ")
+            s.send(b"gg")
+
+        def copy_tree():
+            highlight_tree()
+            s.send(SHIFT_SPACE, "Marks (1)")
             s.send(b"\x1b[27uitarget", "❯ target")
             s.send(b"\x1b[27ul", ("cwd", target))
             s.send(b"p", "Copying tree")
@@ -2681,8 +2688,8 @@ class TerminalTests(unittest.TestCase):
         # Checking a large selection before a confirmation shows its sheet,
         # and Ctrl+c stops it at once.
         s.send(b"h", ("cwd", self.root))
-        s.send(b"itree", "❯ tree")
-        s.send(b"\x1b[27ux", "Moving tree to the trash")
+        highlight_tree()
+        s.send(b"x", "Moving tree to the trash")
         s.wait_ui("checking the entries")
         self.assertIn("Ctrl+c: Stop", s.screen.text)
         s.send(b"\x03", "Stopped moving tree to the trash; nothing changed")
@@ -2718,8 +2725,10 @@ class TerminalTests(unittest.TestCase):
         target = self.root / "target"
         target.mkdir()
         s = self.start(implicit_root=True)
+        # The files in tree match "tree" too: gg highlights the folder.
         s.send(b"itree", "❯ tree")
-        s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
+        s.send(b"\x1b[27u", " tree/ ")
+        s.send(b"gg" + SHIFT_SPACE, "Marks (1)")
         s.send(b"\x1b[27uitarget", "❯ target")
         s.send(b"\x1b[27ul", ("cwd", target))
         s.send(b"p", "Copying tree")
@@ -2741,8 +2750,10 @@ class TerminalTests(unittest.TestCase):
         target.mkdir()
         for delay in (0.05, 0.4, 1.0, 2.5):
             s = self.start(implicit_root=True)
+            # The files in tree match "tree" too: gg highlights the folder.
             s.send(b"itree", "❯ tree")
-            s.send(b"\x1b[27u" + SHIFT_SPACE, "Marks (1)")
+            s.send(b"\x1b[27u", " tree/ ")
+            s.send(b"gg" + SHIFT_SPACE, "Marks (1)")
             s.send(b"\x1b[27uitarget", "❯ target")
             s.send(b"\x1b[27ul", ("cwd", target))
             s.send(b"p")

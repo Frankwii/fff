@@ -45,7 +45,7 @@ pub mod watch;
 pub mod workspaces;
 
 use matching::narrows;
-pub use matching::{Matcher, relative_parts, score};
+pub use matching::{Matcher, relative, score};
 pub(crate) use policy::Listing;
 pub use policy::{Kinds, Policy, glob};
 use policy::{eligible, shown};
@@ -1033,9 +1033,9 @@ impl App {
         let listing_changed =
             !self.added.is_empty() || !self.outdated.is_empty() || !self.relabel.is_empty();
         // Rows already match the previous query under the same basis. A query
-        // that only appends letters other than `/` (after lowercasing, as `score`
-        // does; see `narrows`) can only remove matches, so re-score those rows
-        // instead of every known path.
+        // that only appends letters (after lowercasing, as `score` does; see
+        // `narrows`) can only remove matches, so re-score those rows instead
+        // of every known path.
         // Deleting letters returns to a shorter query's kept rows, or narrows
         // from the longest kept query the new one still extends.
         let shown = self.refreshed.take();

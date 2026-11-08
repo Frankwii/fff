@@ -119,17 +119,6 @@ the shape of a folder is visible at a glance. Rows would keep working as
 rows (marks, operations, the preview), and the query would show the matching
 entries with the folders leading to them.
 
-### Folders as matches
-
-A query names a file today, and `/` in it matches folders on the way
-(`pde/stab`). In flat lists from deep trees (`fff pick`, `fff seek`, and
-contents matches) a folder's name could match instead: `canard` would list the
-files inside a folder called `canard`, ranked by how well the folder
-matched, without typing the slash, and the `/` form would go. Elsewhere,
-where results are a folder's own entries, the current behavior stays. To try
-out: which contexts it suits, how a folder match ranks against a file match,
-and how the row shows which part matched.
-
 ### Improvements to matching
 
 A change to how a query matches: queries that tolerate a typo.
@@ -153,8 +142,8 @@ ranks as it does.
   does not fold accents (`á` against `a` is a typo), so the fallback folds
   them on both sides first, as nucleo's smart normalization does. Rows found
   this way rank after those the query matches as typed. The matched letters
-  are highlighted from frizbee's indices; a `/` path query takes the
-  fallback part by part.
+  are highlighted from frizbee's indices, along the path below the root
+  as the query matches it.
 - **Contents.** A fuzzy match over lines of text matches noise, and an
   approximate scan defeats the contents index: allowing a typo in `three
   lines` leaves too few trigrams to require, and nearly every English text
