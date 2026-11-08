@@ -128,7 +128,8 @@ space or a lowercase-to-uppercase step) beat letters scattered from the
 start, however long the name. `pdestab` finds `pde/notes/stability.tex`, and
 a `/` is a letter like any other, so `pde/stab` finds it too and `pde/` lists
 what is inside folders matching `pde`. Skipping the rest of a folder's name
-and the folders after it costs the same however long they are, so
+and the folders after it costs the same however long they are, when the
+match goes on at a word start, so
 `turinpdf` ranks `turing_patterns/figures/heat.pdf` (two runs) above
 `the_C_programming_language_kernighan_ritchie.pdf` (letters scattered
 through one name). Each letter matched in the basename counts a little

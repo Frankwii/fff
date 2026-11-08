@@ -43,10 +43,11 @@ thread_local! {
 /// level of depth (`rows::LEVEL`), so that among matches as good the folder
 /// a query names ranks before what is inside it.
 const BASENAME: i64 = 4;
-/// What a gap between matched letters costs when it crosses a `/`, instead
-/// of nucleo's 3 plus 1 per skipped letter: skipping the rest of a folder's
+/// What a gap between matched letters costs up to its last `/`, instead of
+/// nucleo's 3 plus 1 per skipped letter: skipping the rest of a folder's
 /// name and the folders after it is how a path is typed, not a scattered
-/// match. Twice what starting a gap costs.
+/// match. Twice what starting a gap costs. Only a gap landing on a word
+/// start gets it, and the letters skipped after the `/` still cost 1 each.
 const CROSSING: i64 = 6;
 
 /// A query lowercased once, for scoring many names.
@@ -154,32 +155,48 @@ impl Matcher {
         let mut at = Vec::new();
         let mut score = i64::from(self.nucleo(path, true, Some(&mut at))?);
         at.sort_unstable();
-        let crosses = |from: usize, to: usize| -> bool {
-            if path.is_ascii() {
-                path.as_bytes()[from..to].contains(&b'/')
+        // The path's characters, read from its bytes when it is ASCII.
+        let ascii = path.is_ascii();
+        let wide: Vec<char> = if ascii {
+            Vec::new()
+        } else {
+            path.chars().collect()
+        };
+        let char_at = |i: usize| -> char {
+            if ascii {
+                char::from(path.as_bytes()[i])
             } else {
-                path.chars().skip(from).take(to - from).any(|c| c == '/')
+                wide[i]
             }
         };
         for pair in at.windows(2) {
             let (from, to) = (pair[0] as usize + 1, pair[1] as usize);
-            if to > from && crosses(from, to) {
+            let Some(slash) = (from..to).rev().find(|&i| char_at(i) == '/') else {
+                continue;
+            };
+            if word_start(char_at(to - 1), char_at(to)) {
                 // nucleo charged 3 for the gap's first letter, 1 for each other.
                 let charged = (to - from) as i64 + 2;
-                score += (charged - CROSSING).max(0);
+                let landing = (to - slash - 1) as i64;
+                score += (charged - CROSSING - landing).max(0);
             }
         }
         let basename = path.rsplit('/').next().unwrap_or(path);
-        let start = if path.is_ascii() {
+        let start = if ascii {
             path.len() - basename.len()
         } else {
-            path.chars().count() - basename.chars().count()
+            wide.len() - basename.chars().count()
         };
         let in_basename = at.iter().filter(|&&i| i as usize >= start).count();
         Some(score + BASENAME * in_basename as i64)
     }
 }
 
+/// Whether `c` after `before` starts a word: after a separator or a space,
+/// or an uppercase letter after a lowercase one, as nucleo's bonuses have it.
+fn word_start(before: char, c: char) -> bool {
+    !before.is_alphanumeric() || (before.is_lowercase() && c.is_uppercase())
+}
 /// A result's path below its root, the basename last: its last `depth`
 /// components joined by `/`, borrowed from its path when that is UTF-8.
 pub fn relative(c: &Candidate) -> Cow<'_, str> {
@@ -229,6 +246,13 @@ fn skipped_folders_cost_less_than_scattered_letters() {
         m.score_path("Desktop/books/coding/the_C_programming_language_kernighan_ritchie.pdf");
     assert!(folders > scattered, "{folders:?} {scattered:?}");
     assert!(folders > m.score_path("Desktop/documents/trabajo/fueib/titularidad_banco.pdf"));
+    // Skipping into the middle of a long name, or of a word, is scattered.
+    for stray in [
+        "Desktop/documents/phd/contractes/fpi/Fitxa dades personals contractació-Ficha datos personales contratación-Personal data sheet recruitment.pdf",
+        "testdir/phd/courses/summer_school_on_pattern_formation/handwritten_notes/Spatial_patterns_in_biology.pdf",
+    ] {
+        assert!(folders > m.score_path(stray), "{stray}");
+    }
     // The query in the basename is better still.
     let named =
         m.score_path("phd/presentations/turing_patterns_uib_2026/references/turing_paper.pdf");

@@ -23,7 +23,7 @@ history.
   slash. A `/` in the query is a letter like any other rather than a
   separator between parts matched component by component, so `pde/stab`
   and `pde/` still find what they did. Skipping folders costs the same
-  however long their names are, so letters in runs across folders beat
+  however long their names are when the match goes on at a word start, so letters in runs across folders beat
   letters scattered through one name, and letters matched in the basename
   count a little more, so a folder comes before what is inside it.
 - **Rankings of large listings use up to 16 threads** rather than 8, fewer
