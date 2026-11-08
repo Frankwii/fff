@@ -1649,7 +1649,9 @@ fn copy_rollback_never_pulls_back_an_entry_it_did_not_publish() {
     e.hook = Some(Box::new(move |phase| {
         if phase == 1 {
             // Someone replaces the published copy and takes the next name.
-            fs::remove_file(dest.join("a")).unwrap();
+            // The copy is moved aside, not deleted, so that the replacement
+            // cannot reuse its inode (ext4 hands a freed one out again).
+            fs::rename(dest.join("a"), dest.with_file_name("replaced-a")).unwrap();
             fs::write(dest.join("a"), b"theirs").unwrap();
             fs::write(dest.join("b"), b"theirs too").unwrap();
         }

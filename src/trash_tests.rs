@@ -314,7 +314,9 @@ fn undoing_a_trashing_checks_every_entry_first() {
     );
     fs::remove_file(&a).unwrap();
     // An entry replaced inside the trash is not the one that was trashed.
-    fs::remove_file(bin(&f).join("files/b")).unwrap();
+    // It is moved aside, not deleted, so that the replacement cannot reuse
+    // its inode.
+    fs::rename(bin(&f).join("files/b"), f.root.join("replaced-b")).unwrap();
     fs::write(bin(&f).join("files/b"), b"b").unwrap();
     let error = engine(&f).undo(&r).unwrap_err();
     assert!(error.contains("b is no longer in the trash"), "{error}");

@@ -94,3 +94,10 @@ pub fn connect_abstract(name: &[u8]) -> io::Result<UnixStream> {
     let address = std::os::unix::net::SocketAddr::from_abstract_name(name)?;
     UnixStream::connect_addr(&address)
 }
+/// Runs the calling thread at `niceness`: Linux keeps a niceness per thread.
+pub fn lower_thread(niceness: i32) {
+    // SAFETY: setpriority changes only the calling thread's priority.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, niceness);
+    }
+}

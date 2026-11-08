@@ -169,3 +169,11 @@ pub fn executable(pid: &str) -> Option<PathBuf> {
 pub fn connect_abstract(_name: &[u8]) -> io::Result<UnixStream> {
     Err(io::Error::from(io::ErrorKind::Unsupported))
 }
+/// Runs the calling thread below the interface: macOS's niceness is the
+/// process's, so the thread takes the utility quality of service instead.
+pub fn lower_thread(_niceness: i32) {
+    // SAFETY: this changes only the calling thread's scheduling class.
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
+    }
+}

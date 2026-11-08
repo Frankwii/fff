@@ -366,15 +366,12 @@ enum Extraction {
     TimedOut,
     Failed,
 }
+/// Run the calling thread below the interface's priority.
+fn below_interface() {
+    crate::platform::lower_thread(NICENESS);
+}
 /// Runs an extractor without a shell or a terminal, at low priority, and
 /// returns its output; it is killed after `EXTRACT_TIME`.
-/// Run the calling thread at `NICENESS`: Linux keeps a niceness per thread.
-fn below_interface() {
-    // SAFETY: setpriority changes only the calling thread's priority.
-    unsafe {
-        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, NICENESS);
-    }
-}
 fn run_extractor(program: &'static str, args: &[&std::ffi::OsStr]) -> Result<Vec<u8>, Extraction> {
     let mut command = Command::new(program);
     command

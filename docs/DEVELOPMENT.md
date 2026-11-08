@@ -324,7 +324,7 @@ early, and fixtures canonicalize their temporary directory, which is below the
 `/var` symlink there.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs these on Linux and macOS
-after every push and on pull requests, without Neovim, so the tests needing
+after every push to `main` and on pull requests, without Neovim, so the tests needing
 it are skipped. The stress tests run there only when started by hand:
 `gh workflow run ci.yml -f stress=true`, then `gh run watch`.
 
