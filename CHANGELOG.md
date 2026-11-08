@@ -8,11 +8,14 @@ history.
 
 ### Added
 
-- **The query can have the focus** (`toggle_query_focus`, `/` in Normal
-  mode; Escape goes back): there Normal mode edits the query as Neovim
-  does, with `h`, `l`, `x`, `p`, `u`, `v`, `:` and the other default keys
-  typed as text left to Neovim, while Enter, Tab and the Alt and Ctrl keys
-  still act on the results. The results lose their highlight bar meanwhile.
+- **The query can have the focus**, on the main screen and the Keys
+  screen alike: typing (`i`, `a`, or any key no binding has) gives it the
+  focus, Escape from Insert mode stays in it, and Escape again
+  (`toggle_query_focus`) goes back to the results. In its Normal mode the
+  query edits as in Neovim, with `h`, `l`, `x`, `p`, `u`, `v`, `:` and the
+  other default keys typed as text left to Neovim, while Enter, Tab and the
+  Alt and Ctrl keys still act on the results. Whichever of the query and
+  the results lacks the focus is drawn dimmed.
 
 ### Changed
 
@@ -21,6 +24,10 @@ history.
   `focus = [...]`; `list = [...]` is an error. Insert-mode keys apply in
   the query focus. A key you bind comes before Neovim's in the query too
   unless its focus leaves the query out; the default keys typed as text do.
+- **Escape from Insert mode stays in the query**, now in its Normal mode;
+  a second Escape goes back to the results, and the one after that clears
+  the query, as Escape in the results did.
+- **The save dialog's hint names the keys that work where you are.**
 - **Clearer function descriptions** on the Keys screen, written for someone
   new to fff.
 

@@ -712,6 +712,11 @@ impl App {
     pub fn cell(&self) -> keymap::Cell {
         self.cell_in(self.mode())
     }
+    /// Whether the query has the focus: in Insert mode, or after
+    /// `toggle_query_focus` or a key typed into it.
+    pub fn query_in_focus(&self) -> bool {
+        self.cell().focus == keymap::Focus::Query
+    }
     /// `cell` as keys read in `mode` see it: Insert mode types into the
     /// query.
     pub fn cell_in(&self, mode: keymap::Mode) -> keymap::Cell {

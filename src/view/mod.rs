@@ -350,7 +350,9 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
             Constraint::Length(1),
         ])
         .split(area);
-    query(frame, layout[0], app, matches!(focus, Focus::Results));
+    // The query and the results below it take the focus in turn.
+    let on_main = matches!(focus, Focus::Results);
+    query(frame, layout[0], app, on_main && app.query_in_focus());
     frame.render_widget(Paragraph::new(location), layout[1]);
     let main = layout[2];
     let wide = area.width >= 78;
@@ -394,8 +396,7 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
             .split(main);
         (rows[0], rows[2], rows[1])
     };
-    // The query in focus takes it from the results, as the marked list does.
-    let results_focused = matches!(focus, Focus::Results) && !app.query_focused;
+    let results_focused = on_main && !app.query_in_focus();
     let mut result = results_pane(frame, results, app, results_focused);
     // While operations run, the jobs list takes the lower half.
     let (marks, jobs) = if app.jobs.is_empty() {

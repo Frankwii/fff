@@ -257,39 +257,80 @@ impl Session {
             self.open_picker(Picker::Commands(cell), 0);
             return Ok(None);
         }
-        // Leaving Insert mode and Neovim's command line are Neovim's.
-        if cell.focus != keymap::Focus::Marks
+        match self.query_key(app, mode, cell, key) {
+            Typed::Waiting => {}
+            Typed::Neovim => self.escape_armed = false,
+            Typed::Run(function, digit) => {
+                // Clearing twice in a row clears the marks.
+                if function != Function::ClearQuery {
+                    self.escape_armed = false;
+                }
+                return self.run_function(app, function, digit, Row::default());
+            }
+            Typed::Unbound(cell) => {
+                self.escape_armed = false;
+                self.unbound(app, mode, cell, key);
+            }
+        }
+        Ok(None)
+    }
+    /// A key on a query and the list below it, the results' or the Keys
+    /// screen's alike: Escape out of Insert mode and Neovim's command line
+    /// are Neovim's, other keys are your own at `cell`, and the keys of a
+    /// sequence that did not come go to Neovim. Insert mode, and a key
+    /// typed into the query, give the query the focus.
+    pub(super) fn query_key(
+        &mut self,
+        app: &mut App,
+        mode: keymap::Mode,
+        mut cell: keymap::Cell,
+        key: KeyEvent,
+    ) -> Typed {
+        let list = cell.focus == keymap::Focus::Marks;
+        // Typing: Insert, Replace, Visual or Select mode (`n…` are Normal
+        // and its pending operators).
+        if !list
+            && app
+                .edit_view
+                .as_ref()
+                .is_some_and(|v| !v.mode.starts_with('n'))
+        {
+            *query_focus(&mut self.focus, app) = true;
+        }
+        if !list
             && app.pending.is_empty()
             && let Some(view) = &app.edit_view
             && ((key.code == K::Esc && !view.normal())
                 || (view.command() && !key.modifiers.intersects(M::ALT | M::CONTROL)))
         {
-            self.escape_armed = false;
             deliver(app, &mut self.focus, &mut self.editor, key);
-            return Ok(None);
+            return Typed::Neovim;
         }
         loop {
             match app.keymap.feed(&mut app.pending, mode, cell, key) {
-                Step::Pending => return Ok(None),
-                // Earlier keys go to Neovim unchanged; then retry this one.
+                Step::Pending => return Typed::Waiting,
+                // Earlier keys go to Neovim unchanged, which gives it the
+                // query; then this one is tried again there.
                 Step::Flush(keys) => {
                     for pending in keys {
-                        deliver(app, &mut self.focus, &mut self.editor, pending);
+                        self.type_key(app, pending);
+                    }
+                    if !list {
+                        cell.focus = keymap::Focus::Query;
                     }
                 }
-                Step::Run(function, digit) => {
-                    // Clearing twice in a row clears the marks.
-                    if function != Function::ClearQuery {
-                        self.escape_armed = false;
-                    }
-                    return self.run_function(app, function, digit, Row::default());
-                }
-                Step::Pass => {
-                    self.escape_armed = false;
-                    self.unbound(app, mode, cell, key);
-                    return Ok(None);
-                }
+                Step::Run(function, digit) => return Typed::Run(function, digit),
+                Step::Pass => return Typed::Unbound(cell),
             }
+        }
+    }
+    /// Hands `key` to Neovim in the field in focus. Anything but Escape
+    /// typed into a query gives it the focus: `i`, `a`, `cw` and every
+    /// other key no binding has.
+    pub(super) fn type_key(&mut self, app: &mut App, key: KeyEvent) {
+        deliver(app, &mut self.focus, &mut self.editor, key);
+        if key.code != K::Esc && !matches!(self.focus, Focus::Marks { .. }) {
+            *query_focus(&mut self.focus, app) = true;
         }
     }
     /// The mode keys are read in and where they apply, for the list in focus.
@@ -696,7 +737,7 @@ impl Session {
             app.nothing_to_enter();
             return;
         }
-        deliver(app, &mut self.focus, &mut self.editor, key);
+        self.type_key(app, key);
     }
     /// A key as the focus's handlers take it: a fixed key, or the mouse's.
     /// `on_row`: Enter on a row pointed at (a double click), rather than the
@@ -1106,4 +1147,23 @@ pub(super) fn cancels(app: &App, key: KeyEvent) -> bool {
     keymap::Mode::ALL
         .into_iter()
         .any(|mode| app.keymap.cancels(mode, key))
+}
+/// What a key on a query and the list below it came to.
+pub(super) enum Typed {
+    /// It begins a sequence.
+    Waiting,
+    /// Neovim's: it leaves Insert mode or edits its command line.
+    Neovim,
+    Run(Function, Option<u8>),
+    /// No binding has it at this cell (the query, once keys held back
+    /// went to it).
+    Unbound(keymap::Cell),
+}
+/// Whether the query on screen has the focus: the Keys screen's, or the
+/// results'.
+pub(super) fn query_focus<'a>(focus: &'a mut Focus, app: &'a mut App) -> &'a mut bool {
+    match focus {
+        Focus::Keys(screen) => &mut screen.query_focused,
+        _ => &mut app.query_focused,
+    }
 }

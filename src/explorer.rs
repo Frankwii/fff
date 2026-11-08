@@ -67,16 +67,18 @@ impl Dialog {
     /// How to choose, shown in the empty query line; `typing` in Insert mode,
     /// where `!` is text. Keys are named as `app` binds them.
     pub fn hint(&self, typing: bool, app: &crate::App) -> String {
+        use crate::keymap::Dimension;
         use crate::keymap::{Function, Mode};
-        // Up to two keys `function` has in `mode` for this dialog, else any.
+        // Up to two keys `function` has in `mode` for this dialog and what
+        // has the focus, else any.
         let keys = |function: Function, mode: Mode| {
-            let program = app.program();
+            let (program, focus) = (app.program(), app.cell_in(mode).focus);
             let bindings = app.keymap.of(function, mode);
             let mut names: Vec<String> = Vec::new();
             let here = bindings.iter().filter(|b| {
                 b.reach()
                     .iter()
-                    .any(|s| s.programs & crate::keymap::Dimension::bit(program) != 0)
+                    .any(|s| s.programs & program.bit() != 0 && s.focuses & focus.bit() != 0)
             });
             for b in here.chain(bindings.iter()) {
                 if !names.contains(&b.display()) && names.len() < 2 {
@@ -97,9 +99,14 @@ impl Dialog {
         };
         match (&self.save, self.directory, self.multiple) {
             (Some(_), _, _) if typing => format!(
-                "Type a custom name, then press {} to save it here. Press {} to browse folders.",
+                "Type a custom name, then press {} to save it here.",
                 keys(here, Mode::Insert),
-                app.key_or_none("esc")
+            ),
+            // The query in focus: one key on, the folders.
+            (Some(name), _, _) if app.query_in_focus() => format!(
+                "Press {} to save {name} here. Press {} to browse folders.",
+                keys(here, Mode::Normal),
+                keys(Function::ToggleQueryFocus, Mode::Normal)
             ),
             (Some(name), _, _) => format!(
                 "Press {} to save {name} here. Press i to type a custom name.{}",

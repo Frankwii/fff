@@ -327,6 +327,7 @@ fn text(buffer: &Buffer) -> String {
 fn split_panes_colors_and_rendered_numbers() {
     let theme = Palette::default();
     let mut app = fixture();
+    app.edit_view = Some(normal_view());
     let mut focus = Focus::Results;
     let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
     let mut targets = Vec::new();
@@ -1269,6 +1270,50 @@ fn command_entry_keeps_buffer_visible_above_its_cursor() {
     }
 }
 
+/// The query's Neovim in Normal mode, the cursor at its start.
+fn normal_view() -> crate::editor::EditView {
+    crate::editor::EditView {
+        field: Field::Query,
+        mode: "n".into(),
+        blocking: false,
+        row: 0,
+        column: 0,
+        anchor: None,
+        command: String::new(),
+        command_column: 0,
+        closed: false,
+        written: false,
+        saved: false,
+    }
+}
+#[test]
+fn the_query_and_the_results_take_the_focus_in_turn() {
+    let theme = Palette::default();
+    let mut app = fixture();
+    app.edit_view = Some(normal_view());
+    let mut focus = Focus::Results;
+    let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
+    let mut draw = |app: &mut App| {
+        terminal
+            .draw(|frame| _ = render(frame, app, &mut focus))
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        // The query box's corner, and whether a row has the selection bar.
+        let corner = buffer[(1, 0)].fg;
+        let bar = buffer.content().iter().any(|c| c.bg == theme.selection);
+        (corner, bar)
+    };
+    // In the results, the query's border is dimmed.
+    assert_eq!(draw(&mut app), (theme.border, true));
+    // With the focus on the query, its border lights and the bar goes.
+    app.query_focused = true;
+    assert_eq!(draw(&mut app), (theme.accent, false));
+    // Insert mode always types into the query.
+    app.query_focused = false;
+    app.edit_view.as_mut().unwrap().mode = "i".into();
+    assert_ne!(draw(&mut app).0, theme.border);
+    assert!(!draw(&mut app).1);
+}
 #[test]
 fn vim_mode_selection_and_cursor_are_rendered_in_the_field() {
     let mut app = fixture();

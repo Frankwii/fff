@@ -64,14 +64,16 @@ and Ctrl+r still edit the query. `:` there opens the command picker instead
 of Neovim's command line: the functions that work where you are, to run one
 by name (Enter) or go back (Escape).
 
-`/` (`toggle_query_focus`) moves the focus from the results up to the query,
-where Normal mode is Neovim's: `h`, `l`, `x`, `p`, `u`, `v`, `:` and the
-other keys typed as text edit the query, unless you bound one there yourself
-(a key you bind always comes first; its
+Typing gives the query the focus: `i`, `a` or any other key no binding has
+in the results goes to Neovim and moves the focus up to the query, and
+Escape from Insert mode stays there. In the query's Normal mode `h`, `l`,
+`x`, `p`, `u`, `v`, `:` and the other keys typed as text edit it, unless you
+bound one there yourself (a key you bind always comes first; its
 [focus](CONFIGURATION.md#the-query-in-focus) decides where). Enter, Tab and
-the Alt and Ctrl keys still act on the results, which are drawn without
-their highlight bar meanwhile. Escape there gives the results the focus
-back; Insert mode entered from the query returns to it.
+the Alt and Ctrl keys still act on the results. Whichever of the two lacks
+the focus is drawn dimmed: the query's border, or the results' border and
+highlight bar. Escape in the query's Normal mode (`toggle_query_focus`)
+gives the results the focus back. The Keys screen works the same way.
 
 | Action | Keys in Normal mode |
 | --- | --- |

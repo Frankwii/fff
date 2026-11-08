@@ -11,6 +11,7 @@
 //! until Enter saves them (refused when they would clash or lock you in).
 //! The `show_keys` key closes the screen from anywhere in it, dropping what
 //! was not saved.
+use super::dispatch::Typed;
 use super::*;
 use crate::keymap::{Binding, Cell, Dimension, Function, Key, Keymap, Mode, Scope};
 
@@ -19,6 +20,8 @@ pub(crate) struct KeysScreen {
     pub here: Cell,
     /// Every function, not only those that work where F1 was pressed.
     pub everywhere: bool,
+    /// The query has the focus, as the results' can (`toggle_query_focus`).
+    pub query_focused: bool,
     /// The Keys view: a row per key and place, instead of per function.
     pub keys: bool,
     pub query: String,
@@ -229,6 +232,7 @@ impl KeysScreen {
         Self {
             here,
             everywhere: false,
+            query_focused: true,
             keys: false,
             query: String::new(),
             recording: false,
@@ -236,6 +240,10 @@ impl KeysScreen {
             details: 0,
             editor: None,
         }
+    }
+    /// Whether the query has the focus, rather than the list below it.
+    pub fn query_in_focus(&self, app: &App) -> bool {
+        self.query_focused || app.mode() == Mode::Insert
     }
     /// Whether a box reaches where F1 was pressed, whatever is highlighted:
     /// the results count with their query.
@@ -494,7 +502,9 @@ impl Session {
             }
             return Ok(None);
         }
-        let normal = app.mode() == Mode::Normal && app.pending.is_empty();
+        // The screen's own Normal-mode keys are the list's: in the query in
+        // focus they are Neovim's.
+        let normal = app.mode() == Mode::Normal && app.pending.is_empty() && !screen.query_focused;
         if normal && key.code == K::Char('r') && key.modifiers.is_empty() {
             screen.recording = true;
             return Ok(None);
@@ -529,41 +539,26 @@ impl Session {
             screen.editor = Some(Editor::new(&app.keymap, function, row));
             return Ok(None);
         }
-        // Leaving Insert mode and Neovim's command line are Neovim's.
-        if app.pending.is_empty()
-            && let Some(view) = &app.edit_view
-            && ((key.code == K::Esc && !view.normal())
-                || (view.command() && !key.modifiers.intersects(M::ALT | M::CONTROL)))
-        {
-            deliver(app, &mut self.focus, &mut self.editor, key);
-            return Ok(None);
-        }
-        // Otherwise your own keys: those that move through a list, scroll
-        // the preview, clear a query or quit do so here too.
+        // Otherwise your own keys, as in the results: those that move
+        // through a list, scroll the preview, clear a query or quit do so
+        // here too.
         let mode = app.mode();
         let cell = Cell {
             highlight: crate::keymap::Highlight::None,
-            focus: if mode == Mode::Insert {
+            focus: if mode == Mode::Insert || screen.query_focused {
                 crate::keymap::Focus::Query
             } else {
                 crate::keymap::Focus::Results
             },
             ..screen.here
         };
-        loop {
-            match app.keymap.feed(&mut app.pending, mode, cell, key) {
-                Step::Pending => return Ok(None),
-                Step::Flush(keys) => {
-                    for pending in keys {
-                        deliver(app, &mut self.focus, &mut self.editor, pending);
-                    }
-                }
-                Step::Pass => {
-                    deliver(app, &mut self.focus, &mut self.editor, key);
-                    return Ok(None);
-                }
-                Step::Run(function, _) => return Ok(self.keys_function(app, function, key)),
+        match self.query_key(app, mode, cell, key) {
+            Typed::Waiting | Typed::Neovim => Ok(None),
+            Typed::Unbound(_) => {
+                self.type_key(app, key);
+                Ok(None)
             }
+            Typed::Run(function, _) => Ok(self.keys_function(app, function, key)),
         }
     }
     /// One of your functions pressed on the Keys screen.
@@ -593,6 +588,7 @@ impl Session {
                 screen.query.clear();
                 *index = 0;
             }
+            Function::ToggleQueryFocus => screen.query_focused = !screen.query_focused,
             Function::ShowSession => self.focus = Focus::Info { offset: 0 },
             Function::Cancel => return Some(Finish::Cancelled),
             Function::Quit => return self.quit(app, false),

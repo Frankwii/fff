@@ -668,7 +668,7 @@ functions! {
     MarkAll "mark_all" Marks "Mark every row of the list that has the focus: in the results, every entry the query matches, also those off screen.";
     InvertMarks "invert_marks" Marks "Invert the marks of every row of the list that has the focus: marked ones lose their mark, the others get one.";
     ToggleMarkedList "toggle_marked_list" Marks "Toggle the focus between the results and the marked list, the pane listing every mark, where keys act on the marks instead.";
-    ToggleQueryFocus "toggle_query_focus" Search "Toggle the focus between the results and the query above them. With the focus on the query, Normal mode edits it as Neovim does: the default keys typed as text (h, l, x, p, u…) go to Neovim there, while keys not typed as text (Tab, arrows, Alt and Ctrl keys) still act on the results. Keys you bind apply there too, unless their focus leaves the query out.";
+    ToggleQueryFocus "toggle_query_focus" Search "Toggle the focus between the results and the query above them; typing into the query gives it the focus too. With the focus on the query, Normal mode edits it as Neovim does: the default keys typed as text (h, l, x, p, u…) go to Neovim there, while keys not typed as text (Tab, arrows, Alt and Ctrl keys) still act on the results. Keys you bind apply there too, unless their focus leaves the query out.";
     ClearQuery "clear_query" Search "Clear the query. With the query already empty, pressing it twice in a row clears every mark instead.";
     SwitchQuery "switch_query" Search "Switch typing between the two queries: names, which filters entries by name, and contents, which searches inside the files the names query lists, one row per match. The contents bar shows while it is typed into or set.";
     SearchShallower "search_shallower" Search "Search one level less deep below the current directory. The least is depth 1: the directory's own entries.";
@@ -1048,7 +1048,7 @@ impl Function {
             ToggleJobList => &[("J", all), ("<M-J>", all)],
             PrintMarks => &[("<C-w>", all)],
             ClearQuery => &[("<Esc>", scope(&[], &[Results], &[]))],
-            ToggleQueryFocus => &[("/", all), ("<Esc>", scope(&[], &[Query], &[]))],
+            ToggleQueryFocus => &[("<Esc>", scope(&[], &[Query], &[]))],
             SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
             SearchShallower => &[("-", all), ("<M-Left>", all)],
             SearchDeeper => &[("+", all), ("<M-Right>", all)],
@@ -2050,11 +2050,9 @@ mod tests {
         let enter = KeyEvent::new(KeyCode::Enter, M::NONE);
         let alt_j = KeyEvent::new(KeyCode::Char('j'), M::ALT);
         let normal = |cell, keys: &[KeyEvent]| run(&keymap, Mode::Normal, cell, keys);
-        // `/` moves the focus up; Escape takes it back, then clears.
-        assert_eq!(
-            normal(cell(Roam, H::Dir), &[press('/')]),
-            Step::Run(Function::ToggleQueryFocus, None)
-        );
+        // Typing gives the query the focus; Escape there takes it back,
+        // then clears.
+        assert_eq!(normal(cell(Roam, H::Dir), &[press('/')]), Step::Pass);
         assert_eq!(
             normal(query, &[esc]),
             Step::Run(Function::ToggleQueryFocus, None)

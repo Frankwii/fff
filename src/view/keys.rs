@@ -460,7 +460,7 @@ pub(super) fn keys_screen(frame: &mut Frame, area: Rect, app: &App, screen: &Key
 }
 fn query_box(frame: &mut Frame, area: Rect, app: &App, screen: &KeysScreen) {
     let theme = app.palette;
-    let focused = screen.editor.is_none();
+    let focused = screen.editor.is_none() && screen.query_in_focus(app);
     let shown = if screen.everywhere {
         "showing every function".to_string()
     } else {
@@ -520,7 +520,8 @@ fn list_pane(
     } else {
         format!(" Functions · {} ", rows.len())
     };
-    let block = panel(theme, title, screen.editor.is_none(), theme.accent).title_bottom(
+    let focused = screen.editor.is_none() && !screen.query_in_focus(app);
+    let block = panel(theme, title, focused, theme.accent).title_bottom(
         Line::from(if keys {
             vec![styled(
                 " grey: does not apply where you opened this screen ",
