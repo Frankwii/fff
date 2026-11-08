@@ -4,6 +4,30 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **New documentation for users.** A short README with recordings of fff at
+  work, a step-by-step [tutorial](docs/GETTING_STARTED.md), and guides to
+  [browsing](docs/BROWSING.md), [finding files](docs/SEARCHING.md),
+  [the programs](docs/PROGRAMS.md), [file operations](docs/OPERATIONS.md),
+  [keys and contexts](docs/KEYS.md), [openers](docs/OPENERS.md) and their
+  arguments, [workspaces](docs/WORKSPACES.md),
+  [palettes](docs/PALETTES.md), [configuration](docs/CONFIGURATION.md) and
+  [setup and integration](docs/SETUP.md) (the shell, completions, man
+  pages, the desktop and Firefox). The complete reference moved to
+  [docs/dev](docs/dev/DEVELOPMENT.md).
+
+### Fixed
+
+- **`fff --help` and the manual pages name the current keys.** Their key
+  summary, and the help of `--depth`, `--glob`, `--exclude`, `--hidden`,
+  `--no-exclusions`, `fff roam`, `fff pick`, `fff seek` and the dialogs
+  for several files or folders, still gave the keys of before 0.22.0
+  (Alt+w, Ctrl+w, Alt+←/→…).
+- **`config.example.toml` names the current keys** in its comments.
+
 ## 0.22.1 — 2026-11-08
 
 Keys that feel more like Neovim's: j and k go down from the query into
@@ -472,7 +496,7 @@ gone.
   other Qt applications use the portal's file dialog, and so fff, only with
   `QT_QPA_PLATFORMTHEME=xdgdesktopportal` in their environment; outside a
   desktop environment they draw Qt's own dialog instead. Setup and the
-  [desktop guide](docs/DESKTOP.md#qt-applications-telegram-) say so.
+  [desktop guide](docs/dev/DESKTOP.md#qt-applications-telegram-) say so.
 - **The docs say where zsh looks for `_fff`**: in a directory that is in
   `$fpath` when `compinit` runs, not one added later.
 - **`fff setup --check-config` checks the desktop integration.** When `fff
@@ -486,7 +510,7 @@ gone.
   too (Tab or Alt+/), as every other program does. In a save dialog the name
   saved under still comes only from the names query, whose bar keeps its
   `Save as NAME` title. See [searching contents in a
-  dialog](docs/DESKTOP.md#searching-contents-in-a-dialog).
+  dialog](docs/dev/DESKTOP.md#searching-contents-in-a-dialog).
 - **Manual pages.** `fff setup --man` writes `fff.1` and a page per command
   (`man fff-pick`, `man fff-explorer-save`) into a directory `man` searches,
   in your home if it can, or into the folder given (`--man DIR`).
@@ -513,7 +537,7 @@ gone.
   outside them, are not searched by the contents query nor watched, and the
   preview reads only their first 4 KiB, without waiting. Browsing them works
   as before. See [kernel
-  filesystems](docs/CONFIGURATION.md#kernel-filesystems).
+  filesystems](docs/dev/CONFIGURATION.md#kernel-filesystems).
 - **Emptying old trash never deletes the wrong entry.** When an entry renamed
   in the trash left its old name to another entry put there by hand, the
   purge deleted the newcomer once the renamed entry's time was up, and kept
@@ -1399,7 +1423,7 @@ keys that open or finish something were reworked into one consistent model.
   still searching, nothing listed) instead of doing nothing.
 - In open and save dialogs, `l` on a file explains how to choose it instead
   of trying to open it; a double click is Enter on the row.
-- New guide: [desktop integration](docs/DESKTOP.md), with a full
+- New guide: [desktop integration](docs/dev/DESKTOP.md), with a full
   `fff explorer` reference.
 
 ### Changed

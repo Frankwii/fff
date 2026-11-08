@@ -22,8 +22,9 @@ const STYLES: styling::Styles = styling::Styles::styled()
 const LONG_ABOUT: &str = "\
 Interactive fuzzy file picker for the terminal.
 
-Press i to type and fuzzy-filter file and directory basenames (Neovim default),
-navigate with Enter, Alt+h and Alt+l, mark several paths with Space, and confirm.
+Press i to type and fuzzy-filter names (every field is Neovim, starting in
+Normal mode), move with j and k, go into folders with l and up with h, mark
+paths with Space, and finish with Enter.
 The interface draws on /dev/tty. Without a command (fff roam), leaving fff
 changes your shell's directory, with the shell function from fff setup --init;
 fff pick prints the selected paths instead, for pipes and command substitution.
@@ -72,22 +73,17 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Choose where to save a file, as a file dialog would (see fff explorer --help).
 
 <bold><green>Keys:</green></bold> (press <cyan>F1</cyan> in fff to search and rebind them, <cyan>F2</cyan> for session details)
-  <cyan>i, type</cyan>  filter       <cyan>Enter</cyan>  open directory / confirm   <cyan>Space</cyan>  mark
-  <cyan>Alt+h</cyan> parent          <cyan>Alt+l</cyan>  enter directory            <cyan>Alt+Space</cyan>  marked list
-  <cyan>Alt+←/→</cyan> depth         <cyan>Alt+g</cyan>  location prompt            <cyan>Alt+w</cyan>  workspaces
-  <cyan>Alt+p</cyan> palette chooser <cyan>Alt+P</cyan>  re-read config palette     <cyan>Ctrl+c</cyan> cancel
-  <cyan>Escape</cyan> leave Insert mode, clear query, twice: marks   <cyan>Ctrl+w</cyan> return marks (pick)
-  In Neovim Normal mode, list views also take <cyan>h/j/k/l</cyan> (as Alt+h/j/k/l),
-  results take <cyan>-/+</cyan> and <cyan>1-9</cyan> depth, <cyan>.</cyan> hidden, <cyan>g/</cyan> location, <cyan>gw</cyan> workspaces,
-  <cyan>↑/↓</cyan> (Alt+↑/↓ in any mode) next / previous of three tabs that share marks,
-  Normal mode: <cyan>v/p/s</cyan> move/copy/symlink selected; <cyan>x</cyan> trash, <cyan>X</cyan> delete, <cyan>u</cyan> undo.
-  <cyan>r</cyan> batch rename; <cyan>E</cyan> extract archive; <cyan>e</cyan> edit; <cyan>n</cyan> new file/directory.
-  <cyan>Alt+v</cyan> (<cyan>P</cyan>) preview; <cyan>Alt+d</cyan> (<cyan>d</cyan>) hide folders, <cyan>Alt+D</cyan> (<cyan>D</cyan>) files;
-  feature chords like these work while typing, their letters in Normal mode.
-  <cyan>gx</cyan> run a program on current/marked paths and come back; <cyan>gX</cyan> run it and exit.
-  <cyan>e</cyan> open current/marked paths in $EDITOR; <cyan>gc</cyan> edit the configuration and apply it.
-  Each folder remembers its cursor.
-  <cyan>gg</cyan> first row, <cyan>G</cyan> last row and <cyan>Space</cyan> mark. <cyan>ZZ</cyan> saves buffer edits; <cyan>ZQ</cyan> discards.
+  Fields are Neovim: <cyan>i</cyan> or <cyan>a</cyan> types into the query, and <cyan>Escape</cyan> twice goes back to
+  Normal mode in the results, where these keys act:
+  <cyan>j/k</cyan> move           <cyan>h/l</cyan> parent / into a folder   <cyan>gg/G</cyan> first / last row
+  <cyan>Space</cyan> mark         <cyan>m/M</cyan> mark all / invert         <cyan>Ctrl+k</cyan> the marked list
+  <cyan>Enter</cyan> open the file and leave (roam); print the marks and the highlighted path (pick)
+  <cyan>L</cyan> open in the background   <cyan>!</cyan> leave into this folder   <cyan>q</cyan> quit   <cyan>Ctrl+c</cyan> cancel
+  <cyan>Tab</cyan> search contents  <cyan>+/-</cyan> depth   <cyan>g.</cyan> hidden   <cyan>gs</cyan> sort   <cyan>/</cyan> go to a path
+  <cyan>gw</cyan> workspaces   <cyan>gP</cyan> palettes   <cyan>gm</cyan> switch program   <cyan>gc</cyan> edit the configuration
+  <cyan>v/p/s</cyan> move / copy / link the marks here   <cyan>x</cyan> trash   <cyan>X</cyan> delete   <cyan>u</cyan> undo
+  <cyan>r</cyan> rename   <cyan>n</cyan> new file or folder   <cyan>E</cyan> extract   <cyan>e</cyan> edit in $EDITOR   <cyan>gx/gX</cyan> run a program
+  While typing (Insert mode), <cyan>Alt+h/j/k/l</cyan> move and <cyan>Enter</cyan> acts as in Normal mode.
 
 <bold><green>Configuration file:</green></bold>
   Optional TOML at $XDG_CONFIG_HOME/fff/config.toml (~/.config/fff/
@@ -134,8 +130,8 @@ struct Args {
     roam: RoamArgs,
     /// Maximum discovery depth below each scope (immediate children = 1)
     ///
-    /// Change it during the session with Alt+Left / Alt+Right, or - / + in
-    /// Normal mode.
+    /// Change it during the session with - and + in Normal mode, or
+    /// Ctrl+Alt+digit.
     ///
     /// [default: 1; in fff pick, 3; in fff seek, 6]
     #[arg(global = true, short, long, value_name = "N", help_heading = "Search",
@@ -146,7 +142,7 @@ struct Args {
     /// A file is listed when it matches any GLOB; directories are hidden but
     /// still traversed. Uses globset syntax (*, ?, [abc], {a,b}); quote it so
     /// the shell does not expand it. Edit the filters during the session with
-    /// Alt+f.
+    /// gF; gf turns them off and on again.
     #[arg(
         global = true,
         short,
@@ -159,8 +155,8 @@ struct Args {
     ///
     /// A matching directory prunes its whole subtree; a glob starting with / or
     /// ~/ matches absolute paths. The rules follow the configuration's
-    /// [exclusions] rules. Edit them during the session with Alt+e and toggle
-    /// enforcement with Alt+H.
+    /// [exclusions] rules. Edit them during the session with gE and toggle
+    /// enforcement with ge.
     #[arg(
         global = true,
         long = "exclude",
@@ -168,10 +164,10 @@ struct Args {
         help_heading = "Search"
     )]
     exclusions: Vec<String>,
-    /// Show hidden (dot) entries from the start; Alt+. toggles them
+    /// Show hidden (dot) entries from the start; g. toggles them
     #[arg(global = true, long, help_heading = "Search")]
     hidden: bool,
-    /// Start with exclusion rules disabled; toggle with Alt+H
+    /// Start with exclusion rules disabled; ge toggles them
     #[arg(global = true, long, help_heading = "Search")]
     no_exclusions: bool,
     /// Color palette for this session; overrides [ui] palette
@@ -248,10 +244,10 @@ enum Command {
     /// Browse folders; leaving changes your shell's directory (the default)
     ///
     /// What fff does without a command. q leaves you where you started, !
-    /// takes you to the folder you were browsing, and Normal-mode Enter goes
-    /// into a folder or opens a file and leaves you in its folder (with the
-    /// shell function from fff setup --init; without it, the folder is
-    /// printed).
+    /// takes you to the folder you were browsing, g! into the highlighted
+    /// folder, and Enter on a file opens it and leaves you in its folder
+    /// (with the shell function from fff setup --init; without it, the
+    /// folder is printed).
     Roam(RoamArgs),
     /// Browse in a terminal window of its own, with no shell to change directory
     ///
@@ -263,8 +259,8 @@ enum Command {
     Window(WindowArgs),
     /// Browse and print the chosen paths, for scripts and $(...)
     ///
-    /// Enter on a file prints it (while typing, the marks and it), Ctrl+number
-    /// does the same for its row, Ctrl+w prints the marks and ! the browsing
+    /// Enter prints the marked paths and the highlighted one, Shift+Enter the
+    /// highlighted one alone, Ctrl+Enter the marks alone and ! the browsing
     /// directory; q, like Ctrl+c, prints nothing.
     Pick(PickArgs),
     /// Choose files below the current directory or ROOTS, without navigating
@@ -272,7 +268,7 @@ enum Command {
     /// A static file choice: only files are listed, from every folder down to
     /// --depth; the current directory cannot change, and the query starts in
     /// Insert mode, ready to type. Rows show their path below the folder
-    /// searched; gd switches to bare names. Enter leaves into the chosen
+    /// searched; gl switches to bare names. Enter leaves into the chosen
     /// file's folder. q and ! leave without choosing anything. To print files, use fff pick:
     /// with --glob it too lists only matching files.
     Seek(SeekArgs),
@@ -350,7 +346,7 @@ struct ExplorerArgs {
 enum DialogCommand {
     /// Open one file
     Open(DialogPath),
-    /// Open one or more files (Space marks them, Ctrl+w chooses the marks)
+    /// Open one or more files (Space marks them, Ctrl+Enter chooses the marks)
     OpenMultiple(DialogPath),
     /// Choose a folder: ! or Ctrl+s chooses the folder you are in
     Folder(FolderArgs),
@@ -369,7 +365,7 @@ struct FolderArgs {
     /// Where to start: a folder, or a file to highlight in its folder
     #[arg(value_hint = clap::ValueHint::AnyPath)]
     path: Option<PathBuf>,
-    /// Allow several folders (Space marks them, Ctrl+w chooses the marks)
+    /// Allow several folders (Space marks them, Ctrl+Enter chooses the marks)
     #[arg(long)]
     multiple: bool,
 }

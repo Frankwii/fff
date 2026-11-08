@@ -10,7 +10,7 @@ The preview pane stays text only; there will be no image previews: see
 
 ## Before 1.0
 
-The goals for the first release, the README last.
+The goals for the first release.
 
 ### Faster scanning
 
@@ -40,7 +40,7 @@ thread:
   takes 0.1 seconds; merging three or four runs at once instead of two
   would move each row about half as often, which bounds the gain near
   0.05 seconds.
-- **Rows' keys.** Since [sorting](../README.md#sorting), each row is kept
+- **Rows' keys.** Since [sorting](USAGE.md#sorting), each row is kept
   with a 16-byte key, its score and a sort's value, where it had an 8-byte
   score: listing `/usr` went from about 0.88 to 0.93 seconds in `fff roam`.
   Keeping the values in a list of their own, there only while a sort that
@@ -77,12 +77,60 @@ number of paths: a scan within about twice the time of `fd | fzf` looks
 reachable, where it is several times today. Matching fzf exactly is not
 the aim; what is lost to the features above is the price of them.
 
-### The README
+### For new users
 
-Last, once the rest is done: the README polished into a guide a newcomer
-can follow, with examples of use (`fff roam`, `fff pick` and `fff seek` at
-work, a contents query, a file operation) and short recordings of them
-playing in the terminal.
+Gaps that writing the [user guides](../GETTING_STARTED.md) showed, in the
+order a newcomer meets them:
+
+- **Typing in Normal mode.** The empty query says `type to filter names…`
+  in Normal mode too, where typing runs commands instead: `s` links the
+  marks, `o` starts Insert mode, `x` trashes. In Normal mode with the
+  results in focus the hint should name the key that starts typing
+  (`i to filter names…`, through `App::bound`).
+- **A setting to start typing.** `[ui] start_in = "insert"` (or similar)
+  for `fff roam` and `fff window`, as `fff pick` and `fff seek` already
+  start, for people who think of fff as a finder first and of Vim second.
+- **The shell function, found missing.** Leaving `fff roam` with `!`, `g!`
+  or Enter on a file without `--cd-file` prints the folder to a terminal
+  where nothing reads it, and the shell stays where it was. When stdout is
+  a terminal, a line on stderr could say how to set the function up
+  (`fff setup --init`), once.
+- **Setup that sets up.** `fff setup` lists the shell line and completions
+  under **Next** for the user to copy; it could offer to add them itself
+  (append the `eval` line to `~/.zshrc`, save `_fff` where `$fpath` finds
+  it, run `--man`), each asked and shown first, as it does the
+  configuration.
+- **What a `g` waits for.** About twenty functions start with `g` (`gs`,
+  `gw`, `gP`, `gm`, `gc`, `gx`, `g.`, `gd`, `gE`, `gF`, `gl`, `gt`, `g!`,
+  `gpp`…). While a prefix waits as PENDING, a small sheet listing what can
+  follow and what each does (as which-key does in Neovim) would teach them
+  without F1, from the keymap, so rebound keys show as bound.
+- **Terminals without the kitty keyboard protocol** (st, urxvt, xterm,
+  tmux by default) never send Shift+Enter, Ctrl+Enter, Ctrl+digits or a
+  Ctrl+m distinct from Enter, so `print_marks` and `print_highlighted` have
+  no working default key there. fff knows whether the terminal answered
+  the protocol query: it could say so once (and `--check-config` with it),
+  naming the functions left without a key, or give them fallback keys.
+- **`fff tutor`.** A practice session, like `vimtutor`: a temporary folder
+  of files whose previews are the lessons (move, type, go deeper, search
+  contents, mark, copy, undo, pick), each telling the next key to press,
+  so that the tutorial is learnt in fff rather than read beside it.
+  `docs/demos/fixture.sh` already builds such a folder.
+- **`.gitignore`.** Users coming from `fd` expect ignored files to be left
+  out. An opt-in `[exclusions] gitignore = true`, reading the ignore files
+  of the repositories being scanned, with `ge` turning them off like the
+  other exclusions.
+- **Key presets.** A few `keys.toml` presets for people coming from
+  ranger, lf, nnn or yazi (`fff setup --keys ranger`), so that their hands
+  keep working on the first day.
+
+### Distribution
+
+Beside the AUR package: a Homebrew formula (or tap) for macOS, and
+prebuilt Linux and macOS binaries on GitHub's releases for people without
+a Rust toolchain. `packaging/aur/PKGBUILD` installs `docs/*.md` and
+`config.example.toml`: add `keys.example.toml`, which [KEYS.md](../KEYS.md)
+links, at the next release.
 
 ## Post-launch
 
@@ -90,7 +138,7 @@ Ideas for after 1.0, once the features above are done.
 
 ### Sorting, continued
 
-What the [sorting picker](../README.md#sorting) leaves for later:
+What the [sorting picker](USAGE.md#sorting) leaves for later:
 
 - **Sizes as they are added up.** Sorting by size puts folders not added up
   yet last, and the order stays as it was ranked: choosing it again sorts by

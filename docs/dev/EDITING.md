@@ -33,7 +33,7 @@ executes commands such as `:s`. Query Enter keeps its navigation/confirmation
 action. Rename, exclusion and filter buffers retain multiline `o`, `O` and Enter.
 
 In results Normal mode, `v`, `p`, `x`, `X`, `u`, `r`, `R`, `E`, `n` and `s` invoke file
-operations (all but `r` and `n` in the results only, not the marked list); Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
+operations, in the results only (not the marked list, nor the query in focus); Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
 edit, delete and reload workspaces in the workspace chooser's Normal mode (Alt+n,
 Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers
 retain their editing keys.

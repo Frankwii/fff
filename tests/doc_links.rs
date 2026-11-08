@@ -1,4 +1,4 @@
-//! Every link between the README and the guides names a file that exists
+//! Every link between the README, the guides and the development notes names a file that exists
 //! and, after `#`, one of its headings, as GitHub spells their anchors.
 use std::{
     collections::HashMap,
@@ -47,10 +47,12 @@ fn links(text: &str) -> Vec<&str> {
 fn links_between_the_guides_reach_their_files_and_headings() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = vec![root.join("README.md"), root.join("CHANGELOG.md")];
-    for entry in fs::read_dir(root.join("docs")).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "md") {
-            files.push(path);
+    for folder in ["docs", "docs/dev"] {
+        for entry in fs::read_dir(root.join(folder)).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "md") {
+                files.push(path);
+            }
         }
     }
     let texts: HashMap<PathBuf, String> = files

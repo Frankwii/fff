@@ -1,126 +1,120 @@
-# Built-in palettes and live reload
+# Color palettes
 
-Set `[ui].palette` in your TOML file, or pass `--palette NAME`:
+fff comes with 37 color palettes, from well-known families such as
+Catppuccin, Gruvbox and Tokyo Night, and you can make your own.
+
+## Choosing a palette
+
+Press **`gP`** to open the palette chooser. Move through it with `j` and
+`k`, or press `i` and type to filter: each palette is tried on the whole
+screen after a moment. **Enter** keeps it for this session; **Escape** goes
+back to the colors you had.
+
+The chooser never changes your configuration. To keep a palette, set it
+there:
 
 ```toml
 [ui]
 palette = "catppuccin-mocha"
 ```
 
+or choose one for a single run with `fff --palette nord`. Shell completion
+offers every name.
+
+## Built-in palettes
+
 | Family | Names |
 | --- | --- |
-| Fuzzy file finder originals | `midnight`, `light`, `forest` |
+| fff's own | `midnight` (the default), `light`, `forest` |
 | Catppuccin | `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` |
 | Nord | `nord` |
-| Gruvbox | `gruvbox-dark`, `gruvbox-light` (`gruvbox` aliases dark) |
-| Tokyo Night | `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`, `tokyonight-day` (`tokyonight` aliases night) |
+| Gruvbox | `gruvbox-dark`, `gruvbox-light` |
+| Tokyo Night | `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`, `tokyonight-day` |
 | Dracula | `dracula` |
-| Everforest | `everforest-dark`, `everforest-light` (`everforest` aliases dark; medium contrast) |
-| Kanagawa | `kanagawa-wave`, `kanagawa-dragon` (`kanagawa` aliases wave) |
+| Everforest | `everforest-dark`, `everforest-light` |
+| Kanagawa | `kanagawa-wave`, `kanagawa-dragon` |
 | One Dark | `onedark` |
 | Rosé Pine | `rose-pine`, `rose-pine-moon`, `rose-pine-dawn` |
-| Solarized | `solarized-dark`, `solarized-light` (`solarized` aliases dark) |
+| Solarized | `solarized-dark`, `solarized-light` |
 | Ayu | `ayu-dark`, `ayu-light`, `ayu-mirage` |
 | Monokai | `monokai` |
 | Material | `material-darker` |
 | Zenburn | `zenburn` |
-| Ocean | `ocean` |
-| Eighties | `eighties` |
-| Ashes | `ashes` |
-| Atelier | `atelier-dune` |
-| Black Metal | `black-metal` |
-| Tomorrow | `tomorrow-night` |
+| Base16 classics | `ocean`, `eighties`, `ashes`, `atelier-dune`, `black-metal`, `tomorrow-night` |
 
-Names are lowercase and use dashes. Catppuccin is spelled `catppuccin`; Frappé's
-identifier is ASCII `frappe`. Any built-in can be the `extends` base of a custom
-palette. See [configuration](CONFIGURATION.md) for the semantic color roles.
+`gruvbox`, `tokyonight`, `everforest`, `kanagawa` and `solarized` also work,
+as their dark variant.
 
-When a config file is enabled, saving changes to its palette selection or color
-roles updates the running interface automatically, normally within 500 ms. File
-reading and parsing happen in a background thread. Invalid intermediate edits
-keep the last working colors and show an error; correcting the file recovers
-automatically. Atomic-save/rename workflows work too. `--palette` pins the chosen
-name but still reloads custom colors for that name. `--no-config` disables file
-reload. This reload applies to colors only; workspaces reload with r in their chooser; cache settings need a new
-invocation. Query, cursor, marks, discovery, and numbered targets are preserved.
+## Making your own
 
-## Switching palettes while running
+A custom palette starts from a built-in one and changes only the colors you
+name:
 
-| Key | Action |
+```toml
+[ui]
+palette = "ember"
+
+[palettes.ember]
+extends = "midnight"
+accent = "#f0a76c"
+marked = "#e8c979"
+current_directory = "#623a28"
+current_directory_text = "#fff3df"
+```
+
+- `extends` names the built-in palette to start from (`midnight` if left
+  out).
+- Colors are `"#RRGGBB"`, or `"default"` for your terminal's own color.
+  `background = "default"` keeps a transparent or themed terminal
+  background, for example.
+- A custom palette needs a name of its own, not a built-in's.
+
+Custom palettes appear in the `gP` chooser after the built-ins.
+
+These are the colors you can set:
+
+| Color | Used for |
 | --- | --- |
-| `gP` in Normal | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Press `i` to fuzzy-filter names (the chooser starts in Normal mode); a highlight held for at least 100 ms previews it across the whole interface. Moving again restarts the wait. Enter applies it immediately for this session; Escape (or Alt+p again) restores the previous colors. |
-| `reload_palette` (no default key) | Re-read the config file now and apply its palette, discarding any session choice. With `--palette NAME`, re-read that name's definition instead. |
+| `background` | The screen's background |
+| `panel` | The background of the results, the marked list and windows |
+| `text` | Ordinary text |
+| `muted` | Details, paths and hints |
+| `border` | Borders of what doesn't have the focus |
+| `accent` | Folders, the focused border, and the query box in Normal mode |
+| `marked` | Marks, the letters a query matched, and the query box in Command mode |
+| `success` | Completed searches and the query box in Insert mode |
+| `error` | Errors, missing files, and the query box in Replace mode |
+| `selection` | The highlighted row's background |
+| `current_directory` | The background of the `@` line, the folder you're in |
+| `current_directory_text` | The text of the `@` line |
+| `link` | Names of symbolic links |
+| `executable` | Names of executable files (built-ins use `success`) |
+| `empty` | Names of empty files (built-ins use `error`) |
+| `function` | Function names on the Keys screen (built-ins use `error`) |
+| `staged_folder` | Folders a copy is still writing, and the query box in Visual mode |
 
-The chooser never writes the config file. After Enter, background reload keeps
-following the *chosen* palette's definition (editing `[palettes.NAME]` still
-updates it) and ignores `[ui].palette` until `reload_palette` returns control to the file.
-If that re-read fails, the current colors stay and the error is shown; the
-session choice is still cleared, so fixing the file recovers automatically.
-`reload_palette` works with `--no-config` too (it restores the default or pinned palette).
-Both can be rebound on the Keys screen (F1), as `show_palettes` and `reload_palette`.
+File icons and the preview's syntax colors use these same colors, so they
+follow your palette too.
 
-## Color sources
+## Live editing
 
-Built-in colors come from these upstream definitions:
+While fff runs, saving your configuration file updates the colors at once,
+so you can tune a palette with fff open beside your editor. A mistake while
+you edit keeps the last working colors and shows the error; fixing it
+recovers on its own.
 
-- [Catppuccin palette](https://catppuccin.com/palette/) and
-  [official palette JSON](https://github.com/catppuccin/palette/blob/main/palette.json), version 1.8.0.
-- [Nord's official colors and palettes](https://www.nordtheme.com/docs/colors-and-palettes/).
-- [Gruvbox's original color definitions](https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim).
-- [Dracula specification](https://spec.draculatheme.com/).
-- [Everforest palette](https://github.com/sainnhe/everforest/blob/master/palette.md).
-- [Kanagawa colors](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/colors.lua).
-- [One Dark](https://github.com/joshdick/onedark.vim/blob/main/colors/onedark.vim) and
-  One Dark Pro's comment color.
-- [Rosé Pine palette](https://rosepinetheme.com/palette/ingredients/).
-- [Solarized](https://ethanschoonover.com/solarized/).
-- Tokyo Night's official Alacritty exports:
-  [night](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_night.toml),
-  [storm](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_storm.toml),
-  [moon](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_moon.toml),
-  [day](https://github.com/folke/tokyonight.nvim/blob/main/extras/alacritty/tokyonight_day.toml).
+A palette chosen with `gP` stays for the session, though edits to that
+palette's own colors still show. `reload_palette` (no key by default; bind
+one on the [Keys screen](KEYS.md), or run it from `:`) goes back to the
+palette your configuration names.
 
-Fuzzy file finder maps upstream colors to semantic UI roles. It uses each family's canvas,
-text and signature accents for directories, focus, marks, status and the `@`
-badge; executables use its green, and empty files and function names its red. Symbolic links use a
-vivid blue chosen to stand apart from the directory color, since many families
-use their own blue for directories: `#5f6fff` on dark palettes and `#2f2fd0` on
-light ones, with lighter or purer blues where a palette's directories are
-already blue (Solarized dark `#7a7aff`, Atelier Dune `#4040ff`, Gruvbox light
-`#1a3fe0`). Folders still being written by a copy or extraction use a pink
-that no other role uses: `#e88ad0` on dark palettes and `#b02c84` on light
-ones.
-Syntax-highlighting rules are not reproduced. The numeric mappings live
-in `src/palettes.rs`, with Fuzzy file finder's own palettes in `src/config.rs`.
+## Without color
 
-Light variants keep upstream accents even where their contrast is lower; a test
-keeps every built-in's text at 4:1 or better and other text roles at 2:1 or better. All
-values are compiled into the binary; runtime palette selection needs no network.
+fff honors [`NO_COLOR`](https://no-color.org): set it, and fff draws
+without colors, relying on bold text, arrows and labels instead.
 
-## Base16 sources
+## Credits
 
-The following palettes use [Tinted Theming definitions](https://github.com/tinted-theming/schemes/tree/spec-0.11/base16):
-
-| Name | Author credited by source | Exact definition |
-| --- | --- | --- |
-| `ayu-dark` | Tinted Theming / Ayu Theme | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ayu-dark.yaml) |
-| `ayu-light` | Tinted Theming / Ayu Theme | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ayu-light.yaml) |
-| `ayu-mirage` | Tinted Theming / Ayu Theme | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ayu-mirage.yaml) |
-| `monokai` | Wimer Hazenberg | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/monokai.yaml) |
-| `material-darker` | Nate Peterson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/material-darker.yaml) |
-| `zenburn` | elnawe | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/zenburn.yaml) |
-| `ocean` | Chris Kempson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ocean.yaml) |
-| `eighties` | Chris Kempson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/eighties.yaml) |
-| `ashes` | Jannik Siebert | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/ashes.yaml) |
-| `atelier-dune` | Bram de Haan | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/atelier-dune.yaml) |
-| `black-metal` | metalelf0 | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/black-metal.yaml) |
-| `tomorrow-night` | Chris Kempson | [Base16 YAML](https://github.com/tinted-theming/schemes/blob/spec-0.11/base16/tomorrow-night.yaml) |
-
-These are Fuzzy file finder mappings of those Base16 definitions. Background and panel use
-base00, text base05, muted base04, borders and selection base02, accent/base badge
-base0D, marks base0A, success base0B, error base08; badge text uses base00.
-For readable selections, Atelier Dune uses base01. Ayu Light uses purple base0E
-for marks because its yellow is too faint on the light canvas. Values remain
-upstream colors. Every scheme participates in the existing text/selection
-contrast checks, dynamic completion, live chooser, reload, and custom inheritance.
-The source license is retained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The built-in palettes follow their projects' published colors; the
+[development notes](dev/PALETTES.md#color-sources) list the sources, and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) the licenses.

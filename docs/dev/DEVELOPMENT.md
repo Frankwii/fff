@@ -1,8 +1,20 @@
 # Development
 
-The implementation defines current behavior. The [README](../README.md) and user
-guides describe it; tests preserve regression coverage. Possible extensions are
-listed separately in the [roadmap](ROADMAP.md).
+The implementation defines current behavior; tests preserve regression
+coverage. It is described twice, for two readers:
+
+- **The user guides**, the [README](../../README.md) and `docs/*.md`: what a
+  person needs to use fff, task first, with examples. They leave out what
+  no user needs (limits, internals, every edge case) and link here for it.
+- **This folder**, `docs/dev/`: the complete behavior, edge cases included,
+  for whoever changes the code. [USAGE.md](USAGE.md) covers the programs,
+  browsing, searching and the keys; [CONFIGURATION.md](CONFIGURATION.md),
+  [OPERATIONS.md](OPERATIONS.md), [EDITING.md](EDITING.md),
+  [DESKTOP.md](DESKTOP.md) and [PALETTES.md](PALETTES.md) their areas.
+
+A change of behavior updates both: the reference here, and the user guide
+covering it when a user would notice. Possible extensions are listed
+separately in the [roadmap](ROADMAP.md).
 
 ## Code map
 
@@ -233,7 +245,7 @@ planner share runs, so merging a run they share copies it, as it did before.
   symlinks and permissions; refuse conflicting workspace edits. `--no-config`
   stays session-only. `tests/workspaces.rs` covers persistence and failures.
 - Original paths remain separate from display abbreviations and icons. Keep
-  palette attribution and [third-party notices](THIRD_PARTY_NOTICES.md).
+  palette attribution and [third-party notices](../THIRD_PARTY_NOTICES.md).
 - File operations must pass through `Engine`; no UI branch may mutate a user
   path directly. Validate the full batch, bind destructive steps to confirmed
   snapshots, stage, then publish with no-replace semantics, rolling back on
@@ -258,8 +270,11 @@ Where a change usually has to touch, so that none is missed:
   acting on the current entry or the marks is a `ScopedAction`
   (`src/ui/actions.rs`), run through `Session::scoped`, which asks which
   when the two differ. The tests check
-  that defaults never clash and each applies somewhere. Then the README key
-  table, [EDITING.md](EDITING.md) and a PTY test.
+  that defaults never clash and each applies somewhere. Then the key
+  tables of [USAGE.md](USAGE.md#keys) and the user guide
+  [KEYS.md](../KEYS.md#default-keys), the Keys section of `fff --help`
+  (`AFTER_LONG_HELP` in `src/main.rs`), [EDITING.md](EDITING.md) and a PTY
+  test.
 - **A key named on screen** (hints, messages): never as a literal. Name a
   function's key through `App::bound(Function::Preview)` (the one that
   applies here, in the current mode first; `None` when it has none) or
@@ -293,10 +308,11 @@ Where a change usually has to touch, so that none is missed:
 - **A setting:** the struct, default and validation in `src/config.rs`, how
   `gc` applies it to a running session (`apply_settings` in
   `src/ui/configure.rs`),
-  [CONFIGURATION.md](CONFIGURATION.md), `docs/config.example.toml`, and a
+  [CONFIGURATION.md](CONFIGURATION.md) here and the user guide
+  [CONFIGURATION.md](../CONFIGURATION.md), `docs/config.example.toml`, and a
   test in `tests/configuration.rs`.
 - **A command-line argument:** `Args` in `src/main.rs` and its completion
-  (see [AGENTS.md](../AGENTS.md)).
+  (see [AGENTS.md](../../AGENTS.md)).
 
 Run one test while iterating: `cargo test --offline --lib NAME` or
 `python3 tests/terminal_smoke.py TerminalTests.test_NAME` (after `cargo

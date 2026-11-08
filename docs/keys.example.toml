@@ -1,7 +1,7 @@
 # keys.toml: beside config.toml. F1 (the Keys screen) writes it for you;
 # this file shows what it holds. Each entry replaces one function's keys in
 # one mode; functions not named keep their defaults. Names, defaults and
-# where each function works are on the Keys screen and in CONFIGURATION.md.
+# where each function works are on the Keys screen and in KEYS.md.
 #
 # Keys use Vim's notation: printable keys stand for themselves ("gg", "g!"),
 # others are named in <...> with C- (Ctrl), M- (Alt) and S- (Shift):
@@ -18,7 +18,7 @@ highlight_previous = ["<C-p>", "<Up>"]
 # Q leaves instead of q.
 quit = "Q"
 # A key can apply only somewhere: a table names where, by program
-# (roam, window, pick, seek, explorer-open, explorer-open-multiple,
+# (roam, window, pick, seek, piped, explorer-open, explorer-open-multiple,
 # explorer-folder, explorer-folder-multiple, explorer-save), focus (query, results, marks) and
 # highlight (dir, file, none). A key bound here comes before Neovim's: a
 # Normal-mode key such as l applies in the query in focus too, unless its

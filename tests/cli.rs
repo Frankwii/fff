@@ -27,7 +27,7 @@ fn help_describes_defaults_examples_exit_codes_and_completions() {
         "Exit status:",
         "130",
         "Keys:",
-        "Alt+p",
+        "gP",
         "keys.toml",
         "source <(fff setup --completions bash)",
         "Commands (without one, fff roam):",

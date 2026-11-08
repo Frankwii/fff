@@ -1,6 +1,6 @@
 //! Semantic mappings of upstream palette colors. Sources are listed per family
-//! in docs/PALETTES.md.
-//! Sources and role mappings: docs/PALETTES.md. No network access at runtime.
+//! in docs/dev/PALETTES.md.
+//! Sources and role mappings: docs/dev/PALETTES.md. No network access at runtime.
 pub const NAMES: &[&str] = &[
     "midnight",
     "light",

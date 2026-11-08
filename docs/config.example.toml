@@ -3,16 +3,17 @@
 # Check without opening the TUI: fff setup --config PATH --check-config
 
 [ui]
-# See PALETTES.md for built-in names and color sources.
-# At runtime, Alt+p previews/applies a palette for the session (this file is
-# never rewritten) and Alt+P re-reads the palette chosen here.
+# See PALETTES.md for the built-in names and how to make your own.
+# At runtime, gP previews and applies a palette for the session (this file
+# is never rewritten); reload_palette (F1 binds it) goes back to this one.
 palette = "midnight"
 # Nerd Font filetype icons on result/marked rows; false (or --no-icons) shows ▸/·.
 icons = true
 # Seconds before red status messages clear by themselves; 0 keeps them.
 message_seconds = 4
 # Details on the right of each result row, any of "permissions", "size"
-# (directories: entry count) and "modified" (time since); [] shows none.
+# (a folder's: the files below it, added up) and "modified" (time since);
+# [] shows none.
 columns = ["size", "modified"]
 # The order results start in: "program" (each program's own: the best match
 # minus a penalty for depth, as "log"; the best match first in fff seek), or
@@ -34,7 +35,7 @@ buttons = "off"
 buttons_seconds = 5
 # Follow files created, removed or changed in the listed folders.
 watch = true
-# Start with the preview pane shown (Alt+v or P toggles it).
+# Start with the preview pane shown (gpp toggles it).
 preview = true
 # Color the syntax of text files in the preview pane, through Neovim.
 highlight = true
@@ -76,8 +77,8 @@ filters = ["*.pdf", "*.djvu"]
 # Also: query, contents, exclusions, sort and sort_descending, hidden,
 # kinds ("all", "files" or "directories"), preview, exclusions_on, filters_on.
 
-# In-memory snapshots; recent exhaustive views skip redundant scans.
-# See "Discovery cache and performance" in CONFIGURATION.md.
+# Listings kept in memory, so that going back to a folder is instant; the
+# defaults suit almost everyone. See CONFIGURATION.md.
 [cache]
 enabled = true
 max_entries = 16      # Views remembered (directory + roots + depth + policies); 1..128.
@@ -92,24 +93,23 @@ cached_queries = 5 # Shorter queries' results kept for Backspace; 0..64, 0 = non
 max_paths = 1000000 # Paths a view may hold; a scan stops past it; 1000..100000000.
 
 # Exclusion rules every session starts with, before those of --exclude;
-# Alt+e edits them for the session, Alt+H turns them off. A rule starting
-# with / or ~/ excludes that place; others match basenames or paths below
-# the searched roots. See CONFIGURATION.md.
+# gE edits them for the session, ge turns them off. A rule starting with /
+# or ~/ excludes that place; others match names or paths below the
+# searched roots. See SEARCHING.md.
 [exclusions]
 rules = [] # For example ["~/backup", "node_modules"].
 
 # x moves entries to $XDG_DATA_HOME/fff/trash (or a .fff-trash-UID folder at
-# the top of another filesystem); u brings them back. See CONFIGURATION.md.
+# the top of another filesystem); u brings them back. See OPERATIONS.md.
 [trash]
 enabled = true       # false: x deletes permanently, after a review.
 days = 30            # Deleted from the trash at startup after this; 1..36500.
 ask_above = "10 GiB" # Larger entries ask: delete permanently or trash anyway.
 
-# Every text field is a clean embedded Neovim; nvim must be on PATH.
-# Openers: l / Alt+l / Alt+number open a file in the background, o in this
-# terminal. First match wins; unmatched files use $EDITOR. See CONFIGURATION.md.
+# Openers: L opens a file in the background, Enter (fff roam) opens it and
+# leaves. First match wins; unmatched files use $EDITOR. See OPENERS.md.
 [open]
-# Unset, both use the terminal fff runs in (see CONFIGURATION.md).
+# Unset, both use the terminal fff runs in (see OPENERS.md).
 # terminal = "st -e"   # runs terminal openers in a new window
 # fff_terminal = "st -c fff-picker -e"   # fff's own window from fff setup
 
@@ -118,7 +118,7 @@ command = "zathura"
 extensions = ["pdf", "djvu", "epub"]
 # From a contents match: the match's page, the query searched and highlighted.
 # Placeholders: {page} {line} {percent} {query} {match} {nth} {count} {path};
-# see CONFIGURATION.md, "Opening at a contents match".
+# see OPENERS.md, "Opening at a contents match".
 at_grep_match = "--page {page} --find {query}"
 
 [[open.rules]]
@@ -126,4 +126,5 @@ command = "nvim"
 patterns = ["Makefile"]
 terminal = true
 
-# Keys live in keys.toml beside this file; F1 edits it. See keys.example.toml.
+# Keys live in keys.toml beside this file; F1 edits it. See KEYS.md and
+# keys.example.toml.

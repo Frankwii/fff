@@ -292,7 +292,7 @@ PATH is a folder, it is `untitled`.
 ### Keys
 
 The keys keep their meaning from a normal session (see the
-[README](../README.md#browsing-and-returning-paths)): Enter acts on the
+[README](USAGE.md#browsing-and-returning-paths)): Enter acts on the
 highlighted entry, `!` on the folder you are in, Ctrl+Enter on the marks (in
 `open-multiple` and `folder --multiple` only). What differs:
 
@@ -316,7 +316,7 @@ remain available, so a dialog can also make the folder to save into.
 
 ### Searching contents in a dialog
 
-Tab opens the [contents query](../README.md#searching-contents)
+Tab opens the [contents query](USAGE.md#searching-contents)
 here too, so a file can be found by what it contains: Enter on a match
 chooses its file. In a save dialog the
 name saved under is always the names query's (or the suggested name), never
