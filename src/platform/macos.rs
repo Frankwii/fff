@@ -177,3 +177,17 @@ pub fn lower_thread(_niceness: i32) {
         libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
     }
 }
+/// The process's umask, read without changing it: `umask(2)` only sets it,
+/// and setting it would race other threads creating files. A folder made
+/// with every permission keeps what the umask allows. The strictest mask
+/// when it cannot be made.
+pub fn umask() -> u32 {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let probe = std::env::temp_dir().join(format!(".fff-umask-{}", crate::operations::unique()));
+    let mode = std::fs::DirBuilder::new()
+        .mode(0o777)
+        .create(&probe)
+        .and_then(|()| std::fs::symlink_metadata(&probe));
+    let _ = std::fs::remove_dir(&probe);
+    mode.map_or(0o077, |m| !m.mode() & 0o777)
+}

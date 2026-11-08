@@ -94,18 +94,6 @@ pub(crate) fn reparent(a: &File, name: &OsStr, b: &File, to: &OsStr) -> Result<(
     }
     result
 }
-/// The process's umask, read without changing it: `umask(2)` only sets it,
-/// and setting it would race other threads creating files. The strictest
-/// mask when it cannot be read.
-fn umask() -> u32 {
-    fs::read_to_string("/proc/self/status")
-        .ok()
-        .and_then(|status| {
-            let mask = status.lines().find_map(|l| l.strip_prefix("Umask:"))?;
-            u32::from_str_radix(mask.trim(), 8).ok()
-        })
-        .map_or(0o077, |mask| mask & 0o777)
-}
 /// Where an opened directory is now, without symlinks.
 pub(crate) fn canonical_dir(dir: &File) -> Result<PathBuf> {
     platform::dir_path(dir).map_err(err)
@@ -1298,7 +1286,7 @@ impl Engine {
                 // the user's umask allows.
                 stage
                     .dir
-                    .set_permissions(fs::Permissions::from_mode(0o777 & !umask()))
+                    .set_permissions(fs::Permissions::from_mode(0o777 & !platform::umask()))
                     .map_err(err)?;
                 let id = identity(&stage.parent, &stage.name);
                 plan.push((

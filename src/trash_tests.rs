@@ -477,7 +477,9 @@ fn created_entries_are_undone_into_the_trash() {
             directory: false,
         })
         .unwrap();
-    fs::remove_file(f.work.join("again")).unwrap();
+    // Moved aside, not deleted, so that the replacement cannot reuse its
+    // inode.
+    fs::rename(f.work.join("again"), f.root.join("replaced-again")).unwrap();
     fs::write(f.work.join("again"), b"someone else's").unwrap();
     let error = engine(&f).undo(&record(out)).unwrap_err();
     assert!(error.contains("no longer where it was left"), "{error}");

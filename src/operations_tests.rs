@@ -399,15 +399,15 @@ fn nested_renames_follow_every_renamed_ancestor_and_roll_back() {
     // Directory rows alone carry their descendants along.
     let out = f
         .engine()
-        .execute(rename_request(rows(["a", "a/b", "a/b/c"]), &f.work, "A\nA/B\nA/B/c").unwrap())
+        .execute(rename_request(rows(["a", "a/b", "a/b/c"]), &f.work, "m\nm/n\nm/n/c").unwrap())
         .unwrap();
-    assert_eq!(fs::read(f.work.join("A/B/c")).unwrap(), b"c");
+    assert_eq!(fs::read(f.work.join("m/n/c")).unwrap(), b"c");
     assert_eq!(out.moved.len(), 2);
-    let current = rows(["A", "A/B", "A/B/c"]);
+    let current = rows(["m", "m/n", "m/n/c"]);
     // A mixed spelling is neither the original nor the final parent.
-    assert!(rename_request(current.clone(), &f.work, "x\nx/y\nA/y/z").is_err());
+    assert!(rename_request(current.clone(), &f.work, "x\nx/y\nm/y/z").is_err());
     // A late collision is found before anything is renamed.
-    fs::write(f.work.join("A/B/taken"), b"t").unwrap();
+    fs::write(f.work.join("m/n/taken"), b"t").unwrap();
     let request = rename_request(current.clone(), &f.work, "x\nx/y\nx/y/taken").unwrap();
     assert!(f.engine().execute(request).is_err());
     // A racing entry rolls back the parents renamed first.
@@ -422,8 +422,8 @@ fn nested_renames_follow_every_renamed_ancestor_and_roll_back() {
         .execute(rename_request(current, &f.work, "x\nx/y\nx/y/z").unwrap())
         .unwrap_err();
     assert!(error.contains("rolled back"), "{error}");
-    assert_eq!(fs::read(f.work.join("A/B/c")).unwrap(), b"c");
-    assert_eq!(fs::read(f.work.join("A/B/z")).unwrap(), b"race");
+    assert_eq!(fs::read(f.work.join("m/n/c")).unwrap(), b"c");
+    assert_eq!(fs::read(f.work.join("m/n/z")).unwrap(), b"race");
 }
 #[test]
 fn unsafe_new_names_are_refused_before_any_change() {

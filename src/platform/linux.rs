@@ -101,3 +101,15 @@ pub fn lower_thread(niceness: i32) {
         libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, niceness);
     }
 }
+/// The process's umask, read without changing it: `umask(2)` only sets it,
+/// and setting it would race other threads creating files. The strictest
+/// mask when it cannot be read.
+pub fn umask() -> u32 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            let mask = status.lines().find_map(|l| l.strip_prefix("Umask:"))?;
+            u32::from_str_radix(mask.trim(), 8).ok()
+        })
+        .map_or(0o077, |mask| mask & 0o777)
+}
