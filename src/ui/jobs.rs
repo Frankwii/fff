@@ -1311,11 +1311,12 @@ mod tests {
             trash: vec![],
         };
         // A regression to comparing every mark with every source takes
-        // minutes in an unoptimized build.
+        // minutes in an unoptimized build; slow machines (CI's macOS) take
+        // a few seconds without one.
         let start = std::time::Instant::now();
         perform_operation(&mut app, &mut discovery, &mut focus, request, false);
         let took = start.elapsed();
-        assert!(took < Duration::from_secs(3), "took {took:?}");
+        assert!(took < Duration::from_secs(30), "took {took:?}");
         assert_eq!(app.marks.to_vec(), [dir.join("kept")]);
         while let Some(job) = app.jobs.first() {
             let result = job.poll(Duration::from_secs(5)).unwrap();
