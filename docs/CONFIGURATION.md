@@ -1024,12 +1024,15 @@ window to a running server and return at once.
 
 Unset, both are detected, in this order:
 
-1. the terminal fff runs in, found among its parent processes;
+1. the terminal fff runs in, found among its parent processes, else by the
+   `$TERM_PROGRAM` it sets (iTerm2, WezTerm and Ghostty do; inside tmux it
+   names tmux);
 2. `$TERMINAL`, a known terminal in its own syntax, any other with `-e`;
 3. `x-terminal-emulator -e` (Debian's choice of terminal);
 4. the first of the known terminals installed: st, Alacritty, kitty,
    WezTerm, Ghostty, foot (under Wayland), Konsole, GNOME Terminal, Xfce
-   Terminal, urxvt and xterm.
+   Terminal, urxvt and xterm;
+5. on macOS, Terminal.app.
 
 A known terminal runs a command in the foreground (`gnome-terminal --wait
 --`, `konsole --nofork -e`, `xfce4-terminal --disable-server -x`, `wezterm
@@ -1038,7 +1041,19 @@ the class `fff-picker` where it can: `st -c`, `alacritty --class`, `kitty
 --class`, `wezterm start --class`, `xterm -class`, and the app id `foot
 --app-id`. Ghostty (whose class must be a dotted application id), Konsole,
 GNOME Terminal, Xfce Terminal and urxvt get no class: set `fff_terminal` for
-one. When nothing is found, opening a terminal program and `fff setup` say
+one.
+
+On macOS, Terminal.app and iTerm2 take no command on their command line:
+fff runs `osascript` with a script that types the program, in the folder fff
+runs it in, into a new window's shell (the first time, macOS asks whether
+the terminal fff runs in may control Terminal.app or iTerm2). Ghostty's
+command opens no window there either, so a new instance of the app is
+started with `open -na Ghostty`, quitting when its window closes. Opening
+returns at once, as it does with any terminal. An app's own binary (such as
+`/Applications/kitty.app/Contents/MacOS/kitty`) runs where its command is not
+on the PATH.
+
+When nothing is found, opening a terminal program and `fff setup` say
 so and ask for the setting. `fff setup --check-config` reports the opener
 and terminal programs the configuration names that are not installed.
 

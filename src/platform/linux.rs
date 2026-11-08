@@ -88,6 +88,16 @@ pub fn mounts() -> crate::mounts::Mounts {
 pub fn executable(pid: &str) -> Option<PathBuf> {
     std::fs::read_link(Path::new("/proc").join(pid).join("exe")).ok()
 }
+/// The parent of process `pid`, from `/proc/PID/stat`.
+pub fn parent(pid: u32) -> Option<u32> {
+    parent_in_stat(&std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)
+}
+/// The parent's id in a `/proc/PID/stat` line: the second field after the
+/// command name, which is in parentheses and may itself hold any of them.
+fn parent_in_stat(stat: &str) -> Option<u32> {
+    let (_, rest) = stat.rsplit_once(')')?;
+    rest.split_whitespace().nth(1)?.parse().ok()
+}
 /// Connects to the socket with this name in the abstract namespace.
 pub fn connect_abstract(name: &[u8]) -> io::Result<UnixStream> {
     use std::os::linux::net::SocketAddrExt;
@@ -116,4 +126,20 @@ pub fn umask() -> u32 {
 /// The list piped to fff: its stdin.
 pub fn piped_input() -> Box<dyn io::Read + Send> {
     Box::new(io::stdin())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parent_reads_past_the_command_name() {
+        assert_eq!(parent_in_stat("42 (a) b) S 7 42 42"), Some(7));
+        assert_eq!(parent_in_stat("42 (st) S 1 42"), Some(1));
+        assert_eq!(parent_in_stat("garbage"), None);
+        assert_eq!(
+            parent(std::process::id()),
+            Some(unsafe { libc::getppid() } as u32)
+        );
+    }
 }

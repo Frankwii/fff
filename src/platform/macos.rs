@@ -165,6 +165,24 @@ pub fn executable(pid: &str) -> Option<PathBuf> {
     buffer.truncate(length as usize);
     Some(PathBuf::from(OsString::from_vec(buffer)))
 }
+/// The parent of process `pid`. The short BSD information, unlike the
+/// full one, is given for other users' processes too, such as `login`
+/// between Terminal.app and the shell.
+pub fn parent(pid: u32) -> Option<u32> {
+    let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdshortinfo>() as libc::c_int;
+    // SAFETY: the kernel writes at most `size` bytes into `info`.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDT_SHORTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
+    };
+    (written == size).then_some(info.pbsi_ppid)
+}
 /// Abstract sockets are Linux's own.
 pub fn connect_abstract(_name: &[u8]) -> io::Result<UnixStream> {
     Err(io::Error::from(io::ErrorKind::Unsupported))
@@ -208,4 +226,16 @@ pub fn piped_input() -> Box<dyn io::Read + Send> {
         return Box::new(stdin);
     }
     Box::new(File::from(list))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parent_is_the_kernels() {
+        let own = unsafe { libc::getppid() } as u32;
+        assert_eq!(parent(std::process::id()), Some(own));
+        assert!(executable(&std::process::id().to_string()).is_some());
+    }
 }

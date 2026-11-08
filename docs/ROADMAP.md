@@ -88,15 +88,6 @@ playing in the terminal.
 
 Ideas for after 1.0, once the features above are done.
 
-### macOS terminals
-
-The default terminal is found among fff's parent processes through `/proc`,
-which macOS lacks; there it falls back to `$TERMINAL` and the installed
-terminals. On macOS it could read `$TERM_PROGRAM` (`Apple_Terminal`,
-`iTerm.app`, `WezTerm`, `ghostty`) instead, and Terminal.app and iTerm2,
-which take no command line to run, would need one through `osascript` or a
-script handed to `open -na`, waiting for it for the file chooser.
-
 ### Sorting, continued
 
 What the [sorting picker](../README.md#sorting) leaves for later:

@@ -2,7 +2,7 @@
 //! controlling terminal, syncing a file to disk, opening a directory without
 //! following symlinks, where an opened directory is,
 //! mount roots and identities, the mount table, the program a process runs
-//! and abstract sockets. The rest of fff is the same code on both systems,
+//! and its parent, and abstract sockets. The rest of fff is the same code on both systems,
 //! so `cfg(target_os)` stays in this module.
 //!
 //! Entries are read relative to directory descriptors (`lstat_at`,

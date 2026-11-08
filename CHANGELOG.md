@@ -4,6 +4,19 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **Opening a terminal program works on macOS without configuration**:
+  with `[open] terminal` unset, fff finds the terminal it runs in there too
+  (among its parent processes, else by `$TERM_PROGRAM`, which covers iTerm2
+  and Ghostty), and falls back to Terminal.app. Terminal.app and iTerm2 get
+  the program typed into a new window through `osascript`, Ghostty a new
+  instance through `open`; kitty, Alacritty and WezTerm run from their app
+  bundles when not on the PATH. Elsewhere, `$TERM_PROGRAM` likewise finds
+  WezTerm or Ghostty when no parent process names the terminal.
+
 ## 0.20.2 — 2026-11-08
 
 fff runs on macOS. Queries match the path below each result, folders
