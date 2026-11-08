@@ -45,7 +45,7 @@ on the row you last highlighted in that folder.
 
 ## Tabs
 
-fff has three tabs, numbered in the top-right corner of the results. Each
+fff has three tabs, like nnn's contexts, numbered in the top-right corner of the results. Each
 tab has its own folder and its own back/forward history; the query, the
 marks and the search settings are shared.
 

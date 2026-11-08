@@ -31,16 +31,17 @@ rg -l TODO | fff | xargs -r nvim
 
 ![Picking files for another program](docs/demos/pick.gif)
 
-**Changes files safely.** Mark files with Space, go somewhere else, and
-copy or move them there. Deleting goes to a trash, and `u` undoes any
-operation. Long operations run in the background with a progress bar.
+**Changes files safely.** Mark files with Space, switch to another tab
+(three of them, like nnn's contexts) or just browse elsewhere, and copy or
+move them there. Deleting goes to a trash, and `u` undoes any operation.
+Long operations run in the background with a progress bar.
 
-![Marking, copying and undoing](docs/demos/operations.gif)
+![Marking in one tab, copying in another, and undoing](docs/demos/operations.gif)
 
 **And also:**
 
-- Three tabs, a jump list, saved [workspaces](docs/WORKSPACES.md), and a
-  go-to prompt that knows your zoxide folders.
+- A jump list, saved [workspaces](docs/WORKSPACES.md), and a go-to
+  prompt that knows your zoxide folders.
 - A preview pane with syntax colors, PDF text, archive listings and media
   details. It shows text only, so it works the same in every terminal.
 - 37 built-in [color palettes](docs/PALETTES.md) to switch between live, plus
