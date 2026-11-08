@@ -77,6 +77,8 @@ pub(super) fn mouse_results(
                 return false;
             };
             app.marks.clear();
+            // A click on a row gives the results the focus.
+            app.query_focused = false;
             let now = std::time::Instant::now();
             let double = mouse
                 .click

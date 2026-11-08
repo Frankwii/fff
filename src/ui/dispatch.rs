@@ -245,8 +245,10 @@ impl Session {
     /// function it is here.
     fn list_key(&mut self, app: &mut App, key: KeyEvent) -> io::Result<Option<Finish>> {
         let (mode, cell) = self.here(app);
-        // `:` in Normal mode: the functions that work here, by name.
+        // `:` in Normal mode: the functions that work here, by name. With
+        // the focus on the query it is Neovim's command line (`:s`).
         if mode == keymap::Mode::Normal
+            && cell.focus != keymap::Focus::Query
             && app.pending.is_empty()
             && key.code == K::Char(':')
             && !key.modifiers.intersects(M::ALT | M::CONTROL)
@@ -256,7 +258,7 @@ impl Session {
             return Ok(None);
         }
         // Leaving Insert mode and Neovim's command line are Neovim's.
-        if cell.place == keymap::Place::Results
+        if cell.focus != keymap::Focus::Marks
             && app.pending.is_empty()
             && let Some(view) = &app.edit_view
             && ((key.code == K::Esc && !view.normal())
@@ -301,7 +303,7 @@ impl Session {
                 };
                 let cell = keymap::Cell {
                     program: app.program(),
-                    place: keymap::Place::Marks,
+                    focus: keymap::Focus::Marks,
                     highlight,
                 };
                 (keymap::Mode::Normal, cell)
@@ -439,6 +441,7 @@ impl Session {
             }
             PrintMarks => return Ok(leave_with_marks(app)),
             ClearQuery => self.clear_query(app),
+            ToggleQueryFocus => app.query_focused = !app.query_focused,
             SwitchQuery => {
                 app.grep.editing = !app.grep.editing;
                 // The other query is typed into in the mode Tab was pressed in.
@@ -631,11 +634,16 @@ impl Session {
         let name = press.display();
         if special {
             let bindings = app.keymap.bindings();
-            // Here, in the other mode.
+            // Here, in the other mode: outside the marked list, where keys
+            // in that mode apply.
+            let there = |m: keymap::Mode| match cell.focus {
+                keymap::Focus::Marks => cell,
+                _ => app.cell_in(m),
+            };
             if let Some(other) = bindings
                 .iter()
                 .filter(starts)
-                .find(|b| b.mode != mode && b.applies(cell))
+                .find(|b| b.mode != mode && b.applies(there(b.mode)))
             {
                 let instead = app
                     .keymap

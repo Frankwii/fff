@@ -464,10 +464,14 @@ fn query_box(frame: &mut Frame, area: Rect, app: &App, screen: &KeysScreen) {
     let shown = if screen.everywhere {
         "showing every function".to_string()
     } else {
+        // The results count with their query.
+        let focus = match screen.here.focus {
+            crate::keymap::Focus::Marks => "marks",
+            _ => "results",
+        };
         format!(
-            "showing what works in fff {} · {}",
-            screen.here.program.name(),
-            screen.here.place.name()
+            "showing what works in fff {} · {focus}",
+            screen.here.program.name()
         )
     };
     let title = if screen.recording {
@@ -983,7 +987,7 @@ fn where_sheet(
         [
             bits[0] | other.mode.bit(),
             bits[1] | at.programs,
-            bits[2] | at.places,
+            bits[2] | at.focuses,
             bits[3] | at.highlights,
         ]
     });
@@ -1103,7 +1107,7 @@ fn clash_table(
                 other.function.name().into(),
                 other.mode.title().into(),
                 compact(1, at.programs),
-                compact(2, at.places),
+                compact(2, at.focuses),
                 compact(3, at.highlights),
             ]
         })

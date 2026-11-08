@@ -244,6 +244,10 @@ pub struct App {
     pub keymap: keymap::Keymap,
     /// The keys of a sequence begun and not finished yet.
     pub pending: Vec<crossterm::event::KeyEvent>,
+    /// The query has the focus in Normal mode (`toggle_query_focus`): keys
+    /// typed as text edit it as in Neovim. Insert mode, which always types
+    /// into it, comes back to the focus it was entered from.
+    pub query_focused: bool,
     /// `keys.toml`, which the Keys screen writes; `None` with `--no-config`.
     pub keys_path: Option<PathBuf>,
     /// Why `keys.toml` was not read, while the defaults stand in for it.
@@ -409,6 +413,7 @@ impl App {
             keymap: keymap::Keymap::default(),
             match_text: None,
             pending: Vec::new(),
+            query_focused: false,
             keys_path: None,
             keys_broken: None,
             kinds: Kinds::All,
@@ -702,12 +707,23 @@ impl App {
             keymap::Mode::Insert
         }
     }
-    /// Where a key pressed in the results would apply.
+    /// Where a key pressed on the main screen, outside the marked list,
+    /// would apply: the query or the results, whichever has the focus.
     pub fn cell(&self) -> keymap::Cell {
+        self.cell_in(self.mode())
+    }
+    /// `cell` as keys read in `mode` see it: Insert mode types into the
+    /// query.
+    pub fn cell_in(&self, mode: keymap::Mode) -> keymap::Cell {
         use keymap::Highlight;
+        let query = self.query_focused || mode == keymap::Mode::Insert;
         keymap::Cell {
             program: self.program(),
-            place: keymap::Place::Results,
+            focus: if query {
+                keymap::Focus::Query
+            } else {
+                keymap::Focus::Results
+            },
             highlight: match self.highlighted_row() {
                 Some(row) if row.directory => Highlight::Dir,
                 Some(_) => Highlight::File,
@@ -720,10 +736,13 @@ impl App {
     /// `None` when no key does it.
     pub fn bound(&self, function: keymap::Function) -> Option<String> {
         let mode = self.mode();
-        let cell = Some(self.cell());
         self.keymap
-            .first(function, mode, cell)
-            .or_else(|| self.keymap.first(function, mode.other(), cell))
+            .first(function, mode, Some(self.cell_in(mode)))
+            .or_else(|| {
+                let other = mode.other();
+                self.keymap
+                    .first(function, other, Some(self.cell_in(other)))
+            })
             .map(|b| b.display())
     }
     /// `bound`, or `—` when no key does it, for prose that names one.
@@ -739,7 +758,7 @@ impl App {
     }
     /// The key `function` has in `mode` that applies here, if any.
     pub fn bound_in(&self, function: keymap::Function, mode: keymap::Mode) -> Option<String> {
-        let cell = self.cell();
+        let cell = self.cell_in(mode);
         self.keymap
             .of(function, mode)
             .into_iter()

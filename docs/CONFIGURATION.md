@@ -1136,23 +1136,44 @@ A place is a combination of three things, fixed by design:
 | Dimension | Values |
 | --- | --- |
 | program | `roam`, `window`, `pick`, `seek`, `explorer-open`, `explorer-open-multiple`, `explorer-folder`, `explorer-save` (`fff explorer open`, `open-multiple`, `folder` with or without `--multiple`, and `save`), `piped` (`fff` with [paths on stdin](../README.md#choosing-from-another-programs-paths-command--fff)) |
-| list | `results`, `marks` (the marked list) |
+| focus | `query`, `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 
 Each function works only in some places, which may be several:
 `quit_into_highlighted` works in `roam` and `pick` on a directory, or in
 `seek` on a file; `go_to_parent` everywhere but `seek` and `piped`; `restore`
 in the results and the marked list. In `piped` only moving the highlight, the
-marks, the queries, the view, printing and quitting work. Insert mode exists only in the results.
+marks, the queries, the view, printing and quitting work. Whatever works on
+the results works from their query too.
 
 Keys are bound per mode, Insert or Normal, and each key applies in one place
-you choose: some programs, some lists, some highlights, all of them unless
+you choose: some programs, some focuses, some highlights, all of them unless
 narrowed. Two keys may be the same only where their places, within where
 their functions work, do not meet, so a key does exactly one thing wherever
 it is pressed. That is how Enter does different things in different places:
 in Normal mode it is `quit_into_highlighted` on a directory in `fff roam`,
 `go_to_highlighted` on one in a window of its own, `open_and_quit` on a file
 in `fff roam`, `print_highlighted` on a file in `fff pick`, and so on.
+
+### The query in focus
+
+The focus is what keys act on: the results, the marked list, or the query
+above the results. Insert mode always types into the query, so its keys
+apply in the `query` focus only. In Normal mode the results have the focus
+until `toggle_query_focus` (`/`) moves it up to the query, which then
+edits as Neovim does: by default every key typed as text (`h`, `l`, `x`,
+`v`, `p`, `u`, digits, `g` sequences, `:`) is Neovim's there, while Enter,
+Tab, the arrows and the Alt and Ctrl keys still act on the results below.
+Escape (`toggle_query_focus` again) gives the results the focus back, and a
+click on a row does too. Insert mode entered from either returns to it on
+Escape, so `i` from the results still types and comes back to them.
+
+A key you bind always comes before Neovim's: bound without a `focus`, it
+applies in the query too (`trash = "x"` trashes from the query as well).
+To keep a key for Neovim there, leave `query` out of its focus, as the
+default keys typed as text do (`focus = ["results", "marks"]`, or untick
+**query** on the Keys screen). Keys no binding has go to Neovim, in either
+focus.
 
 ### The Keys screen
 
@@ -1168,7 +1189,7 @@ The query is a Neovim field like the results' own, ready to type. Tab
 switches between two views of the same keys: **Functions**, a row per
 function with its keys in Insert and Normal mode, searched by name,
 description and key names; and **Keys**, a row per key and place, with
-columns for the key, the function, the mode, the programs, the lists and
+columns for the key, the function, the mode, the programs, the focuses and
 the highlights, searched by key name (an exact name first, as typed or in
 Vim's notation such as `<CR>`) or function name. In Normal mode, `r` and
 then a key writes that key's name into the query and shows the Keys view,
@@ -1182,11 +1203,12 @@ other `highlight_` functions, `scroll_preview_down` and `scroll_preview_up`
 (`show_keys`) does, from anywhere in it.
 
 Where a key applies is shown the same way everywhere: as **checklists**, a
-column each for the mode, the program, the list and what is highlighted,
+column each for the mode, the program, the focus and what is highlighted,
 with a value ticked `●` or not `○`. The key applies wherever a tick of each
 column meets. A value crossed out `×` cannot apply with the other columns'
 ticks: the function does not work there, or the key cannot be bound in that
-mode (a key typed as text in Insert mode, `i` or `a` in Normal mode). Ticking
+mode (a key typed as text in Insert mode, `i` or `a` in Normal mode, Insert
+mode anywhere but the query). Ticking
 a program can cross out a highlight, and so on. Where columns are shown in
 a few words, they say `all`, a list, or `all but` a list, whichever is
 shorter.
@@ -1199,7 +1221,7 @@ The same three keys work at every level: **Space goes a level deeper**
   Changes there are staged: Enter saves them (to the
   session and `keys.toml`), Escape drops them, and F1 closes the screen
   dropping them too.
-- **A function's keys:** one row per place: its key, mode, programs, lists
+- **A function's keys:** one row per place: its key, mode, programs, focuses
   and highlights, with the highlighted row's checklists below (left out when
   the sheet would not fit otherwise). Moving past the last row goes round to
   the first, and back. Space edits where the highlighted key applies. `n`
@@ -1230,7 +1252,8 @@ same key again with `n`: its rows read **or**.
 Saving keys that would lock you in is refused, with the reason, and the
 sheet stays open: something must open the Keys screen (`show_keys`) and
 something must leave fff (`cancel`, or `quit` in Normal mode) everywhere in
-the results, something must leave the marked list (`toggle_marked_list`),
+the results, something must leave the marked list (`toggle_marked_list`)
+and, in Normal mode, the query in focus (`toggle_query_focus`),
 Insert-mode keys cannot start with a key typed as text, nor be Escape, and
 Normal-mode keys cannot start with `i`, `a`, `I` or `A`, which reach
 Insert mode, or `:`, which opens the command picker. Space, Enter, Tab, `r` and Ctrl+a on
@@ -1248,13 +1271,13 @@ quit = "Q"
 go_to_highlighted = [
   { keys = "l", highlight = ["dir"] },
   { keys = "<CR>", program = ["roam", "window"], highlight = ["dir"] },
-  { keys = "<CR>", program = ["pick"], list = ["results"], highlight = ["dir"] },
+  { keys = "<CR>", program = ["pick"], focus = ["query", "results"], highlight = ["dir"] },
 ]
 ```
 
 Each entry replaces one function's keys in one mode; functions not named
 keep their defaults. A value is keys, `"none"` (or `""`, `[]`) for no keys,
-or a list of keys and tables with `keys` and any of `program`, `list` and
+or a list of keys and tables with `keys` and any of `program`, `focus` and
 `highlight`, each a list of the values [above](#where-keys-apply), named as the
 Keys screen's columns name them. Keys use Vim's notation: printable keys stand for themselves
 (`gg`, `g/`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),

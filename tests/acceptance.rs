@@ -516,13 +516,14 @@ fn absolute_exclusions_hide_one_place_and_what_is_below_it() {
 #[test]
 fn keys_bind_by_function_and_typing_stays_text() {
     use fuzzy_file_finder::{
-        keymap::{Cell, Function, Highlight, Keymap, Mode, Place, Step},
+        keymap::{Cell, Focus, Function, Highlight, Keymap, Mode, Step},
         program::Program,
     };
     let keymap = Keymap::parse("[insert]\nhighlight_next = '<C-n>'\n").unwrap();
+    // Insert mode types into the query.
     let here = Cell {
         program: Program::Roam,
-        place: Place::Results,
+        focus: Focus::Query,
         highlight: Highlight::File,
     };
     let feed = |key| keymap.feed(&mut Vec::new(), Mode::Insert, here, key);
@@ -1255,7 +1256,7 @@ fn a_contents_query_shows_one_row_per_match_in_the_files_names_choose() {
 #[test]
 fn switching_program_keeps_the_session_and_follows_default_depths() {
     use fuzzy_file_finder::{
-        keymap::{Cell, Function, Highlight, Mode, Place},
+        keymap::{Cell, Focus, Function, Highlight, Mode},
         program::Program,
     };
     let mut app = App::browse(PathBuf::from("/fixture"), 1, Policy::default());
@@ -1306,7 +1307,7 @@ fn switching_program_keeps_the_session_and_follows_default_depths() {
         for mode in Mode::ALL {
             let cell = Cell {
                 program,
-                place: Place::Results,
+                focus: Focus::Results,
                 highlight: Highlight::File,
             };
             assert!(!Function::SwitchProgram.works(mode, cell), "{program:?}");

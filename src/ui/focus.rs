@@ -773,7 +773,7 @@ pub(super) fn chosen(
             // The marked list reads keys in Normal mode, on a file.
             let cell = crate::keymap::Cell {
                 program: app.program(),
-                place: crate::keymap::Place::Marks,
+                focus: crate::keymap::Focus::Marks,
                 highlight: crate::keymap::Highlight::File,
             };
             let unmark = app

@@ -1645,7 +1645,7 @@ fn the_keys_screen_lists_what_works_here_with_its_keys() {
     assert!(row("highlight_previous").contains("Alt+k"), "{screen}");
     // The first row is described below the list.
     assert!(
-        screen.contains("Highlight the previous row of the list in focus"),
+        screen.contains("Highlight the row above, in the list"),
         "{screen}"
     );
     // Only what works here: no dialog answers in fff roam.

@@ -595,6 +595,29 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish()[0], 130)
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_slash_focuses_the_query_where_neovim_keys_edit_it(self):
+        (self.root / "alpha").mkdir()
+        (self.root / "beta").touch()
+        s = self.start("--depth", "1", implicit_root=True)
+        s.send(b"ialpha", "❯ alpha")
+        s.send(b"\x1b[27u", "NORMAL")
+        # With the focus on the query, h moves the cursor, x deletes and u
+        # undoes the edit: none of them is the results' there.
+        s.send(b"/")
+        s.send(b"hx", "❯ alpa")
+        s.send(b"u", "❯ alpha")
+        # Insert mode entered there comes back to the query.
+        s.send(b"A!", "❯ alpha!")
+        s.send(b"\x1b[27u", "NORMAL")
+        s.send(b"x")
+        s.wait_absent("alpha!")
+        # Escape gives the results the focus back: l goes into the folder.
+        s.send(b"\x1b[27u")
+        s.send(b"l", ("cwd", self.root / "alpha"))
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_progress_marker_goes_a_while_after_the_scan(self):
         (self.root / "x.txt").touch()
         s = self.start("--depth", "1", implicit_root=True)
@@ -1164,7 +1187,11 @@ class TerminalTests(unittest.TestCase):
             s.send(b"t", "taken from the others")
             self.assertFalse(keys.exists())  # staged until Enter
             s.send(b"\r", "Keys saved to")
-            self.assertIn('toggle_hidden = [".", "q"]', keys.read_text())
+            # The default . keeps leaving the query in focus to Neovim.
+            self.assertIn(
+                'toggle_hidden = [{ keys = ".", focus = ["results", "marks"] }, "q"]',
+                keys.read_text(),
+            )
             # Removing every key of guide would leave nothing to open this.
             s.send(b"\x1b[27u", "Keys · NORMAL")
             s.send(b"\x1b[27u", "type a function's name")

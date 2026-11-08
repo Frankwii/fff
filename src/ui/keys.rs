@@ -7,7 +7,7 @@
 //! Space goes a level deeper everywhere, Enter is done and Escape goes back:
 //! Space opens a function's keys, a sheet like the workspace form, and Space
 //! on one of its keys opens where that key applies: a checklist for each of
-//! the mode, the program, the list and the highlight. Changes are staged
+//! the mode, the program, the focus and the highlight. Changes are staged
 //! until Enter saves them (refused when they would clash or lock you in).
 //! The `show_keys` key closes the screen from anywhere in it, dropping what
 //! was not saved.
@@ -54,12 +54,12 @@ impl Place {
         crate::keymap::display(&self.keys)
     }
 }
-/// The bits ticked in `column`: mode, program, list or highlight.
+/// The bits ticked in `column`: mode, program, focus or highlight.
 pub(crate) fn ticks(modes: u16, scope: Scope, column: usize) -> u16 {
     match column {
         0 => modes,
         1 => scope.programs,
-        2 => scope.places,
+        2 => scope.focuses,
         _ => scope.highlights,
     }
 }
@@ -102,7 +102,7 @@ pub(crate) fn dimensions() -> [(&'static str, Vec<(&'static str, u16)>); 4] {
     fn values<D: Dimension>(name: impl Fn(D) -> &'static str) -> Vec<(&'static str, u16)> {
         D::ALL.iter().map(|&v| (name(v), v.bit())).collect()
     }
-    use crate::keymap::{Highlight, Place};
+    use crate::keymap::{Focus, Highlight};
     [
         (
             "Mode",
@@ -113,10 +113,11 @@ pub(crate) fn dimensions() -> [(&'static str, Vec<(&'static str, u16)>); 4] {
         ),
         ("Program", values::<crate::program::Program>(|p| p.name())),
         (
-            "List",
-            values::<Place>(|p| match p {
-                Place::Results => "results",
-                Place::Marks => "marked list",
+            "Focus",
+            values::<Focus>(|p| match p {
+                Focus::Query => "query",
+                Focus::Results => "results",
+                Focus::Marks => "marked list",
             }),
         ),
         (
@@ -139,7 +140,7 @@ pub(crate) fn with_column(modes: u16, scope: Scope, column: usize, bits: u16) ->
             modes
         }
         2 => {
-            scope.places = bits;
+            scope.focuses = bits;
             modes
         }
         _ => {
@@ -236,9 +237,15 @@ impl KeysScreen {
             editor: None,
         }
     }
-    /// Whether a box reaches where F1 was pressed, whatever is highlighted.
+    /// Whether a box reaches where F1 was pressed, whatever is highlighted:
+    /// the results count with their query.
     pub fn reaches(&self, scope: Scope) -> bool {
-        scope.programs & self.here.program.bit() != 0 && scope.places & self.here.place.bit() != 0
+        use crate::keymap::Focus;
+        let focuses = match self.here.focus {
+            Focus::Marks => Focus::Marks.bit(),
+            Focus::Query | Focus::Results => Focus::Query.bit() | Focus::Results.bit(),
+        };
+        scope.programs & self.here.program.bit() != 0 && scope.focuses & focuses != 0
     }
     pub fn works_here(&self, function: Function) -> bool {
         Mode::ALL
@@ -536,7 +543,11 @@ impl Session {
         let mode = app.mode();
         let cell = Cell {
             highlight: crate::keymap::Highlight::None,
-            place: crate::keymap::Place::Results,
+            focus: if mode == Mode::Insert {
+                crate::keymap::Focus::Query
+            } else {
+                crate::keymap::Focus::Results
+            },
             ..screen.here
         };
         loop {

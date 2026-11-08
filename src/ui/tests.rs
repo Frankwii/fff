@@ -118,7 +118,7 @@ fn m_marks_every_listed_row_and_shift_m_inverts_them() {
     };
     let cell = crate::keymap::Cell {
         program: crate::program::Program::Roam,
-        place: crate::keymap::Place::Marks,
+        focus: crate::keymap::Focus::Marks,
         highlight: crate::keymap::Highlight::File,
     };
     let press = |app: &mut App, ch: char| {

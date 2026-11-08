@@ -2,9 +2,12 @@
 //! where it works (fixed by design) and its default keys. A [`Binding`] puts
 //! a key sequence on a function in Insert or Normal mode, within a [`Scope`]
 //! of where it applies. Places are the cells of a product: the program (the
-//! command fff runs as), the list in focus and what is highlighted. Two
-//! bindings of one mode share keys only where their scopes do not meet, so
-//! a key does exactly one thing wherever it is pressed.
+//! command fff runs as), what has the focus (the query, the results or the
+//! marked list) and what is highlighted. Two bindings of one mode share
+//! keys only where their scopes do not meet, so a key does exactly one
+//! thing wherever it is pressed. A key goes to Neovim only where no
+//! binding has it; the default keys typed as text leave the query in focus
+//! to Neovim, and your own apply there unless their focus says otherwise.
 //!
 //! `keys.toml` replaces a function's bindings in a mode; the Keys screen (F1)
 //! edits them. A keymap that would lock you in (nothing opens the Keys screen
@@ -12,7 +15,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers as M};
 use std::path::Path;
 
-/// Insert mode types into the query; Normal mode is for commands.
+/// Insert mode types into the query; Normal mode is for commands, and for
+/// editing the query as Neovim does where the query has the focus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mode {
     Insert,
@@ -42,9 +46,11 @@ impl Mode {
 }
 
 use crate::program::Program;
-/// The list a key acts on.
+/// What keys act on: the query (always, in Insert mode), the results below
+/// it, or the marked list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Place {
+pub enum Focus {
+    Query,
     Results,
     Marks,
 }
@@ -96,10 +102,11 @@ impl Dimension for Program {
         }
     }
 }
-impl Dimension for Place {
-    const ALL: &'static [Self] = &[Self::Results, Self::Marks];
+impl Dimension for Focus {
+    const ALL: &'static [Self] = &[Self::Query, Self::Results, Self::Marks];
     fn name(self) -> &'static str {
         match self {
+            Self::Query => "query",
             Self::Results => "results",
             Self::Marks => "marks",
         }
@@ -129,7 +136,7 @@ impl Dimension for Highlight {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub program: Program,
-    pub place: Place,
+    pub focus: Focus,
     pub highlight: Highlight,
 }
 impl Cell {
@@ -137,7 +144,7 @@ impl Cell {
         format!(
             "{} · {} · {}",
             self.program.name(),
-            self.place.name(),
+            self.focus.name(),
             self.highlight.name()
         )
     }
@@ -147,17 +154,17 @@ impl Cell {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Scope {
     pub programs: u16,
-    pub places: u16,
+    pub focuses: u16,
     pub highlights: u16,
 }
 impl Scope {
     pub const ALL: Self = Self {
         programs: (1 << <Program as Dimension>::ALL.len()) - 1,
-        places: 0b11,
+        focuses: 0b111,
         highlights: 0b111,
     };
     /// The box of these values; an empty list is the whole dimension.
-    pub fn of(programs: &[Program], places: &[Place], highlights: &[Highlight]) -> Self {
+    pub fn of(programs: &[Program], focuses: &[Focus], highlights: &[Highlight]) -> Self {
         fn bits<D: Dimension>(values: &[D]) -> u16 {
             if values.is_empty() {
                 D::every()
@@ -167,23 +174,23 @@ impl Scope {
         }
         Self {
             programs: bits(programs),
-            places: bits(places),
+            focuses: bits(focuses),
             highlights: bits(highlights),
         }
     }
     pub fn contains(self, cell: Cell) -> bool {
         self.programs & cell.program.bit() != 0
-            && self.places & cell.place.bit() != 0
+            && self.focuses & cell.focus.bit() != 0
             && self.highlights & cell.highlight.bit() != 0
     }
     pub fn is_empty(self) -> bool {
-        self.programs == 0 || self.places == 0 || self.highlights == 0
+        self.programs == 0 || self.focuses == 0 || self.highlights == 0
     }
     /// Where both apply, if anywhere.
     pub fn meet(self, other: Self) -> Option<Self> {
         let meet = Self {
             programs: self.programs & other.programs,
-            places: self.places & other.places,
+            focuses: self.focuses & other.focuses,
             highlights: self.highlights & other.highlights,
         };
         (!meet.is_empty()).then_some(meet)
@@ -200,12 +207,12 @@ impl Scope {
             },
             Self {
                 programs: meet.programs,
-                places: self.places & !meet.places,
+                focuses: self.focuses & !meet.focuses,
                 ..self
             },
             Self {
                 programs: meet.programs,
-                places: meet.places,
+                focuses: meet.focuses,
                 highlights: self.highlights & !meet.highlights,
             },
         ]
@@ -235,7 +242,7 @@ impl Scope {
         }
         [
             part::<Program>(self.programs),
-            part::<Place>(self.places),
+            part::<Focus>(self.focuses),
             part::<Highlight>(self.highlights),
         ]
         .into_iter()
@@ -626,83 +633,87 @@ macro_rules! functions {
 // directory, `toggle_` turns something on or off, `show_` opens a screen or
 // chooser, `print_` answers with paths and leaves, `quit_` leaves.
 functions! {
-    HighlightPrevious "highlight_previous" Highlight "Highlight the previous row of the list in focus: the results, or the marked list.";
-    HighlightNext "highlight_next" Highlight "Highlight the next row of the list in focus: the results, or the marked list.";
-    HighlightPreviousPage "highlight_previous_page" Highlight "Highlight the row one page up, scrolling the results a page back.";
-    HighlightNextPage "highlight_next_page" Highlight "Highlight the row one page down, scrolling the results a page on.";
-    HighlightFirst "highlight_first" Highlight "Highlight the first row of the list in focus.";
-    HighlightLast "highlight_last" Highlight "Highlight the last row of the list in focus.";
-    GoToParent "go_to_parent" GoTo "Go to the parent of the current directory. The query stays, so the results there are filtered by it too.";
-    GoToHighlighted "go_to_highlighted" GoTo "Go to the highlighted entry: into it when it is a directory; when it is a file, to the directory holding it, with the file highlighted and the query cleared so that it shows.";
-    GoToPath "go_to_path" GoTo "Go to a path typed in a prompt. Words typed there also suggest workspaces and zoxide's frequent directories to go to.";
-    GoToTrash "go_to_trash" GoTo "Go to the trash and browse it like any directory; restore puts entries back. Pressed again in the trash, go to the next filesystem's trash.";
-    GoBack "go_back" GoTo "Go back to the directory this tab was in before, like a browser's back button.";
-    GoForward "go_forward" GoTo "Go forward again to the directory go_back left. Ctrl+i needs a terminal that tells it apart from Tab.";
-    GoToNextTab "go_to_next_tab" GoTo "Go to the next of the three tabs. Each tab keeps its own directory and history; the marks are shared by all three.";
-    GoToPreviousTab "go_to_previous_tab" GoTo "Go to the previous of the three tabs.";
-    OpenInBackground "open_in_background" Open "Open the highlighted file with its opener (see [open] in the configuration) without waiting for it: fff stays as it is.";
-    OpenInTerminal "open_in_terminal" Open "Open the current or marked files with their openers inside this terminal, one opener after another, then come back to fff.";
-    OpenAndQuit "open_and_quit" Open "Open the highlighted file with its opener and quit fff. A terminal opener takes fff's place in this terminal.";
-    OpenRow "open_row" Open "Do on visible row # what l does on the highlighted one: go into a directory, or open a file in the background. 0 is the last visible row.";
-    ConfirmRow "confirm_row" Open "Do on visible row # what Enter does there by default. 0 is the last visible row.";
-    EditFiles "edit_files" Open "Edit the current or marked files in $EDITOR, in this terminal, then come back to fff.";
-    Run "run" Open "Run a program on the current or marked paths: type its command line, review it, and come back to fff when it ends.";
-    RunAndQuit "run_and_quit" Open "Run a program on the current or marked paths in place of fff, which quits; the program's exit status becomes fff's.";
-    PrintHighlighted "print_highlighted" Finish "Print the highlighted path and quit, ignoring the marks: the answer of fff pick, or of a file dialog (fff explorer).";
-    PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted file, then quit: the answer where you may choose several paths.";
-    PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer can be several paths (fff pick, and dialogs for several files). Elsewhere it says why it does nothing.";
-    SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or else the suggested one (fff explorer save).";
-    SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (fff explorer save).";
-    QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the directory holding the highlighted file; with nothing highlighted, into the current directory. Your shell follows (fff roam, with the shell integration); fff pick prints it.";
-    QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks: your shell follows in fff roam, fff pick prints it, and a file dialog answers with it. In a window of its own, fff becomes a shell there.";
-    Quit "quit" Finish "Quit without choosing anything: back where you started (fff roam), printing nothing (fff pick, fff seek), or cancelling the dialog (fff explorer).";
-    Cancel "cancel" Finish "Cancel: quit at once, printing nothing, from anywhere in fff. While entries are checked for a file operation, stop that instead; while operations run, ask first.";
-    ToggleMark "toggle_mark" Marks "Toggle the highlighted row's mark. In the results, the next row is highlighted after (with a contents query, the next file's), so pressing it again marks on down.";
-    MarkAll "mark_all" Marks "Mark every listed row.";
-    InvertMarks "invert_marks" Marks "Invert the marks of the listed rows: marked ones lose their mark, the others get one.";
-    ToggleMarkedList "toggle_marked_list" Marks "Toggle the focus between the results and the marked list, where keys act on the marks.";
-    ClearQuery "clear_query" Search "Clear the query. With it already clear, pressing this twice in a row clears every mark instead.";
-    SwitchQuery "switch_query" Search "Type into the other query, contents or names. The contents query lists one row per match of the files the names query lists; its bar shows while it is typed into or set.";
-    SearchShallower "search_shallower" Search "Search one level less deep below the current directory; the least is 1, its own entries.";
+    HighlightPrevious "highlight_previous" Highlight "Highlight the row above, in the list that has the focus: the results, or the marked list.";
+    HighlightNext "highlight_next" Highlight "Highlight the row below, in the list that has the focus: the results, or the marked list.";
+    HighlightPreviousPage "highlight_previous_page" Highlight "Highlight the row a screenful up in the results, scrolling them back a page.";
+    HighlightNextPage "highlight_next_page" Highlight "Highlight the row a screenful down in the results, scrolling them on a page.";
+    HighlightFirst "highlight_first" Highlight "Highlight the first row of the list that has the focus.";
+    HighlightLast "highlight_last" Highlight "Highlight the last row of the list that has the focus.";
+    GoToParent "go_to_parent" GoTo "Go up to the parent of the current directory. The query is kept, so the parent's entries are filtered by it too.";
+    GoToHighlighted "go_to_highlighted" GoTo "Go to the highlighted entry: into it if it is a directory; if it is a file, to the directory holding it, with the file highlighted (the query is cleared so that the file shows).";
+    GoToPath "go_to_path" GoTo "Go to a directory typed in a prompt. Words typed there also suggest your workspaces and, with zoxide installed, the directories you use most.";
+    GoToTrash "go_to_trash" GoTo "Go to the trash and browse it like any directory; restore puts entries back where they were. Pressed again in the trash, go to the next filesystem's trash.";
+    GoBack "go_back" GoTo "Go back to the directory you were in before, like a browser's back button. Each tab keeps its own history.";
+    GoForward "go_forward" GoTo "Go forward again to the directory go_back left. Its default key, Ctrl+i, needs a terminal that tells it apart from Tab.";
+    GoToNextTab "go_to_next_tab" GoTo "Go to the next tab. fff has three, each with its own directory and history; the marks are shared by all three.";
+    GoToPreviousTab "go_to_previous_tab" GoTo "Go to the previous tab. fff has three, each with its own directory and history.";
+    OpenInBackground "open_in_background" Open "Open the highlighted file with the program set for it (the [open] section of the configuration) and keep browsing: fff does not wait for it.";
+    OpenInTerminal "open_in_terminal" Open "Open the highlighted file, or the marked ones, with their programs inside this terminal, one after another, then come back to fff.";
+    OpenAndQuit "open_and_quit" Open "Open the highlighted file with the program set for it and quit fff. A program that runs in a terminal takes fff's place in this one.";
+    OpenRow "open_row" Open "Do on row # (the number shown before each row on screen) what go_to_highlighted or open_in_background does: go into a directory, or open a file and keep browsing. 0 is the last row on screen.";
+    ConfirmRow "confirm_row" Open "Choose row # (the number shown before each row on screen): do with it what the program does with a chosen entry, whichever of go_to_highlighted, open_and_quit, quit_into_highlighted, print_highlighted, print_highlighted_and_marks or save_over fits there. 0 is the last row on screen.";
+    EditFiles "edit_files" Open "Edit the highlighted file, or the marked ones, in your $EDITOR inside this terminal, then come back to fff.";
+    Run "run" Open "Run a program on the highlighted entry, or the marked ones: type its command line, check it, and come back to fff when it ends.";
+    RunAndQuit "run_and_quit" Open "Run a program on the highlighted entry, or the marked ones, in place of fff, which quits; fff exits with the program's exit status.";
+    PrintHighlighted "print_highlighted" Finish "Print the highlighted path and quit, ignoring any marks: how fff pick, and fff explorer as a file dialog, give their answer.";
+    PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted file, then quit: the answer where several paths may be chosen.";
+    PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer may be several paths (fff pick, and file dialogs for several files). Elsewhere it only says why it does nothing.";
+    SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or, with the query empty, the suggested one (the save dialog, fff explorer save).";
+    SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (the save dialog, fff explorer save).";
+    QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the one holding the highlighted file; with nothing highlighted, into the current directory. fff roam changes your shell's directory to it (with the shell integration); fff pick prints it.";
+    QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks: fff roam changes your shell's directory to it, fff pick prints it, and a file dialog answers with it. In a terminal window of its own (fff window), fff leaves a shell there.";
+    Quit "quit" Finish "Quit without choosing anything: back in the directory you started from (fff roam), printing nothing (fff pick, fff seek), or cancelling the dialog (fff explorer).";
+    Cancel "cancel" Finish "Cancel: quit at once from anywhere in fff, printing nothing. While a file operation checks its entries, stop that instead; while operations run, ask first.";
+    ToggleMark "toggle_mark" Marks "Toggle the highlighted row's mark: marked or not. Marks collect paths for file operations and answers. In the results the highlight then moves on (with a contents query, to the next file), so pressing it again marks the next row.";
+    MarkAll "mark_all" Marks "Mark every row of the list that has the focus: in the results, every entry the query matches, also those off screen.";
+    InvertMarks "invert_marks" Marks "Invert the marks of every row of the list that has the focus: marked ones lose their mark, the others get one.";
+    ToggleMarkedList "toggle_marked_list" Marks "Toggle the focus between the results and the marked list, the pane listing every mark, where keys act on the marks instead.";
+    ToggleQueryFocus "toggle_query_focus" Search "Toggle the focus between the results and the query above them. With the focus on the query, Normal mode edits it as Neovim does: the default keys typed as text (h, l, x, p, u…) go to Neovim there, while keys not typed as text (Tab, arrows, Alt and Ctrl keys) still act on the results. Keys you bind apply there too, unless their focus leaves the query out.";
+    ClearQuery "clear_query" Search "Clear the query. With the query already empty, pressing it twice in a row clears every mark instead.";
+    SwitchQuery "switch_query" Search "Switch typing between the two queries: names, which filters entries by name, and contents, which searches inside the files the names query lists, one row per match. The contents bar shows while it is typed into or set.";
+    SearchShallower "search_shallower" Search "Search one level less deep below the current directory. The least is depth 1: the directory's own entries.";
     SearchDeeper "search_deeper" Search "Search one level deeper below the current directory.";
-    SearchToDepth "search_to_depth" Search "Search down to depth #, a digit from 1 to 9.";
-    ToggleHidden "toggle_hidden" Search "Toggle hidden entries (names starting with a dot): listed or not.";
-    ToggleDirectories "toggle_directories" Search "Toggle directories: listed, or hidden so that only files are listed.";
-    ToggleFiles "toggle_files" Search "Toggle files: listed, or hidden so that only directories are listed.";
-    EditExclusions "edit_exclusions" Search "Edit this session's exclusions in a buffer, one glob per line; matching entries, and everything below them, are hidden.";
-    ToggleExclusions "toggle_exclusions" Search "Toggle the exclusions: enforced, or ignored so that excluded entries are listed too.";
-    EditFilters "edit_filters" Search "Edit this session's file filters in a buffer, one glob per line; only files matching one of them are listed.";
+    SearchToDepth "search_to_depth" Search "Search down to depth #, a digit from 1 to 9: 1 lists the current directory's own entries, 2 also those of its subdirectories, and so on.";
+    ToggleHidden "toggle_hidden" Search "Toggle hidden entries (whose names start with a dot): listed or not.";
+    ToggleDirectories "toggle_directories" Search "Toggle directories: listed, or left out so that only files are listed.";
+    ToggleFiles "toggle_files" Search "Toggle files: listed, or left out so that only directories are listed.";
+    EditExclusions "edit_exclusions" Search "Edit this session's exclusions in a buffer, one glob pattern per line (such as *.o or node_modules): matching entries, and everything below them, are not listed. ZZ applies them.";
+    ToggleExclusions "toggle_exclusions" Search "Toggle the exclusions: applied, or ignored so that excluded entries are listed too.";
+    EditFilters "edit_filters" Search "Edit this session's file filters in a buffer, one glob pattern per line (such as *.pdf): only files matching one of them are listed. ZZ applies them.";
     ToggleFilters "toggle_filters" Search "Toggle the file filters: applied, or off so that every file is listed. They are kept for turning back on.";
-    Rescan "rescan" Search "Rescan the current directory and below, bypassing the cache.";
+    Rescan "rescan" Search "Rescan the current directory and everything below it from disk, ignoring what fff has cached.";
     TogglePreview "toggle_preview" View "Toggle the preview pane, which shows the highlighted entry's contents: shown or hidden.";
     TogglePreviewWrap "toggle_preview_wrap" View "Toggle word wrapping in the preview: long lines wrapped onto the next rows, or cut at its edge.";
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, leaving the highlight where it is.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, leaving the highlight where it is.";
-    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with only the parent folders that tell same-named entries apart (folder1/main.pdf), or by their path below the folder searched. fff pick starts with names, the others with paths; the choice stays when switch_program changes program.";
-    ShowPalettes "show_palettes" View "Show the palettes: the highlighted one is previewed after a moment, and Enter keeps it for the session.";
-    ShowSorting "show_sorting" View "Show the sorting picker: sort the matches by name, size, a date, extension, kind or depth, or as the program ranks them; Tab switches between ascending and descending. The query still decides what is listed.";
-    ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen for the session.";
-    MoveMarked "move_marked" Files "Move the marked paths into the current directory. Asks first when that would overwrite anything.";
-    CopyMarked "copy_marked" Files "Copy the marked paths into the current directory. Asks first when that would overwrite anything.";
-    LinkMarked "link_marked" Files "Link the marked paths into the current directory, as symbolic links pointing to them.";
-    Trash "trash" Files "Move the current or marked entries to the trash, from where restore puts them back. Asks only about very large ones.";
-    Delete "delete" Files "Delete the current or marked entries for good, after showing their sizes for a review.";
-    Rename "rename" Files "Rename the listed results by editing their names in a buffer; writing the buffer renames them.";
-    Extract "extract" Files "Extract the current or marked archives into a folder a prompt asks for.";
+    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with just the parent folders that tell same-named entries apart (folder1/main.pdf), or by their whole path below the directory searched. fff pick starts with names, the others with paths; the choice stays when switch_program changes program.";
+    ShowPalettes "show_palettes" View "Show the color palettes: the highlighted one is tried out after a moment, and Enter keeps it for this session.";
+    ShowSorting "show_sorting" View "Show the sorting picker: sort the results by name, size, a date, extension, kind or depth, or in the program's own order; Tab switches between ascending and descending. The query still decides what is listed.";
+    ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen with show_palettes for this session.";
+    MoveMarked "move_marked" Files "Move the marked entries into the current directory. Asks first when that would overwrite anything.";
+    CopyMarked "copy_marked" Files "Copy the marked entries into the current directory. Asks first when that would overwrite anything.";
+    LinkMarked "link_marked" Files "Link the marked entries into the current directory, as symbolic links pointing to them.";
+    Trash "trash" Files "Move the highlighted entry, or the marked ones, to the trash, from where restore puts them back. Asks first only about very large ones.";
+    Delete "delete" Files "Delete the highlighted entry, or the marked ones, for good, after listing them with their sizes for a review.";
+    Rename "rename" Files "Rename the entries the results list by editing their names in a buffer, one per line; writing it (ZZ) renames them.";
+    Extract "extract" Files "Extract the highlighted archive, or the marked ones, into a folder a prompt asks for.";
     Create "create" Files "Create a new file or directory in the current directory: choose which, then type its name.";
     Undo "undo" Files "Undo the last file operation of this session; pressed again, the one before it. One still running is stopped, then undone. Its entries are marked again.";
-    Restore "restore" Files "In the trash: put the current or marked entries back where they were deleted from.";
-    ToggleJobList "toggle_job_list" Files "Toggle the focus between the results and the jobs list, the file operations still running (shown below the marks). There x stops the highlighted one and undoes what it had done.";
+    Restore "restore" Files "In the trash: put the highlighted entry, or the marked ones, back where they were deleted from.";
+    ToggleJobList "toggle_job_list" Files "Toggle the focus between the results and the jobs list: the file operations still running, shown below the marks. There x stops the highlighted one and undoes what it had done.";
     ShowKeys "show_keys" Session "Show the Keys screen, to look keys up and change them; the same key closes it.";
-    ShowSession "show_session" Session "Show the Session tab: exact paths, search scopes, policies, marks and any errors in the configuration.";
-    ShowWorkspaces "show_workspaces" Session "Show the workspaces: go to one, or add, edit, delete and reorder them.";
-    EditConfig "edit_config" Session "Edit the configuration file in $EDITOR, then apply it to this session at once.";
-    SwitchProgram "switch_program" Session "Go on as fff roam, pick or seek, keeping the query, highlight, marks, exclusions, filters and a depth you set.";
+    ShowSession "show_session" Session "Show the Session tab: the exact paths, search scopes and policies in effect, the marks, and any errors in the configuration.";
+    ShowWorkspaces "show_workspaces" Session "Show the workspaces, directories saved to go to at once: go to one, or add, edit, delete and reorder them.";
+    EditConfig "edit_config" Session "Edit the configuration file in your $EDITOR, then apply it to this session at once.";
+    SwitchProgram "switch_program" Session "Go on as fff roam (browse), pick (choose paths) or seek (find files), keeping the query, highlight, marks, exclusions, filters and any depth you set.";
 }
 
+use Focus::{Marks, Query, Results};
 use Highlight as H;
-use Place::{Marks, Results};
 use Program::*;
+/// The results and the query above them: what works on the results works
+/// from their query too.
+const RESULTS: [Focus; 2] = [Query, Results];
 const EXPLORERS: [Program; 4] = [ExplorerOpen, ExplorerMultiple, ExplorerFolder, ExplorerSave];
 /// Programs that navigate: all but seek and a list read from stdin.
 const NAVIGATE: [Program; 7] = [
@@ -725,21 +736,24 @@ const BOTH_KINDS: [Program; 8] = [
     ExplorerSave,
     Piped,
 ];
-fn scope(programs: &[Program], places: &[Place], highlights: &[Highlight]) -> Scope {
-    Scope::of(programs, places, highlights)
+fn scope(programs: &[Program], focuses: &[Focus], highlights: &[Highlight]) -> Scope {
+    Scope::of(programs, focuses, highlights)
 }
 impl Function {
     /// Where it works in `mode`, as boxes; none where it does not. This is
     /// a design choice, not configuration.
     pub fn available(self, mode: Mode) -> Vec<Scope> {
-        let boxes = self.boxes(mode);
-        if self.works_piped() {
-            return boxes;
-        }
-        boxes
+        let piped = if self.works_piped() { 0 } else { Piped.bit() };
+        // Insert mode types into the query: it has the focus there.
+        let focuses = match mode {
+            Mode::Insert => Query.bit(),
+            Mode::Normal => Scope::ALL.focuses,
+        };
+        self.boxes(mode)
             .into_iter()
             .map(|s| Scope {
-                programs: s.programs & !Piped.bit(),
+                programs: s.programs & !piped,
+                focuses: s.focuses & focuses,
                 ..s
             })
             .filter(|s| !s.is_empty())
@@ -770,6 +784,7 @@ impl Function {
                 | InvertMarks
                 | ToggleMarkedList
                 | ClearQuery
+                | ToggleQueryFocus
                 | SwitchQuery
                 | ToggleDirectories
                 | ToggleFiles
@@ -791,14 +806,12 @@ impl Function {
         let normal = mode == Mode::Normal;
         let both = |s: Scope| vec![s];
         let only_normal = |s: Scope| if normal { vec![s] } else { vec![] };
-        let results = scope(&[], &[Results], &[]);
+        let results = scope(&[], &RESULTS, &[]);
         let lists = Scope::ALL;
-        // Insert mode exists in the results only.
-        let lists_or_results = if normal { lists } else { results };
         let file = [H::File];
         match self {
             HighlightPrevious | HighlightNext | ToggleMark | ToggleMarkedList | ToggleJobList
-            | ShowKeys | ShowSession | Cancel | PrintMarks => both(lists_or_results),
+            | ShowKeys | ShowSession | Cancel | PrintMarks => both(lists),
             HighlightPreviousPage
             | HighlightNextPage
             | SearchShallower
@@ -819,22 +832,24 @@ impl Function {
             | OpenRow
             | ConfirmRow => both(results),
             // Opening files has no letter for a key in Insert mode, so it can work there.
-            OpenInTerminal | EditFiles => both(lists_or_results),
+            OpenInTerminal | EditFiles => both(lists),
             HighlightFirst | HighlightLast | MarkAll | InvertMarks | Run | RunAndQuit
             | MoveMarked | CopyMarked | LinkMarked | Trash | Delete | Extract | Undo | Restore
             | Quit | EditConfig => only_normal(lists),
-            Rename | Create | ClearQuery | SearchToDepth | ShowSorting => only_normal(results),
+            Rename | Create | ClearQuery | ToggleQueryFocus | SearchToDepth | ShowSorting => {
+                only_normal(results)
+            }
             // A workspace can switch program, so it opens in every one.
-            SwitchQuery | ShowWorkspaces => both(scope(&[], &[Results], &[])),
+            SwitchQuery | ShowWorkspaces => both(scope(&[], &RESULTS, &[])),
             GoToParent | GoToPath | GoToTrash | GoBack | GoForward | GoToNextTab
-            | GoToPreviousTab => both(scope(&NAVIGATE, &[Results], &[])),
-            ToggleDirectories | ToggleFiles => both(scope(&BOTH_KINDS, &[Results], &[])),
+            | GoToPreviousTab => both(scope(&NAVIGATE, &RESULTS, &[])),
+            ToggleDirectories | ToggleFiles => both(scope(&BOTH_KINDS, &RESULTS, &[])),
             GoToHighlighted if normal => vec![scope(&NAVIGATE, &[], &[H::Dir, H::File])],
-            GoToHighlighted => both(scope(&NAVIGATE, &[Results], &[H::Dir, H::File])),
-            OpenInBackground => both(scope(&[], &[Results], &file)),
+            GoToHighlighted => both(scope(&NAVIGATE, &RESULTS, &[H::Dir, H::File])),
+            OpenInBackground => both(scope(&[], &RESULTS, &file)),
             OpenAndQuit if normal => vec![scope(&[Roam, Window], &[], &file)],
-            OpenAndQuit => vec![scope(&[Roam, Window], &[Results], &file)],
-            SaveHere => both(scope(&[ExplorerSave], &[Results], &[])),
+            OpenAndQuit => vec![scope(&[Roam, Window], &RESULTS, &file)],
+            SaveHere => both(scope(&[ExplorerSave], &RESULTS, &[])),
             SaveOver => only_normal(scope(&[ExplorerSave], &[], &file)),
             PrintHighlighted if normal => vec![
                 scope(&[Pick, ExplorerOpen, ExplorerFolder], &[], &file),
@@ -842,42 +857,38 @@ impl Function {
                 scope(&[ExplorerMultiple], &[Marks], &file),
                 scope(&EXPLORERS, &[Marks], &[H::Dir]),
             ],
-            PrintHighlighted => both(scope(&[ExplorerOpen, ExplorerFolder], &[Results], &file)),
+            PrintHighlighted => both(scope(&[ExplorerOpen, ExplorerFolder], &RESULTS, &file)),
             PrintHighlightedAndMarks if normal => {
-                vec![scope(&[ExplorerMultiple], &[Results], &file)]
+                vec![scope(&[ExplorerMultiple], &RESULTS, &file)]
             }
             PrintHighlightedAndMarks => vec![
-                scope(&[Pick], &[Results], &file),
-                scope(&[Piped], &[Results], &[H::Dir, H::File]),
-                scope(&[ExplorerMultiple], &[Results], &file),
+                scope(&[Pick], &RESULTS, &file),
+                scope(&[Piped], &RESULTS, &[H::Dir, H::File]),
+                scope(&[ExplorerMultiple], &RESULTS, &file),
             ],
             QuitIntoHighlighted if normal => vec![
                 scope(&[Roam, Pick], &[], &[H::Dir]),
-                scope(&[Roam, Pick], &[Results], &[H::None]),
+                scope(&[Roam, Pick], &RESULTS, &[H::None]),
                 scope(&[Seek], &[], &file),
             ],
             QuitIntoHighlighted => vec![
-                scope(&[Roam, Pick, ExplorerFolder], &[Results], &[H::None]),
-                scope(&[Seek], &[Results], &file),
+                scope(&[Roam, Pick, ExplorerFolder], &RESULTS, &[H::None]),
+                scope(&[Seek], &RESULTS, &file),
             ],
             QuitHere if normal => vec![
                 scope(&[Roam, Window, Pick, Seek], &[], &[]),
                 scope(
                     &[ExplorerOpen, ExplorerMultiple, ExplorerFolder],
-                    &[Results],
+                    &RESULTS,
                     &[],
                 ),
             ],
             QuitHere => both(scope(
                 &[ExplorerOpen, ExplorerMultiple, ExplorerFolder],
-                &[Results],
+                &RESULTS,
                 &[],
             )),
-            SwitchProgram => both(scope(
-                &Program::SWITCHABLE.map(|(p, _)| p),
-                if normal { &[] } else { &[Results] },
-                &[],
-            )),
+            SwitchProgram => both(scope(&Program::SWITCHABLE.map(|(p, _)| p), &[], &[])),
         }
     }
     /// Whether it works in `cell` in `mode`.
@@ -994,7 +1005,7 @@ impl Function {
                     "<CR>",
                     scope(
                         &[Window, ExplorerOpen, ExplorerMultiple, ExplorerFolder],
-                        &[Results],
+                        &RESULTS,
                         &[H::Dir],
                     ),
                 ),
@@ -1010,7 +1021,7 @@ impl Function {
             SaveHere => &[
                 ("!", all),
                 ("<C-s>", all),
-                ("<CR>", scope(&[], &[Results], &[])),
+                ("<CR>", scope(&[], &RESULTS, &[])),
             ],
             // Enter in the results saves under the typed name; on a mark it
             // offers to replace that file.
@@ -1036,7 +1047,8 @@ impl Function {
             ],
             ToggleJobList => &[("J", all), ("<M-J>", all)],
             PrintMarks => &[("<C-w>", all)],
-            ClearQuery => &[("<Esc>", all)],
+            ClearQuery => &[("<Esc>", scope(&[], &[Results], &[]))],
+            ToggleQueryFocus => &[("/", all), ("<Esc>", scope(&[], &[Query], &[]))],
             SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
             SearchShallower => &[("-", all), ("<M-Left>", all)],
             SearchDeeper => &[("+", all), ("<M-Right>", all)],
@@ -1085,11 +1097,24 @@ impl Function {
         };
         specs
             .into_iter()
-            .map(|(text, scope)| Binding {
-                function: self,
-                mode,
-                keys: parse(text).expect("default keys parse"),
-                scope,
+            .map(|(text, scope)| {
+                let keys = parse(text).expect("default keys parse");
+                // A default key typed as text leaves the query in focus to
+                // Neovim: there h moves the cursor and x deletes.
+                let typed = mode == Mode::Normal && keys[0].printable();
+                Binding {
+                    function: self,
+                    mode,
+                    keys,
+                    scope: Scope {
+                        focuses: if typed {
+                            scope.focuses & !Query.bit()
+                        } else {
+                            scope.focuses
+                        },
+                        ..scope
+                    },
+                }
             })
             .collect()
     }
@@ -1158,7 +1183,7 @@ pub const FIXED: &[(&str, &str, &str)] = &[
     (
         "double click",
         "mouse",
-        "Open the row, as open_row would (in explorer, confirm it, as Enter would).",
+        "Open the row, as open_row would (in a file dialog, choose it, as confirm_row would).",
     ),
     ("drag", "mouse", "Mark the rows it spans."),
     ("wheel", "mouse", "Scroll the results."),
@@ -1425,23 +1450,35 @@ impl Keymap {
             .any(|b| b.keys.len() == 1 && b.keys[0].takes(press))
     }
     /// Something opens the Keys screen and something leaves fff everywhere
-    /// in the results, and something leaves the marked list, so that no
-    /// keymap can lock you in.
+    /// in the results, and something leaves the marked list and the query
+    /// for them (Escape leaves Insert mode), so that no keymap can lock you
+    /// in.
     fn check_escape(&self) -> Result<(), String> {
+        let leaves = |function: Function, mode: Mode, cell: Cell| {
+            self.bindings
+                .iter()
+                .any(|b| b.function == function && b.mode == mode && b.applies(cell))
+        };
         for &program in Program::ALL {
             for &highlight in Highlight::ALL {
                 let cell = Cell {
                     program,
-                    place: Marks,
+                    focus: Marks,
                     highlight,
                 };
-                if !self
-                    .bindings
-                    .iter()
-                    .any(|b| b.function == Function::ToggleMarkedList && b.applies(cell))
-                {
+                if !leaves(Function::ToggleMarkedList, Mode::Normal, cell) {
                     return Err(format!(
                         "nothing would leave the marked list in {}; toggle_marked_list needs a key there",
+                        cell.describe()
+                    ));
+                }
+                let cell = Cell {
+                    focus: Query,
+                    ..cell
+                };
+                if !leaves(Function::ToggleQueryFocus, Mode::Normal, cell) {
+                    return Err(format!(
+                        "nothing would leave the query in {}; toggle_query_focus needs a Normal-mode key there",
                         cell.describe()
                     ));
                 }
@@ -1449,7 +1486,7 @@ impl Keymap {
             for &highlight in Highlight::ALL {
                 let cell = Cell {
                     program,
-                    place: Results,
+                    focus: Results,
                     highlight,
                 };
                 let bound = |f: Function, modes: &[Mode]| {
@@ -1604,7 +1641,7 @@ pub fn clash(a: &Binding, b: &Binding, at: Scope) -> String {
     )
 }
 /// One entry of `keys.toml`: keys, `"none"`, or a list of keys and tables
-/// `{ keys = "<CR>", program = [...], list = [...], highlight = [...] }`.
+/// `{ keys = "<CR>", program = [...], focus = [...], highlight = [...] }`.
 fn read_bindings(
     function: Function,
     mode: Mode,
@@ -1625,9 +1662,9 @@ fn read_bindings(
                     .ok_or("a table needs keys = \"...\"")?
                     .to_string();
                 for name in table.keys() {
-                    if !["keys", "program", "list", "highlight"].contains(&name.as_str()) {
+                    if !["keys", "program", "focus", "highlight"].contains(&name.as_str()) {
                         return Err(format!(
-                            "unknown field {name:?}; use keys, program, list or highlight"
+                            "unknown field {name:?}; use keys, program, focus or highlight"
                         ));
                     }
                 }
@@ -1660,7 +1697,7 @@ fn read_bindings(
                 }
                 let scope = Scope {
                     programs: set::<Program>(table, "program")?,
-                    places: set::<Place>(table, "list")?,
+                    focuses: set::<Focus>(table, "focus")?,
                     highlights: set::<Highlight>(table, "highlight")?,
                 };
                 (text, scope)
@@ -1697,8 +1734,8 @@ fn write_bindings(bindings: &[Binding]) -> toml_edit::Value {
         if let Some(v) = names::<Program>(b.scope.programs) {
             table.insert("program", v);
         }
-        if let Some(v) = names::<Place>(b.scope.places) {
-            table.insert("list", v);
+        if let Some(v) = names::<Focus>(b.scope.focuses) {
+            table.insert("focus", v);
         }
         if let Some(v) = names::<Highlight>(b.scope.highlights) {
             table.insert("highlight", v);
@@ -1726,11 +1763,19 @@ mod tests {
     fn cell(program: Program, highlight: Highlight) -> Cell {
         Cell {
             program,
-            place: Results,
+            focus: Results,
             highlight,
         }
     }
     fn run(keymap: &Keymap, mode: Mode, cell: Cell, keys: &[KeyEvent]) -> Step {
+        // Insert mode types into the query, as the app reads it.
+        let cell = match mode {
+            Mode::Insert => Cell {
+                focus: Query,
+                ..cell
+            },
+            Mode::Normal => cell,
+        };
         let mut pending = Vec::new();
         let mut last = Step::Pass;
         for key in keys {
@@ -1975,9 +2020,9 @@ mod tests {
         );
     }
     #[test]
-    fn keys_toml_names_lists_and_programs_as_the_keys_screen_does() {
+    fn keys_toml_names_focuses_and_programs_as_the_keys_screen_does() {
         let keymap = Keymap::parse(
-            "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-open-multiple'], list = ['marks'] }]\n",
+            "[normal]\nquit = ['Q', { keys = 'q', program = ['explorer-open-multiple'], focus = ['marks'] }]\n",
         )
         .unwrap();
         let quit: Vec<Binding> = keymap
@@ -1986,13 +2031,68 @@ mod tests {
             .cloned()
             .collect();
         let saved = write_bindings(&quit).to_string();
-        assert!(saved.contains("list = [\"marks\"]"), "{saved}");
+        assert!(saved.contains("focus = [\"marks\"]"), "{saved}");
         assert!(saved.contains("explorer-open-multiple"), "{saved}");
-        assert!(Keymap::parse("[normal]\nquit = { keys = 'Q', place = ['marks'] }\n").is_err());
+        assert!(Keymap::parse("[normal]\nquit = { keys = 'Q', list = ['marks'] }\n").is_err());
         assert!(
             Keymap::parse("[normal]\nquit = { keys = 'Q', program = ['explorer-multiple'] }\n")
                 .is_err()
         );
+    }
+    #[test]
+    fn default_keys_typed_as_text_leave_the_query_in_focus_to_neovim() {
+        let keymap = Keymap::default();
+        let query = Cell {
+            focus: Query,
+            ..cell(Roam, H::Dir)
+        };
+        let esc = KeyEvent::new(KeyCode::Esc, M::NONE);
+        let enter = KeyEvent::new(KeyCode::Enter, M::NONE);
+        let alt_j = KeyEvent::new(KeyCode::Char('j'), M::ALT);
+        let normal = |cell, keys: &[KeyEvent]| run(&keymap, Mode::Normal, cell, keys);
+        // `/` moves the focus up; Escape takes it back, then clears.
+        assert_eq!(
+            normal(cell(Roam, H::Dir), &[press('/')]),
+            Step::Run(Function::ToggleQueryFocus, None)
+        );
+        assert_eq!(
+            normal(query, &[esc]),
+            Step::Run(Function::ToggleQueryFocus, None)
+        );
+        assert_eq!(
+            normal(cell(Roam, H::Dir), &[esc]),
+            Step::Run(Function::ClearQuery, None)
+        );
+        // By default h, x, v, the digits and `g` sequences edit the query
+        // there.
+        for c in ['h', 'l', 'x', 'v', 'u', 'p', '3', 'g', ' '] {
+            assert_eq!(normal(query, &[press(c)]), Step::Pass, "{c}");
+        }
+        // Other keys still act on the results below it.
+        assert_eq!(
+            normal(query, &[enter]),
+            Step::Run(Function::QuitIntoHighlighted, None)
+        );
+        assert_eq!(
+            normal(query, &[alt_j]),
+            Step::Run(Function::HighlightNext, None)
+        );
+        // A key you bind comes before Neovim's wherever its focus says.
+        let keymap = Keymap::parse("[normal]\ntrash = 'x'\n").unwrap();
+        assert_eq!(
+            run(&keymap, Mode::Normal, query, &[press('x')]),
+            Step::Run(Function::Trash, None)
+        );
+        let keymap =
+            Keymap::parse("[normal]\ntrash = { keys = 'x', focus = ['results', 'marks'] }\n")
+                .unwrap();
+        assert_eq!(run(&keymap, Mode::Normal, query, &[press('x')]), Step::Pass);
+        // Something must leave the query.
+        let only = |keys: &str| {
+            format!("[normal]\ntoggle_query_focus = {{ keys = '{keys}', focus = ['results'] }}\n")
+        };
+        assert!(Keymap::parse(&only("/")).is_err());
+        assert!(Keymap::parse("[normal]\ntoggle_query_focus = '/'\n").is_ok());
     }
     #[test]
     fn saving_writes_only_what_differs() {
@@ -2052,11 +2152,11 @@ mod tests {
             .iter()
             .map(|s| {
                 s.programs.count_ones() as usize
-                    * s.places.count_ones() as usize
+                    * s.focuses.count_ones() as usize
                     * s.highlights.count_ones() as usize
             })
             .sum();
-        assert_eq!(cells, 2 * 2 * 3 - 2);
+        assert_eq!(cells, 2 * 3 * 3 - 3);
         assert_eq!(b.describe(), "window · dir");
         assert_eq!(Scope::of(&EXPLORERS, &[], &[]).describe(), "explorer-*");
     }

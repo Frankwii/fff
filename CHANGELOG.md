@@ -4,6 +4,26 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Added
+
+- **The query can have the focus** (`toggle_query_focus`, `/` in Normal
+  mode; Escape goes back): there Normal mode edits the query as Neovim
+  does, with `h`, `l`, `x`, `p`, `u`, `v`, `:` and the other default keys
+  typed as text left to Neovim, while Enter, Tab and the Alt and Ctrl keys
+  still act on the results. The results lose their highlight bar meanwhile.
+
+### Changed
+
+- **Keys apply by focus instead of list**: the Keys screen's List column is
+  now Focus (query, results, marked list), and `keys.toml` names it
+  `focus = [...]`; `list = [...]` is an error. Insert-mode keys apply in
+  the query focus. A key you bind comes before Neovim's in the query too
+  unless its focus leaves the query out; the default keys typed as text do.
+- **Clearer function descriptions** on the Keys screen, written for someone
+  new to fff.
+
 ## 0.21.0 — 2026-11-08
 
 `fff setup` is a guided start: it checks the programs fff uses and writes

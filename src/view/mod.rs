@@ -394,7 +394,9 @@ fn render_screen(frame: &mut Frame, app: &mut App, focus: &mut Focus) -> Rendere
             .split(main);
         (rows[0], rows[2], rows[1])
     };
-    let mut result = results_pane(frame, results, app, matches!(focus, Focus::Results));
+    // The query in focus takes it from the results, as the marked list does.
+    let results_focused = matches!(focus, Focus::Results) && !app.query_focused;
+    let mut result = results_pane(frame, results, app, results_focused);
     // While operations run, the jobs list takes the lower half.
     let (marks, jobs) = if app.jobs.is_empty() {
         (marks, Rect::default())

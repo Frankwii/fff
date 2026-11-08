@@ -64,6 +64,15 @@ and Ctrl+r still edit the query. `:` there opens the command picker instead
 of Neovim's command line: the functions that work where you are, to run one
 by name (Enter) or go back (Escape).
 
+`/` (`toggle_query_focus`) moves the focus from the results up to the query,
+where Normal mode is Neovim's: `h`, `l`, `x`, `p`, `u`, `v`, `:` and the
+other keys typed as text edit the query, unless you bound one there yourself
+(a key you bind always comes first; its
+[focus](CONFIGURATION.md#the-query-in-focus) decides where). Enter, Tab and
+the Alt and Ctrl keys still act on the results, which are drawn without
+their highlight bar meanwhile. Escape there gives the results the focus
+back; Insert mode entered from the query returns to it.
+
 | Action | Keys in Normal mode |
 | --- | --- |
 | Enter text | `i`, `a`, `I`, `A` |
@@ -127,7 +136,8 @@ workspace forms it saves; in palettes it applies the selected palette. Pending N
 entry receive Enter instead. In exclusions and filters, Enter retains Neovim's behavior.
 
 Escape from Insert, Visual, pending input or command entry returns toward Normal.
-Escape when already Normal clears the main query (with a contents query, the query
+With the query in focus, Escape in Normal mode gives the results the focus.
+Escape when already Normal in the results clears the main query (with a contents query, the query
 being typed into, or the other one once it is empty), closes subordinate choosers
 or cancels the workspace form; exclusion and operation buffers keep Escape inside
 Neovim. With the query already empty, a second Escape in a row clears every

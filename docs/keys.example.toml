@@ -19,14 +19,16 @@ highlight_previous = ["<C-p>", "<Up>"]
 quit = "Q"
 # A key can apply only somewhere: a table names where, by program
 # (roam, window, pick, seek, explorer-open, explorer-open-multiple,
-# explorer-folder, explorer-save), list (results, marks) and highlight
-# (dir, file, none). Here Enter goes into directories in fff roam too,
+# explorer-folder, explorer-save), focus (query, results, marks) and
+# highlight (dir, file, none). A key bound here comes before Neovim's: a
+# Normal-mode key such as l applies in the query in focus too, unless its
+# focus leaves the query out, as the defaults typed as text do. Here Enter goes into directories in fff roam too,
 # instead of quitting into them; elsewhere it keeps doing what it did. Each
 # table is one place; listing the same keys again adds another, so a key can
 # apply in places one table cannot name.
 go_to_highlighted = [
-  { keys = "l", highlight = ["dir"] },
+  { keys = "l", focus = ["results", "marks"], highlight = ["dir"] },
   { keys = "<M-l>", highlight = ["dir"] },
-  { keys = "<CR>", program = ["roam", "window", "explorer-open", "explorer-open-multiple", "explorer-folder", "explorer-save"], list = ["results"], highlight = ["dir"] },
-  { keys = "<CR>", program = ["window"], list = ["marks"], highlight = ["dir"] },
+  { keys = "<CR>", program = ["roam", "window", "explorer-open", "explorer-open-multiple", "explorer-folder", "explorer-save"], focus = ["query", "results"], highlight = ["dir"] },
+  { keys = "<CR>", program = ["window"], focus = ["marks"], highlight = ["dir"] },
 ]
