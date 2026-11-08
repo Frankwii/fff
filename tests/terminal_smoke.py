@@ -1430,6 +1430,69 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_a_session_without_a_configuration_file_suggests_fff_setup(self):
+        environment = {"XDG_CONFIG_HOME": str(self.root / "settings")}
+        s = self.start(implicit_root=True, environment=environment)
+        s.wait_ui("run fff setup for a guided start")
+        s.send(b"\x03")
+        self.assertEqual(s.finish(), (130, b""))
+        s.close()
+        # With a file, or with --no-config, it says nothing of the kind.
+        config = self.root / "settings" / "fff" / "config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text("")
+        for args in ((), ("--no-config",)):
+            s = self.session = Session(self.root, *args, implicit_root=True, environment=environment)
+            s.drain(0.3)
+            self.assertNotIn("guided start", s.screen.text)
+            s.send(b"\x03")
+            self.assertEqual(s.finish(), (130, b""))
+            s.close()
+        self.session = None
+
+    def test_guided_setup_asks_on_the_terminal_and_writes_the_answers(self):
+        programs = self.root / "bin"
+        programs.mkdir()
+        (programs / "zathura").write_text("#!/bin/sh\n")
+        (programs / "zathura").chmod(0o755)
+        config = self.root / "new" / "config.toml"
+        pid, terminal = pty.fork()
+        if pid == 0:
+            os.environ.update(HOME=str(self.root), PATH=str(programs), SHELL="/bin/sh", NO_COLOR="1")
+            os.environ.pop("EDITOR", None)
+            os.environ.pop("XDG_CONFIG_HOME", None)
+            os.execv(BINARY, [BINARY, "setup", "--config", str(config)])
+        # No icons, zathura for documents (the only program installed), and
+        # write the file.
+        os.write(terminal, b"n\n\ny\n")
+        output = b""
+        while True:
+            try:
+                chunk = os.read(terminal, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            output += chunk
+        _, status = os.waitpid(pid, 0)
+        os.close(terminal)
+        text = output.decode()
+        self.assertEqual(os.waitstatus_to_exitcode(status), 0, text)
+        for line in ("Neovim (nvim) is not installed: fff needs it to start",
+                     "$EDITOR is unset",
+                     "1  zathura  opens at a contents match's page",
+                     "Images (png",
+                     "Write this to a new"):
+            self.assertIn(line, text)
+        written = tomllib.loads(config.read_text())
+        self.assertIs(written["ui"]["icons"], False)
+        self.assertEqual(written["open"]["rules"], [{
+            "command": "zathura",
+            "extensions": ["pdf", "djvu", "epub"],
+            "at_grep_match": "--page {page} --find {query}",
+        }])
+
     def test_live_workspaces_session_only_and_external_reload(self):
         s = self.start(implicit_root=True)
         s.send(b"gw", "Workspaces")

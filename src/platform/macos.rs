@@ -15,6 +15,16 @@ use std::{
 
 /// No freedesktop.org desktop: no desktop entries, session bus or portal.
 pub const FREEDESKTOP: bool = false;
+/// macOS: files open with `open`, programs install with Homebrew.
+pub const MACOS: bool = true;
+/// Where fonts are installed, the user's first.
+pub fn font_dirs(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = home
+        .map(|h| vec![h.join("Library/Fonts")])
+        .unwrap_or_default();
+    dirs.extend(["/Library/Fonts", "/System/Library/Fonts"].map(PathBuf::from));
+    dirs
+}
 
 /// The controlling terminal, for reading and writing. `poll` and `kqueue`
 /// refuse `/dev/tty` on macOS (`POLLNVAL`), so the device it stands for is

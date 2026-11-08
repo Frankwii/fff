@@ -3,7 +3,9 @@
 //! xdg-desktop-portal-termfilechooser (a wrapper script and the portal
 //! settings that select it). Files fff generates carry [`MARKER`] and are
 //! regenerated freely; anything else is never overwritten, and existing
-//! configuration files are edited one key at a time.
+//! configuration files are edited one key at a time. Without an option,
+//! `fff setup` is the guided start in [`guided`].
+pub mod guided;
 use std::{
     fs,
     io::{self, Write},
@@ -166,8 +168,48 @@ impl<'a> Report<'a> {
         }
         writeln!(self.out, "  • {text}")
     }
+    /// A line of its own: a question's context or one of its choices.
+    pub fn line(&mut self, text: &str) -> io::Result<()> {
+        match text {
+            "" => writeln!(self.out),
+            _ => writeln!(self.out, "  {text}"),
+        }
+    }
+    /// A question, the answer typed after it on the same line.
+    pub fn ask(&mut self, text: &str) -> io::Result<()> {
+        let mark = self.paint("1", "?");
+        write!(self.out, "  {mark} {text} ")?;
+        self.out.flush()
+    }
+    /// A section of findings under its heading, each fix below its finding.
+    pub fn section(&mut self, section: &Section) -> io::Result<()> {
+        self.heading(section.title)?;
+        for finding in &section.findings {
+            let fix = match finding {
+                Finding::Fine(text) => {
+                    self.done(text)?;
+                    &None
+                }
+                Finding::Problem(text, fix) => {
+                    self.warn(text)?;
+                    fix
+                }
+                Finding::Optional(text, fix) => {
+                    self.same(text)?;
+                    fix
+                }
+            };
+            if let Some(fix) = fix {
+                self.command(fix)?;
+            }
+        }
+        Ok(())
+    }
     /// A command or line to copy, below the line it belongs to.
     pub fn command(&mut self, text: &str) -> io::Result<()> {
+        if text.is_empty() {
+            return writeln!(self.out);
+        }
         let text = self.paint("36", text);
         writeln!(self.out, "      {text}")
     }
@@ -193,6 +235,8 @@ pub enum Finding {
     Fine(String),
     /// What is wrong, and the command that fixes it.
     Problem(String, Option<String>),
+    /// Something optional that is missing, and the command that adds it.
+    Optional(String, Option<String>),
 }
 
 /// The desktop integration set up earlier, if it was: whether the files fff
@@ -773,7 +817,7 @@ mod tests {
             .flat_map(|s| s.findings)
             .filter_map(|f| match f {
                 Finding::Problem(text, fix) => Some(format!("{text} | {fix:?}")),
-                Finding::Fine(_) => None,
+                Finding::Fine(_) | Finding::Optional(..) => None,
             })
             .collect::<Vec<_>>()
         };

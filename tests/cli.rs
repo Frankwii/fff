@@ -89,6 +89,22 @@ fn seek_is_a_command_and_options_belong_to_their_commands() {
 }
 
 #[test]
+fn guided_setup_needs_a_terminal_to_ask_on() {
+    // Without one (stdin is not a terminal here), it is a usage error that
+    // names the options that ask nothing, and writes no file.
+    let output = fff(
+        &["setup", "--config", "target/guided-never-written.toml"],
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("asks questions, on a terminal"), "{error}");
+    assert!(error.contains("--check-config"), "{error}");
+    assert!(output.stdout.is_empty());
+    assert!(!std::path::Path::new("target/guided-never-written.toml").exists());
+}
+
+#[test]
 fn completion_scripts_register_for_each_shell() {
     for shell in ["bash", "zsh", "fish"] {
         let flag = stdout(&fff(&["setup", "--completions", shell], None));

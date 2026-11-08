@@ -5,7 +5,9 @@ the default palette is `midnight`, workspaces start empty, and caching is enable
 
 ## Start here
 
-Save this as `$XDG_CONFIG_HOME/fff/config.toml`. Following the XDG base
+`fff setup` writes a first configuration for you (see [guided
+start](#guided-start-fff-setup)); a session started without a configuration
+file says so. To write one by hand, save this as `$XDG_CONFIG_HOME/fff/config.toml`. Following the XDG base
 directory spec, `~/.config/fff/config.toml` is used when `XDG_CONFIG_HOME` is
 unset, empty, or not absolute. `fff setup --check-config` prints the file it read:
 
@@ -40,7 +42,47 @@ It also warns, without failing, about the [desktop integration](DESKTOP.md)
 when it was set up: files `fff setup --desktop` or `--browser` wrote that
 are missing, out of date or run another fff binary, folders that open in
 another application than fff, and an environment in which Qt applications
-would not ask the portal for file dialogs.
+would not ask the portal for file dialogs. Its **Programs** section is the
+one the [guided start](#guided-start-fff-setup) begins with.
+
+## Guided start: `fff setup`
+
+`fff setup` without an option asks a few questions on the terminal and adds
+the answers to the configuration file (the default one, or `--config PATH`,
+which it creates when missing). Questions and report go to stderr; stdout
+stays empty. Without a terminal to ask on (stdin or stderr redirected) it is
+a usage error (exit 2). In order:
+
+1. **Programs.** Which of the programs fff runs are installed: Neovim
+   (required), poppler (`pdftotext`, `pdfinfo`: PDF previews and contents
+   search), DjVuLibre (`djvutxt`), FFmpeg (`ffprobe`) and zoxide (the
+   location prompt's suggestions), each missing one with the command that
+   installs it with the package manager found (pacman, apt, dnf; Homebrew on
+   macOS); then the terminal [terminal programs](#openers) open in, and
+   whether `$EDITOR` is set.
+2. **Icons.** It draws a few of fff's [icons](#filetype-icons) and asks
+   whether they show. Answered no, it sets `[ui] icons = false` and, under
+   **Next**, says how to get them: a Nerd Font is found installed by the
+   names of the font files (then the terminal's font needs changing), or how
+   to install one (`ttf-nerd-fonts-symbols` with pacman, the cask
+   `font-symbols-only-nerd-font` with Homebrew, else nerdfonts.com).
+3. **Opening files.** For documents (PDF, DjVu, EPUB), images, audio and
+   video, and office files, the installed programs that open them, the
+   first one the default: on macOS `open` (the application macOS uses),
+   then zathura or mpv if installed; on Linux zathura, okular, evince or
+   mupdf, imv, nsxiv, sxiv, feh, eog, gwenview or ristretto, `mpv
+   --force-window` (a window even for audio) or VLC, LibreOffice, and
+   `xdg-open` (the desktop's default) last. zathura, okular and mupdf get
+   their [`at_grep_match`](#opening-at-a-contents-match). `0` leaves a kind
+   to `$EDITOR`. Kinds opened by the same program share one rule.
+
+It then shows the TOML it would add and asks before writing. Nothing the file
+sets is asked about or changed: `[ui] icons` once set, the openers once there
+are `[[open.rules]]`; everything else in the file, comments included, stays as
+it was. The end of input (Ctrl+d) stops it with nothing written. Its last
+part, **Next**, lists what is left: the shell integration and completions
+for `$SHELL`, the desktop integration on Linux, and where every setting is
+described.
 
 ## Editing while fff runs
 

@@ -42,6 +42,15 @@ terminal, never stdout. Put the binary on your PATH as `fff` and add the
 shell's directory. `-h` summarizes options; `--help` includes defaults, examples
 and exit codes.
 
+For a guided start, run `fff setup`. It lists the programs fff uses and
+which of them are installed, with the command that installs each missing
+one (pacman, apt, dnf or Homebrew), then asks whether your terminal shows
+fff's icons and which installed programs open documents, images, media and
+office files (`open` first on macOS, so the defaults are the apps macOS
+uses). It shows what it would add to the [configuration
+file](docs/CONFIGURATION.md) and writes it once you confirm. A session
+started without a configuration file suggests it.
+
 ## Commands
 
 | Command | What it is for |
@@ -52,6 +61,7 @@ and exit codes.
 | `COMMAND \| fff` | Choose among the paths another program writes to stdin, and print the choice ([details](#choosing-from-another-programs-paths-command--fff)). |
 | `fff window [PATH]` | Browse in a terminal window of its own, as the desktop's file manager ([details](docs/DESKTOP.md#opening-directories)). |
 | `fff explorer open\|open-multiple\|folder\|save [PATH]` | Answer a file dialog ([details](docs/DESKTOP.md#fff-explorer)). |
+| `fff setup` | A guided start: checks the programs fff uses and writes a first configuration from a few questions ([details](docs/CONFIGURATION.md#guided-start-fff-setup)). |
 | `fff setup --OPTION` | Set fff up: `--init`, `--completions`, `--man`, `--desktop`, `--browser`, `--check-config`. |
 
 The command only chooses how a session starts: `gm` turns a running session
@@ -344,7 +354,8 @@ fd -0 -e pdf | fff -0 | xargs -0r zathura
   `--no-exclusions` and `--workspace` are usage errors (exit 2), since the
   list is listed as read; filter in the command that writes it. So is a
   command (`fff pick`, `fff seek`, ...) with paths on stdin, which would
-  leave them unread; `fff setup` reads nothing and ignores stdin. A terminal,
+  leave them unread; `fff setup` with an option reads nothing and ignores
+  stdin, and without one asks its questions on a terminal. A terminal,
   `/dev/null` or a closed stdin is no list: `fff` browses as usual.
 - The [shell function](#shell-integration) passes through unchanged: the
   session changes no directory.

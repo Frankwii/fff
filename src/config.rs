@@ -929,6 +929,8 @@ pub fn expand_path(text: &str, base: &Path, home: Option<&Path>) -> Result<PathB
     }
     Ok(base.join(text))
 }
+/// What a session without a configuration file says when it starts.
+pub const NO_FILE: &str = "No configuration file: run fff setup for a guided start";
 pub fn default_path(xdg: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     let base = xdg
         .filter(|p| p.is_absolute())

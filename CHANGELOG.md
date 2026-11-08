@@ -8,6 +8,16 @@ history.
 
 ### Added
 
+- **`fff setup` without an option is a guided start**: it lists the
+  programs fff uses and which are installed (with the pacman, apt, dnf or
+  Homebrew command for each missing one), asks whether your terminal shows
+  fff's icons (turning them off, and saying how to get a Nerd Font, when it
+  does not) and which of the installed programs open documents, images,
+  media and office files (`open` first on macOS), then shows what it would
+  add to the configuration file and writes it once you confirm. Settings the
+  file already has are left alone. `fff setup --check-config` reports the
+  same programs, and a session started without a configuration file
+  suggests `fff setup`.
 - **Opening a terminal program works on macOS without configuration**:
   with `[open] terminal` unset, fff finds the terminal it runs in there too
   (among its parent processes, else by `$TERM_PROGRAM`, which covers iTerm2

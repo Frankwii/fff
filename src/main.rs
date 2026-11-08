@@ -1,7 +1,8 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
 use fuzzy_file_finder::{
-    App, Policy, completion, config::Settings, explorer::Dialog, keymap, ui, write_paths,
+    App, Policy, completion, config::Settings, explorer::Dialog, keymap, setup::guided, ui,
+    write_paths,
 };
 use std::{
     io::{self, IsTerminal, Write},
@@ -63,6 +64,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
       Choose among the paths another program lists, printed as it wrote them.
   <cyan>fd -0 -e pdf | fff -0 | xargs -0r zathura</cyan>
       The same with NUL-separated paths, read and printed.
+  <cyan>fff setup</cyan>
+      A guided start: the programs fff uses, then a first configuration.
   <cyan>fff setup --desktop; fff setup --browser</cyan>
       Open folders from other programs, and Firefox's file dialogs, in fff.
   <cyan>fff explorer save ~/Downloads/paper.pdf</cyan>
@@ -92,8 +95,8 @@ const AFTER_LONG_HELP: &str = color_print::cstr!(
   file icons ([ui] icons), row details ([ui] columns), the preview pane
   ([ui] preview) and its syntax colors ([ui] highlight), the mouse and buttons
   ([ui] mouse, buttons) and live updates ([ui] watch). Keys live in keys.toml
-  beside it, which the Keys screen (<cyan>F1</cyan>) edits.
-  <cyan>fff setup --check-config</cyan> validates both and prints which file was read.
+  beside it, which the Keys screen (<cyan>F1</cyan>) edits. <cyan>fff setup</cyan> starts one from a few
+  questions; <cyan>fff setup --check-config</cyan> validates both and prints which file was read.
 
 <bold><green>Exit status:</green></bold>
   <cyan>0</cyan>    normal exit: a directory was chosen or paths printed (or the
@@ -281,9 +284,14 @@ enum Command {
     /// Ctrl+s does too while typing; q and Ctrl+c cancel. The query line says
     /// how to choose.
     Explorer(ExplorerArgs),
-    /// Set fff up: the desktop, file dialogs, your shell, the configuration
+    /// Set fff up: the configuration, the desktop, file dialogs, your shell
     ///
-    /// Does one of these and exits.
+    /// Without an option, a guided start: which programs fff uses are
+    /// installed, then a few questions (whether your terminal shows Nerd Font
+    /// icons, which installed programs open documents, images and media),
+    /// whose answers it adds to the configuration file once you confirm.
+    /// Settings the file has are left as they are. With an option, does that
+    /// one and exits.
     Setup(SetupArgs),
     /// Answer org.freedesktop.FileManager1 ("Show in folder"), run by D-Bus
     ///
@@ -396,7 +404,7 @@ impl From<DialogCommand> for Asked {
     }
 }
 #[derive(clap::Args)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 struct SetupArgs {
     /// Open folders from other programs in fff
     ///
@@ -734,6 +742,12 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     app.config_broken = settings.broken;
     if let Some(status) = app.config_errors_status() {
         app.status = status;
+    } else if settings.source.is_none()
+        && settings.workspace_path.is_some()
+        && app.status.is_empty()
+    {
+        // The default file is missing: say how to start one.
+        app.status = fuzzy_file_finder::config::NO_FILE.into();
     }
     app.workspace_store = fuzzy_file_finder::workspaces::Store::new(
         settings.workspace_path,
@@ -981,11 +995,30 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         write_man_pages(&dir, &mut report)?;
         return Ok(true);
     }
-    let settings = Settings::load(
-        args.config.as_deref(),
-        args.no_config,
+    let guided = !(setup.desktop || setup.browser || setup.check_config);
+    if guided && !(io::stdin().is_terminal() && io::stderr().is_terminal()) {
+        Args::command()
+            .error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "fff setup without an option asks questions, on a terminal; \
+                 run it in one, or give one of --desktop, --browser, --init, \
+                 --completions, --man, --check-config",
+            )
+            .exit()
+    }
+    // The guided start may write a --config file that is not there yet.
+    let new = args
+        .config
+        .as_deref()
+        .filter(|path| guided && !path.exists());
+    let mut settings = Settings::load(
+        args.config.as_deref().filter(|_| new.is_none()),
+        args.no_config || new.is_some(),
         args.palette.as_deref(),
     )?;
+    if let Some(path) = new {
+        settings.workspace_path = Some(std::path::absolute(path)?);
+    }
     if setup.check_config {
         let keys = settings.workspace_path.as_deref().map(keymap::path_beside);
         if let Some(path) = &keys {
@@ -1001,12 +1034,16 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
         report.heading("Configuration")?;
         match &settings.source {
             Some(path) => report.done(&format!("valid: {}", report.path(path)))?,
-            None => report.same("no configuration file; using built-in settings")?,
+            None => report
+                .same("no configuration file; using built-in settings (fff setup starts one)")?,
         }
         if let Some(path) = keys.filter(|p| p.exists()) {
             report.done(&format!("valid: {}", report.path(&path)))?;
         }
         report.done("every program [open] names is installed")?;
+        report.section(&guided::programs(&guided::System::from_env(
+            settings.open.terminal().ok(),
+        )))?;
         // The desktop integration, if set up: warnings, since the
         // configuration itself is valid.
         if !fuzzy_file_finder::setup::FREEDESKTOP {
@@ -1025,24 +1062,41 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
             fuzzy_file_finder::setup::Dirs::from_env(),
             std::env::current_exe(),
         ) {
-            use fuzzy_file_finder::setup::{self, Finding};
             let var = |name: &str| std::env::var(name).ok();
             let terminal = terminal.as_deref();
-            for section in setup::check(&dirs, &fff, terminal, var, setup::folder_default) {
-                report.heading(section.title)?;
-                for finding in section.findings {
-                    match finding {
-                        Finding::Fine(text) => report.done(&text)?,
-                        Finding::Problem(text, fix) => {
-                            report.warn(&text)?;
-                            if let Some(fix) = fix {
-                                report.command(&fix)?;
-                            }
-                        }
-                    }
-                }
+            let check = fuzzy_file_finder::setup::check;
+            for section in check(
+                &dirs,
+                &fff,
+                terminal,
+                var,
+                fuzzy_file_finder::setup::folder_default,
+            ) {
+                report.section(&section)?;
             }
         }
+        return Ok(true);
+    }
+    if !(setup.desktop || setup.browser) {
+        let Some(path) = settings.workspace_path.as_deref() else {
+            return Err(
+                "fff setup writes the configuration file, which --no-config leaves out".into(),
+            );
+        };
+        let before = match std::fs::read_to_string(path) {
+            Ok(text) => Some(text),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(format!("{}: {e}", path.display()).into()),
+        };
+        let system = guided::System::from_env(settings.open.terminal().ok());
+        guided::run(
+            &system,
+            path,
+            before.as_deref(),
+            home.as_deref(),
+            &mut io::stdin().lock(),
+            &mut report,
+        )?;
         return Ok(true);
     }
     if !fuzzy_file_finder::setup::FREEDESKTOP {

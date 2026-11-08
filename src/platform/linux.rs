@@ -10,6 +10,16 @@ use std::{
 
 /// The freedesktop.org desktop (desktop entries, D-Bus, the portal) is here.
 pub const FREEDESKTOP: bool = true;
+/// Not macOS: what fff suggests there (`open`, Homebrew) does not apply.
+pub const MACOS: bool = false;
+/// Where fonts are installed, the user's first.
+pub fn font_dirs(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = home
+        .map(|h| vec![h.join(".local/share/fonts"), h.join(".fonts")])
+        .unwrap_or_default();
+    dirs.extend(["/usr/share/fonts", "/usr/local/share/fonts"].map(PathBuf::from));
+    dirs
+}
 
 /// The controlling terminal, for reading and writing.
 pub fn open_terminal() -> io::Result<File> {

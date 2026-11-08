@@ -64,7 +64,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/config.rs`, `src/palettes.rs`, `src/reload.rs` | TOML configuration, semantic palettes and live color reload. |
 | `src/explorer.rs` | `fff explorer`: file dialogs' starting place, query-line hint and answer. |
 | `src/dbus.rs` | `fff dbus-file-manager`: a minimal D-Bus client answering `org.freedesktop.FileManager1` ("Show in folder") with the open-folder launcher. |
-| `src/setup.rs`, `src/setup/` | `fff setup --desktop` and `--browser`: the desktop entry, the D-Bus service file, the termfilechooser wrapper script and the configuration keys selecting them. |
+| `src/setup.rs`, `src/setup/` | `fff setup --desktop` and `--browser`: the desktop entry, the D-Bus service file, the termfilechooser wrapper script and the configuration keys selecting them. `src/setup/guided.rs`: `fff setup` without an option, the programs found (also `--check-config`'s), its questions and the keys it adds; the system it asks about is a `System`, so tests give their own. |
 | `src/completion.rs`, `src/icons.rs` | Dynamic shell completion and filetype glyphs. |
 | `src/ui/tests.rs`, `src/view/tests.rs`, `src/operations_tests.rs`, `src/trash_tests.rs` | Unit tests of the session's keys, of drawn frames, and of the file operations and trash (see [verification](#verification)). |
 
