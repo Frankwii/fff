@@ -172,3 +172,27 @@ impl Running {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rows::Rank;
+
+    #[test]
+    fn every_program_but_seek_weighs_depth_against_the_match() {
+        use Program::*;
+        for program in [
+            Roam,
+            Window,
+            Pick,
+            ExplorerOpen,
+            ExplorerMultiple,
+            ExplorerFolder,
+            ExplorerSave,
+        ] {
+            assert_eq!(program.rank(), Rank::Log, "{program:?}");
+        }
+        assert_eq!(Seek.rank(), Rank::Score);
+        assert_eq!(Piped.rank(), Rank::Listed);
+    }
+}
