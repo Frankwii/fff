@@ -1026,7 +1026,7 @@ impl Function {
             SearchShallower => &[("-", all)],
             SearchDeeper => &[("+", all)],
             SearchToDepth => &[("<C-M-#>", all)],
-            ToggleHidden => &[(".", all)],
+            ToggleHidden => &[("g.", all)],
             ToggleDirectories => &[("gd", all)],
             ToggleFiles => &[("gD", all)],
             TogglePreview => &[("gpp", all)],
@@ -1070,9 +1070,14 @@ impl Function {
                 let keys = parse(text).expect("default keys parse");
                 // A default key typed as text leaves the query in focus to
                 // Neovim: there h moves the cursor and x deletes. Those
-                // bound for the query alone (j, k) are meant for it.
-                let typed =
-                    mode == Mode::Normal && keys[0].printable() && scope.focuses != Query.bit();
+                // meant for the query too keep it: j and k go down from it,
+                // and gc would comment a one-line query out.
+                let typed = mode == Mode::Normal
+                    && keys[0].printable()
+                    && !matches!(
+                        (self, text),
+                        (HighlightFirst, "j") | (HighlightLast, "k") | (EditConfig, "gc")
+                    );
                 Binding {
                     function: self,
                     mode,
@@ -2018,11 +2023,20 @@ mod tests {
             normal(cell(Roam, H::Dir), &[esc]),
             Step::Run(Function::ClearQuery, None)
         );
-        // By default h, x, v, the digits and `g` sequences edit the query
-        // there.
-        for c in ['h', 'l', 'x', 'v', 'u', 'p', '3', 'g', ' '] {
+        // By default h, x, v, `.`, the digits and `g` sequences edit the
+        // query there.
+        for c in ['h', 'l', 'x', 'v', 'u', 'p', '.', '3', ' '] {
             assert_eq!(normal(query, &[press(c)]), Step::Pass, "{c}");
         }
+        assert_eq!(
+            normal(query, &[press('g'), press('u')]),
+            Step::Flush(vec![press('g')])
+        );
+        // But gc edits the configuration from there too.
+        assert_eq!(
+            normal(query, &[press('g'), press('c')]),
+            Step::Run(Function::EditConfig, None)
+        );
         // j and k go down into the results, to the first or last row.
         assert_eq!(
             normal(query, &[press('j')]),

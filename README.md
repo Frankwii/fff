@@ -518,7 +518,7 @@ The defaults are mostly Normal-mode keys, Vim's where it has one; while
 typing, Alt+h/j/k/l move around, Up / Down switch tabs and Enter acts as in
 Normal mode. Keys typed as text (letters, digits, `/`, `!`) apply in the
 results and the marked list, and are Neovim's while the query has the
-focus, but `j` / `k`, which go down into the results. Some functions have no default key: bind them on the Keys screen.
+focus, but `j` / `k`, which go down into the results, and `gc`. Some functions have no default key: bind them on the Keys screen.
 
 | Key | Action |
 | --- | --- |
@@ -550,7 +550,7 @@ focus, but `j` / `k`, which go down into the results. Some functions have no def
 | Ctrl+k | Focus / leave the marked list |
 | Ctrl+j | Focus / leave the [jobs list](docs/OPERATIONS.md#progress-and-stopping) of operations still running; x there stops one and undoes it |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
-| . | Toggle hidden entries |
+| g. | Toggle hidden entries |
 | gd | Hide directories, listing only files; again to show them |
 | gD | Hide files, listing only folders; again to show them |
 | gpp / gpw | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) / wrap its lines |
@@ -576,7 +576,7 @@ focus, but `j` / `k`, which go down into the results. Some functions have no def
 | gx / gX | Run a program on the current or marked paths and come back / exit fff into it |
 | e | Open the current or marked paths in `$EDITOR`, then come back |
 | gm | [Switch](#switching-programs) to `fff roam`, `pick` or `seek`, keeping the session |
-| gc | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
+| gc | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session; from the query in focus too |
 | q / ! / g! | Leave without choosing (where you started) / leave into the current directory / leave into the highlighted one (`fff roam`) |
 | Ctrl+c | Cancel without selected-path output |
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |

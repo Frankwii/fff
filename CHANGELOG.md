@@ -11,6 +11,10 @@ history.
 - **`j` and `k` in the query's Normal mode go down into the results**, to
   the first and the last row: `highlight_first` and `highlight_last` give
   the results the focus when run from the query in Normal mode.
+- **`g.` toggles hidden entries** (`toggle_hidden`), as in oil.nvim; `.`
+  is free, and in the query's Normal mode it is Neovim's repeat.
+- **`gc` edits the configuration from the query in focus too**, instead of
+  reaching Neovim's comment operator.
 
 ## 0.22.0 — 2026-11-08
 

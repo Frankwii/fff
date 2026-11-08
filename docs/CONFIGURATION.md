@@ -1169,9 +1169,10 @@ apply in the `query` focus only, and a key pressed in the results that no
 binding has goes to Neovim and gives it the focus too (`i`, `a`, `cw`, `0`).
 Escape from Insert mode stays in the query, whose Normal mode edits it as
 Neovim does: by default every key typed as text (`h`, `l`, `x`, `v`, `p`,
-`u`, digits, `g` sequences, `:`) is Neovim's there but `j` and `k`, which
-give the results the focus on their first or last row (`highlight_first`
-and `highlight_last` do that from the query in Normal mode), while Enter,
+`u`, `.`, digits, `g` sequences, `:`) is Neovim's there but `j` and `k`,
+which give the results the focus on their first or last row
+(`highlight_first` and `highlight_last` do that from the query in Normal
+mode), and `gc` (`edit_config`), while Enter,
 Tab, the arrows and the Alt and Ctrl keys still act on the results below. Escape
 there (`toggle_query_focus`) gives the results the focus back, and a click
 on a row does too. The Keys screen's query and list take the focus the

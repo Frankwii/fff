@@ -1280,9 +1280,9 @@ class TerminalTests(unittest.TestCase):
         # D asks before putting the defaults back.
         s.send(b"D", "Put back the default keys of toggle_hidden?")
         s.send(b"\r", "Default keys back; Enter saves")
-        self.assertIn("› .", s.screen.text)
+        self.assertIn("› g.", s.screen.text)
         # Moving up from the first key goes round to the last.
-        s.send(b"k", "WHERE . APPLIES")
+        s.send(b"k", "WHERE g. APPLIES")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
