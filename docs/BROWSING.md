@@ -4,6 +4,24 @@ How to move around in fff, and what the screen tells you. The keys below
 are the defaults in Normal mode; [Keys](KEYS.md) explains modes and how to
 change any of them.
 
+## The query or the results
+
+Keys act on whichever has the **focus**: the results or the query box
+above them. The one without it is drawn dimmed. fff starts with the
+results focused, and every key in this guide works there.
+
+The query box gets the focus when you type into it (`i`). Escape leaves
+Insert mode but keeps the focus in the query, so you can edit it with
+Vim's keys. There, letters, digits and symbols are Neovim's: `h` and `l`
+move the cursor, `0` goes to the start of the line, `/` searches the query
+and `x` deletes a character. Only `j` and `k` keep their meaning: they
+give the results the focus, on the first or last row.
+
+Keys that aren't text work from the query too: the arrows, PageUp and
+PageDown, Enter, and the Ctrl, Alt and function keys. So if a key
+seems to edit your query instead of doing what this guide says, press
+Escape (or `j`) to focus the results and try again.
+
 ## Moving
 
 | Key | Does |
