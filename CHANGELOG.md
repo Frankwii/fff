@@ -13,6 +13,8 @@ history.
 - **The shell reads keys normally after fff exits** in terminals with the
   kitty keyboard protocol that keep the main and alternate screens' keyboard
   modes apart (kitty, Ghostty, WezTerm): typing no longer shows escape codes.
+- **Operations on many marked entries start sooner on macOS**: each folder
+  they are in is opened once, not once per entry.
 
 ## 0.20.2 — 2026-11-08
 
