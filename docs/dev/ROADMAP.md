@@ -85,15 +85,19 @@ Listing the 620,000 entries of `/usr` takes about 0.38 seconds headless
 for `fd | fzf --filter ''`. Of the interface thread's share, storing the
 paths among the known ones takes about 0.13 seconds, filtering each round
 of new paths 0.035, sorting it 0.07 and pushing it among the rows 0.07.
-What could still go:
-
-- **Packed paths.** Each path is its own allocation (a `PathBuf` in an
-  `Arc`), where fzf packs its input into chunks. It is no longer the larger
-  cost, and the deepest change to make.
+The largest merges of the rows happen on another thread, so no pass of
+the interface thread holds keys up for more than about 10 ms (15 in a sort
+by size).
 
 Tried and left out, as they changed nothing measurable: keys of 8 bytes
 rather than 16 (the score and a sort's value, kept apart so that the
 default order moves less), and merging three or four runs at once.
+Measured and left out: packing the paths into chunks, as fzf does, rather
+than each in its own allocation (a `PathBuf` in an `Arc`). On a model of
+`/usr`'s 620,000 paths, storing them takes 6 to 15 ms less, freeing them
+(already off the interface thread) 8 ms less, and hashing and sorting
+them no less, the rows still read through an `Arc` each: 2 to 3 % of the
+listing, for a change to every use of a row's path.
 
 ### A tree view
 
