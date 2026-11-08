@@ -4,7 +4,10 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
-## Unreleased
+## 0.20.1 — 2026-11-08
+
+fff no longer needs st: terminal windows open in the terminal fff runs in.
+The query box shows the Neovim mode in color.
 
 ### Changed
 
