@@ -52,7 +52,8 @@ macro_rules! applescript {
             "-e",
             "on run argv",
             "-e",
-            r#"set command to "cd " & quoted form of (do shell script "pwd") & " && exec""#,
+            // As it is: `pwd`'s output would lose a trailing newline.
+            r#"set command to "cd " & quoted form of (do shell script "printf %s \"$PWD\"" without altering line endings) & " && exec""#,
             "-e",
             "repeat with a in argv",
             "-e",
@@ -136,7 +137,7 @@ const KNOWN: &[Known] = &[
         script: &[
             "sh",
             "-c",
-            r#"exec open -na Ghostty --args --quit-after-last-window-closed=true --working-directory="$(pwd)" -e "$@""#,
+            r#"exec open -na Ghostty --args --quit-after-last-window-closed=true --working-directory="$PWD" -e "$@""#,
             "sh",
         ],
         wayland: false,
@@ -584,7 +585,8 @@ mod tests {
     fn ghostty_script_runs_the_words_in_the_directory() {
         let dir = std::env::temp_dir().join(format!("fff-terminal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let work = dir.join("a 'dir'");
+        // `$(pwd)` would drop the newline the name ends with.
+        let work = dir.join("a 'dir'\n");
         std::fs::create_dir_all(&work).unwrap();
         // As `pwd` prints it: macOS's temporary folder is below the /var symlink.
         let work = work.canonicalize().unwrap();
