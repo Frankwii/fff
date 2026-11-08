@@ -342,7 +342,9 @@ screen first, from the top, then those a page below and above the view.
 A folder that scrolls away is given up, but the totals of the folders inside
 it that were finished are kept, so coming back to it, or opening one of
 them, is quick. A large folder shows its running total with `…` (and `so far`
-in the footer) until it is done.
+in the footer) until it is done. While the results are [sorted by
+size](USAGE.md#sorting), every folder listed is added up too, after those
+near the view, whether or not the size column shows.
 
 What was found is kept for the next session in `$XDG_CACHE_HOME/fff/sizes`
 (`~/.cache/fff/sizes`), so sizes show as soon as fff starts and are then

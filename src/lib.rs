@@ -92,6 +92,22 @@ pub const PROGRESS_SHOWN: std::time::Duration = std::time::Duration::from_secs(3
 /// becomes a run of the rows.
 const MERGE_ROUND: usize = 1024;
 
+/// With a sort by size, the rows are ranked again by the totals added up
+/// at most this often, and the folders listed handed to be added up.
+pub const RESIZE_EVERY: Duration = Duration::from_secs(2);
+
+/// What `App::follow_sizes` last did.
+#[derive(Default)]
+struct FollowSizes {
+    /// The rows whose folders are being added up (`rows_version`), and
+    /// when they were handed over; `None` while not sorted by size.
+    listed: Option<(u64, Instant)>,
+    /// Totals arrived since the rows were last ranked.
+    arrived: bool,
+    /// When the rows were last ranked again for them.
+    ranked: Option<Instant>,
+}
+
 /// Everything except the query that decides which known paths become rows.
 #[derive(Clone, PartialEq)]
 struct RefreshBasis {
@@ -160,8 +176,9 @@ pub struct App {
     /// shortcut's basis. Insertions and forgotten paths are merged instead.
     pub(crate) known_version: u64,
     /// Candidates inserted since the last refresh, which merges them into the
-    /// ranked rows instead of ranking every known path again.
-    added: Vec<Arc<Candidate>>,
+    /// ranked rows instead of ranking every known path again, each with the
+    /// value its scan read for the sort, if any.
+    added: Vec<(Arc<Candidate>, Option<rows::Value>)>,
     /// Candidates `known` replaced or forgot since the last refresh, whose
     /// rows it drops; holding them keeps their addresses from being reused.
     outdated: Vec<Arc<Candidate>>,
@@ -264,6 +281,11 @@ pub struct App {
     pub sort: Option<rows::Sort>,
     /// What depth costs a match in a sort by a penalty (`[ui] temperature`).
     pub temperature: f64,
+    /// The criterion scans read values for as they find paths: `sort`'s.
+    pub(crate) reading: rows::Reading,
+    /// With a sort by size, how the rows follow the folders' totals
+    /// (`follow_sizes`).
+    sizes: FollowSizes,
     /// What `short_labels` was when the rows on screen were last labelled:
     /// while another ranking labels them again, they keep their labels.
     shown_labels: Option<bool>,
@@ -413,6 +435,8 @@ impl App {
             short_labels: false,
             sort: None,
             temperature: rows::TEMPERATURE,
+            reading: rows::Reading::default(),
+            sizes: FollowSizes::default(),
             shown_labels: None,
             labels_chosen: false,
             names: Default::default(),
@@ -593,6 +617,11 @@ impl App {
     /// up since), even when it was the order already.
     pub fn set_sort(&mut self, sort: Option<rows::Sort>) {
         self.sort = sort;
+        self.reading.set(sort);
+        // Ranked by the totals found so far, as by those arriving later.
+        self.details.sizes_added();
+        self.sizes.arrived = false;
+        self.sizes.ranked = Some(Instant::now());
         self.cancel_ranking();
         self.refreshed = None;
         self.refresh();
@@ -952,22 +981,28 @@ impl App {
         if let Some((depth, root)) = best {
             candidate.depth = depth;
             candidate.root = root;
-            self.store(candidate, delivered);
+            self.store(candidate, delivered, None);
         }
     }
     /// A path the walker of `generation` found and attributed itself, as
     /// `place` would: to the root it is shallowest below, within the depth
     /// and allowed by the policy, which a new scan follows when they
     /// change.
-    pub(crate) fn insert_attributed(&mut self, generation: u64, candidate: Candidate) {
+    /// `value` is what the walker read for the sort (`rows::Reading`).
+    pub(crate) fn insert_attributed(
+        &mut self,
+        generation: u64,
+        candidate: Candidate,
+        value: Option<rows::Value>,
+    ) {
         if generation == self.generation {
-            self.store(candidate, Some(generation));
+            self.store(candidate, Some(generation), value);
         }
     }
-    fn store(&mut self, candidate: Candidate, delivered: Option<u64>) {
+    fn store(&mut self, candidate: Candidate, delivered: Option<u64>, value: Option<rows::Value>) {
         if let Some((candidate, replaced)) = self.known.store(candidate, delivered) {
             self.outdated.extend(replaced);
-            self.added.push(candidate);
+            self.added.push((candidate, value));
         }
     }
     /// The scan of `generation` completed: forget the paths it did not
@@ -1112,6 +1147,7 @@ impl App {
                     labels: Some(self.short_labels),
                     order: self.order(),
                     totals: self.details.totals(),
+                    resize: false,
                 };
                 // This job takes over the additions and removals discarded
                 // above, so the rows on screen cannot be narrowed after it.
@@ -1127,6 +1163,7 @@ impl App {
                 labels: None,
                 order: self.order(),
                 totals: self.details.totals(),
+                resize: false,
             },
             None => ranking::Job {
                 base: vec![Arc::new(rows::Run {
@@ -1138,6 +1175,7 @@ impl App {
                 labels: None,
                 order: self.order(),
                 totals: self.details.totals(),
+                resize: false,
             },
         };
         self.start_ranking(job, basis, folded, shown);
@@ -1245,6 +1283,60 @@ impl App {
         self.refresh_within(Some(Duration::from_millis(4)));
         self.ranking.is_none()
     }
+    /// With a sort by size, the rows follow the folders' totals: the folders
+    /// listed are added up after those the frames want, and the rows are
+    /// ranked again as their totals arrive, by the totals alone (nothing is
+    /// read again), at most every `RESIZE_EVERY` so that rows do not jump
+    /// under the highlight. Whether the rows changed.
+    pub fn follow_sizes(&mut self, now: Instant) -> bool {
+        let by_size = self.sort.is_some_and(|s| s.by == rows::Criterion::Size);
+        let due = |at: Option<Instant>| {
+            at.is_none_or(|at| now.saturating_duration_since(at) >= RESIZE_EVERY)
+        };
+        let listed = self.sizes.listed.map(|(version, _)| version);
+        if !by_size {
+            self.details.sizes_added();
+            if listed.is_some() {
+                self.details.list_sizes(Vec::new());
+                self.sizes = FollowSizes::default();
+            }
+            return false;
+        }
+        if listed != Some(self.rows_version) && due(self.sizes.listed.map(|(_, at)| at)) {
+            self.details.list_sizes(self.rows.runs());
+            self.sizes.listed = Some((self.rows_version, now));
+        }
+        self.sizes.arrived |= self.details.sizes_added();
+        // Rows still catching up with a scan, or ranked elsewhere, are
+        // ranked by the totals once they settle.
+        if !self.sizes.arrived || !self.settled() || !due(self.sizes.ranked) {
+            return false;
+        }
+        let Some((basis, query)) = self.refreshed.clone() else {
+            return false;
+        };
+        if basis != RefreshBasis::of(self) || query != self.filter().to_lowercase() {
+            return false;
+        }
+        self.sizes.arrived = false;
+        self.sizes.ranked = Some(now);
+        if self.rows.is_empty() {
+            return false;
+        }
+        let job = ranking::Job {
+            base: self.rows.runs(),
+            listing: None,
+            query: query.clone(),
+            labels: None,
+            order: self.order(),
+            totals: self.details.totals(),
+            resize: true,
+        };
+        self.refreshed = None;
+        let shown = Some((basis.clone(), query.clone()));
+        self.start_ranking(job, basis, query, shown);
+        true
+    }
     /// Budgeted merges stop early while `waiting` counts unread input.
     pub fn yield_to(&mut self, waiting: Arc<AtomicUsize>) {
         self.input = Some(waiting);
@@ -1284,7 +1376,7 @@ impl App {
             self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
         }
         // Only the latest candidate inserted for a path is still known.
-        self.added.retain(|c| !stale.contains(&Arc::as_ptr(c)));
+        self.added.retain(|(c, _)| !stale.contains(&Arc::as_ptr(c)));
         let stale = std::mem::take(&mut self.outdated);
         if self.short_labels {
             // Freed on the labeller's thread.
@@ -1308,13 +1400,19 @@ impl App {
             // Oldest first: scans deliver shallow paths before deeper ones,
             // and the rows fill in that order.
             let round: Vec<_> = self.added.drain(..take).collect();
-            let listed: Vec<_> = round.into_iter().filter(|c| self.listed(c)).collect();
+            let listed: Vec<_> = round.into_iter().filter(|(c, _)| self.listed(c)).collect();
             if self.short_labels {
-                self.names.insert(listed.clone());
+                self.names
+                    .insert(listed.iter().map(|(c, _)| Arc::clone(c)).collect());
             }
+            // Values the scan read are used as they are: the filesystem is
+            // read here only for paths that came without one.
             let mut added: Vec<_> = listed
                 .into_iter()
-                .filter_map(|c| Some((order.key(&c, score_of(&c)?, letters, &totals), c)))
+                .filter_map(|(c, found)| {
+                    let key = order.key(&c, score_of(&c)?, letters, &totals, found);
+                    Some((key, c))
+                })
                 .collect();
             added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
             if !added.is_empty() {

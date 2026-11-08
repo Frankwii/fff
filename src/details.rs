@@ -203,6 +203,15 @@ impl Details {
     pub fn totals(&self) -> crate::sizes::Totals {
         self.sizes.totals()
     }
+    /// The rows sorted by size: their folders are added up after those the
+    /// frames want, but for those on a kernel filesystem; none with no runs.
+    pub fn list_sizes(&self, runs: Vec<std::sync::Arc<crate::rows::Run>>) {
+        self.sizes.list(runs, self.mounts());
+    }
+    /// Whether totals were added up since the last call.
+    pub fn sizes_added(&self) -> bool {
+        self.sizes.added()
+    }
     /// F5: folders' sizes are added up again.
     pub fn refresh_sizes(&self) {
         self.sizes.refresh();

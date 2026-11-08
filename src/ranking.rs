@@ -6,7 +6,7 @@ use crate::score;
 use crate::{
     Candidate, Listing, Matcher,
     labels::Names,
-    rows::{Key, Order, Run},
+    rows::{FolderSizes, Key, Order, Run},
     sizes::Totals,
 };
 use std::sync::{
@@ -39,6 +39,9 @@ pub(crate) struct Job {
     pub order: Order,
     /// Folders' sizes, for sorting by them.
     pub totals: Totals,
+    /// Rows with keys take their folders' sizes from `totals` again: those
+    /// added up since they were ranked (`App::follow_sizes`).
+    pub resize: bool,
 }
 pub(crate) struct Ranked {
     pub run: Run,
@@ -63,10 +66,22 @@ impl Job {
             .map(|r| (r.rows.as_slice(), r.keys.as_slice()))
             .collect();
         let keep_listed = self.labels == Some(true);
+        // Folders' totals read here, on one thread, rather than by each
+        // piece's: drawing reads them too.
+        let sizes = if self.resize {
+            let rows = self.base.iter().flat_map(|r| r.rows.iter());
+            FolderSizes::read(rows, &self.totals)
+        } else {
+            FolderSizes::default()
+        };
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        let sizes = &sizes;
         // Each piece is filtered, scored and sorted on its own thread; a
         // single piece here, as starting a thread costs more than small work.
         let pieces: Vec<_> = if threads == 1 {
-            vec![self.rank_piece(&slices, keep_listed, cancel)]
+            vec![self.rank_piece(&slices, keep_listed, sizes, cancel)]
         } else {
             let job = &self;
             std::thread::scope(|scope| {
@@ -78,7 +93,9 @@ impl Job {
                             (&rows[at..end], keys.get(at..end).unwrap_or_default())
                         })
                     })
-                    .map(|chunk| scope.spawn(move || job.rank_piece(&[chunk], keep_listed, cancel)))
+                    .map(|chunk| {
+                        scope.spawn(move || job.rank_piece(&[chunk], keep_listed, sizes, cancel))
+                    })
                     .collect();
                 handles
                     .into_iter()
@@ -113,6 +130,7 @@ impl Job {
         &self,
         chunk: &[Slice],
         keep_listed: bool,
+        sizes: &FolderSizes,
         cancel: &AtomicBool,
     ) -> Option<(Vec<(Key, Arc<Candidate>)>, Vec<Arc<Candidate>>)> {
         let matcher = Matcher::new(&self.query);
@@ -135,8 +153,12 @@ impl Job {
             }
             if let Some(score) = matcher.score_candidate(c) {
                 let key = match key {
+                    Some(key) if self.resize => {
+                        let key = self.order.resize(*key, c, sizes);
+                        self.order.rescore(key, c, score, letters)
+                    }
                     Some(key) => self.order.rescore(*key, c, score, letters),
-                    None => self.order.key(c, score, letters, &self.totals),
+                    None => self.order.key(c, score, letters, &self.totals, None),
                 };
                 ranked.push((key, Arc::clone(c)));
             }

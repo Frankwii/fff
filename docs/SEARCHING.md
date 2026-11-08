@@ -173,7 +173,9 @@ else instead:
 
 Tab in the picker switches between descending and ascending. The query
 still decides what's listed; sorting only changes the order. The results'
-bottom border names the current order (`sorted by size ↓`).
+bottom border names the current order (`sorted by size ↓`). Sorted by
+size, folders are added up in the background, and they take their place
+in the list as their totals arrive.
 
 To start in another order, set `[ui] sort` in the
 [configuration](CONFIGURATION.md#sorting-and-ranking).

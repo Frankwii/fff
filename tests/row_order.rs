@@ -704,3 +704,63 @@ fn sizes_dates_and_kinds_are_read_from_the_filesystem() {
     );
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn rows_sorted_by_size_follow_folders_totals_as_they_are_added_up() {
+    use fuzzy_file_finder::{
+        RESIZE_EVERY,
+        config::CacheConfig,
+        discovery::Discovery,
+        rows::{Criterion, Sort},
+    };
+    let root = std::env::temp_dir().join(format!("fff-follow-sizes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("big/inner")).unwrap();
+    std::fs::create_dir_all(root.join("tiny")).unwrap();
+    std::fs::write(root.join("big/inner/file"), vec![0u8; 500]).unwrap();
+    std::fs::write(root.join("tiny/file"), vec![0u8; 2]).unwrap();
+    std::fs::write(root.join("middle"), vec![0u8; 100]).unwrap();
+    let mut app = App::browse(root.clone(), 1, Policy::default());
+    app.set_sort(Some(Sort {
+        by: Criterion::Size,
+        descending: true,
+    }));
+    let mut discovery = Discovery::new(CacheConfig {
+        enabled: false,
+        ..CacheConfig::default()
+    });
+    discovery.start(&mut app, true);
+    let start = std::time::Instant::now();
+    while app.scanning || !app.settled() {
+        discovery.drain(&mut app);
+        assert!(start.elapsed() < Duration::from_secs(300), "scan timed out");
+        std::thread::yield_now();
+    }
+    let sorted = |app: &App| {
+        app.rows
+            .iter()
+            .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+    };
+    // The file by the size the scan read; the folders, not added up yet,
+    // last.
+    assert_eq!(sorted(&app)[0], "middle");
+    // Listed, the folders are added up with no frame drawing them, and
+    // the rows ranked again as their totals arrive, at most so often.
+    let mut now = std::time::Instant::now();
+    while sorted(&app) != ["big", "middle", "tiny"] {
+        assert!(
+            start.elapsed() < Duration::from_secs(300),
+            "{:?}",
+            sorted(&app)
+        );
+        std::thread::sleep(Duration::from_millis(2));
+        app.follow_sizes(now);
+        now += RESIZE_EVERY;
+        app.follow_sizes(now);
+    }
+    // No longer sorted by size, they are no longer listed.
+    app.set_sort(None);
+    assert!(!app.follow_sizes(now + RESIZE_EVERY));
+    std::fs::remove_dir_all(&root).unwrap();
+}

@@ -118,6 +118,9 @@ struct Node {
     checked: Option<Instant>,
     /// Its subtree's sum, while nothing below changes.
     sum: Option<Sum>,
+    /// Its total (`Tree::total`), while nothing below changes: files with
+    /// several links are counted once by walking the subtree.
+    total: Option<(u64, bool)>,
     /// The last total found, shown while it is added up again.
     shown: Option<(u64, bool)>,
 }
@@ -216,6 +219,7 @@ impl Tree {
         while at != NONE {
             let node = &mut self.nodes[at as usize];
             node.sum = None;
+            node.total = None;
             node.checked = None;
             at = node.parent;
         }
@@ -256,6 +260,9 @@ impl Tree {
     /// with several links counted once; remembered to show while it is
     /// added up again.
     fn total(&mut self, at: u32) -> Option<(u64, bool)> {
+        if let Some(total) = self.nodes[at as usize].total {
+            return Some(total);
+        }
         let sum = self.sum(at)?;
         let mut bytes = sum.plain;
         if sum.links {
@@ -275,7 +282,9 @@ impl Tree {
             }
         }
         let total = (bytes, sum.partial);
-        self.nodes[at as usize].shown = Some(total);
+        let node = &mut self.nodes[at as usize];
+        node.shown = Some(total);
+        node.total = Some(total);
         Some(total)
     }
     /// A walk of `root` is done: each folder whose subtree has nothing left
@@ -442,6 +451,14 @@ struct State {
     unsaved: bool,
     /// Growing totals of the folders being added up.
     running: HashMap<PathBuf, u64>,
+    /// While the rows are sorted by size, the folders listed, by mount,
+    /// sorted by path (a folder before those below it), added up after
+    /// those wanted: each mount's from its place on.
+    listed: HashMap<PathBuf, (Vec<PathBuf>, usize)>,
+    /// Bumped as `listed` is replaced.
+    listing: u64,
+    /// Mounts with a worker.
+    workers: HashSet<PathBuf>,
     ended: bool,
 }
 impl State {
@@ -454,6 +471,39 @@ impl State {
             .find(|p| !self.tree.lookup(p).is_some_and(|at| self.tree.fresh(at)))
             .cloned()
     }
+    /// The next folder of `mount` listed whose total is not fresh, and its
+    /// place: those below a fresh one are passed over with it, as its walk
+    /// read them. `Err` after looking at `SKIPPED` of them, to look again
+    /// without holding the lock throughout.
+    fn next_listed(&mut self, mount: &Path) -> Result<Option<(PathBuf, usize)>, ()> {
+        let Some((folders, at)) = self.listed.get_mut(mount) else {
+            return Ok(None);
+        };
+        let mut looked = 0;
+        while let Some(folder) = folders.get(*at) {
+            if !self.tree.lookup(folder).is_some_and(|n| self.tree.fresh(n)) {
+                return Ok(Some((folder.clone(), *at)));
+            }
+            *at += 1;
+            while folders.get(*at).is_some_and(|f| below(f, folder)) {
+                *at += 1;
+            }
+            looked += 1;
+            if looked >= SKIPPED {
+                return Err(());
+            }
+        }
+        Ok(None)
+    }
+}
+/// Listed folders looked at, at most, while holding the lock once.
+const SKIPPED: usize = 1024;
+/// Whether `path` is below `folder`, by their bytes.
+fn below(path: &Path, folder: &Path) -> bool {
+    let (path, folder) = (path.as_os_str().as_bytes(), folder.as_os_str().as_bytes());
+    path.len() > folder.len()
+        && path.starts_with(folder)
+        && (folder.ends_with(b"/") || path[folder.len()] == b'/')
 }
 
 #[derive(Default)]
@@ -461,6 +511,8 @@ struct Shared {
     state: Mutex<State>,
     ready: Condvar,
     changed: AtomicBool,
+    /// A total was added up (or the saved ones read) since `Sizes::added`.
+    added: AtomicBool,
 }
 impl Shared {
     fn wake(&self, wake: Option<&SyncSender<()>>) {
@@ -474,8 +526,6 @@ impl Shared {
 #[derive(Default)]
 pub struct Sizes {
     shared: Arc<Shared>,
-    /// Mounts with a worker.
-    workers: RefCell<HashSet<PathBuf>>,
     /// Folders the frame being drawn wants, with their mounts.
     frame: RefCell<Vec<(PathBuf, PathBuf)>>,
     wake: Option<SyncSender<()>>,
@@ -536,6 +586,16 @@ impl Sizes {
         if state.wanted == frame {
             return;
         }
+        self.load(&mut state);
+        for (_, mount) in &frame {
+            spawn(&self.shared, &mut state, mount, self.wake.as_ref());
+        }
+        state.wanted = frame;
+        state.version += 1;
+        self.shared.ready.notify_all();
+    }
+    /// The saved tree is read once, before anything is added up.
+    fn load(&self, state: &mut State) {
         if let Some((path, read)) = &self.kept
             && !read.replace(true)
         {
@@ -543,15 +603,54 @@ impl Sizes {
             let (shared, path, wake) = (self.shared.clone(), path.clone(), self.wake.clone());
             std::thread::spawn(move || load(&shared, &path, wake.as_ref()));
         }
-        let mut workers = self.workers.borrow_mut();
-        for (_, mount) in &frame {
-            if workers.insert(mount.clone()) {
-                self.spawn(mount.clone());
+    }
+    /// The rows are sorted by size: the folders in `runs` are added up
+    /// after those the frames want, but for those on a kernel filesystem
+    /// (by `mounts`); with no runs, none are. They are gathered on a thread
+    /// of their own, which hands them to the workers.
+    pub fn list(&self, runs: Vec<Arc<crate::rows::Run>>, mounts: Arc<crate::mounts::Mounts>) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.listing += 1;
+        let listing = state.listing;
+        if runs.is_empty() {
+            if !state.listed.is_empty() {
+                state.listed.clear();
+                state.version += 1;
+                self.shared.ready.notify_all();
             }
+            return;
         }
-        state.wanted = frame;
-        state.version += 1;
-        self.shared.ready.notify_all();
+        self.load(&mut state);
+        drop(state);
+        let (shared, wake) = (self.shared.clone(), self.wake.clone());
+        let _ = std::thread::Builder::new().spawn(move || {
+            let mut listed: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+            for c in runs.iter().flat_map(|r| r.rows.iter()) {
+                if c.directory && !mounts.kernel(&c.path) {
+                    let folders = listed.entry(mounts.point(&c.path)).or_default();
+                    folders.push(c.path.clone());
+                }
+            }
+            for folders in listed.values_mut() {
+                folders.sort_unstable();
+                folders.dedup();
+            }
+            let mut state = shared.state.lock().unwrap();
+            if state.listing != listing {
+                return;
+            }
+            for mount in listed.keys() {
+                spawn(&shared, &mut state, mount, wake.as_ref());
+            }
+            state.listed = listed.into_iter().map(|(m, f)| (m, (f, 0))).collect();
+            state.version += 1;
+            shared.ready.notify_all();
+        });
+    }
+    /// Whether totals were added up, or the saved ones read, since the last
+    /// call.
+    pub fn added(&self) -> bool {
+        self.shared.added.swap(false, Ordering::Relaxed)
     }
     /// Whether totals arrived or grew since the last call.
     pub fn drain(&self) -> bool {
@@ -570,14 +669,22 @@ impl Sizes {
         }
         self.shared.ready.notify_all();
     }
-    /// F5: every folder is read again when wanted.
+    /// F5: every folder is read again when wanted, the listed ones again
+    /// from the first.
     pub fn refresh(&self) {
-        self.shared.state.lock().unwrap().tree.dirty_all();
+        let mut state = self.shared.state.lock().unwrap();
+        state.tree.dirty_all();
+        for (_, at) in state.listed.values_mut() {
+            *at = 0;
+        }
+        drop(state);
         self.shared.ready.notify_all();
     }
-    fn spawn(&self, mount: PathBuf) {
-        let shared = self.shared.clone();
-        let wake = self.wake.clone();
+}
+/// Starts `mount`'s worker, unless it has one.
+fn spawn(shared: &Arc<Shared>, state: &mut State, mount: &Path, wake: Option<&SyncSender<()>>) {
+    if state.workers.insert(mount.to_path_buf()) {
+        let (shared, mount, wake) = (shared.clone(), mount.to_path_buf(), wake.cloned());
         let _ = std::thread::Builder::new().spawn(move || work(&shared, &mount, wake.as_ref()));
     }
 }
@@ -593,6 +700,28 @@ impl Totals {
         let at = state.tree.lookup(path)?;
         let found = state.tree.total(at).or(state.tree.nodes[at as usize].shown);
         found.map(|(bytes, _)| bytes)
+    }
+    /// `bytes` of the first of `paths`, under one lock held for at most
+    /// about `HELD` (and for one path at least), so that drawing, which
+    /// reads totals too, waits little: fewer than asked once it is up.
+    pub fn bytes_each(&self, paths: &[&Path]) -> Vec<Option<u64>> {
+        // A frame reads each folder's total under a lock of its own.
+        const HELD: Duration = Duration::from_micros(100);
+        let start = Instant::now();
+        let mut state = self.0.state.lock().unwrap();
+        let tree = &mut state.tree;
+        let mut found = Vec::with_capacity(paths.len());
+        for path in paths {
+            if !found.is_empty() && start.elapsed() >= HELD {
+                break;
+            }
+            let total = tree.lookup(path).and_then(|at| {
+                let total = tree.total(at).or(tree.nodes[at as usize].shown);
+                total.map(|(bytes, _)| bytes)
+            });
+            found.push(total);
+        }
+        found
     }
 }
 impl Drop for Sizes {
@@ -629,22 +758,36 @@ fn load(shared: &Shared, path: &Path, wake: Option<&SyncSender<()>>) {
     state.loading = false;
     shared.ready.notify_all();
     drop(state);
+    shared.added.store(true, Ordering::Relaxed);
     shared.wake(wake);
 }
 
-/// A mount's worker: adds up the folders wanted on it, first first.
+/// A mount's worker: adds up the folders wanted on it, first first, then
+/// those listed.
 fn work(shared: &Shared, mount: &Path, wake: Option<&SyncSender<()>>) {
     loop {
-        let (root, version) = {
+        let (root, listed, version) = {
             let mut state = shared.state.lock().unwrap();
             loop {
                 if state.ended {
                     return;
                 }
-                if !state.loading
-                    && let Some(root) = state.next(mount)
-                {
-                    break (root, state.version);
+                if !state.loading {
+                    if let Some(root) = state.next(mount) {
+                        break (root, None, state.version);
+                    }
+                    match state.next_listed(mount) {
+                        Ok(Some((root, at))) => {
+                            break (root, Some((state.listing, at)), state.version);
+                        }
+                        Ok(None) => {}
+                        // Others may take the lock between looks.
+                        Err(()) => {
+                            drop(state);
+                            state = shared.state.lock().unwrap();
+                            continue;
+                        }
+                    }
                 }
                 state = shared.ready.wait(state).unwrap();
             }
@@ -654,13 +797,28 @@ fn work(shared: &Shared, mount: &Path, wake: Option<&SyncSender<()>>) {
             wake,
             mount,
             root: &root,
+            listed,
             queue: Mutex::new((Vec::new(), 0)),
             more: Condvar::new(),
             version: Mutex::new(version),
             epoch: Default::default(),
             running: Mutex::new((0, Instant::now())),
         };
-        if walk.run() {
+        let done = walk.run();
+        if let Some((listing, at)) = listed {
+            // Done or not read (no such folder), it is passed; given up,
+            // it is taken again once nothing wanted comes first.
+            let mut state = shared.state.lock().unwrap();
+            if done
+                && state.listing == listing
+                && let Some((_, next)) = state.listed.get_mut(mount)
+                && *next == at
+            {
+                *next = at + 1;
+            }
+        }
+        if done {
+            shared.added.store(true, Ordering::Relaxed);
             shared.wake(wake);
         }
     }
@@ -677,6 +835,9 @@ struct Walk<'a> {
     wake: Option<&'a SyncSender<()>>,
     mount: &'a Path,
     root: &'a Path,
+    /// A folder listed (`State::listed`) rather than wanted: the listing
+    /// and its place there.
+    listed: Option<(u64, usize)>,
     /// Folders to read, and how many threads are reading one.
     queue: Mutex<(Vec<Task>, usize)>,
     more: Condvar,
@@ -901,7 +1062,7 @@ impl Walk<'_> {
         *version = state.version;
         // Checked against the tree as the walk left it, the root is not
         // fresh until the walk ends, so it is still first if wanted first.
-        state
+        let first = state
             .wanted
             .iter()
             .filter(|(_, m)| m == self.mount)
@@ -910,8 +1071,21 @@ impl Walk<'_> {
                 p.as_path() == self.root
                     || !state.tree.lookup(p).is_some_and(|at| state.tree.fresh(at))
             })
-            .map(PathBuf::as_path)
-            != Some(self.root)
+            .map(PathBuf::as_path);
+        match self.listed {
+            None => first != Some(self.root),
+            // A listed folder gives way to any wanted, and goes once no
+            // longer listed.
+            Some(_) if first.is_some() => first != Some(self.root),
+            Some((listing, _)) => {
+                listing != state.listing
+                    && !state.listed.get(self.mount).is_some_and(|(folders, _)| {
+                        folders
+                            .binary_search_by(|f| f.as_path().cmp(self.root))
+                            .is_ok()
+                    })
+            }
+        }
     }
 }
 
@@ -996,6 +1170,55 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
         assert_eq!(sizes.get(&root.join("b")), None);
         fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn listed_folders_are_added_up_after_wanted_ones_while_listed() {
+        let root = fixture("listed");
+        let sizes = Sizes::default();
+        let folder = |path: PathBuf| {
+            Arc::new(crate::Candidate {
+                path,
+                directory: true,
+                depth: 1,
+                root: 0,
+                order: 0,
+            })
+        };
+        let run = crate::rows::Run {
+            rows: vec![
+                folder(root.join("b")),
+                folder(root.join("a")),
+                folder(root.join("a/deep")),
+                folder(PathBuf::from("/proc/self")),
+            ],
+            keys: Vec::new(),
+        };
+        let table = "/dev/sda1 / ext4 rw 0 0\nproc /proc proc rw 0 0\n";
+        let mounts = Arc::new(crate::mounts::Mounts::parse(table));
+        sizes.list(vec![Arc::new(run)], mounts);
+        // No frame wants them: listed, they are added up all the same.
+        assert_eq!(wait_for(&sizes, &root.join("b"), 7), Some(7));
+        assert_eq!(wait_for(&sizes, &root.join("a"), 1024), Some(1024));
+        assert!(sizes.added());
+        assert!(!sizes.added());
+        // Those on a kernel filesystem are not listed.
+        let state = sizes.shared.state.lock().unwrap();
+        assert_eq!(state.listed.len(), 1);
+        drop(state);
+        // No longer listed, nothing more is added up.
+        sizes.list(Vec::new(), Arc::default());
+        assert!(sizes.shared.state.lock().unwrap().listed.is_empty());
+        fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn listed_folders_below_one_added_up_are_passed_with_it() {
+        let paths = ["/a", "/a/b", "/a/b/c", "/a-b", "/ab", "/b"].map(PathBuf::from);
+        let mut sorted = paths.to_vec();
+        sorted.sort();
+        assert_eq!(sorted, paths);
+        assert!(below(&paths[1], &paths[0]) && below(&paths[2], &paths[0]));
+        assert!(!below(&paths[3], &paths[0]) && !below(&paths[4], &paths[0]));
+        assert!(!below(&paths[0], &paths[0]) && below(&paths[1], Path::new("/")));
     }
     #[test]
     fn a_change_below_a_folder_adds_it_up_again_showing_the_old_total_meanwhile() {

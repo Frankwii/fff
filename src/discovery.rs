@@ -1,5 +1,5 @@
 //! Bounded background traversal. Replacing a scan cancels its predecessor.
-use crate::{App, Candidate, Policy};
+use crate::{App, Candidate, Policy, rows};
 use std::{
     fs,
     path::PathBuf,
@@ -12,11 +12,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// A path found, with the value read for the sort (`rows::Reading`).
+pub type Found = (Candidate, Option<rows::Value>);
+
 /// Worker messages. The walker sends `Batch`es; `Found` remains for injected
 /// single events in tests.
 pub enum Event {
     Found(u64, Candidate),
-    Batch(u64, Vec<Candidate>),
+    Batch(u64, Vec<Found>),
     Error(u64, String),
     /// Lines of a list read from stdin that name no file or folder.
     Skipped(u64, usize),
@@ -85,6 +88,7 @@ impl Scan {
         let generation = app.generation;
         let policy = app.policy.clone();
         let mounts = crate::mounts::current();
+        let reading = app.reading.clone();
         thread::spawn(move || {
             walk(
                 Bounds {
@@ -93,6 +97,7 @@ impl Scan {
                     max: depth,
                     policy,
                     mounts,
+                    reading,
                 },
                 generation,
                 tx,
@@ -130,13 +135,14 @@ impl Scan {
         let stopped = cancel.clone();
         let generation = app.generation;
         let cwd = app.cwd.clone();
+        let reading = app.reading.clone();
         let (null, spelled) = match &app.running {
             crate::program::Running::Piped(piped) => (piped.null, piped.spelled.clone()),
             _ => (false, Default::default()),
         };
         thread::spawn(move || {
             let mut empty = true;
-            crate::piped::read(input, null, &cwd, &spelled, |read| {
+            crate::piped::read(input, null, &cwd, &spelled, &reading, |read| {
                 if stopped.load(Ordering::Relaxed) {
                     return false;
                 }
@@ -170,6 +176,8 @@ impl Scan {
     }
     fn reset(app: &mut App, clear: bool) {
         app.generation += 1;
+        // Values for the sort are read with the paths found.
+        app.reading.set(app.sort);
         app.scanning = true;
         app.quiet_scan = false;
         app.physical_empty = false;
@@ -225,8 +233,8 @@ impl Scan {
                 }
                 Event::Batch(g, batch) if g == app.generation => {
                     self.found += batch.len();
-                    for c in batch {
-                        app.insert_attributed(g, c);
+                    for (c, value) in batch {
+                        app.insert_attributed(g, c, value);
                     }
                     self.pending = true;
                 }
@@ -622,6 +630,8 @@ struct Bounds {
     max: usize,
     policy: Policy,
     mounts: Arc<crate::mounts::Mounts>,
+    /// The sort whose values are read with the paths.
+    reading: rows::Reading,
 }
 /// Walk breadth first, one depth after another: shallower entries arrive
 /// first, so `max_paths` stops at the shallowest. A depth's folders are
@@ -634,6 +644,7 @@ fn walk(bounds: Bounds, generation: u64, tx: EventSender, cancel: Arc<AtomicBool
         max,
         policy,
         mounts,
+        reading,
     } = bounds;
     let empty = fs::read_dir(&current)
         .ok()
@@ -645,6 +656,7 @@ fn walk(bounds: Bounds, generation: u64, tx: EventSender, cancel: Arc<AtomicBool
         policy: &policy,
         kernel_roots: roots.iter().map(|r| mounts.kernel(r)).collect(),
         mounts: &mounts,
+        reading: &reading,
         generation,
         tx: &tx,
         cancel: &cancel,
@@ -693,6 +705,7 @@ struct Walk<'a> {
     max: usize,
     policy: &'a Policy,
     mounts: &'a crate::mounts::Mounts,
+    reading: &'a rows::Reading,
     /// Which roots are on a kernel filesystem: a walk from one goes on
     /// through it, a walk from elsewhere does not enter one.
     kernel_roots: Vec<bool>,
@@ -742,7 +755,7 @@ impl Walk<'_> {
         let mut batch = Vec::with_capacity(BATCH_SIZE);
         let mut since = Instant::now();
         // Hand the batch over; false when the receiver is gone (cancelled).
-        let flush = |batch: &mut Vec<Candidate>, since: &mut Instant| {
+        let flush = |batch: &mut Vec<Found>, since: &mut Instant| {
             *since = Instant::now();
             batch.is_empty()
                 || self
@@ -823,13 +836,19 @@ impl Walk<'_> {
                 let Some((depth, root)) = self.attribute(&path, depth, root) else {
                     continue;
                 };
-                batch.push(Candidate {
+                // Read here, on the walk's threads, rather than as the rows
+                // are ranked: a stalled mount stalls only the walk.
+                let value = self
+                    .reading
+                    .read(&path, directory, kind, || entry.metadata());
+                let found = Candidate {
                     path,
                     directory,
                     depth,
                     root,
                     order: 0,
-                });
+                };
+                batch.push((found, value));
                 if (batch.len() >= BATCH_SIZE || since.elapsed() >= BATCH_AGE)
                     && !flush(&mut batch, &mut since)
                 {
@@ -884,13 +903,14 @@ mod tests {
                 max: 3,
                 policy: Policy::default(),
                 mounts: Arc::default(),
+                reading: rows::Reading::default(),
             };
             thread::spawn(move || walk(bounds, 7, tx, cancel))
         };
         let mut found = Vec::new();
         for event in events {
             match event {
-                Event::Batch(7, batch) => found.extend(batch),
+                Event::Batch(7, batch) => found.extend(batch.into_iter().map(|(c, _)| c)),
                 Event::Done(7, _) => break,
                 _ => panic!("unexpected event"),
             }
@@ -940,12 +960,13 @@ mod tests {
             max,
             policy: Policy::default(),
             mounts: Arc::new(mounts),
+            reading: rows::Reading::default(),
         };
         let walker = thread::spawn(move || walk(bounds, 1, tx, Arc::default()));
         let mut found = Vec::new();
         for event in events {
             match event {
-                Event::Batch(_, batch) => found.extend(batch.into_iter().map(|c| c.path)),
+                Event::Batch(_, batch) => found.extend(batch.into_iter().map(|(c, _)| c.path)),
                 Event::Done(..) => break,
                 Event::Error(_, e) => panic!("{e}"),
                 Event::Found(..) | Event::Skipped(..) => {}
@@ -954,6 +975,57 @@ mod tests {
         walker.join().unwrap();
         found.sort();
         found
+    }
+    #[test]
+    fn a_walk_reads_the_values_of_the_sort_with_the_paths() {
+        let root = std::env::temp_dir().join(format!("fff-walk-values-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("folder")).unwrap();
+        fs::write(root.join("folder/file"), [0u8; 5]).unwrap();
+        let reading = rows::Reading::default();
+        reading.set(Some(rows::Sort {
+            by: rows::Criterion::Size,
+            descending: true,
+        }));
+        let (events_tx, events) = mpsc::sync_channel(1024);
+        let tx = EventSender {
+            events: events_tx,
+            wake: None,
+        };
+        let bounds = Bounds {
+            current: root.clone(),
+            roots: vec![root.clone()],
+            max: 2,
+            policy: Policy::default(),
+            mounts: Arc::default(),
+            reading,
+        };
+        let walker = thread::spawn(move || walk(bounds, 1, tx, Arc::default()));
+        let mut found = Vec::new();
+        for event in events {
+            match event {
+                Event::Batch(_, batch) => found.extend(batch),
+                Event::Done(..) => break,
+                _ => {}
+            }
+        }
+        walker.join().unwrap();
+        found.sort_by(|(a, _), (b, _)| a.path.cmp(&b.path));
+        // A file's size is read there; a folder's is added up elsewhere.
+        let mut app = App::new(vec![root.clone()], 2, Policy::default());
+        app.set_sort(Some(rows::Sort {
+            by: rows::Criterion::Size,
+            descending: true,
+        }));
+        assert!(found[0].1.is_none() && found[1].1.is_some());
+        // Ranked by the value found, though the file is gone by then.
+        fs::remove_dir_all(&root).unwrap();
+        for (c, value) in found {
+            app.insert_attributed(app.generation, c, value);
+        }
+        app.refresh();
+        let names: Vec<_> = app.rows.iter().map(|c| c.path.clone()).collect();
+        assert_eq!(names, [root.join("folder/file"), root.join("folder")]);
     }
     #[test]
     fn folders_that_may_not_be_read_are_listed_without_an_error() {

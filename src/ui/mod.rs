@@ -568,6 +568,8 @@ impl Session {
             app.details.forget();
         }
         self.dirty |= app.details.drain();
+        // Rows sorted by size follow the totals as they are added up.
+        self.scanned |= app.follow_sizes(now);
         self.discovery.idle(
             app,
             matches!(self.focus, Focus::Results),

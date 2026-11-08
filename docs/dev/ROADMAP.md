@@ -101,20 +101,6 @@ rather than 16 (the score and a sort's value, kept apart so that the
 default order moves less), and merging three or four runs at once, which
 would also make the long merges longer.
 
-### Sorting, continued
-
-What the [sorting picker](USAGE.md#sorting) leaves for later:
-
-- **Sizes as they are added up.** Sorting by size puts folders not added up
-  yet last, and the order stays as it was ranked: choosing it again sorts by
-  the totals found since. The folders listed could be added up first while
-  the sort is by size, and the rows ranked again as totals arrive, at most
-  every so often so that rows do not jump under the highlight.
-- **Values read off the interface thread.** With a sort by size, a date or
-  kind, paths a scan delivers are each `lstat`ed on the interface thread as
-  they are merged; a stalled network mount would stall it too. Reading them
-  with the scan, on its threads, would keep the interface thread free.
-
 ### A tree view
 
 A key would show the results as a tree, drawn with branch lines the way

@@ -4,6 +4,20 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **Sorted by size, folders take their place as they are added up.** Every
+  folder listed is added up in the background, not only those on screen,
+  and the list follows the totals as they arrive, at most every two
+  seconds so that rows do not jump under the highlight. Choosing the order
+  again is no longer needed.
+- **Sorting by size, a date or kind no longer slows a scan's keys.** The
+  values are read by the scan as it finds each path, rather than as the
+  rows take it in: a scan of `/usr` sorted by date settles in half the
+  time, and a stalled network mount no longer holds up the interface.
+
 ## 0.23.0 — 2026-11-08
 
 Large trees list more than twice as fast, new documentation for users,

@@ -4,7 +4,17 @@
 //! sorted runs, merged lazily: only as far as a reader looks, or all at
 //! once for whatever needs every row in order (`Rows::all`).
 use crate::{Candidate, sizes::Totals};
-use std::{cell::OnceCell, cmp::Ordering, path::Path, sync::Arc, time::SystemTime};
+use std::{
+    cell::OnceCell,
+    cmp::Ordering,
+    fs::{FileType, Metadata},
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering::Relaxed},
+    },
+    time::SystemTime,
+};
 
 /// How a program ranks its rows (`Program::rank`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -226,16 +236,40 @@ impl Order {
         }
     }
     /// A row's key for its `score` for a query of `letters`. For a sort by
-    /// what the filesystem records (sizes, dates, links), its value is read
-    /// here, before ranking: comparisons never touch the filesystem. For a
-    /// sort by `log`, it is the row's merit, and so is its score in
-    /// `Rank::Log`.
-    pub fn key(self, c: &Candidate, score: i64, letters: usize, totals: &Totals) -> Key {
+    /// what the filesystem records (sizes, dates, links), its value is
+    /// `found` when the scan read it for this sort, else it is read here,
+    /// before ranking: comparisons never touch the filesystem. For a sort
+    /// by `log`, it is the row's merit, and so is its score in `Rank::Log`.
+    pub fn key(
+        self,
+        c: &Candidate,
+        score: i64,
+        letters: usize,
+        totals: &Totals,
+        found: Option<Value>,
+    ) -> Key {
         let value = match self.sort {
-            Some(sort) if sort.by.reads() => value(sort.by, c, totals),
+            Some(sort) if sort.by.reads() => match found {
+                Some(found) if found.by == sort.by => found.value,
+                _ => value(sort.by, c, totals),
+            },
             _ => 0,
         };
         self.rescore(Key { score, value }, c, score, letters)
+    }
+    /// `key` with a folder's size as `sizes` hold it, for a sort by size:
+    /// what was added up since it was read. Nothing else is read.
+    pub fn resize(self, key: Key, c: &Candidate, sizes: &FolderSizes) -> Key {
+        match self.sort {
+            Some(Sort {
+                by: Criterion::Size,
+                ..
+            }) if c.directory => Key {
+                value: sizes.0.get(&address(c)).copied().unwrap_or(UNKNOWN),
+                ..key
+            },
+            _ => key,
+        }
     }
     /// `key` for another query, its value read kept: the score, and the
     /// merits, computed again.
@@ -265,9 +299,115 @@ pub struct Key {
     pub value: i64,
 }
 
+/// A row's value for a sort, read where its path was found (on a scan's
+/// threads), so that ranking it need not read it (`Order::key`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Value {
+    by: Criterion,
+    value: i64,
+}
+
+/// What scans read with the paths they find: the value of the criterion
+/// the rows are sorted by, shared with their threads, which look at it for
+/// each path. Set as the sort changes (`App::set_sort`).
+#[derive(Clone, Debug, Default)]
+pub struct Reading(Arc<AtomicU8>);
+impl Reading {
+    /// Read values for `sort` from now on, or none.
+    pub fn set(&self, sort: Option<Sort>) {
+        let by = sort.map(|s| s.by).filter(|by| by.reads());
+        let code = by.map_or(0, |by| {
+            Criterion::ALL
+                .iter()
+                .position(|&c| c == by)
+                .expect("listed") as u8
+                + 1
+        });
+        self.0.store(code, Relaxed);
+    }
+    fn get(&self) -> Option<Criterion> {
+        let code = self.0.load(Relaxed);
+        code.checked_sub(1).map(|i| Criterion::ALL[i as usize])
+    }
+    /// The value of the path found at `path`, of `kind` (as its folder's
+    /// listing gives it), for the sort being read: `None` when none is, or
+    /// for a folder's size, which is added up elsewhere (`Totals`). `meta`
+    /// is its `lstat`, called only when a value needs it.
+    pub fn read(
+        &self,
+        path: &Path,
+        directory: bool,
+        kind: FileType,
+        meta: impl FnOnce() -> std::io::Result<Metadata>,
+    ) -> Option<Value> {
+        let by = self.get()?;
+        let value = match by {
+            Criterion::Size if directory => return None,
+            Criterion::Kind => kind_of(kind),
+            _ => measure(by, path, meta()),
+        };
+        Some(Value { by, value })
+    }
+}
+
 /// `c`'s value for `by`, `UNKNOWN` when it cannot be read.
 fn value(by: Criterion, c: &Candidate, totals: &Totals) -> i64 {
-    let path = c.path.as_path();
+    if by == Criterion::Size && c.directory {
+        return folder_size(c, totals);
+    }
+    measure(by, &c.path, std::fs::symlink_metadata(&c.path))
+}
+/// Folders' sizes as the totals held them, by their rows' addresses, for
+/// `Order::resize`.
+#[derive(Default)]
+pub struct FolderSizes(std::collections::HashMap<usize, i64>);
+impl FolderSizes {
+    /// The sizes of the folders among `rows`, read on one thread a few at
+    /// a time (`Totals::bytes_each`), rather than each under a lock of its
+    /// own, which threads ranking at once would contend for with drawing.
+    pub fn read<'a>(rows: impl Iterator<Item = &'a Arc<Candidate>>, totals: &Totals) -> Self {
+        let folders: Vec<_> = rows.filter(|c| c.directory).collect();
+        let paths: Vec<_> = folders.iter().map(|c| c.path.as_path()).collect();
+        let mut sizes = std::collections::HashMap::with_capacity(folders.len());
+        let mut at = 0;
+        while at < folders.len() {
+            let found = totals.bytes_each(&paths[at..]);
+            for (c, bytes) in folders[at..].iter().zip(&found) {
+                if let Some(bytes) = *bytes {
+                    sizes.insert(address(c), i64::try_from(bytes).unwrap_or(i64::MAX));
+                }
+            }
+            at += found.len();
+            // Taken again at once, the lock would rarely go to drawing,
+            // whose thread takes longer to wake.
+            std::thread::sleep(std::time::Duration::from_micros(50));
+        }
+        Self(sizes)
+    }
+}
+/// A row's candidate, by its address: rows share the known candidates.
+fn address(c: &Candidate) -> usize {
+    std::ptr::from_ref(c) as usize
+}
+/// A folder's size, once added up.
+fn folder_size(c: &Candidate, totals: &Totals) -> i64 {
+    totals
+        .bytes(&c.path)
+        .map_or(UNKNOWN, |n| i64::try_from(n).unwrap_or(i64::MAX))
+}
+/// Folders, then files, then links.
+fn kind_of(kind: FileType) -> i64 {
+    if kind.is_symlink() {
+        2
+    } else if kind.is_dir() {
+        0
+    } else {
+        1
+    }
+}
+/// The value for `by` of what is at `path`, from its `lstat`, `meta`; a
+/// folder's size is not among them.
+fn measure(by: Criterion, path: &Path, meta: std::io::Result<Metadata>) -> i64 {
     let stamp = |time: std::io::Result<SystemTime>| {
         let Ok(time) = time else {
             return UNKNOWN;
@@ -277,12 +417,11 @@ fn value(by: Criterion, c: &Candidate, totals: &Totals) -> i64 {
             Err(before) => i64::try_from(before.duration().as_nanos()).map_or(UNKNOWN + 1, |n| -n),
         }
     };
-    let Ok(meta) = std::fs::symlink_metadata(path) else {
+    let Ok(meta) = meta else {
         return UNKNOWN;
     };
     let bytes = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
     match by {
-        Criterion::Size if c.directory => totals.bytes(path).map_or(UNKNOWN, bytes),
         // A link's size is its target's, as the size column shows it.
         Criterion::Size if meta.is_symlink() => {
             std::fs::metadata(path).map_or(UNKNOWN, |m| bytes(m.len()))
@@ -291,9 +430,7 @@ fn value(by: Criterion, c: &Candidate, totals: &Totals) -> i64 {
         Criterion::Modified => stamp(meta.modified()),
         Criterion::Accessed => stamp(meta.accessed()),
         Criterion::Created => stamp(meta.created()),
-        Criterion::Kind if meta.is_symlink() => 2,
-        Criterion::Kind if meta.is_dir() => 0,
-        Criterion::Kind => 1,
+        Criterion::Kind => kind_of(meta.file_type()),
         _ => 0,
     }
 }
@@ -768,6 +905,68 @@ mod tests {
         // Taken per letter: a query twice as long scoring twice as much
         // costs the same.
         assert_eq!(merit(2, 40, 2, 1.0), merit(2, 80, 4, 1.0));
+    }
+    #[test]
+    fn values_read_where_a_path_is_found_serve_their_own_sort_only() {
+        let dir = std::env::temp_dir().join(format!("fff-rows-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("file");
+        std::fs::write(&file, [0u8; 42]).unwrap();
+        let kind = std::fs::symlink_metadata(&file).unwrap().file_type();
+        let lstat = || std::fs::symlink_metadata(&file);
+        let reading = Reading::default();
+        let sort = |by| {
+            Some(Sort {
+                by,
+                descending: true,
+            })
+        };
+        // Nothing is read until a sort needs it, and names need nothing.
+        assert_eq!(reading.read(&file, false, kind, lstat), None);
+        reading.set(sort(Criterion::Name));
+        assert_eq!(reading.read(&file, false, kind, lstat), None);
+        reading.set(sort(Criterion::Size));
+        let size = reading.read(&file, false, kind, lstat);
+        assert_eq!(size.map(|v| v.value), Some(42));
+        // A folder's size is added up elsewhere; a kind needs no lstat.
+        assert_eq!(reading.read(&dir, true, kind, lstat), None);
+        reading.set(sort(Criterion::Kind));
+        let unread = || -> std::io::Result<Metadata> { panic!("read") };
+        assert_eq!(
+            reading.read(&file, false, kind, unread).map(|v| v.value),
+            Some(1)
+        );
+        // Ranking takes the value found for its sort, and reads another.
+        let gone = Candidate {
+            path: dir.join("gone"),
+            directory: false,
+            depth: 1,
+            root: 0,
+            order: 0,
+        };
+        let by_size = Order {
+            sort: sort(Criterion::Size),
+            ..Rank::Log.into()
+        };
+        let totals = Totals::default();
+        assert_eq!(by_size.key(&gone, 0, 1, &totals, size).value, 42);
+        let kind = Some(Value {
+            by: Criterion::Kind,
+            value: 1,
+        });
+        assert_eq!(by_size.key(&gone, 0, 1, &totals, kind).value, UNKNOWN);
+        // Ranked again by the totals, only folders change.
+        let key = Key { score: 3, value: 7 };
+        let sizes = FolderSizes::default();
+        assert_eq!(by_size.resize(key, &gone, &sizes), key);
+        let folder = Candidate {
+            directory: true,
+            ..gone
+        };
+        let resized = by_size.resize(key, &folder, &sizes);
+        assert_eq!((resized.score, resized.value), (3, UNKNOWN));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
     #[test]
     fn names_compare_naturally() {

@@ -253,8 +253,11 @@ ties:
 - `name`: alphabetically from A, ignoring case, numbers by value (`file2`
   before `file10`);
 - `size`: the largest first; a folder's is the files below it, as the size
-  column shows it, once added up (until then it comes last; choosing the
-  order again sorts by the totals found since);
+  column shows it, once added up (until then it comes last). While the rows
+  are sorted by size, every folder listed is added up in the background,
+  after those on screen and near it, and the rows are ranked again by the
+  totals found, at most every two seconds (`RESIZE_EVERY`), so that rows do
+  not jump under the highlight, which stays on its entry;
 - `modified`, `accessed`, and `created` where the filesystem records it:
   the newest first;
 - `extension`, then name;

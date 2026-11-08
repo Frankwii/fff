@@ -56,7 +56,7 @@ separately in the [roadmap](ROADMAP.md).
 | `src/preview.rs` | The preview pane: background reads after a rest, cancellation, file-type sniffing, helper programs and the kept previews. |
 | `src/highlight.rs` | Syntax colors for text previews from a private headless Neovim (tree-sitter, else `:syntax`), on a thread of its own. |
 | `src/details.rs` | Visible entries' details (lstat, link targets, owners) and entry counts, read by background workers, and their formats. |
-| `src/sizes.rs` | Folders' sizes: the files below each added up by a worker per mount, the folders a frame wants first (`Sizes::commit` after each drawn frame), read on several threads. A tree of folders with their own files' bytes and stamps (inode, mtime, ctime), saved to `$XDG_CACHE_HOME/fff/sizes` at exit and read at the first frame; only folders whose stamp changed (or that a watch or F5 marked) are read again. |
+| `src/sizes.rs` | Folders' sizes: the files below each added up by a worker per mount, the folders a frame wants first (`Sizes::commit` after each drawn frame), then, with a sort by size, the folders listed (`Sizes::list`, gathered from the rows' runs on a thread of their own, sorted by path so that those below one added up are passed over with it), read on several threads. A tree of folders with their own files' bytes and stamps (inode, mtime, ctime), saved to `$XDG_CACHE_HOME/fff/sizes` at exit and read at the first frame; only folders whose stamp changed (or that a watch or F5 marked) are read again. |
 | `src/platform/` | What differs between Linux (`linux.rs`) and macOS (`macos.rs`): the controlling terminal (macOS's `poll` refuses `/dev/tty`, so the device it stands for is opened), opening a path without following symlinks, an opened directory's path, mount roots and identities, the mount table, a process's executable and parent, abstract sockets, whether there is a freedesktop.org desktop. Entries are read relative to directory descriptors (`lstat_at`, `read_dir`), never through `/proc/self/fd`. `cfg(target_os)` stays in this module; elsewhere fff is one code for both. |
 | `src/mounts.rs` | The mount table (`/proc/self/mounts` on Linux, `getmntinfo` on macOS), read by name and again after each scan: a path's mount point and filesystem kind (kernel, local, other). Kernel filesystems are not added up, entered by scans from outside, searched, watched, or read past 4 KiB for the preview. |
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates; elsewhere `src/platform/watch_none.rs`, which watches nothing. |
@@ -114,8 +114,9 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   were ranked for (`RefreshBasis`), so another order ranks them again.
 - **Keys.** Each row is ranked by a `rows::Key`: its match score and, for
   a sort by size, dates or kind, a value read from the filesystem (an
-  `lstat`; a folder's size from the totals `sizes::Totals` holds, which
-  sort last until added up) and, for a sort by a depth penalty
+  `lstat`; a kind from the folder's listing; a folder's size from the
+  totals `sizes::Totals` holds, which sort last until added up) and, for a
+  sort by a depth penalty
   (`log`), the row's merit: its score per letter of the query less the
   penalty for its depth at `Order::temperature` (`rows::merit`). In
   `Rank::Log` the key's score is the merit too, so a sort's ties are
@@ -126,6 +127,26 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   (`Order::rescore`).
   Names, extensions, depth and `shallowest` need no value. `App::set_sort` ranks every
   known path again, reading the values afresh.
+- **Values read with the scan.** A scan reads the value of the sort's
+  criterion as it finds each path, on its own threads (`rows::Reading`,
+  shared with the walker and the reader of a list on stdin, set by
+  `App::set_sort` and as a scan starts); the path arrives with it
+  (`discovery::Found`, kept beside it in `App::added`), and `App::merge`
+  ranks by it, so a stalled mount stalls the scan, not the interface
+  thread. Only paths without one are read there: those replayed from the
+  cache, and those a scan found before the sort changed.
+- **Sizes as they are added up.** With a sort by size, `App::follow_sizes`
+  (each pass of the session loop) hands the rows' runs to `Sizes::list`
+  when the rows changed, at most every `RESIZE_EVERY` (2 s), and, once
+  totals arrived (`Sizes::added`) and the rows are settled, ranks the rows
+  again on the ranking thread at most as often, their folders' values taken
+  from the totals and nothing else read (`ranking::Job::resize`,
+  `Order::resize`). The job reads those totals first, on its own thread,
+  under the sizes' lock for at most 0.1 ms at a time with a pause between
+  (`rows::FolderSizes`, `Totals::bytes_each`): drawing reads each folder's
+  total under the same lock, and threads taking it one folder each, or
+  straight back, would keep a frame waiting for milliseconds. The highlight
+  stays on its entry, as when paths arrive.
 - **The rows** (`rows::Rows`) are sorted runs (`Run`: rows and their scores,
   in order), each sorted on its own. A ranking produces one run. A scan's
   new paths are filtered, scored and sorted in rounds (`App::merge`), and

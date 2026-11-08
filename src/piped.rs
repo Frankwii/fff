@@ -78,7 +78,7 @@ impl Piped {
 
 /// What reading a list found.
 pub enum Read {
-    Paths(Vec<Candidate>),
+    Paths(Vec<crate::discovery::Found>),
     /// Lines naming no file or folder (or the current directory itself).
     Skipped(usize),
     Failed(io::Error),
@@ -94,6 +94,7 @@ pub fn read(
     null: bool,
     cwd: &Path,
     spelled: &Spellings,
+    reading: &crate::rows::Reading,
     mut send: impl FnMut(Read) -> bool,
 ) {
     let mut input = io::BufReader::new(input);
@@ -120,10 +121,10 @@ pub fn read(
         if line.is_empty() {
             continue;
         }
-        match listed(&line, cwd, order) {
-            Some(candidate) => {
-                if spelled.keep(&candidate.path, &line) {
-                    batch.push(candidate);
+        match listed(&line, cwd, order, reading) {
+            Some(found) => {
+                if spelled.keep(&found.0.path, &line) {
+                    batch.push(found);
                     order = order.saturating_add(1);
                 }
             }
@@ -146,8 +147,14 @@ pub fn read(
 /// `cwd` when relative. `.` parts go; `..` resolves through the real
 /// folder above it. The depth is the parts below `cwd`, or of the whole
 /// path outside it, and every row has the one root, `/`; `order` is its
-/// place among the paths listed.
-fn listed(line: &[u8], cwd: &Path, order: u32) -> Option<Candidate> {
+/// place among the paths listed. With it, the value `reading` reads for
+/// the sort.
+fn listed(
+    line: &[u8],
+    cwd: &Path,
+    order: u32,
+    reading: &crate::rows::Reading,
+) -> Option<crate::discovery::Found> {
     let given = PathBuf::from(OsString::from_vec(line.to_vec()));
     let mut path = cwd.join(given);
     if path.components().any(|c| c == Component::ParentDir) {
@@ -164,13 +171,15 @@ fn listed(line: &[u8], cwd: &Path, order: u32) -> Option<Candidate> {
         Ok(below) => below.components().count(),
         Err(_) => path.components().count() - 1,
     };
-    Some(Candidate {
+    let value = reading.read(&path, directory, meta.file_type(), || Ok(meta.clone()));
+    let found = Candidate {
         path,
         directory,
         depth,
         root: 0,
         order,
-    })
+    };
+    Some((found, value))
 }
 
 #[cfg(test)]
@@ -192,9 +201,10 @@ mod tests {
             null,
             cwd,
             &spelled,
+            &crate::rows::Reading::default(),
             |read| {
                 match read {
-                    Read::Paths(batch) => paths.extend(batch),
+                    Read::Paths(batch) => paths.extend(batch.into_iter().map(|(c, _)| c)),
                     Read::Skipped(n) => skipped = n,
                     Read::Failed(e) => panic!("{e}"),
                 }
