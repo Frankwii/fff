@@ -23,13 +23,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: libarchive
+      - name: libarchive and Neovim
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-dev
+          # Ubuntu's Neovim is too old; fff embeds one in every text field.
+          curl -fsSL https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz \
+            | sudo tar -xz -C /opt
+          echo /opt/nvim-linux-x86_64/bin >> "$GITHUB_PATH"
           # The mount tests make bind mounts in a user namespace.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Neovim
+        if: runner.os == 'macOS'
+        run: brew install neovim
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
