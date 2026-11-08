@@ -397,6 +397,7 @@ dependencies = [
  "clap_mangen",
  "color-print",
  "crossterm",
+ "foldhash",
  "globset",
  "libc",
  "memchr",

@@ -196,7 +196,7 @@ fn rows_read_as_a_fresh_ranking_while_a_scan_adds_paths_and_after() {
             }
             let expected = fresh(program, query, &paths);
             assert_eq!(names(&app), names(&expected), "{program:?} {query:?}");
-            assert_eq!(app.labels, expected.labels, "{program:?} {query:?}");
+            assert_eq!(app.labels(), expected.labels(), "{program:?} {query:?}");
         }
     }
 }
@@ -206,7 +206,7 @@ fn labels_change_as_paths_with_the_same_name_arrive() {
     let mut app = app(Program::Pick);
     assert!(app.short_labels);
     let label = |app: &App, name: &str| {
-        app.labels
+        app.labels()
             .get(Path::new(name))
             .map(|l| l.to_string_lossy().into_owned())
     };

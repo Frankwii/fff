@@ -18,10 +18,10 @@ Listing a large tree takes several times as long as `fd`: about 0.91
 seconds for the 620,000 entries of `/usr` (headless, until the rows are
 settled; `tests/scan_timing.rs`), against 0.15, and 1 second in a terminal
 with the frames drawn meanwhile, so a query typed at once waits for the
-scan to reach its match. In `fff pick`, with its labels, it takes 1.6
-seconds headless and 1.7 in a terminal. Each depth's folders are read on
-several threads, and paths are attributed to their roots there, which took
-the walk out of the way; the rows are kept as sorted runs merged lazily (see
+scan to reach its match. `fff pick` takes as long, its labels included
+(it took 1.6 seconds before they left the interface thread). Each depth's
+folders are read on several threads, and paths are attributed to their
+roots there, which took the walk out of the way; the rows are kept as sorted runs merged lazily (see
 [how rows are kept](DEVELOPMENT.md#how-rows-are-kept-and-ordered)), so a
 batch no longer moves the rows ranked before it; while a scan runs, frames
 are drawn at most every 33 ms (about 30 for `/usr` in `fff roam`, 50 in
@@ -33,10 +33,7 @@ thread:
   candidate's path were tried and changed nothing measurable, since each
   lookup follows pointers through a table of 620,000 entries.
 - Filtering, scoring and sorting each round of new paths takes about 0.13
-  seconds in `fff roam`. In `fff pick`, grouping them by name for the labels
-  adds about 0.35, and relabelling the groups that gain a second member or
-  more about 0.3 (see below); a name new to the listing is not relabelled.
-  Pushing the sorted rounds as runs, and merging the runs as they double,
+  seconds. Pushing the sorted rounds as runs, and merging the runs as they double,
   takes 0.1 seconds; merging three or four runs at once instead of two
   would move each row about half as often, which bounds the gain near
   0.05 seconds.
@@ -64,11 +61,11 @@ set its limit:
   per path, but bound by memory latency (see above), so it would shrink
   with the paths packed as fzf packs them rather than with a faster hash.
 - Labels in `fff pick` and `fff seek` depend on every listed entry with the
-  same name, so a new path can change another row's label. Kept by name and
-  updated per group as paths arrive, as the labels of additions already are,
-  they cost a lookup per path; computing them only for the rows on screen
-  would make them nearly free. The full relabelling a listing change
-  triggers today is the part to avoid.
+  same name, so a new path can change another row's label. The listed
+  entries are kept by name, at a lookup per path, on a thread of their own,
+  and only the rows a frame draws are labelled (see [how rows are
+  kept](DEVELOPMENT.md#labels)): what the interface thread pays is about
+  6 ms over `/usr`, and a frame's labels a fraction of a millisecond.
 - Each path is its own allocation (a `PathBuf` in an `Arc`), where fzf packs
   its input into chunks. This is the deepest change, and the last to make.
 

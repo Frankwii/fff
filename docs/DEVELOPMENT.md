@@ -18,6 +18,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/grep.rs` | The contents query (the `App::grep` field, in every program): extraction into the text cache, the search on worker threads, the planner (a thread per search that reads every row: queues the files not yet searched, in the rows' order, and finds each file's place) and the rows it shows (one per match), sorted by those places. A `poll` costs about the matches, not the rows. |
 | `src/index.rs` | The contents index: trigram filters of the texts searched, by file identity, folded as the query matches; its segments, merging, and the pruning of it and the text cache. |
 | `src/rows.rs` | The results' order (`Order`: the program's `Rank` or a chosen `Sort`), each row's key (`Key`: its score and a sort's value read from the filesystem), natural name comparison, and the ranked rows (`Rows`): sorted runs merged lazily, and the one way to read every row in order (`Rows::all`). |
+| `src/labels.rs` | Short labels (`fff pick`, `fff seek`): the listed entries by name, grouped on a thread of their own (`Labeller`), and a drawn row's label from its group. |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
 | `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
@@ -179,6 +180,34 @@ first `LAZY` rows are copied into `head` and merged again with each round
 that ranks among them. `Rows::all` copies the row pointers when there is
 more than one run. Kept queries, pending rankings and a contents query's
 planner share runs, so merging a run they share copies it, as it did before.
+
+## Labels
+
+With short labels (`App::short_labels`), a row shows its name with only the
+parents that tell it apart from listed entries of the same name
+(`src/labels.rs`). A new path can change the labels of others, so nothing
+is labelled ahead: the listed entries are kept by name (`Names`), and
+`App::label` works out a row's label when a frame draws it.
+
+- **Grouping.** A ranking groups the listed entries on its own thread and
+  hands the groups over with its rows. A scan's rounds (`App::merge`) are
+  queued for the `Labeller`, which applies them on a thread of its own, as
+  are the candidates forgotten; queueing a change waits for no lock the
+  thread holds.
+- **Reading a label** takes the groups and first applies the changes the
+  thread has not applied yet, so a label is never out of date: a frame
+  waits at most for the thread to finish the change it is applying (a round
+  of paths). Changes are taken from the queue only with the groups held,
+  so they are applied in order.
+- **A label** comes from its group sorted by the paths read from their
+  ends, part by part (`from_end`): the path sharing the most last parts with
+  a row is beside it, so its two neighbours give its length. A group sorts
+  only the members inserted since it was last read, and merges them in.
+  Labelling a screen of rows over `/usr` takes a fraction of a millisecond,
+  a few milliseconds the first time it shows large groups (`__init__.py`'s
+  1,400 entries) after a scan.
+- `disambiguate` labels a list of paths at once the same way; the tests
+  compare the labels kept as paths come and go with it.
 
 ## Behavior to preserve
 

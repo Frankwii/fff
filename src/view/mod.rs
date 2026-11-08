@@ -162,7 +162,7 @@ fn display_path(path: &Path, base: &Path) -> String {
 /// distinguishing trailing path when another listed entry shares it.
 /// Presentation only.
 fn short_label(app: &App, path: &Path) -> String {
-    match app.labels.get(path) {
+    match app.label(path) {
         Some(label) => safe(label.display().to_string()),
         None => safe(path.file_name().unwrap_or_default().to_string_lossy()),
     }

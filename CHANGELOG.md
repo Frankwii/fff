@@ -4,6 +4,16 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **`fff pick` and `fff seek` list large trees as fast as `fff roam`**:
+  their short labels are worked out only for the rows on screen, and the
+  entries sharing a name are grouped on a thread of their own, so listing
+  `/usr` takes about a second instead of 1.6, and the interface keeps up
+  with keys meanwhile.
+
 ## 0.22.1 — 2026-11-08
 
 Keys that feel more like Neovim's: j and k go down from the query into
