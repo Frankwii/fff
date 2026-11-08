@@ -8,11 +8,13 @@ history.
 
 ### Changed
 
-- **`fff pick` and `fff seek` list large trees as fast as `fff roam`**:
-  their short labels are worked out only for the rows on screen, and the
-  entries sharing a name are grouped on a thread of their own, so listing
-  `/usr` takes about a second instead of 1.6, and the interface keeps up
-  with keys meanwhile.
+- **Large trees list more than twice as fast**: the 620,000 entries of
+  `/usr` take about 0.4 seconds, where they took 0.9 in `fff roam` and 1.6
+  in `fff pick` and `fff seek`. Storing each path found takes a fifth of
+  the work, an empty query no longer reads the paths it lists, and short
+  labels are worked out only for the rows on screen, the entries sharing a
+  name grouped on a thread of their own. Keys and moving the highlight are
+  as quick as before.
 
 ## 0.22.1 — 2026-11-08
 

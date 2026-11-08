@@ -156,6 +156,10 @@ impl Matcher {
     }
     /// Score a result by its path below its root (see `score_path`).
     pub fn score_candidate(&self, c: &Candidate) -> Option<i64> {
+        // Every path matches an empty query, its path unread.
+        if self.letters.is_empty() {
+            return Some(0);
+        }
         self.score_path(&relative(c))
     }
     /// Score a path below a root (components joined by `/`, the basename

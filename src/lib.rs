@@ -965,24 +965,10 @@ impl App {
         }
     }
     fn store(&mut self, candidate: Candidate, delivered: Option<u64>) {
-        // Rescans deliver mostly what is already known: keep those rows.
-        if self
-            .known
-            .get(&candidate.path)
-            .is_some_and(|c| **c == candidate)
-        {
-            if let Some(generation) = delivered {
-                self.known.confirm(&candidate.path, generation);
-            }
-            return;
+        if let Some((candidate, replaced)) = self.known.store(candidate, delivered) {
+            self.outdated.extend(replaced);
+            self.added.push(candidate);
         }
-        let candidate = Arc::new(candidate);
-        // Replays are unconfirmed: no scan has generation 0.
-        let stamp = delivered.unwrap_or(0);
-        if let Some(old) = self.known.insert(Arc::clone(&candidate), stamp) {
-            self.outdated.push(old);
-        }
-        self.added.push(candidate);
     }
     /// The scan of `generation` completed: forget the paths it did not
     /// deliver. The next refresh drops their rows.

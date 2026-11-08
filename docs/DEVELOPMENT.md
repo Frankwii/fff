@@ -20,7 +20,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/rows.rs` | The results' order (`Order`: the program's `Rank` or a chosen `Sort`), each row's key (`Key`: its score and a sort's value read from the filesystem), natural name comparison, and the ranked rows (`Rows`): sorted runs merged lazily, and the one way to read every row in order (`Rows::all`). |
 | `src/labels.rs` | Short labels (`fff pick`, `fff seek`): the listed entries by name, grouped on a thread of their own (`Labeller`), and a drawn row's label from its group. |
 | `src/ranking.rs` | Ranking rows from a snapshot in parallel pieces, cancellable, on another thread for large listings. |
-| `src/known.rs` | The sharded index of known paths with each one's delivering scan, and freeing large listings off the input thread. |
+| `src/known.rs` | The sharded index of known paths with each one's delivering scan (keyed by the candidates' own paths, each hashed once per lookup, its shard and place from the one hash), and freeing large listings off the input thread. |
 | `src/cache.rs` | Bounded LRU snapshots and verification ages. |
 | `src/workspaces.rs` | Live workspace forms (the settings ticked to keep) and atomic, comment-preserving TOML persistence. A workspace and its settings are `config::Workspace` and `config::Setting`; `App::apply_workspace` opens one, `App::snapshot` is what a new one can keep. |
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |

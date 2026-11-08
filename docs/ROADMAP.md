@@ -10,69 +10,7 @@ The preview pane stays text only; there will be no image previews: see
 
 ## Before 1.0
 
-The goals for the first release, the README last.
-
-### Faster scanning
-
-Listing a large tree takes several times as long as `fd`: about 0.91
-seconds for the 620,000 entries of `/usr` (headless, until the rows are
-settled; `tests/scan_timing.rs`), against 0.15, and 1 second in a terminal
-with the frames drawn meanwhile, so a query typed at once waits for the
-scan to reach its match. `fff pick` takes as long, its labels included
-(it took 1.6 seconds before they left the interface thread). Each depth's
-folders are read on several threads, and paths are attributed to their
-roots there, which took the walk out of the way; the rows are kept as sorted runs merged lazily (see
-[how rows are kept](DEVELOPMENT.md#how-rows-are-kept-and-ordered)), so a
-batch no longer moves the rows ranked before it; while a scan runs, frames
-are drawn at most every 33 ms (about 30 for `/usr` in `fff roam`, 50 in
-`fff pick`, where they were 115 and 220). What remains is the interface
-thread:
-
-- Storing each path among the known ones takes about 0.5 seconds of it.
-  This is memory latency, not hashing: a faster hasher and keys sharing the
-  candidate's path were tried and changed nothing measurable, since each
-  lookup follows pointers through a table of 620,000 entries.
-- Filtering, scoring and sorting each round of new paths takes about 0.13
-  seconds. Pushing the sorted rounds as runs, and merging the runs as they double,
-  takes 0.1 seconds; merging three or four runs at once instead of two
-  would move each row about half as often, which bounds the gain near
-  0.05 seconds.
-- **Rows' keys.** Since [sorting](../README.md#sorting), each row is kept
-  with a 16-byte key, its score and a sort's value, where it had an 8-byte
-  score: listing `/usr` went from about 0.88 to 0.93 seconds in `fff roam`.
-  Keeping the values in a list of their own, there only while a sort that
-  reads them is chosen, would bring the default order back to what it moved
-  before.
-
-How close this can come to fzf. Once a tree is listed, nothing in fff
-needs a slower algorithm than fzf's: each keystroke scores the same names
-with the same algorithm (nucleo is fzf's, in Rust), narrows the previous
-matches as fzf does, and sorts by keys as cheap as fzf's. That case already
-takes 0.17 seconds over `/usr`, against fzf's 0.02, and what the rest is
-spent on has not been measured; the embedded Neovim adds a round trip per
-keystroke, which costs milliseconds, not tenths. While a tree is being
-listed fff does work fzf leaves to others or does not do at all, and these
-set its limit:
-
-- fzf reads a stream it never revisits; fff keeps every known path in a map
-  (one entry per path, at its shallowest depth, for overlapping roots,
-  rescans, live updates and the discovery cache). That is a hash insertion
-  per path, a cost fzf does not pay, and today the largest one: constant
-  per path, but bound by memory latency (see above), so it would shrink
-  with the paths packed as fzf packs them rather than with a faster hash.
-- Labels in `fff pick` and `fff seek` depend on every listed entry with the
-  same name, so a new path can change another row's label. The listed
-  entries are kept by name, at a lookup per path, on a thread of their own,
-  and only the rows a frame draws are labelled (see [how rows are
-  kept](DEVELOPMENT.md#labels)): what the interface thread pays is about
-  6 ms over `/usr`, and a frame's labels a fraction of a millisecond.
-- Each path is its own allocation (a `PathBuf` in an `Arc`), where fzf packs
-  its input into chunks. This is the deepest change, and the last to make.
-
-None of these changes what fff can do, and none grows faster than the
-number of paths: a scan within about twice the time of `fd | fzf` looks
-reachable, where it is several times today. Matching fzf exactly is not
-the aim; what is lost to the features above is the price of them.
+What is left for the first release.
 
 ### The README
 
@@ -84,6 +22,29 @@ playing in the terminal.
 ## Post-launch
 
 Ideas for after 1.0, once the features above are done.
+
+### Scanning, continued
+
+Listing the 620,000 entries of `/usr` takes about 0.38 seconds headless
+(`tests/scan_timing.rs`), in `fff roam` and `fff pick` alike, against 0.28
+for `fd | fzf --filter ''`. Of the interface thread's share, storing the
+paths among the known ones takes about 0.13 seconds, filtering each round
+of new paths 0.035, sorting it 0.07 and pushing it among the rows 0.07.
+What could still go:
+
+- **Long merges.** Pushing a round merges runs while the one before is not
+  twice as large, so now and then two large runs are merged at once: over
+  `/usr` that holds the interface thread for 7 to 11 ms, past the 4 ms a
+  merge is given. Such a merge could be split across refreshes, or made on
+  another thread while the rows keep both runs.
+- **Packed paths.** Each path is its own allocation (a `PathBuf` in an
+  `Arc`), where fzf packs its input into chunks. It is no longer the larger
+  cost, and the deepest change to make.
+
+Tried and left out, as they changed nothing measurable: keys of 8 bytes
+rather than 16 (the score and a sort's value, kept apart so that the
+default order moves less), and merging three or four runs at once, which
+would also make the long merges longer.
 
 ### Sorting, continued
 

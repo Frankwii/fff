@@ -399,6 +399,7 @@ dependencies = [
  "crossterm",
  "foldhash",
  "globset",
+ "hashbrown",
  "libc",
  "memchr",
  "nucleo-matcher",

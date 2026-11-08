@@ -8,6 +8,10 @@ use fuzzy_file_finder::{App, Policy, config::CacheConfig, discovery::Discovery, 
 use std::{path::PathBuf, time::Instant};
 
 fn list(program: Program, query: &str) {
+    listing(program, query, true);
+}
+/// List the tree, telling how long it took when `report`.
+fn listing(program: Program, query: &str, report: bool) {
     let root = PathBuf::from(std::env::var("FFF_SCAN_ROOT").unwrap_or_else(|_| "/usr".into()));
     let mut app = App::browse(root, 64, Policy::default());
     app.set_program(program);
@@ -26,6 +30,9 @@ fn list(program: Program, query: &str) {
         std::thread::yield_now();
     }
     let listed = start.elapsed();
+    if !report {
+        return;
+    }
     let all = Instant::now();
     let first = app.rows.first().map(|c| c.path.clone());
     let count = app.rows.len();
@@ -56,6 +63,8 @@ const SCREEN: usize = 100;
 #[test]
 #[ignore]
 fn listing_a_large_tree() {
+    // The first listing is slower, the filesystem's caches cold.
+    listing(Program::Roam, "", false);
     list(Program::Roam, "");
     list(Program::Pick, "");
     list(Program::Pick, "lib");
