@@ -8,7 +8,7 @@ and `docs/*.md`, teach people to use fff: task first, short, with examples.
 The developer reference in `docs/dev/` describes the complete behavior,
 edge cases included; read the relevant part first:
 
-- [docs/dev/DEVELOPMENT.md](docs/dev/DEVELOPMENT.md): code map, invariants, where common changes go, verification.
+- [docs/dev/DEVELOPMENT.md](docs/dev/DEVELOPMENT.md): code map, invariants, where common changes go, verification, recording the demos.
 - [docs/dev/USAGE.md](docs/dev/USAGE.md): the programs, browsing, matching, searching contents and the keys.
 - [docs/dev/CONFIGURATION.md](docs/dev/CONFIGURATION.md): TOML settings, keys, discovery/cache behavior.
 - [docs/dev/OPERATIONS.md](docs/dev/OPERATIONS.md): file operations, safety guarantees and archive safety.

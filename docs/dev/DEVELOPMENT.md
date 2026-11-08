@@ -444,6 +444,56 @@ This measures first in-app visits at depth 1 with warm OS metadata, Neovim editi
 and no icons. Report the workload and build mode alongside latency or memory
 measurements. Slow storage and large trees still require progressive updates.
 
+## Recording the demos
+
+The README's GIFs and the tutorial's `screen.png` are recorded from scripts
+in `docs/demos/`, so they can be made again after the screen changes. Each
+recording builds fff in release mode and starts from the same demo home
+(`fixture.sh`, in `/tmp/fff-demo`): its own files, configuration, state and
+caches, never yours.
+
+On Arch, the packages needed:
+
+```sh
+pacman -S --needed vhs tmux neovim poppler texlive-basic texlive-latex \
+  ttf-jetbrains-mono-nerd                                 # record.sh
+pacman -S --needed xorg-server-xvfb i3-wm xdotool zathura \
+  zathura-pdf-mupdf ffmpeg                                # record-x.sh, plus st
+```
+
+VHS records in a headless Chromium (go-rod), and downloads one into
+`~/.cache/rod` on its first run if no Chromium is installed. pdflatex makes
+the demo's PDFs; without it the papers folder has none and the contents
+recording has nothing to find. `record-x.sh` also needs
+[st](https://st.suckless.org/), which is not packaged on Arch.
+
+```sh
+docs/demos/record.sh               # every tape: the five GIFs and screen.png
+docs/demos/record.sh find pick     # only these tapes
+docs/demos/record-x.sh             # contents.gif
+```
+
+- **`record.sh`** plays each `*.tape` into VHS. A tape's hidden first step
+  runs `session.sh`: tmux (`tmux.conf`) with the demo's shell (`env.sh`) on
+  top and, below it, the keys pressed. `keys.py record` sits between tmux
+  and the shell, logging the keys to `keys.json`, and `keys.py show` draws
+  them as captions.
+- **`record-x.sh`** records `contents.gif`, which shows zathura opening the
+  PDF beside fff, so it needs a real X display, not just a terminal. It
+  starts Xvfb on a free display number (`:99` and up) and i3 there
+  (`i3.conf`), with st running `session.sh`. `contents-x.py` types the keys
+  with xdotool, ffmpeg records the display, and a second ffmpeg pass makes
+  the GIF. `XDG_CONFIG_HOME` points into the demo, so i3, st, zathura and
+  fff read only the demo's configuration (`fixture.sh` writes zathura's
+  opener rule and colors). Your own display and session are untouched, and
+  everything it started is stopped when it exits.
+
+To change a recording, edit its tape (or `contents-x.py`) and record it
+again. Then look through the frames before committing; `ffmpeg -i
+docs/demos/find.gif -vf "fps=1/2,scale=640:-1,tile=3x4" -frames:v 1
+sheet.png` makes a contact sheet. `tests/doc_links.rs` fails if a GIF the
+documents show is missing.
+
 ## Packaging
 
 `packaging/aur/PKGBUILD` builds the Arch package `fuzzy-file-finder` from the
