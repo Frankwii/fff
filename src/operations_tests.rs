@@ -1569,17 +1569,18 @@ fn bind_mounts_in_namespace() {
     for root in &roots {
         fs::create_dir_all(root.join("m")).unwrap();
         fs::write(root.join("data"), b"data").unwrap();
+        // Names its stage, which directory order would not.
+        fs::write(root.join(root.file_name().unwrap()), b"").unwrap();
     }
     let mut e = f.engine();
     let (work, outside2) = (f.work.clone(), outside.clone());
     e.hook = Some(Box::new(move |phase| {
         if phase == usize::MAX - 2 {
-            // r1's detached copy lives in the only stage holding "r1" data.
+            // r1's detached copy lives in the only stage holding "r1".
             let stage = fs::read_dir(&work)
                 .unwrap()
                 .map(|e| e.unwrap().path())
-                .filter(|p| p.join("entry/data").exists())
-                .nth(1)
+                .find(|p| p.join("entry/r1").exists())
                 .unwrap();
             bind(&outside2, &stage.join("entry/m"));
         }
