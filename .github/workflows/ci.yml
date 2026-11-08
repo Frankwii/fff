@@ -60,3 +60,13 @@ jobs:
       - name: Stress tests
         if: inputs.stress
         run: cargo test --locked --lib stress -- --ignored
+
+  # Known vulnerabilities (RustSec) in the locked dependencies; the
+  # database changes without fff changing, so this runs with every check.
+  advisories:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install --locked cargo-audit
+      - run: cargo audit
