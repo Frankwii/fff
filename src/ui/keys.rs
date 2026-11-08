@@ -583,8 +583,16 @@ impl Session {
             Function::HighlightNext => *index = (*index + 1).min(last),
             Function::HighlightPreviousPage => *index = index.saturating_sub(page),
             Function::HighlightNextPage => *index = (*index + page).min(last),
-            Function::HighlightFirst => *index = 0,
-            Function::HighlightLast => *index = last,
+            Function::HighlightFirst | Function::HighlightLast => {
+                *index = if function == Function::HighlightLast {
+                    last
+                } else {
+                    0
+                };
+                if app.mode() == Mode::Normal {
+                    screen.query_focused = false;
+                }
+            }
             Function::ScrollPreviewDown => screen.details += 5,
             Function::ScrollPreviewUp => screen.details = screen.details.saturating_sub(5),
             Function::ClearQuery => {

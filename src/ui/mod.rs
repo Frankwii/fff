@@ -868,7 +868,7 @@ impl Choice {
             Self::Function(f) => f.description(),
             Self::Sort(Some(by)) => by.description(),
             Self::Sort(None) => {
-                "As this program ranks them: the best match less a penalty for depth, as log sorts; in fff seek the best match first; a list from stdin the best match, then its order."
+                "As this program ranks them: the best match minus a penalty for depth, as log sorts; in fff seek the best match first; a list from stdin the best match, then its order."
             }
         }
     }

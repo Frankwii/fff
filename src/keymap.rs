@@ -639,8 +639,8 @@ functions! {
     HighlightNext "highlight_next" Highlight "Highlight the row below, in the list that has the focus: the results, or the marked list.";
     HighlightPreviousPage "highlight_previous_page" Highlight "Highlight the row a screenful up in the results, scrolling them back a page.";
     HighlightNextPage "highlight_next_page" Highlight "Highlight the row a screenful down in the results, scrolling them on a page.";
-    HighlightFirst "highlight_first" Highlight "Highlight the first row of the list that has the focus.";
-    HighlightLast "highlight_last" Highlight "Highlight the last row of the list that has the focus.";
+    HighlightFirst "highlight_first" Highlight "Highlight the first row of the list that has the focus; from the query in Normal mode, the first result, giving the results the focus.";
+    HighlightLast "highlight_last" Highlight "Highlight the last row of the list that has the focus; from the query in Normal mode, the last result, giving the results the focus.";
     HighlightRow "highlight_row" Highlight "Highlight row # (the number shown before each row on screen). 0 is the last row on screen.";
     HighlightNextInRow "highlight_next_in_row" Highlight "Highlight row # (the number shown before each row on screen), then do what highlight_next does there: highlight the row below it. 0 is the last row on screen.";
     GoToParent "go_to_parent" GoTo "Go up to the parent of the current directory. The query is kept, so the parent's entries are filtered by it too.";
@@ -933,6 +933,7 @@ impl Function {
         let folders = [ExplorerFolder, ExplorerFolderMultiple];
         let lists = scope(&[], &[Results, Marks], &[]);
         let results = scope(&[], &[Results], &[]);
+        let query = scope(&[], &[Query], &[]);
         let insert: &[(&str, Scope)] = match self {
             HighlightPrevious => &[("<M-k>", all)],
             HighlightNext => &[("<M-j>", all)],
@@ -966,8 +967,8 @@ impl Function {
             HighlightNext => &[("j", all)],
             HighlightPreviousPage => &[("K", all)],
             HighlightNextPage => &[("J", all)],
-            HighlightFirst => &[("gg", all)],
-            HighlightLast => &[("G", all)],
+            HighlightFirst => &[("gg", all), ("j", query)],
+            HighlightLast => &[("G", all), ("k", query)],
             GoToParent => &[("h", lists)],
             GoToHighlighted => &[
                 ("l", lists),
@@ -1020,7 +1021,7 @@ impl Function {
             ToggleMarkedList => &[("<C-k>", all)],
             ToggleJobList => &[("<C-j>", all)],
             ClearQuery => &[("<Esc>", results)],
-            ToggleQueryFocus => &[("<Esc>", scope(&[], &[Query], &[]))],
+            ToggleQueryFocus => &[("<Esc>", query)],
             SwitchQuery => &[("<Tab>", all)],
             SearchShallower => &[("-", all)],
             SearchDeeper => &[("+", all)],
@@ -1068,8 +1069,10 @@ impl Function {
             .map(|(text, scope)| {
                 let keys = parse(text).expect("default keys parse");
                 // A default key typed as text leaves the query in focus to
-                // Neovim: there h moves the cursor and x deletes.
-                let typed = mode == Mode::Normal && keys[0].printable();
+                // Neovim: there h moves the cursor and x deletes. Those
+                // bound for the query alone (j, k) are meant for it.
+                let typed =
+                    mode == Mode::Normal && keys[0].printable() && scope.focuses != Query.bit();
                 Binding {
                     function: self,
                     mode,
@@ -2020,6 +2023,19 @@ mod tests {
         for c in ['h', 'l', 'x', 'v', 'u', 'p', '3', 'g', ' '] {
             assert_eq!(normal(query, &[press(c)]), Step::Pass, "{c}");
         }
+        // j and k go down into the results, to the first or last row.
+        assert_eq!(
+            normal(query, &[press('j')]),
+            Step::Run(Function::HighlightFirst, None)
+        );
+        assert_eq!(
+            normal(query, &[press('k')]),
+            Step::Run(Function::HighlightLast, None)
+        );
+        assert_eq!(
+            normal(cell(Roam, H::Dir), &[press('j')]),
+            Step::Run(Function::HighlightNext, None)
+        );
         // Other keys still act on the results below it.
         let file = Cell {
             highlight: H::File,

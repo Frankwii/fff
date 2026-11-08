@@ -15,7 +15,7 @@ message_seconds = 4
 # (directories: entry count) and "modified" (time since); [] shows none.
 columns = ["size", "modified"]
 # The order results start in: "program" (each program's own: the best match
-# less a penalty for depth, as "log"; the best match first in fff seek), or
+# minus a penalty for depth, as "log"; the best match first in fff seek), or
 # "name", "size", "modified", "accessed", "created", "extension", "kind",
 # "depth", "shallowest" or "log" (gs chooses for the session).
 sort = "program"

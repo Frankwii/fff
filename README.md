@@ -236,7 +236,7 @@ Labels are presentation only: output paths are never shortened.
 
 ### Sorting
 
-Rows are ranked by how well they match less a penalty for their depth,
+Rows are ranked by how well they match minus a penalty for their depth,
 growing as its logarithm, so that the first levels down cost most: a much
 better match deeper down comes before a poor one above it, and an empty
 query lists by depth, directories first. `[ui] temperature` sets how much
@@ -261,7 +261,7 @@ ties:
 - `kind`: folders, then files, then links;
 - `depth`, the shallowest first, then name;
 - `shallowest`: depth, folders first, then the best match;
-- `log`: the best match less the penalty for depth, as the programs but
+- `log`: the best match minus the penalty for depth, as the programs but
   `fff seek` rank;
 - `program`: back to the program's own order, which has no direction.
 
@@ -518,7 +518,7 @@ The defaults are mostly Normal-mode keys, Vim's where it has one; while
 typing, Alt+h/j/k/l move around, Up / Down switch tabs and Enter acts as in
 Normal mode. Keys typed as text (letters, digits, `/`, `!`) apply in the
 results and the marked list, and are Neovim's while the query has the
-focus. Some functions have no default key: bind them on the Keys screen.
+focus, but `j` / `k`, which go down into the results. Some functions have no default key: bind them on the Keys screen.
 
 | Key | Action |
 | --- | --- |
@@ -530,6 +530,7 @@ focus. Some functions have no default key: bind them on the Keys screen.
 | j / k (Alt+j / Alt+k while typing) | Next / previous row |
 | J / K | Next / previous page of results |
 | gg / G | First / last row |
+| j / k with the query in focus (Normal mode) | Go down into the results, to the first / last row |
 | h (Alt+h while typing) | Parent directory; retain query and reset highlight/scroll |
 | l (Alt+l while typing) | Enter the highlighted directory, or the highlighted file's folder |
 | L | Open the highlighted file in the background |

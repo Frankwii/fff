@@ -9,7 +9,7 @@ use std::{cell::OnceCell, cmp::Ordering, path::Path, sync::Arc, time::SystemTime
 /// How a program ranks its rows (`Program::rank`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Rank {
-    /// The best merit first (`merit`: the score per letter less a penalty
+    /// The best merit first (`merit`: the score per letter minus a penalty
     /// for the depth, held as the key's score), then as `Score`.
     #[default]
     Log,
@@ -55,7 +55,7 @@ pub enum Criterion {
     Depth,
     /// The depth, folders first, then the best match.
     Shallowest,
-    /// The match, less a penalty growing as the logarithm of the depth
+    /// The match, minus a penalty growing as the logarithm of the depth
     /// (`merit`): as `Rank::Log` ranks.
     Log,
 }
@@ -102,7 +102,7 @@ impl Criterion {
             Self::Kind => "Folders, then files, then links.",
             Self::Depth => "Depth below the folder searched, then names.",
             Self::Shallowest => "Depth, folders first, then the best match.",
-            Self::Log => "The best match, less a penalty growing as the logarithm of the depth.",
+            Self::Log => "The best match, minus a penalty growing as the logarithm of the depth.",
         }
     }
     pub fn named(name: &str) -> Option<Self> {
@@ -123,7 +123,7 @@ impl Criterion {
 fn penalty(depth: usize) -> f64 {
     LEVEL * AVERAGED * (depth as f64).ln_1p() / AVERAGED.ln_1p()
 }
-/// A row's merit: its score per letter of the query, less the penalty at
+/// A row's merit: its score per letter of the query, minus the penalty at
 /// `temperature`, in fixed point (the best match the highest). An empty
 /// query scores every row 0, so its rows rank by depth.
 fn merit(depth: usize, score: i64, letters: usize, temperature: f32) -> i64 {

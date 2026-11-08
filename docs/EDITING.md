@@ -66,7 +66,9 @@ by name (Enter) or go back (Escape).
 Typing gives the query the focus: `i`, `a` or any other key no binding has
 in the results goes to Neovim and moves the focus up to the query, and
 Escape from Insert mode stays there. In the query's Normal mode `h`, `l`,
-`x`, `p`, `u`, `v`, `:` and the other keys typed as text edit it, unless you
+`x`, `p`, `u`, `v`, `:` and the other keys typed as text edit it, but `j`
+and `k`, which go down into the results to the first or last row
+(`highlight_first`, `highlight_last`), unless you
 bound one there yourself (a key you bind always comes first; its
 [focus](CONFIGURATION.md#the-query-in-focus) decides where). Enter, Tab and
 the Alt and Ctrl keys still act on the results. Whichever of the two lacks
@@ -169,7 +171,7 @@ list, which has no text field:
 | --- | --- | --- | --- |
 | `j` / `k` | Next / previous result | Next / previous entry | Next / previous mark |
 | `h` | Parent directory | Neovim motion | No action |
-| `l` | Enter the highlighted directory, or open the file in the background | Neovim motion | Enter the highlighted directory (on a file, no action) |
+| `l` | Enter the highlighted directory, or go to the highlighted file's folder | Neovim motion | Enter the highlighted directory, or go to the highlighted file's folder |
 | `gg` / `G` | First / last result | First / last entry | First / last mark |
 | `m` / `M` | Mark all results / invert their marks | Neovim command | Mark all rows / invert their marks |
 | `gc` | [Edit the configuration](CONFIGURATION.md#editing-while-fff-runs), then apply it | Neovim command | Edit the configuration, then apply it |

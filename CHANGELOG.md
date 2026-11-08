@@ -4,6 +4,14 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Changed
+
+- **`j` and `k` in the query's Normal mode go down into the results**, to
+  the first and the last row: `highlight_first` and `highlight_last` give
+  the results the focus when run from the query in Normal mode.
+
 ## 0.22.0 — 2026-11-08
 
 The query can have the focus, where Normal mode edits it as Neovim does;
@@ -179,14 +187,14 @@ The query box shows the Neovim mode in color.
 ## 0.20.0 — 2026-11-07
 
 Depth weighs against the match: every program but `fff seek` ranks the best
-match less a penalty for depth, so a much better match deeper down comes
+match minus a penalty for depth, so a much better match deeper down comes
 before a poor one near the top. Sorts start descending, in each criterion's
 own order.
 
 ### Changed
 
 - **`fff roam`, `fff pick`, `fff window` and the file dialogs rank by the
-  match less a penalty for depth**, growing as its logarithm so that the
+  match minus a penalty for depth**, growing as its logarithm so that the
   first levels down cost most, rather than by depth first (`fff roam`, the
   window and the dialogs) or by the match first (`fff pick`). An empty
   query still lists by depth, folders first, and `[ui] temperature` sets
@@ -210,13 +218,13 @@ own order.
 ## 0.19.4 — 2026-11-07
 
 Depth can weigh against the match: four sorts rank the best match first
-less a penalty for its depth, set by `[ui] temperature`.
+minus a penalty for its depth, set by `[ui] temperature`.
 
 ### Added
 
 - **Depth can weigh against the match instead of coming before it.** The
   sorting picker (`gs`) and `[ui] sort` have `linear`, `sqrt`, `log` and
-  `quadratic`: the best match first, less a penalty for depth growing in
+  `quadratic`: the best match first, minus a penalty for depth growing in
   proportion to it, as its square root, its logarithm or its square, so a
   much better match deeper down rises above a poor one near the top.
   `[ui] temperature` (1 by default) sets how much depth costs; 0 ranks as

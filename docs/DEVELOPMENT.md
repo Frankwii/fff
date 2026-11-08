@@ -91,7 +91,7 @@ the rows; `App::refresh` decides when they are ranked again or merged.
   goes through (`Order::cmp`, on a row and its key). It is the program's
   ranking (`Program::rank`): `Rank::Log` (every program but `fff seek`
   and a list read from stdin: the best merit first, the score per letter
-  of the query less a penalty for depth, `rows::merit`, then as `Score`)
+  of the query minus a penalty for depth, `rows::merit`, then as `Score`)
   or `Rank::Score` (`fff seek`: best match first, then depth, folders
   first, root order, then the path's bytes, which break every tie) or
   `Rank::Listed` (a list read from stdin: best match first,
@@ -192,7 +192,7 @@ planner share runs, so merging a run they share copies it, as it did before.
   output is based on the invocation directory, never the current browsing location.
 - Exactly one current directory is searched alongside ordered pinned startup
   roots. Overlap attribution uses minimum positive depth, then scope order.
-- Sort by fuzzy score per letter less a logarithmic penalty for depth, then
+- Sort by fuzzy score per letter minus a logarithmic penalty for depth, then
   depth, directories before files, root order, then original absolute
   pathname bytes; `fff seek` puts the fuzzy score itself first
   (`Program::rank`), and a list read from stdin keeps its order after the

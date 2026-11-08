@@ -265,7 +265,7 @@ temperature = 1.0         # what depth costs a match in the programs' ranking an
 ```
 
 The order sessions start in; `"program"` is each program's own (the best
-match less a penalty for depth, as `"log"` sorts; the best match first in
+match minus a penalty for depth, as `"log"` sorts; the best match first in
 `fff seek`).
 Descending is each criterion's own order: names from A, the largest, the
 newest, folders first, the shallowest, the best match first; `false`
@@ -1169,8 +1169,10 @@ apply in the `query` focus only, and a key pressed in the results that no
 binding has goes to Neovim and gives it the focus too (`i`, `a`, `cw`, `0`).
 Escape from Insert mode stays in the query, whose Normal mode edits it as
 Neovim does: by default every key typed as text (`h`, `l`, `x`, `v`, `p`,
-`u`, digits, `g` sequences, `:`) is Neovim's there, while Enter, Tab, the
-arrows and the Alt and Ctrl keys still act on the results below. Escape
+`u`, digits, `g` sequences, `:`) is Neovim's there but `j` and `k`, which
+give the results the focus on their first or last row (`highlight_first`
+and `highlight_last` do that from the query in Normal mode), while Enter,
+Tab, the arrows and the Alt and Ctrl keys still act on the results below. Escape
 there (`toggle_query_focus`) gives the results the focus back, and a click
 on a row does too. The Keys screen's query and list take the focus the
 same way.

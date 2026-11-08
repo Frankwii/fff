@@ -373,7 +373,12 @@ impl Session {
                     .min(app.shown_len().saturating_sub(page));
             }
             HighlightFirst | HighlightLast => {
-                jump_to_end(app, &mut self.focus, function == HighlightLast)
+                jump_to_end(app, &mut self.focus, function == HighlightLast);
+                // From the query in Normal mode, j and k go down into the
+                // results.
+                if app.mode() == keymap::Mode::Normal && matches!(self.focus, Focus::Results) {
+                    app.query_focused = false;
+                }
             }
             GoToParent => {
                 if app.can_navigate()
