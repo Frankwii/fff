@@ -17,8 +17,8 @@ history.
   Alt and Ctrl keys still act on the results. Whichever of the query and
   the results lacks the focus is drawn dimmed.
 - **`print_here`** prints the current directory and quits, in `fff pick`
-  and folder dialogs (`!` there, as before), and **`clear_marks`** clears
-  every mark; it has no default key.
+  and folder dialogs (`!` there, as before), and **`clear_marks`** (Ctrl+m)
+  clears every mark.
 - **`explorer-folder-multiple`**: keys can apply to `fff explorer folder
   --multiple` apart from `folder`.
 
@@ -43,10 +43,32 @@ history.
   dialogs choosing files. Elsewhere their keys say they do not work there.
   With nothing highlighted, `quit_into_highlighted` leaves into the current
   directory in either mode.
-- **Ctrl+number highlights its row** (`highlight_row`, formerly
-  `confirm_row`) instead of acting as Enter on it.
+- **The numbered-row functions highlight their row, then act there**:
+  `open_row` opens a file and quits, as `open_and_quit` does, in `fff
+  roam` and `fff window`; `highlight_row` (formerly `confirm_row`) only
+  highlights, and `highlight_next_in_row`, new, highlights the row below it.
 - **Escape no longer clears the marks** when pressed again with the query
-  empty; bind `clear_marks` for that.
+  empty; Ctrl+m (`clear_marks`) does.
+- **New default keys**, mostly in Normal mode and Vim's where it has one;
+  many functions have no default key any more, and the Keys screen binds
+  them. Among them:
+  - Enter does the same in both modes: in `fff roam` it opens a file and
+    leaves (on a directory it does nothing; `g!` leaves into it), in `fff
+    pick` it prints the marks and the highlighted entry, Shift+Enter only the
+    highlighted one and Ctrl+Enter only the marks (formerly Ctrl+w).
+  - `l` goes into a directory or a file's folder, `L` opens a file in the
+    background; `/` goes to a path (formerly `g/`).
+  - Digits highlight their row, Alt+number the row below it and
+    Ctrl+number opens its file and leaves; Ctrl+Alt+number sets the depth.
+  - `J` and `K` page through the results; Ctrl+j and Ctrl+k open the jobs
+    and marked lists, and PageDown and PageUp scroll the preview.
+  - `gd` and `gD` hide folders and files, `gl` switches labels, `gpp` and
+    `gpw` the preview and its wrapping, `gP` opens palettes.
+  - Up and Down switch tabs in either mode; Space marks, in Normal mode.
+  - The file operations' keys (`v`, `p`, `s`, `x`, `X`, `E`, `u`, `R`) work
+    in the results, not in the marked list.
+  - `open_in_terminal`, `reload_palette` and most Alt keys for features
+    have no default key.
 - **The jump list's functions are named as Neovim's**: `go_to_older_jump`
   (Ctrl+o) and `go_to_newer_jump` (Ctrl+i), formerly `go_back` and
   `go_forward`.

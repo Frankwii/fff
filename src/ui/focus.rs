@@ -6,11 +6,9 @@ use super::*;
 /// How Enter reached the results.
 #[derive(Clone, Copy, Default)]
 pub(super) struct Row {
-    /// Enter on a row pointed at (Ctrl+number, a double click): it must
+    /// Enter on a row pointed at (a `_row` function, a double click): it must
     /// still be listed.
     pub on_row: bool,
-    /// Ctrl+number with no rows shown: Enter with nothing highlighted.
-    pub unnumbered: bool,
 }
 
 impl Session {
@@ -592,10 +590,7 @@ impl Session {
         mode: keymap::Mode,
         row: Row,
     ) -> io::Result<Option<Finish>> {
-        let (_, mut cell) = self.here(app);
-        if row.unnumbered {
-            cell.highlight = keymap::Highlight::None;
-        }
+        let (_, cell) = self.here(app);
         let enter = keymap::Key::press(KeyEvent::new(K::Enter, M::NONE));
         let function = match Function::default_of(enter, mode, cell) {
             Some(Function::SaveHere) if row.on_row => match cell.highlight {
@@ -775,9 +770,6 @@ pub(super) fn chosen(
         }
         let directory = mark.is_dir();
         return Ok(Some((mark, directory)));
-    }
-    if row.unnumbered {
-        return Ok(None);
     }
     let Some(target) = app.highlighted_row().map(|c| crate::Candidate::clone(c)) else {
         if row.on_row {

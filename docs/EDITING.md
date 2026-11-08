@@ -9,10 +9,10 @@ error.
 
 The query, exclusions, file filters, workspace and icon filters, and palette
 filter all initially start in **Normal mode**. New file/directory naming
-buffers, the go-to prompt (Alt+g), the gx/gX command prompt, the workspace
+buffers, the go-to prompt (`/`), the gx/gX command prompt, the workspace
 form's name and path, and the query of `fff pick`, `fff seek`,
 `fff explorer save` and a list read from stdin start in **Insert mode**, ready for typing; rename and
-extraction buffers and the contents query start in Normal. Tab or Alt+/
+extraction buffers and the contents query start in Normal. Tab
 (`switch_query`), in either mode, moves between the names and contents
 queries, in every program, the file dialogs included, and the other query is typed
 into in the mode it was pressed in (Insert stays Insert, Normal stays
@@ -33,7 +33,7 @@ executes commands such as `:s`. Query Enter keeps its navigation/confirmation
 action. Rename, exclusion and filter buffers retain multiline `o`, `O` and Enter.
 
 In results Normal mode, `v`, `p`, `x`, `X`, `u`, `r`, `R`, `E`, `n` and `s` invoke file
-operations; Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
+operations (all but `r` and `n` in the results only, not the marked list); Insert mode keeps them as text. Likewise `n`, `e`, `d` and `r` add,
 edit, delete and reload workspaces in the workspace chooser's Normal mode (Alt+n,
 Alt+e, Alt+d and Alt+r work in every mode). Other choosers and operation buffers
 retain their editing keys.
@@ -56,11 +56,10 @@ such as `f` or `r` shows **PENDING** without blocking fff; switching fields
 cancels transient pending input or selection.
 
 The table lists Neovim's own keys, as they work in fields without fff
-bindings (exclusions, filters, rename lists, prompts). In the results' query,
-Normal-mode keys bound to [list actions](#normal-mode-list-keys) act on the
-results instead: `b`, `d`, `p`, `P`, `u`, `v` and `x`, for example, are not
-editing commands there, while `c` operators (`cw`, `ciw`, `C`), `0`, `$`, `w`
-and Ctrl+r still edit the query. `:` there opens the command picker instead
+bindings (exclusions, filters, rename lists, prompts). In the results' query in
+focus, the default keys typed as text edit it as Neovim's do, while keys
+not typed as text (Enter, Tab, arrows, Alt and Ctrl keys) still act on the
+results below. `:` there opens the command picker instead
 of Neovim's command line: the functions that work where you are, to run one
 by name (Enter) or go back (Escape).
 
@@ -103,11 +102,10 @@ in the marked list. Insert-mode fields treat them as text. They are `quit`,
 `quit_here`, `print_here` and `save_here` on the
 [Keys screen](CONFIGURATION.md#keys).
 
-Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
-Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every
-mode. Space in Normal mode marks/unmarks like Shift+Space; in Insert mode it
-types a space. Shift+Space needs a terminal that tells it from Space (the kitty
-keyboard protocol); elsewhere it types a space. Tab never marks: it switches between the names and contents queries.
+Ctrl+c always cancels fff. Alt and Ctrl shortcuts, Ctrl/Alt+digits and
+Ctrl+Enter retain their fff actions in results/marks, in every mode. Space in
+Normal mode marks/unmarks; in Insert mode it types a space. Tab never marks:
+it switches between the names and contents queries.
 The marked list always accepts Space because it has no text field. In Normal mode `m` marks every
 listed row (all filtered results, not only those on screen, or every row of the
 marked list) and `M` inverts the listed rows' marks, like nnn's `a` and `A`;
@@ -146,20 +144,18 @@ With the query in focus, Escape in Normal mode gives the results the focus.
 Escape when already Normal in the results clears the main query (with a contents query, the query
 being typed into, or the other one once it is empty), closes subordinate choosers
 or cancels the workspace form; exclusion and operation buffers keep Escape inside
-Neovim. With the query already empty, a second Escape in a row clears every
-mark.
+Neovim. Escape never clears the marks.
 It never exits the session.
 
-Digits are query text in Insert mode. In Normal-mode results 1–9 set the
-search depth (`search_to_depth` on the Keys screen; `"none"` gives them back); elsewhere in Normal mode they
-are Vim counts. Alt+j/Alt+k move list highlights in every mode. The rows of
+Digits are query text in Insert mode. In Normal-mode results 1–9 highlight
+that row (`highlight_row` on the Keys screen; `"none"` gives them back), and
+Ctrl+Alt+1–9 set the search depth; elsewhere in Normal mode they are Vim
+counts. `j`/`k` move list highlights in Normal mode, Alt+j/Alt+k while typing. The rows of
 the choosers (workspaces, workspace icons, palettes) and the `:` and sorting
 pickers are numbered as the results are: Alt+1 through Alt+9 is Enter on
 that row, Alt+0 on the last, in every mode; a click highlights a row, the
-wheel moves the highlight and a double click is Enter on it. Up/Down move
-the results highlight while typing and switch tabs in Normal-mode results,
-except in `fff seek`, which has no tabs, where they move the highlight too;
-Alt+Up/Alt+Down switch to the next/previous tab in every mode. Up/Down move
+wheel moves the highlight and a double click is Enter on it. Up/Down switch
+to the next/previous tab in the results, in either mode. Up/Down move
 choosers' highlights (in the workspace chooser they reorder workspaces); in
 exclusions, filters and during command-line editing they go to Neovim.
 
@@ -188,9 +184,9 @@ Unbound keys go to Neovim. A binding prefix such as `g` waits as **PENDING**; an
 unmatched continuation sends both keys to Neovim, preserving commands such as
 `gU`, `g~` and `g?` (not `gu`: the `u` after the `g` undoes a file operation) (`gc`, Neovim's comment operator, edits the
 configuration instead). Escape after a lone `g` cancels it without
-clearing the query. The default `d`, `D` and `P` replace Neovim's delete and
-put commands in the results, which have little use in a one-line query, and
-`u` undoes file operations there instead of query edits. Every key is rebound on the [Keys screen](CONFIGURATION.md#keys) (F1).
+clearing the query. In the results the default `p`, `x` and `u` copy marked
+entries, trash and undo file operations; with the query in focus they are
+Neovim's put, delete and undo. Every key is rebound on the [Keys screen](CONFIGURATION.md#keys) (F1).
 
 ## Isolation and terminal behavior
 

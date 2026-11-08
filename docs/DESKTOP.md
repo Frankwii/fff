@@ -215,10 +215,10 @@ file dialogs. In short:
 | Dialog | How to choose | The application receives |
 | --- | --- | --- |
 | Open a file (attach, upload) | Enter on a file | That file. |
-| Open several files | Space to mark (Shift+Space while typing), then Enter on a file (or Ctrl+w) | The marks and that file. |
+| Open several files | Space to mark (in Normal mode), then Enter on a file (or Ctrl+Enter) | The marks and that file. |
 | Choose a folder | Go into it and press `!` (or Ctrl+s) | That folder. |
 | Save (a download, a PDF from the viewer) | Go to the folder and press Ctrl+s (or `!` after Escape: a save dialog starts typing the name) | The suggested name in that folder. |
-| Save under another name | Go to the folder (Alt+l and Alt+h while typing, or Escape to browse), type the name, Enter (or Ctrl+s) | That name in that folder. |
+| Save under another name | Go to the folder (Alt+l and Alt+h while typing, or Escape to browse with `l` and `h`), type the name, Enter (or Ctrl+s) | That name in that folder. |
 
 `q` (or Ctrl+c while typing) cancels, as the footer says beside `F1 keys`. The
 empty query line says how to choose, and when saving, the query box's title
@@ -293,7 +293,7 @@ PATH is a folder, it is `untitled`.
 
 The keys keep their meaning from a normal session (see the
 [README](../README.md#browsing-and-returning-paths)): Enter acts on the
-highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (in
+highlighted entry, `!` on the folder you are in, Ctrl+Enter on the marks (in
 `open-multiple` and `folder --multiple` only). What differs:
 
 | Key | In `fff explorer` |
@@ -306,10 +306,9 @@ highlighted entry, `!` on the folder you are in, Ctrl+w on the marks (in
 | Ctrl+s | Like `!`, and also while typing: saves here, or chooses this folder. Nothing in open dialogs. |
 | `q` (Normal mode) | Cancels, as everywhere: nothing is chosen. |
 | Ctrl+c | Cancels. |
-| Ctrl+w | Chooses the marks, in `open-multiple` and `folder --multiple`. Other dialogs have one answer: Ctrl+w does not work there, and the status line says so. |
-| Ctrl+number | Highlights that row, as in a normal session. |
+| Ctrl+Enter | Chooses the marks, in `open-multiple` and `folder --multiple`. Other dialogs have one answer: Ctrl+Enter does not work there, and the status line says so. |
 | Double click | Enter on that row (a normal session acts like `l`). When saving it acts on the row, not on the typed name: it enters a folder, or offers to replace a file. |
-| `l`, Alt+l, Alt+number | Enter a folder, as in a normal session. In open and save dialogs, on a file they open nothing (those dialogs choose files): the status line says how to choose it (Enter on it) or, when saving, to replace it (saving under its name). In folder dialogs a file opens in the background, as in a normal session. |
+| `L` | Opens a file in the background in folder dialogs, as in a normal session. In open and save dialogs it opens nothing (those dialogs choose files): the status line says how to choose the file (Enter on it) or, when saving, to replace it (saving under its name). |
 | `gX` | Cancels without running the program (`gx` runs it and comes back, as usual). |
 
 File operations (move, copy, delete, rename, new file or folder, extract)
@@ -317,7 +316,7 @@ remain available, so a dialog can also make the folder to save into.
 
 ### Searching contents in a dialog
 
-Tab (or Alt+/) opens the [contents query](../README.md#searching-contents)
+Tab opens the [contents query](../README.md#searching-contents)
 here too, so a file can be found by what it contains: Enter on a match
 chooses its file. In a save dialog the
 name saved under is always the names query's (or the suggested name), never
@@ -334,7 +333,7 @@ names…`. Typing (Insert mode) changes it, since `!` is then text:
 | Dialog | Normal mode | Insert mode |
 | --- | --- | --- |
 | Open one file | Press Enter on a file to choose it. | the same |
-| Open several | Press Enter on a file to choose it. Press Space to mark several, then Ctrl+w to choose them. | the same |
+| Open several | Press Enter on a file to choose it. Press Space to mark several, then Ctrl+Enter to choose them. | the same |
 | Folder | Press ! or Ctrl+s to choose the folder you are in. | Press Ctrl+s to choose the folder you are in. |
 | Save | Press ! or Ctrl+s to save NAME here. Press i to type a custom name. | Type a custom name, then press Enter or Ctrl+s to save it here. Press Esc to browse folders. |
 
@@ -376,7 +375,7 @@ window for that file.
 
 The paths a key returned become the answer as follows:
 
-- **Open:** folders are dropped, so a folder returned by `!` or Ctrl+w counts
+- **Open:** folders are dropped, so a folder returned by `!` or Ctrl+Enter counts
   as nothing. In `open`, only the last remaining path is kept: the
   file Enter was pressed on, or the last mark.
 - **Folder:** files are dropped. Without `--multiple`, only the last folder is

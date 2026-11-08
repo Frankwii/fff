@@ -77,10 +77,9 @@ name.
 ## Shell integration
 
 `fff roam`, the default, changes directory on exit: `q` leaves you where you
-started, `!` takes you to the directory you were browsing, Normal-mode Enter
-on a directory takes you into it, and on a file opens it and leaves you in its
-folder. Ctrl+number highlights that row. To open several files at once, `o`
-opens the marked ones in this terminal and comes back.
+started, `!` takes you to the directory you were browsing, `g!` into the
+highlighted directory, and Enter on a file opens it and leaves you in its
+folder. Ctrl+number opens the file in that row and leaves the same way.
 
 `fff pick` prints the selection instead, for scripts and command substitution,
 as described under [returning paths](#browsing-and-returning-paths):
@@ -149,57 +148,54 @@ accents are ignored unless the query has some: `evaluacion` finds
 Depth still weighs against the match, and directories come first among
 matches as good (see [sorting](#sorting)).
 
-Enter depends on the editing mode:
+Enter does the same in either editing mode:
 
-- **Normal mode:** Enter *finishes with* the highlighted entry. On a directory
-  fff exits into it. On a file, in `fff roam`, fff **opens it and leaves**:
+- **`fff roam`:** on a file, fff **opens it and leaves** (`open_and_quit`):
   a terminal opener (an editor, a pager) takes over this terminal in fff's place,
-  like `gX`, and any other opener starts detached, like `l`; the shell then
-  changes to the file's folder (also for deep results: `notes/more/a.pdf` leaves
-  you in `notes/more`). In `fff pick`, Enter on a file prints the file;
-  in `fff seek` it exits into its folder. With
-  nothing listed, Enter exits into the browsing directory. Marks are ignored.
-  In the marked list Enter does the same for the highlighted mark.
-- **While typing (Insert mode):** Enter opens a directory. On a file, in
-  `fff pick` it returns the marked paths in insertion order plus that file
-  once; in `fff roam` it *reveals* the file: fff moves to its folder,
-  clears the query and highlights it. `fff seek`, which never moves, exits
-  into the file's folder, as in Normal mode.
+  like `gX`, and any other opener starts detached; the shell then changes to
+  the file's folder (also for deep results: `notes/more/a.pdf` leaves you in
+  `notes/more`). On a directory Enter does nothing: `l` goes into it, and
+  `g!` leaves into it (`quit_into_highlighted`).
+- **`fff pick`:** Enter prints the marked paths in insertion order plus the
+  highlighted one once (`print_highlighted_and_marks`); Shift+Enter prints
+  only the highlighted one, Ctrl+Enter only the marks, and `!` the browsing
+  directory. With nothing listed, Enter prints the browsing directory.
+- **`fff seek`:** Enter leaves into the highlighted file's folder.
 
-To move around, use `l` (or Alt+l, or Alt+number for a labelled row): it enters
-a directory, and **opens a file** with its [opener](docs/OPERATIONS.md#opening-files)
-in the background while fff keeps the keyboard. `o` opens the current or marked
-files in this terminal instead, and fff comes back when the program ends.
+To move around, use `l` and `h` in Normal mode (Alt+l and Alt+h while
+typing): `l` goes into a directory, and on a file into its folder with the
+file highlighted. `L` **opens a file** with its
+[opener](docs/OPERATIONS.md#opening-files) in the background while fff keeps
+the keyboard.
 
 The keys that open or finish fit together:
 
 | Key | Acts on | Then |
 | --- | --- | --- |
-| `l` | The highlighted entry: go into a directory, open a file in the background | fff stays |
-| `o` | The current or marked files, opened in this terminal | fff comes back |
-| Enter (Normal) | The highlighted entry: leave into a directory, open a file | fff leaves |
+| `l` | The highlighted entry: go into a directory, or a file's folder | fff stays |
+| `L` | The highlighted file, opened in the background | fff stays |
+| Enter | The highlighted file, opened (`fff roam`); the marks and the highlighted entry, printed (`fff pick`) | fff leaves |
+| `g!` | The highlighted directory (`fff roam`) | fff leaves into it |
 | `!` | The folder you are browsing | fff leaves into it |
-| Ctrl+w | The marks, returned (`fff pick` only) | fff leaves |
+| Ctrl+Enter | The marks, returned (`fff pick`) | fff leaves |
 | `q` | Nothing | fff leaves where you started |
 
 [`fff explorer`](docs/DESKTOP.md#fff-explorer), the mode for answering file
 dialogs, keeps these meanings: Enter chooses a file and enters a folder, `!`
-takes the folder you are in, Ctrl+w the marks (in dialogs for several files),
-and Ctrl+s saves. A folder
+takes the folder you are in, Ctrl+Enter the marks (in dialogs for several
+files), and Ctrl+s saves. A folder
 opened from the desktop (`fff window`) has no shell to leave into: Enter enters a
 folder, and `!` starts a shell in the folder you are in
 ([details](docs/DESKTOP.md#opening-directories)).
 
-Shift+Space toggles a mark in every mode, and Space in Normal mode; marks
-survive navigation and filtering. On a [contents match](#searching-contents)
-the mark is its file's, and the highlight moves on to the next file.
-`clear_marks` clears every mark; it has no key until you
-[give it one](docs/CONFIGURATION.md#keys). Ctrl+w finishes
-with the marks only, and works only where the answer can be several paths:
-`fff pick` returns them (as do `fff explorer open-multiple` and `folder
---multiple`). Elsewhere (`fff roam`, `fff seek`, other dialogs) it does not
-work and the status line says so; there the marks are for file operations,
-`o`, `e` and `gx`. Enter while typing with a query matching nothing stays
+Space toggles a mark in Normal mode; marks survive navigation and
+filtering. On a [contents match](#searching-contents) the mark is its file's,
+and the highlight moves on to the next file. Ctrl+m clears every mark.
+Ctrl+Enter finishes with the marks only, and works only where the answer can
+be several paths: `fff pick` returns them (as do `fff explorer open-multiple`
+and `folder --multiple`). Elsewhere (`fff roam`, `fff seek`, other dialogs)
+it does not work and the status line says so; there the marks are for file
+operations and `gx`. Enter while typing with a query matching nothing stays
 open, and a short status message says nothing matches.
 Missing marks block confirmation until unmarked.
 
@@ -207,21 +203,23 @@ Missing marks block confirmation until unmarked.
 
 Every session has three tabs, like nnn's contexts, numbered in the top-right
 corner of the results, the active one in the `@` badge's colors. All start in
-the session's first directory. Alt+Up / Alt+Down (or Up / Down in Normal mode)
-switch to the next / previous tab, wrapping around; each tab keeps its own directory and Ctrl+o / Ctrl+i history,
+the session's first directory. Up / Down switch to the next / previous tab,
+wrapping around; each tab keeps its own directory and Ctrl+o / Ctrl+i history,
 while marks, the query, depth, hidden entries, exclusions and filters are
 shared. Mark files in one tab, switch, browse somewhere far away, then move
 or copy them there with `v` / `p`. Switching to a tab in another directory lists
 it again with an empty query; a tab whose directory is moved follows it, and one whose directory vanished falls
 back to the nearest existing parent. F2's session details list every tab's directory. `fff seek`, which cannot
-change directory, has no tabs: Up / Down in Normal mode move the highlight there.
+change directory, has no tabs.
 
-Ctrl+number highlights a visible row, in either editing mode; what Enter or
-any other key then does is done to that row. Alt+number acts like `l` on its
-row: it enters a directory or opens a file in the background.
-Labels refer to the last fully rendered page: 1–9 select that position,
-out-of-range digits clamp to the last row, and 0 selects the last row. With no
-visible rows, both do nothing.
+Rows are numbered on screen, and three functions act on a numbered row: a
+digit in Normal mode highlights it (`highlight_row`), Alt+number highlights
+the row below it (`highlight_next_in_row`), and Ctrl+number opens its file
+and quits, as Enter does in `fff roam` and `fff window` (`open_row`; on a
+directory it only highlights it). Labels refer to the last fully rendered
+page: 1–9 select that position, out-of-range digits clamp to the last row,
+and 0 selects the last row (plain 0 stays Neovim's). With no visible rows,
+they do nothing.
 
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
@@ -232,7 +230,7 @@ a name, each gains the fewest trailing parent directories that tell it apart
 labels follow the listing as you navigate. The footer shows the highlighted
 entry's path. In `fff roam`, `fff seek` and `fff explorer`, labels are paths
 relative to the browsing directory, with repeated leading parent steps
-shortened to `.../`. `gd` in Normal mode (`toggle_labels`) switches between
+shortened to `.../`. `gl` in Normal mode (`toggle_labels`) switches between
 the two for the session, and the choice stays when `gm` changes program.
 Labels are presentation only: output paths are never shortened.
 
@@ -273,9 +271,9 @@ and `sort_descending` choose the one sessions start in (see
 
 `--glob` is a file filter: only files whose basename matches it are listed, and
 directories are hidden but still traversed. Repeat it to allow several patterns
-(`--glob '*.pdf' --glob '*.epub'`); a file matching any of them is listed. Alt+f
-(`gF` in Normal mode) edits the filters during the session, one glob per line;
-Alt+F (`gf`) turns them off and on again, keeping them. Changing them re-lists
+(`--glob '*.pdf' --glob '*.epub'`); a file matching any of them is listed. `gF`
+in Normal mode edits the filters during the session, one glob per line;
+`gf` turns them off and on again, keeping them. Changing them re-lists
 the files already found without rescanning.
 
 Hidden entries are off by default. Exclusion rules, from `[exclusions] rules`
@@ -308,7 +306,7 @@ fff pick ~/papers --depth 4 --glob '*.pdf' -0 | xargs -0 zathura
 
 Discovery still traverses directories within the depth limit, and the query
 starts in Insert mode, ready to type. Result rows show their path below the
-folder searched; `gd` switches to bare file names, with only the parents
+folder searched; `gl` switches to bare file names, with only the parents
 that tell same-named files apart, as in `fff pick`.
 
 ### Choosing from another program's paths: `COMMAND | fff`
@@ -334,11 +332,11 @@ fd -0 -e pdf | fff -0 | xargs -0r zathura
   `find -print0` and names with newlines.
 - **Choosing** prints paths as the list spelled them (`./src/main.rs` stays
   `./src/main.rs`), NUL-terminated with `-0`: Enter prints the highlighted
-  path (while typing, the marks and it), and Ctrl+w prints the marks. A double click is Enter. `q` prints
+  path and the marks, Shift+Enter the path alone, and Ctrl+Enter the marks. A double click is Enter. `q` prints
   nothing and Ctrl+c exits with 130, as in `fff pick`.
 - **What works** is the choice and how it looks: the names and
   [contents](#searching-contents) queries, marks, the preview, sorting
-  (`gs`), labels (`gd`), hiding folders or files, palettes, F1 and F2. Nothing
+  (`gs`), labels (`gl`), hiding folders or files, palettes, F1 and F2. Nothing
   navigates or lists anything else: no folders to go to, depth, hidden-entry,
   filter or exclusion keys, rescans or live updates; no file operations,
   undo, opening or running programs; no switching program (`gm`) or opening
@@ -358,15 +356,15 @@ fd -0 -e pdf | fff -0 | xargs -0r zathura
 ### Searching contents
 
 Every program, [file dialogs](docs/DESKTOP.md#searching-contents-in-a-dialog)
-included, searches what files contain as well as their names. Tab (or Alt+/) opens a second query, **Contents**, beside the
-names query, which moves to the left as **Names**; Tab or Alt+/ switches
+included, searches what files contain as well as their names. Tab opens a second query, **Contents**, beside the
+names query, which moves to the left as **Names**; Tab switches
 between them, in either mode, each keeping its own. While the contents query
 is set, the rows are the files listed that contain it, with **one row per
 match**: the file, the match's page (`p. 12`), how far into an EPUB it is
 (`42%`) or its line (`l. 40`), and the line it is on, the match
 highlighted. Cleared, they are the entries again, and its bar stays while it
 is set or typed into. The preview pane shows the lines around the
-highlighted match, which Ctrl+j and Ctrl+k scroll from there, up to 500
+highlighted match, which PageDown and PageUp scroll from there, up to 500
 lines either side. **Names** filters the files by name as usual, so it
 chooses which files are read, and `--depth`, `--glob`, `--exclude` and
 `--hidden` apply as they do to names. For a printed choice of documents by
@@ -378,8 +376,8 @@ fff pick ~/papers --depth 6 --glob '*.pdf' --glob '*.djvu' --glob '*.epub' -0 | 
 
 Escape clears the query being typed into (the other once it is empty).
 Enter acts on the match's file as on any row: in `fff pick` it prints it
-(while typing, the marks and it). Marking a match marks its file and moves
-on to the next file. `l` opens it in the background and keeps fff open; an
+with the marks). Marking a match marks its file and moves
+on to the next file. `L` opens it in the background and keeps fff open; an
 [opener](docs/CONFIGURATION.md#openers) with `at_grep_match` opens it at
 the match, zathura on its page with the query highlighted.
 
@@ -431,7 +429,7 @@ What carries over:
 
 - Everything you were looking at: the folders, tabs and their history, the
   query, the highlight, marks, exclusions, file filters and their toggles,
-  hidden entries, the preview and labels chosen with `gd`. A highlighted folder that `fff seek`
+  hidden entries, the preview and labels chosen with `gl`. A highlighted folder that `fff seek`
   cannot list comes back once it is listed again, unless you move.
 - The depth, if you set one. Otherwise it becomes the new program's default:
   1 for `roam`, 3 for `pick`, 6 for `seek`.
@@ -448,7 +446,7 @@ directory or print to.
 
 A workspace is a name for some of a session's settings: a folder, the
 program, roots, queries, depth, filters, exclusions, sorting and toggles. `gw`
-in Normal mode (Alt+w while typing) opens the chooser; Enter applies what the
+in Normal mode opens the chooser; Enter applies what the
 highlighted workspace keeps and leaves the rest, the query included. One that
 keeps only a folder is a place to go to. `n` there saves a new one: its name,
 its folder (the current one; empty leaves the folder alone), and Space ticks
@@ -482,7 +480,7 @@ video's duration, streams and tags. Text files show their syntax in the
 palette's colors, through Neovim. It is text only, reads in the background
 once the highlight rests, and never holds up the list. PDFs use poppler's
 `pdfinfo` and `pdftotext`, audio and video FFmpeg's `ffprobe`, when installed.
-Alt+v (`P` in Normal mode) hides or shows it, Ctrl+j and Ctrl+k scroll it,
+`gpp` in Normal mode hides or shows it, PageDown and PageUp scroll it,
 and `[ui] preview = false` starts with it hidden; see [preview
 pane](docs/CONFIGURATION.md#preview-pane).
 
@@ -516,71 +514,69 @@ and any errors in the configuration file. The footer's right end points to
 F1 and says how to leave: `F1 keys  q quit` (`Ctrl+c quit` while typing,
 where `q` is text).
 
-The defaults: Alt keys that move around (Alt+h/j/k/l, Alt+arrows, Alt+Space,
-Alt+digits) work in both modes. Alt keys for features (Alt+w, Alt+g, Alt+t,
-Alt+., Alt+d, Alt+D, Alt+v, Alt+e, Alt+H, Alt+f, Alt+F, Alt+p, Alt+P) work
-while typing; in Normal mode their letters do the work instead, and the Alt
-key says which one.
+The defaults are mostly Normal-mode keys, Vim's where it has one; while
+typing, Alt+h/j/k/l move around, Up / Down switch tabs and Enter acts as in
+Normal mode. Keys typed as text (letters, digits, `/`, `!`) apply in the
+results and the marked list, and are Neovim's while the query has the
+focus. Some functions have no default key: bind them on the Keys screen.
 
 | Key | Action |
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
-| Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Tab / Alt+/ | Type into the other query, contents or names, in either mode |
-| Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
-| Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`), exit into its folder (`fff seek`) or reveal it in its folder |
-| Up / Alt+k | Previous row (in Normal-mode results Up switches [tabs](#tabs), except in `fff seek`; use k) |
-| Down / Alt+j | Next row (in Normal-mode results Down switches [tabs](#tabs), except in `fff seek`; use j) |
-| h / j / k / l | Normal-mode list actions equivalent to Alt+h/j/k/l |
-| gg / G | First / last row in Normal-mode lists |
-| Alt+h | Parent directory; retain query and reset highlight/scroll |
-| Alt+l / l in Normal | Enter the highlighted directory, or open the highlighted file in the background |
-| Alt+o / o in Normal | Open the current or marked files with their openers in this terminal, then come back |
-| Alt+g / `g/` in Normal | Go to a typed path, or words picking a workspace or one of zoxide's frequent folders |
-| Ctrl+o / Ctrl+i | Back / forward through the folders this tab visited (Ctrl+i needs a terminal that tells it from Tab) |
-| Alt+Up / Alt+Down | Next / previous [tab](#tabs) (Up / Down in Normal-mode results) |
-| Alt+w / `gw` in Normal | [Workspace](#workspaces) chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
-| Alt+p / `gp` in Normal | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
-| Alt+P / `gP` in Normal | Reload the configured palette, clearing a session choice |
-| Alt+Right / Alt+Left | Increase / decrease depth; minimum 1 (`+` / `-` in Normal-mode results) |
-| 1 … 9 in Normal | Search results to that depth |
-| Shift+Space / Space in Normal | Toggle mark; advance in results, past a file's other matches (Shift+Space needs a terminal that tells it from Space) |
-| m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
-| K / Alt+K / Alt+Space | Focus / leave the marked list (K in Normal mode) |
-| J / Alt+J | Focus / leave the [jobs list](docs/OPERATIONS.md#progress-and-stopping) of operations still running; x there stops one and undoes it |
-| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer open-multiple`, `folder --multiple`; it does not work elsewhere) |
+| Escape | Leave transient editing modes, then give the results the focus back, then clear the query; keep the session |
+| Tab | Type into the other query, contents or names, in either mode |
+| Enter | Open the highlighted file and leave (`fff roam`), print the marks and the highlighted entry (`fff pick`), leave into the file's folder (`fff seek`); enter a folder in `fff window` and the dialogs |
+| Shift+Enter / Ctrl+Enter | Print the highlighted entry alone / the marks alone (`fff pick`, dialogs choosing several) |
+| j / k (Alt+j / Alt+k while typing) | Next / previous row |
+| J / K | Next / previous page of results |
+| gg / G | First / last row |
+| h (Alt+h while typing) | Parent directory; retain query and reset highlight/scroll |
+| l (Alt+l while typing) | Enter the highlighted directory, or the highlighted file's folder |
+| L | Open the highlighted file in the background |
+| `/` | Go to a typed path, or words picking a workspace or one of zoxide's frequent folders |
+| Ctrl+o / Ctrl+i | Older / newer folder in this tab's jump list (Ctrl+i needs a terminal that tells it from Tab) |
+| Up / Down | Next / previous [tab](#tabs), in either mode |
+| `gw` | [Workspace](#workspaces) chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
+| `gP` | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
+| `+` / `-` | Increase / decrease depth; minimum 1 |
+| Ctrl+Alt+1 … 9 | Search results to that depth |
+| 1 … 9 | Highlight that visible row |
+| Alt+1 … Alt+9 / Alt+0 | Highlight the row below that visible row / below the last |
+| Ctrl+1 … Ctrl+9 / Ctrl+0 | Open the file in that visible row / the last row and leave (`fff roam`, `fff window`) |
+| Space | Toggle mark; advance in results, past a file's other matches |
+| m / M | Mark every listed row / invert the listed rows' marks (results or marked list) |
+| Ctrl+m | Clear every mark |
+| Ctrl+k | Focus / leave the marked list |
+| Ctrl+j | Focus / leave the [jobs list](docs/OPERATIONS.md#progress-and-stopping) of operations still running; x there stops one and undoes it |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
-| Ctrl+1 … Ctrl+9 / Ctrl+0 | Highlight that visible row / the last row |
-| Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
-| PageUp / PageDown | Page through results |
-| Alt+. / . in Normal | Toggle hidden entries |
-| Alt+d / d in Normal | Hide directories, listing only files; again to show them (`fff seek` lists only files: d and D reach Neovim there) |
-| Alt+D / D in Normal | Hide files, listing only folders; again to show them |
-| Alt+v / P in Normal | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) |
-| gs in Normal | [Sort](#sorting) the matches by name, size, a date, extension, kind or depth; Tab there switches descending and ascending |
-| gd in Normal | Label rows by name (with the parents that tell same-named entries apart) or by path below the folder searched |
-| Ctrl+j / Ctrl+k | Scroll the preview pane down / up by half its height, keeping the highlight |
-| Alt+H / ge in Normal | Toggle exclusion enforcement |
-| Alt+e / gE in Normal | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
-| Alt+f / gF in Normal | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
-| Alt+F / gf in Normal | Turn the file filters off or on again, keeping them |
-| v / p / s in Normal | Move / copy / symlink all marked paths into the current directory; a move or copy that would overwrite asks first |
-| x in Normal | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
-| X in Normal | Choose current/selected deletion, review sizes, then Enter deletes permanently |
-| u in Normal | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before); one still running is stopped and undone |
-| Alt+t / gt in Normal | Open the [trash](docs/OPERATIONS.md#the-trash-folder) like any folder; again, the next filesystem's trash |
-| R in Normal | In the trash: restore the current or marked entries where they were deleted from |
-| r in Normal | Batch rename the filtered results in a buffer |
-| E in Normal | Extract the current or marked archives (asks when ambiguous) |
-| n in Normal | Choose a new file or directory, then enter its name |
+| . | Toggle hidden entries |
+| gd | Hide directories, listing only files; again to show them |
+| gD | Hide files, listing only folders; again to show them |
+| gpp / gpw | Show / hide the [preview pane](docs/CONFIGURATION.md#preview-pane) / wrap its lines |
+| PageDown / PageUp | Scroll the preview pane down / up by half its height, keeping the highlight |
+| gs | [Sort](#sorting) the matches by name, size, a date, extension, kind or depth; Tab there switches descending and ascending |
+| gl | Label rows by name (with the parents that tell same-named entries apart) or by path below the folder searched |
+| ge | Toggle exclusion enforcement |
+| gE | Edit session-local exclusions, one glob per line; matching entries (and directory subtrees) are hidden |
+| gF | Edit session-local file filters (`--glob`), one glob per line; only files whose name matches one are listed |
+| gf | Turn the file filters off or on again, keeping them |
+| v / p / s | Move / copy / symlink all marked paths into the current directory; a move or copy that would overwrite asks first |
+| x | Move the current/selected entries to the [trash](docs/OPERATIONS.md#trash-and-deletion) (asks only about very large entries) |
+| X | Choose current/selected deletion, review sizes, then Enter deletes permanently |
+| u | [Undo](docs/OPERATIONS.md#undo) the last file operation (again for the one before); one still running is stopped and undone |
+| gt | Open the [trash](docs/OPERATIONS.md#the-trash-folder) like any folder; again, the next filesystem's trash |
+| R | In the trash: restore the current or marked entries where they were deleted from |
+| r | Batch rename the filtered results in a buffer |
+| E | Extract the current or marked archives (asks when ambiguous) |
+| n | Choose a new file or directory, then enter its name |
 | F1 / F2 | Keys screen / Session details; the same key closes each |
-| `:` in Normal | Pick a function that works here by name and run it (Enter), or go back (Esc) |
+| `:` | Pick a function that works here by name and run it (Enter), or go back (Esc) |
 | F5 | Force fresh discovery, bypassing cache replay |
-| gx / gX in Normal | Run a program on the current or marked paths and come back / exit fff into it |
-| e in Normal | Open the current or marked paths in `$EDITOR`, then come back (`edit_files`; it works in Insert mode too, with a key of your own) |
-| gm in Normal | [Switch](#switching-programs) to `fff roam`, `pick` or `seek`, keeping the session |
-| gc in Normal | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
-| q / ! in Normal | Leave without choosing (where you started) / leave into the current directory, ignoring marks |
+| gx / gX | Run a program on the current or marked paths and come back / exit fff into it |
+| e | Open the current or marked paths in `$EDITOR`, then come back |
+| gm | [Switch](#switching-programs) to `fff roam`, `pick` or `seek`, keeping the session |
+| gc | [Edit the configuration](docs/CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session |
+| q / ! / g! | Leave without choosing (where you started) / leave into the current directory / leave into the highlighted one (`fff roam`) |
 | Ctrl+c | Cancel without selected-path output |
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |
 | Drag with the button held | Mark every row from where it was pressed to where it is; past the top or bottom edge, keep scrolling and marking |
@@ -598,9 +594,9 @@ text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#runn
 
 Normal-mode list keys apply to results, marks, workspaces and palettes; the
 location and exclusion fields keep Neovim motions. Plain digits are query text in
-Insert mode; in Normal-mode results 1–9 set the search depth
-(binding `search_to_depth` to nothing makes them Vim counts again). Keys are case-sensitive.
-Ctrl+digits require distinct terminal reporting; fff requests the Kitty
+Insert mode; in Normal-mode results 1–9 highlight that row
+(binding `highlight_row` to nothing makes them Vim counts again). Keys are case-sensitive.
+Ctrl+digits, Shift+Enter, Ctrl+Enter and Ctrl+m require distinct terminal reporting; fff requests the Kitty
 keyboard protocol and never guesses ambiguous input. Alt+digits also support
 ESC+digit reporting. Every key is rebound on the [Keys screen](docs/CONFIGURATION.md#keys)
 (F1), which saves to `keys.toml` beside the configuration.

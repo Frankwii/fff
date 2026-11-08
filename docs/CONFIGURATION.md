@@ -24,7 +24,7 @@ name = "Notes"
 path = "~/notes"
 ```
 
-Run `fff` and press **gw** (Alt+w while typing) to open workspaces. Press **i** to filter names,
+Run `fff` and press **gw** in Normal mode to open workspaces. Press **i** to filter names,
 then **Enter** to open one. From Normal mode, **Escape** returns to results.
 
 The [commented example](config.example.toml) also shows a custom palette and all
@@ -95,7 +95,7 @@ editor ends, reading `keys.toml` again too: workspaces, exclusions,
 openers, icons, columns, the mouse and the button bar, live updates, the
 trash, cache and performance limits, message timing and syntax colors.
 `--no-icons` and `--palette` still win over the file. A palette
-chosen with Alt+p stays for the session; otherwise the file's palette takes
+chosen with `gP` stays for the session; otherwise the file's palette takes
 over. `[ui] preview` and `[ui] sort` say how a session starts, so the pane
 and the order stay as they are.
 A file that does not exist yet is created by the editor; with `--no-config`
@@ -111,7 +111,7 @@ loads again. With no key for `show_session`, the message gives the first error
 itself. Run `gc` again to fix it; the copy is kept as
 it was, since it is the last configuration that loaded. Later sessions read
 the copy too while the file has errors, saying so when they start, and
-`fff setup --check-config` still checks the file itself. Alt+P and the
+`fff setup --check-config` still checks the file itself. `reload_palette` and the
 palette's own reloads read the copy as well.
 
 ## File selection and overrides
@@ -160,8 +160,8 @@ Globs keep `/` literal (`*` stays within one component; `**` crosses them).
 A folder an absolute rule excludes is still listed from inside, once you go
 there.
 
-They are the first lines of the session's exclusion list, so Alt+e edits and
-removes them for the session (the file is not written) and Alt+H turns them
+They are the first lines of the session's exclusion list, so `gE` edits and
+removes them for the session (the file is not written) and `ge` turns them
 all off; each `--exclude` adds a line after them. `--no-config` leaves them
 out. The query box's
 `exclusions on` stays away while the list is exactly these rules. When `gc`
@@ -170,9 +170,9 @@ list and the session's own lines stay below them.
 
 ## Color palettes
 
-Browse built-ins and custom palettes with **Alt+p**; a highlight held for at least
+Browse built-ins and custom palettes with **gP**; a highlight held for at least
 100 ms previews colors. Moving again restarts the wait. Enter applies immediately
-for the session, and Escape from Normal mode reverts. **Alt+P** re-reads the configured palette. The config file is never rewritten.
+for the session, and Escape from Normal mode reverts. `reload_palette` (no default key) re-reads the configured palette. The config file is never rewritten.
 
 See the [palette catalog](PALETTES.md) for all names, live-reload behavior and
 upstream sources.
@@ -417,13 +417,13 @@ marked list and the choosers like in a graphical file manager. In the results:
 
 In the marked list:
 
-- A click on a mark focuses the marked list there (like Alt+Space, then
+- A click on a mark focuses the marked list there (like Ctrl+k, then
   moving to it); a double click acts like `l` on it: a folder is entered and
   a file opens in the background (in `fff explorer`, Enter on it).
 - The wheel over the marked list moves through the marks, focusing it.
 - A click in the results returns to them, highlighting the row clicked.
 
-In the choosers (workspaces, workspace icons, palettes, and the Alt+g
+In the choosers (workspaces, workspace icons, palettes, and the go-to
 suggestions), a click selects a row, a double click is Enter on it (opening
 the workspace, choosing the icon, applying the palette, going to the folder),
 and the wheel moves the selection. Clicks outside an open chooser do nothing.
@@ -452,12 +452,12 @@ key does:
 | Button | Key |
 | --- | --- |
 | ← Back | Ctrl+o: the tab's previous directory |
-| ↑ Up | Alt+h: the parent directory |
+| ↑ Up | `go_to_parent`: the parent directory |
 | Open | `l`: enter the directory or open the file in the background |
-| Mark / Unmark | Shift+Space, without moving: mark the highlighted row |
-| Show / Hide hidden | Alt+.: hidden entries |
+| Mark / Unmark | `toggle_mark`, without moving: mark the highlighted row |
+| Show / Hide hidden | `toggle_hidden`: hidden entries |
 | Cancel | Ctrl+c: quit without output |
-| Select & Exit | Ctrl+w with marks where they are returned (`fff pick`, `fff explorer open-multiple`), else Normal-mode Enter on the highlighted row |
+| Select & Exit | `print_marks` with marks where they are returned (`fff pick`, `fff explorer open-multiple`), else Enter on the highlighted row |
 
 Buttons that cannot act (Back with no history, Up and Back in `fff seek`)
 are dimmed. In the copy, move, link and permanent-deletion confirmations the bar shows
@@ -505,8 +505,8 @@ watched.
 ## Preview pane
 
 The preview pane, shown when fff starts, holds the highlighted entry, or the
-highlighted mark in the marked list; Alt+v (`P` in Normal mode) hides or shows
-it. Ctrl+j and Ctrl+k scroll its content down and up by half its height
+highlighted mark in the marked list; `gpp` in Normal mode hides or shows
+it. PageDown and PageUp scroll its content down and up by half its height
 without moving the highlight (facts such as a PDF's pages stay on top); it
 starts at the top again for each entry. Pressed while the pane is hidden, they
 say which key opens it. Long lines wrap onto the next rows, at a space
@@ -615,9 +615,9 @@ ask_above = "10 GiB"  # larger entries ask before going to the trash
 `"500 MiB"` or `"1.5G"`. An entry counts its whole tree, like the deletion
 window's sizes. The purge runs on a thread of its own at every start, so a
 large trash never delays the first frame; with `enabled = false` nothing is
-purged either, and Alt+t and R say the trash is off.
+purged either, and `gt` and R say the trash is off.
 
-Alt+t (`gt` in Normal mode) opens the trash as a folder, and `R` there
+`gt` in Normal mode opens the trash as a folder, and `R` there
 restores entries; see [the trash folder](OPERATIONS.md#the-trash-folder). A
 workspace to the trash is not needed.
 
@@ -694,7 +694,7 @@ Path rules, for `path` and `roots`:
 - Paths are literal TOML strings: spaces work directly; shell substitutions and
   environment-variable expansion are not performed.
 
-Press **gw** in Normal mode or **Alt+w** while typing to open the chooser. It
+Press **gw** in Normal mode to open the chooser. It
 works in every program; each workspace shows its folder and what else it
 keeps (`pick · 2 roots · depth 10 · 2 filters`). In the chooser, press `i`
 to type and fuzzy-filter workspace **names** (Neovim fields initially start
@@ -703,7 +703,7 @@ PageUp/PageDown moves farther. Alt+1 through Alt+9 open the corresponding
 visible numbered workspace, and Alt+0 opens the last visible workspace.
 Out-of-range digits clamp to the last visible entry, including after
 filtering or scrolling. These shortcuts work in every editing mode. Enter
-opens a workspace; Escape or Alt+w returns to results. A `path` that is not a
+opens a workspace; Escape returns to results. A `path` that is not a
 directory is shown as unavailable; trying it leaves the chooser open with an
 error. Workspaces never select a file or finish the program.
 
@@ -716,7 +716,7 @@ the chooser the workspaces that would only change it. In `fff seek`,
 whose folder does not change otherwise, a workspace's folder still applies.
 The highlight then stays on the first row as the scan streams in, until you
 move it yourself; typing a search there highlights the best match. The
-Alt+g prompt offers the workspaces that have a `path` and only goes to it.
+go-to prompt (`/`) offers the workspaces that have a `path` and only goes to it.
 
 `fff --workspace NAME` (any command takes it; shell completion offers the
 names) starts in a workspace. What the command line gives wins over it: a
@@ -852,7 +852,7 @@ paths can cost considerably more. This is a count limit, not an exact byte cap.
 The current view's index, result rows and BFS queue are separate and scale with
 the tree being browsed, up to `[performance] max_paths` (about 450 bytes per
 path, more while rows are labelled by name, as in `fff pick`
-(see `gd`), which keeps labels: roughly 450–550 MB
+(see `gl`), which keeps labels: roughly 450–550 MB
 at the default); lowering depth reduces that working set. Prefetch has its
 own small allocation budgets and cannot evict visited snapshots.
 
@@ -909,7 +909,7 @@ tree takes longer instead of delaying keys; it completes only after its last
 paths are merged. The index of known paths is sharded so it grows without
 rehashing everything at once, a scan marks the paths it delivers instead of
 keeping a separate reconciliation set, and large listings are freed on another
-thread. With rows labelled by name (`fff pick`, or after `gd`),
+thread. With rows labelled by name (`fff pick`, or after `gl`),
 only basenames that changed are relabelled, with the time left over, so a scan completes once its labels catch up.
 
 Ranking every known path again (changing depth, hidden files, exclusions,
@@ -953,8 +953,8 @@ the folders on screen. Deleting it is safe.
 
 ## Openers
 
-Which program opens a file, by extension or name, for `l` / Alt+l / Alt+number
-(in the background) and `o` (in the terminal); see
+Which program opens a file, by extension or name, for `L`
+(in the background) and `open_in_terminal` (in the terminal); see
 [opening files](OPERATIONS.md#opening-files).
 
 ```toml
@@ -991,10 +991,10 @@ open with `$EDITOR`, as a terminal program.
 
 ### Opening at a contents match
 
-`at_grep_match` is optional. When `l`, Alt+l or Alt+number opens a file from
+`at_grep_match` is optional. When `L` opens a file from
 a [contents query](../README.md#searching-contents) match row, its words
 are added to the command, with placeholders filled in from the match; opened
-any other way (a file row, `o`, Enter), the rule's `command` runs as it is.
+any other way (a file row, `open_in_terminal`, Enter), the rule's `command` runs as it is.
 The command line is the rule's `command`, then `at_grep_match`, then the file:
 
 ```toml
@@ -1205,7 +1205,7 @@ for keys you cannot type there.
 Your own keys work here as they do in the results: `highlight_previous` and
 `highlight_next` (Alt+k/Alt+j in Insert mode, `k`/`j` in Normal mode), the
 other `highlight_` functions, `scroll_preview_down` and `scroll_preview_up`
-(Ctrl+j/Ctrl+k) for the details, `clear_query` (Escape in Normal mode),
+(PageDown/PageUp) for the details, `clear_query` (Escape in Normal mode),
 `show_session`, `cancel` and `quit`. Escape never closes the screen; F1
 (`show_keys`) does, from anywhere in it.
 
@@ -1237,7 +1237,8 @@ The same three keys work at every level: **Space goes a level deeper**
   applies. `R` replaces the highlighted key: press the new one, and Enter
   puts it where the old one applied, at once when nothing else has it there,
   else through where it applies, with the clash shown. A digit for
-  `search_to_depth`, `open_row` or `highlight_row` stands for every digit. `d`
+  `search_to_depth`, `open_row`, `highlight_row` or `highlight_next_in_row`
+  stands for every digit. `d`
   deletes the highlighted row, and `D` puts the function's default keys
   back, after asking.
 - **Where a key applies:** the checklists, to change. Tab and Shift+Tab go
@@ -1287,7 +1288,7 @@ keep their defaults. A value is keys, `"none"` (or `""`, `[]`) for no keys,
 or a list of keys and tables with `keys` and any of `program`, `focus` and
 `highlight`, each a list of the values [above](#where-keys-apply), named as the
 Keys screen's columns name them. Keys use Vim's notation: printable keys stand for themselves
-(`gg`, `g/`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),
+(`gg`, `g!`, `G` for Shift+g), others are named in `<...>` with `C-` (Ctrl),
 `M-` (Alt) and `S-` (Shift) before them: `<CR>`, `<Esc>`, `<Tab>`, `<BS>`,
 `<Del>`, `<Insert>`, `<Space>`, `<lt>` (`<`), `<Up>`, `<Down>`, `<Left>`,
 `<Right>`, `<PageUp>`, `<PageDown>`, `<Home>`, `<End>`, `<F1>` and up, or
@@ -1309,8 +1310,8 @@ them. [`docs/keys.example.toml`](keys.example.toml) is a commented example.
 What the screen says is what works: the Keys screen, footers, empty-pane
 hints, query-line hints and status messages name each function's key as
 bound, preferring one that applies where you are and in the mode you are
-in. A key that works in the other mode says so when pressed (`Alt+w works
-while typing; in Normal mode, gw`), and one that does nothing where it is
+in. A key that works in the other mode says so when pressed (`Alt+l works
+in Insert mode; in Normal mode, l`), and one that does nothing where it is
 pressed says which function it is and that it does not work there. Keys
 inside choosers, prompts and confirmation sheets (Enter, Escape, Tab,
 `j`/`k`/`gg`/`G` and `q`/`!` in Normal mode) are fixed.

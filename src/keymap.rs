@@ -642,6 +642,7 @@ functions! {
     HighlightFirst "highlight_first" Highlight "Highlight the first row of the list that has the focus.";
     HighlightLast "highlight_last" Highlight "Highlight the last row of the list that has the focus.";
     HighlightRow "highlight_row" Highlight "Highlight row # (the number shown before each row on screen). 0 is the last row on screen.";
+    HighlightNextInRow "highlight_next_in_row" Highlight "Highlight row # (the number shown before each row on screen), then do what highlight_next does there: highlight the row below it. 0 is the last row on screen.";
     GoToParent "go_to_parent" GoTo "Go up to the parent of the current directory. The query is kept, so the parent's entries are filtered by it too.";
     GoToHighlighted "go_to_highlighted" GoTo "Go to the highlighted entry: into it if it is a directory; if it is a file, to the directory holding it, with the file highlighted (the query is cleared so that the file shows).";
     GoToPath "go_to_path" GoTo "Go to a directory typed in a prompt. Words typed there also suggest your workspaces and, with zoxide installed, the directories you use most.";
@@ -653,7 +654,7 @@ functions! {
     OpenInBackground "open_in_background" Open "Open the highlighted file with the program set for it (the [open] section of the configuration) and keep browsing: fff does not wait for it. Not in dialogs choosing files or where to save, which choose files rather than open them.";
     OpenInTerminal "open_in_terminal" Open "Open the highlighted file, or the marked ones, with their programs inside this terminal, one after another, then come back to fff.";
     OpenAndQuit "open_and_quit" Open "Open the highlighted file with the program set for it and quit fff. A program that runs in a terminal takes fff's place in this one.";
-    OpenRow "open_row" Open "Do on row # (the number shown before each row on screen) what go_to_highlighted or open_in_background does: go into a directory, or open a file and keep browsing. Dialogs choosing files or where to save choose files rather than open them: there a file's row only says how to choose it. 0 is the last row on screen.";
+    OpenRow "open_row" Open "Highlight row # (the number shown before each row on screen), then do what open_and_quit does there: open its file and quit fff. On a directory's row it only highlights it. 0 is the last row on screen.";
     EditFiles "edit_files" Open "Edit the highlighted file, or the marked ones, in your $EDITOR inside this terminal, then come back to fff.";
     Run "run" Open "Run a program on the highlighted entry, or the marked ones: type its command line, check it, and come back to fff when it ends.";
     RunAndQuit "run_and_quit" Open "Run a program on the highlighted entry, or the marked ones, in place of fff, which quits; fff exits with the program's exit status.";
@@ -798,6 +799,7 @@ impl Function {
                 | HighlightFirst
                 | HighlightLast
                 | HighlightRow
+                | HighlightNextInRow
                 | PrintHighlighted
                 | PrintHighlightedAndMarks
                 | PrintMarks
@@ -843,6 +845,7 @@ impl Function {
             HighlightPreviousPage
             | HighlightNextPage
             | HighlightRow
+            | HighlightNextInRow
             | SearchShallower
             | SearchDeeper
             | SearchToDepth
@@ -873,7 +876,7 @@ impl Function {
             GoToHighlighted => vec![scope(&NAVIGATE, &[], &entry)],
             OpenInBackground => vec![scope(&OPENING, &RESULTS, &file)],
             // Whatever is highlighted: the row it opens is its number's.
-            OpenRow => vec![results],
+            OpenRow => vec![scope(&[Roam, Window], &RESULTS, &[])],
             OpenAndQuit => vec![scope(&[Roam, Window], &[], &file)],
             SaveHere => vec![scope(&[ExplorerSave], &RESULTS, &[])],
             SaveOver => vec![scope(&[ExplorerSave], &[], &file)],
@@ -916,128 +919,68 @@ impl Function {
     pub fn defaults(self, mode: Mode) -> Vec<Binding> {
         use Function::*;
         let all = Scope::ALL;
-        let file = [H::File];
-        let dirs = scope(&[], &[], &[H::Dir]);
+        // Enter goes into a folder where fff stays: in a window of its own,
+        // and in the dialogs but the save dialog, where it saves.
+        let staying = [
+            Window,
+            ExplorerOpen,
+            ExplorerMultiple,
+            ExplorerFolder,
+            ExplorerFolderMultiple,
+        ];
+        let enters = scope(&staying, &[], &[H::Dir]);
+        let enters_results = scope(&staying, &RESULTS, &[H::Dir]);
+        let folders = [ExplorerFolder, ExplorerFolderMultiple];
+        let lists = scope(&[], &[Results, Marks], &[]);
+        let results = scope(&[], &[Results], &[]);
         let insert: &[(&str, Scope)] = match self {
-            HighlightPrevious => &[("<M-k>", all), ("<Up>", all)],
-            HighlightNext => &[("<M-j>", all), ("<Down>", all)],
-            HighlightPreviousPage => &[("<PageUp>", all)],
-            HighlightNextPage => &[("<PageDown>", all)],
+            HighlightPrevious => &[("<M-k>", all)],
+            HighlightNext => &[("<M-j>", all)],
             GoToParent => &[("<M-h>", all)],
-            GoToPath => &[("<M-g>", all)],
-            ShowWorkspaces => &[("<M-w>", all)],
-            GoToTrash => &[("<M-t>", all)],
+            GoToHighlighted => &[("<M-l>", all), ("<CR>", enters)],
             GoToOlderJump => &[("<C-o>", all)],
             GoToNewerJump => &[("<C-i>", all)],
-            GoToNextTab => &[("<M-Up>", all)],
-            GoToPreviousTab => &[("<M-Down>", all)],
-            OpenInBackground => &[("<M-l>", all)],
-            OpenInTerminal => &[("<M-o>", all)],
-            OpenRow => &[("<M-#>", all)],
-            HighlightRow => &[("<C-#>", all)],
-            ToggleMark => &[("<S-Space>", all)],
-            SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
-            ToggleMarkedList => &[("<M-K>", all), ("<M-Space>", all)],
-            ToggleJobList => &[("<M-J>", all)],
-            PrintMarks => &[("<C-w>", all)],
-            SearchShallower => &[("<M-Left>", all)],
-            SearchDeeper => &[("<M-Right>", all)],
-            ToggleHidden => &[("<M-.>", all)],
-            ToggleDirectories => &[("<M-d>", all)],
-            ToggleFiles => &[("<M-D>", all)],
-            TogglePreview => &[("<M-v>", all)],
-            ScrollPreviewDown => &[("<C-j>", all)],
-            ScrollPreviewUp => &[("<C-k>", all)],
-            EditExclusions => &[("<M-e>", all)],
-            ToggleExclusions => &[("<M-H>", all)],
-            EditFilters => &[("<M-f>", all)],
-            ToggleFilters => &[("<M-F>", all)],
+            GoToNextTab => &[("<Up>", all)],
+            GoToPreviousTab => &[("<Down>", all)],
+            OpenAndQuit => &[("<CR>", all)],
+            OpenRow => &[("<C-#>", all)],
+            HighlightNextInRow => &[("<M-#>", all)],
+            PrintHighlighted => &[("<S-CR>", all), ("<CR>", scope(&[ExplorerOpen], &[], &[]))],
+            PrintHighlightedAndMarks => {
+                &[("<CR>", scope(&[Pick, Piped, ExplorerMultiple], &[], &[]))]
+            }
+            PrintMarks => &[("<C-CR>", all)],
+            SaveHere => &[("<CR>", all), ("<C-s>", all)],
+            PrintHere => &[("<C-s>", scope(&folders, &[], &[]))],
+            QuitIntoHighlighted => &[("<CR>", scope(&[Seek], &[], &[]))],
+            SwitchQuery => &[("<Tab>", all)],
+            ClearMarks => &[("<C-m>", all)],
             Rescan => &[("<F5>", all)],
             Cancel => &[("<C-c>", all)],
             ShowKeys => &[("<F1>", all)],
             ShowSession => &[("<F2>", all)],
-            ShowPalettes => &[("<M-p>", all)],
-            ReloadPalette => &[("<M-P>", all)],
-            _ => &[],
-        };
-        let enter_insert: &[(&str, Scope)] = match self {
-            SaveHere => &[("<CR>", all), ("<C-s>", all)],
-            PrintHere => &[(
-                "<C-s>",
-                scope(&[ExplorerFolder, ExplorerFolderMultiple], &[], &[]),
-            )],
-            GoToHighlighted => &[
-                ("<M-l>", dirs),
-                (
-                    "<CR>",
-                    scope(
-                        &[
-                            Roam,
-                            Window,
-                            Pick,
-                            ExplorerOpen,
-                            ExplorerMultiple,
-                            ExplorerFolder,
-                            ExplorerFolderMultiple,
-                        ],
-                        &[],
-                        &[H::Dir],
-                    ),
-                ),
-                ("<CR>", scope(&[Roam, Window], &[], &file)),
-            ],
-            PrintHighlighted => &[("<CR>", scope(&[ExplorerOpen], &[], &[]))],
-            PrintHighlightedAndMarks => &[
-                ("<CR>", scope(&[Pick, ExplorerMultiple], &[], &file)),
-                ("<CR>", scope(&[Piped], &[], &[])),
-            ],
-            QuitIntoHighlighted => &[("<CR>", scope(&[Seek], &[], &file))],
             _ => &[],
         };
         let normal: &[(&str, Scope)] = match self {
-            HighlightPrevious => &[
-                ("k", all),
-                ("<M-k>", all),
-                ("<Up>", scope(&[Seek, Piped], &[], &[])),
-                ("<Up>", scope(&[], &[Marks], &[])),
-            ],
-            HighlightNext => &[
-                ("j", all),
-                ("<M-j>", all),
-                ("<Down>", scope(&[Seek, Piped], &[], &[])),
-                ("<Down>", scope(&[], &[Marks], &[])),
-            ],
-            HighlightPreviousPage => &[("<PageUp>", all)],
-            HighlightNextPage => &[("<PageDown>", all)],
+            HighlightPrevious => &[("k", all)],
+            HighlightNext => &[("j", all)],
+            HighlightPreviousPage => &[("K", all)],
+            HighlightNextPage => &[("J", all)],
             HighlightFirst => &[("gg", all)],
             HighlightLast => &[("G", all)],
-            GoToParent => &[("h", all), ("<M-h>", all)],
+            GoToParent => &[("h", lists)],
             GoToHighlighted => &[
-                ("l", dirs),
-                ("<M-l>", dirs),
-                (
-                    "<CR>",
-                    scope(
-                        &[
-                            Window,
-                            ExplorerOpen,
-                            ExplorerMultiple,
-                            ExplorerFolder,
-                            ExplorerFolderMultiple,
-                        ],
-                        &RESULTS,
-                        &[H::Dir],
-                    ),
-                ),
+                ("l", lists),
+                ("<CR>", enters_results),
                 ("<CR>", scope(&[Window], &[Marks], &[H::Dir])),
             ],
-            GoToPath => &[("g/", all)],
+            GoToPath => &[("/", lists)],
             ShowWorkspaces => &[("gw", all)],
             GoToTrash => &[("gt", all)],
             GoToOlderJump => &[("<C-o>", all)],
             GoToNewerJump => &[("<C-i>", all)],
-            GoToNextTab => &[("<Up>", all), ("<M-Up>", all)],
-            GoToPreviousTab => &[("<Down>", all), ("<M-Down>", all)],
+            GoToNextTab => &[("<Up>", all)],
+            GoToPreviousTab => &[("<Down>", all)],
             SaveHere => &[
                 ("!", all),
                 ("<C-s>", all),
@@ -1047,95 +990,77 @@ impl Function {
             // offers to replace that file.
             SaveOver => &[("<CR>", scope(&[], &[Marks], &[]))],
             PrintHighlighted => &[
-                ("<CR>", scope(&[Pick, Piped, ExplorerOpen], &[], &[])),
-                (
-                    "<CR>",
-                    scope(
-                        &[ExplorerMultiple, ExplorerFolder, ExplorerFolderMultiple],
-                        &[Marks],
-                        &[],
-                    ),
-                ),
+                ("<S-CR>", all),
+                ("<CR>", scope(&[ExplorerOpen], &[], &[])),
+                ("<CR>", scope(&folders, &[Marks], &[])),
             ],
-            PrintHighlightedAndMarks => &[("<CR>", scope(&[ExplorerMultiple], &RESULTS, &file))],
-            QuitIntoHighlighted => &[
-                ("<CR>", scope(&[Roam], &[], &[H::Dir, H::None])),
-                // A query matching nothing in fff seek never leaves.
-                ("<CR>", scope(&[Seek], &[], &file)),
-            ],
-            OpenAndQuit => &[("<CR>", all)],
+            PrintHighlightedAndMarks => {
+                &[("<CR>", scope(&[Pick, Piped, ExplorerMultiple], &[], &[]))]
+            }
+            PrintMarks => &[("<C-CR>", all)],
             PrintHere => &[
                 ("!", all),
-                (
-                    "<C-s>",
-                    scope(&[ExplorerFolder, ExplorerFolderMultiple], &[], &[]),
-                ),
-                (
-                    "<CR>",
-                    scope(&[ExplorerFolder, ExplorerFolderMultiple], &[], &[H::None]),
-                ),
+                ("<C-s>", scope(&folders, &[], &[])),
+                ("<CR>", scope(&folders, &[], &[H::None])),
                 ("<CR>", scope(&[Pick], &RESULTS, &[H::None])),
             ],
-            OpenInBackground => &[("l", all), ("<M-l>", all)],
-            OpenInTerminal => &[("o", all)],
-            OpenRow => &[("<M-#>", all)],
-            HighlightRow => &[("<C-#>", all)],
+            QuitIntoHighlighted => &[("g!", lists), ("<CR>", scope(&[Seek], &[], &[]))],
+            OpenAndQuit => &[("<CR>", all)],
+            OpenInBackground => &[("L", all)],
+            OpenRow => &[("<C-#>", all)],
+            HighlightRow => &[("<#>", lists)],
+            HighlightNextInRow => &[("<M-#>", all)],
             Run => &[("gx", all)],
             RunAndQuit => &[("gX", all)],
             EditFiles => &[("e", all)],
-            ToggleMark => &[("<Space>", all), ("<S-Space>", all)],
+            ToggleMark => &[("<Space>", all)],
             MarkAll => &[("m", all)],
             InvertMarks => &[("M", all)],
-            ToggleMarkedList => &[
-                ("K", all),
-                ("<M-K>", all),
-                ("<M-Space>", all),
-                ("<Esc>", scope(&[], &[Marks], &[])),
-            ],
-            ToggleJobList => &[("J", all), ("<M-J>", all)],
-            PrintMarks => &[("<C-w>", all)],
-            ClearQuery => &[("<Esc>", scope(&[], &[Results], &[]))],
+            ClearMarks => &[("<C-m>", all)],
+            ToggleMarkedList => &[("<C-k>", all)],
+            ToggleJobList => &[("<C-j>", all)],
+            ClearQuery => &[("<Esc>", results)],
             ToggleQueryFocus => &[("<Esc>", scope(&[], &[Query], &[]))],
-            SwitchQuery => &[("<Tab>", all), ("<M-/>", all)],
-            SearchShallower => &[("-", all), ("<M-Left>", all)],
-            SearchDeeper => &[("+", all), ("<M-Right>", all)],
-            SearchToDepth => &[("<#>", all)],
+            SwitchQuery => &[("<Tab>", all)],
+            SearchShallower => &[("-", all)],
+            SearchDeeper => &[("+", all)],
+            SearchToDepth => &[("<C-M-#>", all)],
             ToggleHidden => &[(".", all)],
-            ToggleDirectories => &[("d", all)],
-            ToggleFiles => &[("D", all)],
-            TogglePreview => &[("P", all)],
-            ToggleLabels => &[("gd", all)],
-            ScrollPreviewDown => &[("<C-j>", all)],
-            ScrollPreviewUp => &[("<C-k>", all)],
+            ToggleDirectories => &[("gd", all)],
+            ToggleFiles => &[("gD", all)],
+            TogglePreview => &[("gpp", all)],
+            TogglePreviewWrap => &[("gpw", all)],
+            ToggleLabels => &[("gl", all)],
+            ScrollPreviewDown => &[("<PageDown>", all)],
+            ScrollPreviewUp => &[("<PageUp>", all)],
             EditExclusions => &[("gE", all)],
             ToggleExclusions => &[("ge", all)],
             EditFilters => &[("gF", all)],
             ToggleFilters => &[("gf", all)],
             Rescan => &[("<F5>", all)],
-            MoveMarked => &[("v", all)],
-            CopyMarked => &[("p", all)],
-            LinkMarked => &[("s", all)],
-            Trash => &[("x", all)],
-            Delete => &[("X", all)],
+            MoveMarked => &[("v", results)],
+            CopyMarked => &[("p", results)],
+            LinkMarked => &[("s", results)],
+            Trash => &[("x", results)],
+            Delete => &[("X", results)],
             Rename => &[("r", all)],
-            Extract => &[("E", all)],
+            Extract => &[("E", results)],
             Create => &[("n", all)],
-            Undo => &[("u", all)],
-            Restore => &[("R", all)],
+            Undo => &[("u", results)],
+            Restore => &[("R", results)],
             Quit => &[("q", all)],
             QuitHere => &[("!", all)],
             Cancel => &[("<C-c>", all)],
             ShowKeys => &[("<F1>", all)],
             ShowSession => &[("<F2>", all)],
-            ShowPalettes => &[("gp", all)],
+            ShowPalettes => &[("gP", all)],
             ShowSorting => &[("gs", all)],
-            ReloadPalette => &[("gP", all)],
             EditConfig => &[("gc", all)],
             SwitchProgram => &[("gm", all)],
             _ => &[],
         };
         let specs: Vec<(&str, Scope)> = match mode {
-            Mode::Insert => insert.iter().chain(enter_insert).copied().collect(),
+            Mode::Insert => insert.to_vec(),
             Mode::Normal => normal.to_vec(),
         };
         specs
@@ -1906,7 +1831,6 @@ mod tests {
     fn tab_switches_queries_and_space_m_and_shift_m_mark() {
         let keymap = Keymap::default();
         let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
-        let shift_space = KeyEvent::new(KeyCode::Char(' '), M::SHIFT);
         for program in <Program as Dimension>::ALL.iter().copied() {
             let here = cell(program, H::File);
             for mode in Mode::ALL {
@@ -1914,10 +1838,6 @@ mod tests {
                     run(&keymap, mode, here, &[tab]),
                     Step::Run(Function::SwitchQuery, None),
                     "{program:?} {mode:?}"
-                );
-                assert_eq!(
-                    run(&keymap, mode, here, &[shift_space]),
-                    Step::Run(Function::ToggleMark, None)
                 );
             }
             let normal = |key| run(&keymap, Mode::Normal, here, &[key]);
@@ -1931,55 +1851,41 @@ mod tests {
     fn enter_does_one_thing_in_each_place() {
         let keymap = Keymap::default();
         let enter = KeyEvent::new(KeyCode::Enter, M::NONE);
+        for mode in Mode::ALL {
+            let enter = |program, highlight| run(&keymap, mode, cell(program, highlight), &[enter]);
+            let runs = |function| Step::Run(function, None);
+            // Into a folder where fff stays; out of fff with a file.
+            assert_eq!(enter(Roam, H::Dir), Step::Pass, "{mode:?}");
+            assert_eq!(enter(Roam, H::File), runs(Function::OpenAndQuit));
+            assert_eq!(enter(Window, H::Dir), runs(Function::GoToHighlighted));
+            assert_eq!(enter(Window, H::File), runs(Function::OpenAndQuit));
+            assert_eq!(enter(Seek, H::File), runs(Function::QuitIntoHighlighted));
+            for highlight in [H::Dir, H::File] {
+                assert_eq!(
+                    enter(Pick, highlight),
+                    runs(Function::PrintHighlightedAndMarks)
+                );
+            }
+            assert_eq!(
+                enter(ExplorerOpen, H::File),
+                runs(Function::PrintHighlighted)
+            );
+            assert_eq!(
+                enter(ExplorerMultiple, H::File),
+                runs(Function::PrintHighlightedAndMarks)
+            );
+            assert_eq!(
+                enter(ExplorerFolderMultiple, H::Dir),
+                runs(Function::GoToHighlighted)
+            );
+            for highlight in [H::Dir, H::File, H::None] {
+                assert_eq!(enter(ExplorerSave, highlight), runs(Function::SaveHere));
+            }
+        }
         let normal =
             |program, highlight| run(&keymap, Mode::Normal, cell(program, highlight), &[enter]);
-        assert_eq!(
-            normal(Roam, H::Dir),
-            Step::Run(Function::QuitIntoHighlighted, None)
-        );
-        assert_eq!(
-            normal(Window, H::Dir),
-            Step::Run(Function::GoToHighlighted, None)
-        );
-        assert_eq!(
-            normal(Roam, H::File),
-            Step::Run(Function::OpenAndQuit, None)
-        );
-        assert_eq!(
-            normal(Pick, H::File),
-            Step::Run(Function::PrintHighlighted, None)
-        );
-        assert_eq!(
-            normal(Seek, H::File),
-            Step::Run(Function::QuitIntoHighlighted, None)
-        );
-        assert_eq!(
-            normal(ExplorerSave, H::File),
-            Step::Run(Function::SaveHere, None)
-        );
-        assert_eq!(
-            normal(ExplorerSave, H::Dir),
-            Step::Run(Function::SaveHere, None)
-        );
+        assert_eq!(normal(Pick, H::None), Step::Run(Function::PrintHere, None));
         assert_eq!(normal(Window, H::None), Step::Pass);
-        let insert =
-            |program, highlight| run(&keymap, Mode::Insert, cell(program, highlight), &[enter]);
-        assert_eq!(
-            insert(Roam, H::File),
-            Step::Run(Function::GoToHighlighted, None)
-        );
-        assert_eq!(
-            insert(Pick, H::File),
-            Step::Run(Function::PrintHighlightedAndMarks, None)
-        );
-        assert_eq!(
-            insert(ExplorerSave, H::Dir),
-            Step::Run(Function::SaveHere, None)
-        );
-        assert_eq!(
-            insert(Roam, H::Dir),
-            Step::Run(Function::GoToHighlighted, None)
-        );
     }
     #[test]
     fn sequences_wait_and_flush_and_digits_carry() {
@@ -2004,21 +1910,26 @@ mod tests {
         );
         assert_eq!(
             run(&keymap, Mode::Normal, here, &[press('3')]),
+            Step::Run(Function::HighlightRow, Some(3))
+        );
+        let ctrl_alt = KeyEvent::new(KeyCode::Char('3'), M::CONTROL | M::ALT);
+        assert_eq!(
+            run(&keymap, Mode::Normal, here, &[ctrl_alt]),
             Step::Run(Function::SearchToDepth, Some(3))
         );
-        assert_eq!(run(&keymap, Mode::Normal, here, &[press('0')]), Step::Pass);
-        let ctrl = KeyEvent::new(KeyCode::Char('0'), M::CONTROL);
+        let alt = KeyEvent::new(KeyCode::Char('0'), M::CONTROL);
         assert_eq!(
-            run(&keymap, Mode::Insert, here, &[ctrl]),
-            Step::Run(Function::HighlightRow, Some(0))
+            run(&keymap, Mode::Insert, here, &[alt]),
+            Step::Run(Function::OpenRow, Some(0))
         );
-        // Navigation is off in seek: d reaches Neovim there.
-        assert_eq!(
-            run(&keymap, Mode::Normal, cell(Seek, H::File), &[press('d')]),
-            Step::Pass
+        // Seek lists only files: gd does nothing there.
+        let gd = [press('g'), press('d')];
+        assert_ne!(
+            run(&keymap, Mode::Normal, cell(Seek, H::File), &gd),
+            Step::Run(Function::ToggleDirectories, None)
         );
         assert_eq!(
-            run(&keymap, Mode::Normal, here, &[press('d')]),
+            run(&keymap, Mode::Normal, here, &gd),
             Step::Run(Function::ToggleDirectories, None)
         );
         // Typing is text.
@@ -2091,11 +2002,11 @@ mod tests {
         };
         let esc = KeyEvent::new(KeyCode::Esc, M::NONE);
         let enter = KeyEvent::new(KeyCode::Enter, M::NONE);
-        let alt_j = KeyEvent::new(KeyCode::Char('j'), M::ALT);
+        let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
         let normal = |cell, keys: &[KeyEvent]| run(&keymap, Mode::Normal, cell, keys);
         // Typing gives the query the focus; Escape there takes it back,
         // then clears.
-        assert_eq!(normal(cell(Roam, H::Dir), &[press('/')]), Step::Pass);
+        assert_eq!(normal(cell(Roam, H::Dir), &[press('i')]), Step::Pass);
         assert_eq!(
             normal(query, &[esc]),
             Step::Run(Function::ToggleQueryFocus, None)
@@ -2110,13 +2021,17 @@ mod tests {
             assert_eq!(normal(query, &[press(c)]), Step::Pass, "{c}");
         }
         // Other keys still act on the results below it.
+        let file = Cell {
+            highlight: H::File,
+            ..query
+        };
         assert_eq!(
-            normal(query, &[enter]),
-            Step::Run(Function::QuitIntoHighlighted, None)
+            normal(file, &[enter]),
+            Step::Run(Function::OpenAndQuit, None)
         );
         assert_eq!(
-            normal(query, &[alt_j]),
-            Step::Run(Function::HighlightNext, None)
+            normal(query, &[tab]),
+            Step::Run(Function::SwitchQuery, None)
         );
         // A key you bind comes before Neovim's wherever its focus says.
         let keymap = Keymap::parse("[normal]\ntrash = 'x'\n").unwrap();

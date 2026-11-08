@@ -121,9 +121,9 @@ palettes) and the files in them in `marked`, and content searches and live
 updates leave them out. Live updates rescan folders at most once a second
 while operations run.
 
-`toggle_job_list` (**J**, Alt+J) focuses the jobs list and leaves it again.
+`toggle_job_list` (**Ctrl+j**) focuses the jobs list and leaves it again.
 There **j** and **k** (or the arrows) move, Esc goes back, the marked list's
-key (**K**) goes to that list, and **x** stops the
+key (**Ctrl+k**) goes to that list, and **x** stops the
 highlighted operation and undoes what it had done: it stops as soon as
 stopping changes nothing (during the checks, while a copy or an extraction is
 still being staged, which is discarded, or between entries of a permanent
@@ -211,7 +211,7 @@ Each file type can have an **opener**, configured under `[open]` (see the
 [configuration guide](CONFIGURATION.md#openers)); files no rule matches use
 `$EDITOR`. There are three ways to open:
 
-- **In the background:** `l`, Alt+l, or Alt+number on a file. fff keeps the
+- **In the background:** `L` on a file. fff keeps the
   keyboard. A GUI opener (zathura, imv, mpv) starts detached from the terminal:
   in its own session, so closing the terminal or quitting fff leaves it open,
   with no terminal input and its output appended to `open.log` next to the
@@ -222,13 +222,13 @@ Each file type can have an **opener**, configured under `[open]` (see the
   line says what was opened; if the program later fails, a **Notice** pop-up
   appears at the top right with its exit status and the log's location, and
   fades after a few seconds.
-- **In this terminal:** `o` (`open_in_terminal` on the Keys screen) opens the
+- **In this terminal:** `open_in_terminal` (no default key) opens the
   current or marked files with the same current / selection / all choice as `e`.
   The opener takes over the terminal, GUI or not, and fff comes back when it
   ends. Files sharing an opener go to one invocation (three PDFs, one zathura);
-  different openers run one after another. `o` refuses directories (`l` enters
+  different openers run one after another. It refuses directories (`l` enters
   them).
-- **And leave:** Normal-mode Enter on a file in `fff roam` (not in `fff
+- **And leave:** Enter on a file in `fff roam` (not in `fff
   pick` or `fff seek`, where it returns the file or its folder). GUI openers
   start detached, as with `l`; a terminal opener replaces fff in this
   terminal, like `gX`, and fff's exit status becomes the program's. The
@@ -366,9 +366,9 @@ any other rollback, is named with its staging or trash path.
 
 ## The trash folder
 
-**Alt+t** (`gt` in Normal mode) opens the trash, `$XDG_DATA_HOME/fff/trash/files`,
+**gt** in Normal mode opens the trash, `$XDG_DATA_HOME/fff/trash/files`,
 as a folder like any other: browse, filter, preview, mark, rename and delete
-in it as anywhere. Pressed in a trash, Alt+t goes on to the next one, since
+in it as anywhere. Pressed in a trash, `gt` goes on to the next one, since
 every filesystem fff trashed entries on has its own. The location line shows
 a `trash · R restores` pill there, and the preview pane names where the
 highlighted entry came from and when it was trashed.

@@ -519,7 +519,10 @@ fn keys_bind_by_function_and_typing_stays_text() {
         keymap::{Cell, Focus, Function, Highlight, Keymap, Mode, Step},
         program::Program,
     };
-    let keymap = Keymap::parse("[insert]\nhighlight_next = '<C-n>'\n").unwrap();
+    let keymap = Keymap::parse(
+        "[insert]\nhighlight_next = '<C-n>'\nreload_palette = '<M-P>'\nshow_palettes = '<M-p>'\n",
+    )
+    .unwrap();
     // Insert mode types into the query.
     let here = Cell {
         program: Program::Roam,
@@ -1409,4 +1412,15 @@ fn a_file_with_too_many_matches_says_it_shows_only_the_first() {
     assert_eq!(app.grep.summary(), (limit, 1));
     assert_eq!(app.grep.cut(), (false, false));
     std::fs::remove_dir_all(&root).unwrap();
+}
+#[test]
+fn the_smoke_tests_keys_are_a_valid_keymap() {
+    let text = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/smoke_keys.toml"
+    ))
+    .unwrap();
+    if let Err(error) = fuzzy_file_finder::keymap::Keymap::parse(&text) {
+        panic!("{error}");
+    }
 }

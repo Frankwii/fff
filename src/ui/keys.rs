@@ -436,7 +436,10 @@ impl Editor {
 fn takes_digits(function: Function) -> bool {
     matches!(
         function,
-        Function::SearchToDepth | Function::OpenRow | Function::HighlightRow
+        Function::SearchToDepth
+            | Function::OpenRow
+            | Function::HighlightRow
+            | Function::HighlightNextInRow
     )
 }
 

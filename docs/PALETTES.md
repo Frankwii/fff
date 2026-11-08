@@ -48,15 +48,15 @@ invocation. Query, cursor, marks, discovery, and numbered targets are preserved.
 
 | Key | Action |
 | --- | --- |
-| Alt+p, `gp` in Normal | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Press `i` to fuzzy-filter names (the chooser starts in Normal mode); a highlight held for at least 100 ms previews it across the whole interface. Moving again restarts the wait. Enter applies it immediately for this session; Escape (or Alt+p again) restores the previous colors. |
-| Alt+P, `gP` in Normal | Re-read the config file now and apply its palette, discarding any Alt+p session choice. With `--palette NAME`, re-read that name's definition instead. |
+| `gP` in Normal | Open the palette chooser: every built-in in the order above, then the config file's custom palettes. Press `i` to fuzzy-filter names (the chooser starts in Normal mode); a highlight held for at least 100 ms previews it across the whole interface. Moving again restarts the wait. Enter applies it immediately for this session; Escape (or Alt+p again) restores the previous colors. |
+| `reload_palette` (no default key) | Re-read the config file now and apply its palette, discarding any session choice. With `--palette NAME`, re-read that name's definition instead. |
 
 The chooser never writes the config file. After Enter, background reload keeps
 following the *chosen* palette's definition (editing `[palettes.NAME]` still
-updates it) and ignores `[ui].palette` until Alt+P returns control to the file.
+updates it) and ignores `[ui].palette` until `reload_palette` returns control to the file.
 If that re-read fails, the current colors stay and the error is shown; the
 session choice is still cleared, so fixing the file recovers automatically.
-Alt+P works with `--no-config` too (it restores the default or pinned palette).
+`reload_palette` works with `--no-config` too (it restores the default or pinned palette).
 Both can be rebound on the Keys screen (F1), as `show_palettes` and `reload_palette`.
 
 ## Color sources

@@ -419,8 +419,11 @@ impl Session {
                 self.discovery.checkpoint(app);
                 activate_highlighted(app, &mut self.discovery);
             }
-            OpenRow => self.open_numbered(app, u32::from(digit.unwrap_or(0))),
             HighlightRow => self.highlight_row(app, u32::from(digit.unwrap_or(0))),
+            HighlightNextInRow => {
+                return self.on_row(app, u32::from(digit.unwrap_or(0)), HighlightNext);
+            }
+            OpenRow => return self.on_row(app, u32::from(digit.unwrap_or(0)), OpenAndQuit),
             SaveOver
             | PrintHighlighted
             | PrintHighlightedAndMarks
@@ -665,7 +668,7 @@ impl Session {
     /// nothing; other keys go to Neovim.
     fn unbound(&mut self, app: &mut App, mode: keymap::Mode, cell: keymap::Cell, key: KeyEvent) {
         let press = keymap::Key::press(key);
-        let starts = |b: &&keymap::Binding| b.keys.len() == 1 && b.keys[0] == press;
+        let starts = |b: &&keymap::Binding| b.keys.len() == 1 && b.keys[0].takes(press);
         let special = key.modifiers.intersects(M::ALT | M::CONTROL) || matches!(key.code, K::F(_));
         let name = press.display();
         // A file's open key in a dialog, which chooses files instead.
@@ -773,14 +776,7 @@ impl Session {
         if navigation && matches!(self.focus, Focus::Workspaces { .. } | Focus::Location(_)) {
             self.discovery.checkpoint(app);
         }
-        self.focus_key(
-            app,
-            key,
-            Row {
-                on_row,
-                unnumbered: false,
-            },
-        )
+        self.focus_key(app, key, Row { on_row })
     }
     /// q, Q and ! in Normal mode; `current` leaves in the browsing directory.
     /// The jobs list's keys, fixed: j and k (or the arrows) move, x stops
@@ -1011,31 +1007,27 @@ impl Session {
             paths,
         )
     }
-    /// Alt+number in the results: like `l` on that row, entering a directory
-    /// or opening a file in the background.
-    fn open_numbered(&mut self, app: &mut App, digit: u32) {
-        self.discovery.checkpoint(app);
+    /// The `_row` functions: highlight row `digit`, then do `function` there
+    /// as its key would. With no rows shown, nothing.
+    fn on_row(
+        &mut self,
+        app: &mut App,
+        digit: u32,
+        function: Function,
+    ) -> io::Result<Option<Finish>> {
         if app.rendered.is_empty() {
-            return;
+            return Ok(None);
         }
+        self.discovery.checkpoint(app);
         // That row, rather than the first of its path: a contents query
         // shows a file once per match, and opens it at the row's.
-        app.highlight_numbered(digit);
-        let Some(target) = app.highlighted_row().cloned() else {
-            return;
-        };
-        app.highlight_top = false;
-        app.wanted = None;
-        if target.directory {
-            if app.ready_path(&target.path)
-                && app.can_navigate()
-                && app.navigate(target.path.clone(), false)
-            {
-                self.discovery.start(app, true);
-            }
-        } else {
-            open_in_background(app, &target.path);
+        self.highlight_row(app, digit);
+        let (mode, cell) = self.here(app);
+        if !function.works(mode, cell) {
+            app.status = format!("{} does nothing on that row", function.name());
+            return Ok(None);
         }
+        self.run_function(app, function, None, Row { on_row: true })
     }
     /// Alt+number in a chooser or picker highlights that row as drawn, as
     /// `App::highlight_numbered` does in the results. False elsewhere, or

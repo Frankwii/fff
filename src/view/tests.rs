@@ -2123,7 +2123,7 @@ fn rebound_keys_are_shown_as_bound() {
         .lines()
         .find(|l| l.contains(" go_to_trash ") && l.contains('•'))
         .unwrap_or_else(|| panic!("{screen}"));
-    assert!(line.contains("Alt+t") && line.contains(" T "), "{screen}");
+    assert!(line.contains(" T ") && !line.contains(" gt "), "{screen}");
 }
 #[test]
 fn preview_lines_wrap_at_spaces_and_inside_words_only_when_they_fill_a_line() {
@@ -2163,7 +2163,7 @@ fn a_sheet_that_does_not_fit_asks_for_a_larger_terminal_instead_of_being_cut() {
     let mut screen = keys_screen(&app);
     screen.editor = Some(crate::ui::Editor::new(
         &app.keymap,
-        crate::keymap::Function::HighlightPrevious,
+        crate::keymap::Function::GoToHighlighted,
         0,
     ));
     let mut focus = Focus::Keys(screen);
@@ -2176,14 +2176,14 @@ fn a_sheet_that_does_not_fit_asks_for_a_larger_terminal_instead_of_being_cut() {
     };
     // Room for all of it.
     let screen = frame(40);
-    assert!(screen.contains("Keys of highlight_previous"), "{screen}");
+    assert!(screen.contains("Keys of go_to_highlighted"), "{screen}");
     assert!(
         screen.contains("APPLIES IN THE HIGHLIGHTED ROW"),
         "{screen}"
     );
     // Less: what repeats the highlighted row goes first.
     let screen = frame(24);
-    assert!(screen.contains("Keys of highlight_previous"), "{screen}");
+    assert!(screen.contains("Keys of go_to_highlighted"), "{screen}");
     assert!(
         !screen.contains("APPLIES IN THE HIGHLIGHTED ROW"),
         "{screen}"

@@ -49,7 +49,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/watch.rs` | inotify on the current directory, pinned roots and listed folders for live updates; elsewhere `src/platform/watch_none.rs`, which watches nothing. |
 | `src/open.rs` | `[open]` rules, opener choice, detached background launches and terminal windows. |
 | `src/notify.rs` | Pop-up notifications posted from background threads. |
-| `src/location.rs` | The Alt+g prompt: typed paths, workspaces and zoxide suggestions. |
+| `src/location.rs` | The go-to prompt (`/`): typed paths, workspaces and zoxide suggestions. |
 | `src/terminal.rs` | The terminal `[open] terminal` and `fff_terminal` default to: the one fff runs in (a parent process, else `$TERM_PROGRAM` on macOS), `$TERMINAL`, an installed known one, or Terminal.app on macOS, each in its own syntax; macOS's own terminals through an `osascript` script. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
 | `src/state.rs` | Per-directory highlights, saved atomically. |
@@ -73,7 +73,7 @@ listed separately in the [roadmap](ROADMAP.md).
 - **No image previews.** fff targets plain terminals such as st, where image
   protocols (kitty, sixel) are unavailable or poor. The [preview
   pane](CONFIGURATION.md#preview-pane) is text only: an image shows its size,
-  and `l` (background opener) or `o` show the image itself. Its speed is
+  and `L` (background opener) or `open_in_terminal` show the image itself. Its speed is
   non-negotiable: reads never block a frame or a highlight change, happen on
   their own threads after the highlight rests, and are cancelled when it
   moves. A read stuck on a slow mount cannot be interrupted, so at most 16
@@ -143,7 +143,7 @@ the rows; `App::refresh` decides when they are ranked again or merged.
     clamped to the count), the wheel's clamp, single steps that wrap;
   - `m`/`M` and batch rename `r` (`shown_paths`), the marks they make and
     so what is printed;
-  - Alt/Ctrl+number (`highlight_numbered`), through the drawn rows and the
+  - the `_row` functions (`highlight_numbered`), through the drawn rows and the
     highlight;
   - the mouse: clicks (`highlight_row`), drags and the drag held at an edge
     (`ui/mouse.rs` `drag`, over `shown`);
@@ -207,7 +207,7 @@ planner share runs, so merging a run they share copies it, as it did before.
   read. Large re-rankings run on another thread; every key except typing into
   the query and Ctrl+c waits for a pending one, so no action uses stale rows.
 - Marks are unique, ordered and independent of navigation, policies and filters.
-  Ctrl+number highlights its row and Alt+number is `l` on it; both address
+  The `_row` functions highlight their row, then act there (`on_row`); they address
   the last fully rendered visible labels.
 - The input reader hands every handler a shifted letter as legacy terminals
   send it, uppercase with Shift, whatever the kitty protocol reported, so
@@ -302,6 +302,13 @@ Run one test while iterating: `cargo test --offline --lib NAME` or
 `python3 tests/terminal_smoke.py TerminalTests.test_NAME` (after `cargo
 build`). `src/view/tests.rs` draws frames at a given size (`draw(&mut app,
 120, 26)`), which is much faster than a PTY test for layout.
+
+The terminal smoke tests press the keys in `tests/smoke_keys.toml`, the
+defaults they were written against, which the harness puts beside the
+configuration of every session that does not pass `--no-config` or write its
+own `keys.toml` (`smoke_keys_with` adds a test's own keys to them). Changing
+a default key therefore leaves them alone; the tests of the default keys
+themselves run with `--no-config`.
 
 ## Verification
 

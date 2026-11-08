@@ -884,7 +884,10 @@ impl Picker {
                     f.works(keymap::Mode::Normal, here)
                         && !matches!(
                             f,
-                            Function::SearchToDepth | Function::OpenRow | Function::HighlightRow
+                            Function::SearchToDepth
+                                | Function::OpenRow
+                                | Function::HighlightRow
+                                | Function::HighlightNextInRow
                         )
                 })
                 .map(|&f| Choice::Function(f))

@@ -1,0 +1,158 @@
+# The keys the terminal smoke tests are written against, the defaults
+# before 0.22.0, so that changing a default key does not rewrite them.
+# Tests of the default keys themselves run with --no-config.
+[insert]
+highlight_previous = [{ keys = "<M-k>" }, { keys = "<Up>" }]
+highlight_next = [{ keys = "<M-j>" }, { keys = "<Down>" }]
+highlight_previous_page = [{ keys = "<PageUp>" }]
+highlight_next_page = [{ keys = "<PageDown>" }]
+highlight_first = "none"
+highlight_last = "none"
+highlight_row = "none"
+highlight_next_in_row = "none"
+go_to_parent = [{ keys = "<M-h>" }]
+go_to_highlighted = [{ keys = "<M-l>", highlight = ["dir"] }, { keys = "<CR>", program = ["roam", "window", "pick", "explorer-open", "explorer-open-multiple", "explorer-folder", "explorer-folder-multiple"], highlight = ["dir"] }, { keys = "<CR>", program = ["roam", "window"], highlight = ["file"] }]
+go_to_path = [{ keys = "<M-g>" }]
+go_to_trash = [{ keys = "<M-t>" }]
+go_to_older_jump = [{ keys = "<C-o>" }]
+go_to_newer_jump = [{ keys = "<C-i>" }]
+go_to_next_tab = [{ keys = "<M-Up>" }]
+go_to_previous_tab = [{ keys = "<M-Down>" }]
+open_in_background = [{ keys = "<M-l>" }]
+open_in_terminal = [{ keys = "<M-o>" }]
+open_and_quit = "none"
+open_row = [{ keys = "<M-#>" }]
+edit_files = "none"
+run = "none"
+run_and_quit = "none"
+print_highlighted = [{ keys = "<CR>", program = ["explorer-open"] }]
+print_highlighted_and_marks = [{ keys = "<CR>", program = ["pick", "explorer-open-multiple"], highlight = ["file"] }, { keys = "<CR>", program = ["piped"] }]
+print_marks = [{ keys = "<C-w>" }]
+print_here = [{ keys = "<C-s>", program = ["explorer-folder", "explorer-folder-multiple"] }]
+save_here = [{ keys = "<CR>" }, { keys = "<C-s>" }]
+save_over = "none"
+quit_into_highlighted = [{ keys = "<CR>", program = ["seek"], highlight = ["file"] }]
+quit_here = "none"
+quit = "none"
+cancel = [{ keys = "<C-c>" }]
+toggle_mark = [{ keys = "<S-Space>" }]
+mark_all = "none"
+invert_marks = "none"
+clear_marks = "none"
+toggle_marked_list = [{ keys = "<M-K>" }, { keys = "<M-Space>" }]
+toggle_query_focus = "none"
+clear_query = "none"
+switch_query = [{ keys = "<Tab>" }, { keys = "<M-/>" }]
+search_shallower = [{ keys = "<M-Left>" }]
+search_deeper = [{ keys = "<M-Right>" }]
+search_to_depth = "none"
+toggle_hidden = [{ keys = "<M-.>" }]
+toggle_directories = [{ keys = "<M-d>" }]
+toggle_files = [{ keys = "<M-D>" }]
+edit_exclusions = [{ keys = "<M-e>" }]
+toggle_exclusions = [{ keys = "<M-H>" }]
+edit_filters = [{ keys = "<M-f>" }]
+toggle_filters = [{ keys = "<M-F>" }]
+rescan = [{ keys = "<F5>" }]
+toggle_preview = [{ keys = "<M-v>" }]
+toggle_preview_wrap = "none"
+scroll_preview_down = [{ keys = "<C-j>" }]
+scroll_preview_up = [{ keys = "<C-k>" }]
+toggle_labels = "none"
+show_palettes = [{ keys = "<M-p>" }]
+show_sorting = "none"
+reload_palette = [{ keys = "<M-P>" }]
+move_marked = "none"
+copy_marked = "none"
+link_marked = "none"
+trash = "none"
+delete = "none"
+rename = "none"
+extract = "none"
+create = "none"
+undo = "none"
+restore = "none"
+toggle_job_list = [{ keys = "<M-J>" }]
+show_keys = [{ keys = "<F1>" }]
+show_session = [{ keys = "<F2>" }]
+show_workspaces = [{ keys = "<M-w>" }]
+edit_config = "none"
+switch_program = "none"
+
+[normal]
+highlight_previous = [{ keys = "k", focus = ["results", "marks"] }, { keys = "<M-k>" }, { keys = "<Up>", program = ["seek", "piped"] }, { keys = "<Up>", focus = ["marks"] }]
+highlight_next = [{ keys = "j", focus = ["results", "marks"] }, { keys = "<M-j>" }, { keys = "<Down>", program = ["seek", "piped"] }, { keys = "<Down>", focus = ["marks"] }]
+highlight_previous_page = [{ keys = "<PageUp>" }]
+highlight_next_page = [{ keys = "<PageDown>" }]
+highlight_first = [{ keys = "gg", focus = ["results", "marks"] }]
+highlight_last = [{ keys = "G", focus = ["results", "marks"] }]
+highlight_row = "none"
+highlight_next_in_row = "none"
+go_to_parent = [{ keys = "h", focus = ["results", "marks"] }, { keys = "<M-h>" }]
+go_to_highlighted = [{ keys = "l", focus = ["results", "marks"], highlight = ["dir"] }, { keys = "<M-l>", highlight = ["dir"] }, { keys = "<CR>", program = ["window", "explorer-open", "explorer-open-multiple", "explorer-folder", "explorer-folder-multiple"], focus = ["query", "results"], highlight = ["dir"] }, { keys = "<CR>", program = ["window"], focus = ["marks"], highlight = ["dir"] }]
+go_to_path = [{ keys = "g/", focus = ["results", "marks"] }]
+go_to_trash = [{ keys = "gt", focus = ["results", "marks"] }]
+go_to_older_jump = [{ keys = "<C-o>" }]
+go_to_newer_jump = [{ keys = "<C-i>" }]
+go_to_next_tab = [{ keys = "<Up>" }, { keys = "<M-Up>" }]
+go_to_previous_tab = [{ keys = "<Down>" }, { keys = "<M-Down>" }]
+open_in_background = [{ keys = "l", focus = ["results", "marks"] }, { keys = "<M-l>" }]
+open_in_terminal = [{ keys = "o", focus = ["results", "marks"] }]
+open_and_quit = [{ keys = "<CR>" }]
+open_row = [{ keys = "<M-#>" }]
+edit_files = [{ keys = "e", focus = ["results", "marks"] }]
+run = [{ keys = "gx", focus = ["results", "marks"] }]
+run_and_quit = [{ keys = "gX", focus = ["results", "marks"] }]
+print_highlighted = [{ keys = "<CR>", program = ["pick", "piped", "explorer-open"] }, { keys = "<CR>", program = ["explorer-open-multiple", "explorer-folder", "explorer-folder-multiple"], focus = ["marks"] }]
+print_highlighted_and_marks = [{ keys = "<CR>", program = ["explorer-open-multiple"], focus = ["query", "results"], highlight = ["file"] }]
+print_marks = [{ keys = "<C-w>" }]
+print_here = [{ keys = "!", focus = ["results", "marks"] }, { keys = "<C-s>", program = ["explorer-folder", "explorer-folder-multiple"] }, { keys = "<CR>", program = ["explorer-folder", "explorer-folder-multiple"], highlight = ["none"] }, { keys = "<CR>", program = ["pick"], focus = ["query", "results"], highlight = ["none"] }]
+save_here = [{ keys = "!", focus = ["results", "marks"] }, { keys = "<C-s>" }, { keys = "<CR>", focus = ["query", "results"] }]
+save_over = [{ keys = "<CR>", focus = ["marks"] }]
+quit_into_highlighted = [{ keys = "<CR>", program = ["roam"], highlight = ["dir", "none"] }, { keys = "<CR>", program = ["seek"], highlight = ["file"] }]
+quit_here = [{ keys = "!", focus = ["results", "marks"] }]
+quit = [{ keys = "q", focus = ["results", "marks"] }]
+cancel = [{ keys = "<C-c>" }]
+toggle_mark = [{ keys = "<Space>", focus = ["results", "marks"] }, { keys = "<S-Space>" }]
+mark_all = [{ keys = "m", focus = ["results", "marks"] }]
+invert_marks = [{ keys = "M", focus = ["results", "marks"] }]
+clear_marks = "none"
+toggle_marked_list = [{ keys = "K", focus = ["results", "marks"] }, { keys = "<M-K>" }, { keys = "<M-Space>" }, { keys = "<Esc>", focus = ["marks"] }]
+toggle_query_focus = [{ keys = "<Esc>", focus = ["query"] }]
+clear_query = [{ keys = "<Esc>", focus = ["results"] }]
+switch_query = [{ keys = "<Tab>" }, { keys = "<M-/>" }]
+search_shallower = [{ keys = "-", focus = ["results", "marks"] }, { keys = "<M-Left>" }]
+search_deeper = [{ keys = "+", focus = ["results", "marks"] }, { keys = "<M-Right>" }]
+search_to_depth = [{ keys = "<#>", focus = ["results", "marks"] }]
+toggle_hidden = [{ keys = ".", focus = ["results", "marks"] }]
+toggle_directories = [{ keys = "d", focus = ["results", "marks"] }]
+toggle_files = [{ keys = "D", focus = ["results", "marks"] }]
+edit_exclusions = [{ keys = "gE", focus = ["results", "marks"] }]
+toggle_exclusions = [{ keys = "ge", focus = ["results", "marks"] }]
+edit_filters = [{ keys = "gF", focus = ["results", "marks"] }]
+toggle_filters = [{ keys = "gf", focus = ["results", "marks"] }]
+rescan = [{ keys = "<F5>" }]
+toggle_preview = [{ keys = "P", focus = ["results", "marks"] }]
+toggle_preview_wrap = "none"
+scroll_preview_down = [{ keys = "<C-j>" }]
+scroll_preview_up = [{ keys = "<C-k>" }]
+toggle_labels = [{ keys = "gd", focus = ["results", "marks"] }]
+show_palettes = [{ keys = "gp", focus = ["results", "marks"] }]
+show_sorting = [{ keys = "gs", focus = ["results", "marks"] }]
+reload_palette = [{ keys = "gP", focus = ["results", "marks"] }]
+move_marked = [{ keys = "v", focus = ["results", "marks"] }]
+copy_marked = [{ keys = "p", focus = ["results", "marks"] }]
+link_marked = [{ keys = "s", focus = ["results", "marks"] }]
+trash = [{ keys = "x", focus = ["results", "marks"] }]
+delete = [{ keys = "X", focus = ["results", "marks"] }]
+rename = [{ keys = "r", focus = ["results", "marks"] }]
+extract = [{ keys = "E", focus = ["results", "marks"] }]
+create = [{ keys = "n", focus = ["results", "marks"] }]
+undo = [{ keys = "u", focus = ["results", "marks"] }]
+restore = [{ keys = "R", focus = ["results", "marks"] }]
+toggle_job_list = [{ keys = "J", focus = ["results", "marks"] }, { keys = "<M-J>" }]
+show_keys = [{ keys = "<F1>" }]
+show_session = [{ keys = "<F2>" }]
+show_workspaces = [{ keys = "gw", focus = ["results", "marks"] }]
+edit_config = [{ keys = "gc", focus = ["results", "marks"] }]
+switch_program = [{ keys = "gm", focus = ["results", "marks"] }]

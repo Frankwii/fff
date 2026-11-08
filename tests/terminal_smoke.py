@@ -30,6 +30,35 @@ tempfile.tempdir = os.path.realpath("/tmp" if sys.platform == "darwin" else temp
 # Shift+Space in the kitty keyboard protocol: marks, also while typing.
 SHIFT_SPACE = b"\x1b[32;2u"
 BINARY = str(Path(__file__).resolve().parents[1] / "target/debug/fff")
+SMOKE_KEYS = Path(__file__).with_name("smoke_keys.toml")
+
+
+def smoke_keys(folder):
+    # The keys beside a configuration, unless the test wrote its own.
+    if not (folder / "keys.toml").exists():
+        shutil.copyfile(SMOKE_KEYS, folder / "keys.toml")
+
+
+def smoke_keys_with(custom):
+    # SMOKE_KEYS with custom's functions (one line each) bound as it says.
+    wanted, section = {}, None
+    for line in custom.splitlines():
+        if line.startswith("["):
+            section = line.strip()
+        elif "=" in line:
+            wanted.setdefault(section, {})[line.split("=")[0].strip()] = line
+    out, section = [], None
+    for line in SMOKE_KEYS.read_text().splitlines():
+        if line.startswith("["):
+            out += wanted.pop(section, {}).values()
+            section = line.strip()
+        elif "=" in line and line.split("=")[0].strip() in wanted.get(section, {}):
+            continue
+        out.append(line)
+    out += wanted.pop(section, {}).values()
+    for name, lines in wanted.items():
+        out += [name, *lines.values()]
+    return "\n".join(out) + "\n"
 
 
 class Session:
@@ -83,8 +112,17 @@ class Session:
             # terminal window; tests that open files name their own programs.
             os.environ["EDITOR"] = "fff-test-no-editor"
             if environment: os.environ.update(environment)
-            if "--config" not in args and "--no-config" not in args and not environment:
-                args=(*args,"--no-config")
+            # The tests press the keys they were written against (SMOKE_KEYS),
+            # whatever the defaults; those run with --no-config.
+            if "--config" in args:
+                folder = Path(args[args.index("--config") + 1]).resolve().parent
+                if folder not in (Path(root).resolve(), Path(tempfile.gettempdir()).resolve()):
+                    smoke_keys(folder)
+            elif "--no-config" not in args and "XDG_CONFIG_HOME" not in (environment or {}):
+                folder = Path(os.environ["XDG_CONFIG_HOME"]) / "fff"
+                (folder / "config.toml").parent.mkdir(parents=True, exist_ok=True)
+                (folder / "config.toml").touch()
+                smoke_keys(folder)
             # A command (fff seek, fff explorer open) comes before the root;
             # the picker is fff pick, the only command that prints paths.
             command = [args[0]] if args and args[0] in ("seek", "explorer", "pick", "window") else []
@@ -759,6 +797,7 @@ class TerminalTests(unittest.TestCase):
             (self.root / name / "file").touch()
         config = self.root / "config.toml"
         config.write_text("".join(f"[[workspaces]]\nname='{n}'\npath='{n}'\n" for n in names))
+        smoke_keys(self.root)
         s = self.start("--config", str(config), implicit_root=True)
         s.send(b"gw", "Workspaces")
         s.send(b"\x1b2", ("cwd", self.root / names[1]))
@@ -776,7 +815,7 @@ class TerminalTests(unittest.TestCase):
         (self.root / "a").mkdir()
         (self.root / "b").mkdir()
         (self.root / "c.txt").touch()
-        s = self.start("--null", "--depth", "1")
+        s = self.start("--null", "--depth", "1", "--config", self.row_keys())
         s.send(SHIFT_SPACE, b"Marks (1)")
         # CSI-u: Ctrl+2 highlights the second row; Enter prints it alone.
         s.send(b"\x1b[50;5u\r")
@@ -802,8 +841,8 @@ class TerminalTests(unittest.TestCase):
         (self.root / "file").touch()
         s = self.start("--null")
         s.send(b"izzzz", b"No matching results")
-        # While typing, Enter with no matches stays open; Ctrl+9 has no row.
-        s.send(b"\r\x1b[57;5u")
+        # While typing, Enter with no matches stays open.
+        s.send(b"\r")
         s.send(b"\x1b[27u", "Query  NORMAL")
         # In Normal mode, Enter with nothing listed takes the current directory.
         s.send(b"\r")
@@ -883,7 +922,7 @@ class TerminalTests(unittest.TestCase):
                 s.wait_ui("▸ docs/")
                 s.wait_ui("· main.rs")
                 self.assertNotIn("", s.screen.text)
-                s.send(b"\x1b[49;5u\r")  # Ctrl+1: numbering is unaffected
+                s.send(b"gg\r")
                 self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs") + b"\n"))
                 s.close()
             self.session = None
@@ -891,10 +930,17 @@ class TerminalTests(unittest.TestCase):
     def test_page_zero_and_higher_digit_clamping(self):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
-        s = self.start(size=(16, 160))  # 9 visible result rows in the split layout
+        # 9 visible result rows in the split layout
+        s = self.start("--config", self.row_keys(), size=(16, 160))
         s.send(b"\x1b[6~", b"file17")  # PageDown
         s.send(b"\x1b[48;5u\r")  # Ctrl+0 => last of the next 9 rows
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file17") + b"\n"))
+        s.close()
+        # Ctrl+Alt+1: the first visible row, then the one below it.
+        s = self.session = Session(self.root, "--config", self.row_keys(), size=(16, 160))
+        s.send(b"gg\x1b[6~", b"file17")  # from the top, not the remembered row
+        s.send(b"\x1b[49;7u\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file10") + b"\n"))
 
     def test_filtered_enter_stays_open_and_missing_marks_block(self):
         marked = self.root / "a"
@@ -910,9 +956,9 @@ class TerminalTests(unittest.TestCase):
 
     def test_tiny_terminal_has_no_numbered_rows(self):
         (self.root / "file").touch()
-        s = self.start(size=(5, 160))
-        # fff pick starts typing; Ctrl+1 has no row on screen to highlight,
-        # so Normal-mode Enter prints the one highlighted from the start.
+        # fff pick starts typing; with no row on screen, Ctrl+1 highlights
+        # none, and Normal-mode Enter prints the one highlighted from the start.
+        s = self.session = Session(self.root, "--config", self.row_keys(), size=(5, 160))
         s.send(b"\x1b[27u")
         time.sleep(0.3)
         s.send(b"\x1b[49;5u\r")
@@ -963,50 +1009,38 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
-    def test_alt_number_enters_directory_like_l_and_keeps_marks(self):
+    def test_alt_number_on_a_directory_only_highlights_it(self):
         (self.root / "a").mkdir()
-        directory = self.root / "b"
-        directory.mkdir()
-        marked = self.root / "c.txt"
-        marked.touch()
-        for alt_two, alt_zero in [(b"\x1b2", b"\x1b0"), (b"\x1b[50;3u", b"\x1b[48;3u")]:
-            with self.subTest(alt_two=alt_two):
-                s = self.start("--null", "--depth", "1", implicit_root=True)
-                s.send(b"ic.txt", "❯ c.txt")
-                s.send(SHIFT_SPACE, b"Marks (1)")
-                s.send(b"\x1b[27u", "NORMAL")
-                s.send(b"\x1b[27u")  # and leave the query
-                s.send(b"\x1b[27u", b"Files \xc2\xb7 3")
-                s.send(alt_two, ("cwd", directory))
-                self.assertIn("Marks (1)", s.screen.text)
-                # Nothing is listed in b: Alt+0 does nothing and fff stays.
-                s.send(alt_zero)
-                s.send(b"\x17")  # Ctrl+w returns the marks
-                self.assertEqual(s.finish(), (0, os.fsencode(marked) + b"\0"))
-                s.close()
-                self.session = None
+        (self.root / "b").mkdir()
+        (self.root / "c.txt").touch()
+        s = self.start("--depth", "1", implicit_root=True, output_paths=False)
+        s.send(b"", b"Files \xc2\xb7 3")
+        for alt_two in (b"\x1b2", b"\x1b[50;3u"):
+            s.send(alt_two, "open_and_quit does nothing on that row")
+            self.assertIn(str(self.root), s.screen.text)
+            s.send(b"\x1b[27u")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
 
-    def test_alt_number_opens_a_file_in_the_background_and_clamps_to_last(self):
+    def test_alt_number_opens_a_file_and_quits_and_clamps_to_last(self):
         for name in ("a", "b", "c"):
             (self.root / name).touch()
         env, config, log = self.opener_setup()
         for chord in (b"\x1b0", b"\x1b9"):
             with self.subTest(chord=chord):
-                # Each run starts fresh, without the previous run's cursor.
-                shutil.rmtree(str(self.root) + "-state", ignore_errors=True)
                 log.unlink(missing_ok=True)
-                s = self.start("--null", "--config", str(config), environment=env)
-                s.send(SHIFT_SPACE, b"Marks (1)")
-                s.send(chord, "Opened c with viewer")
+                s = self.start("--depth", "1", "--config", str(config), implicit_root=True,
+                               output_paths=False, environment=env)
+                s.send(b"", "c")
+                s.send(chord)
+                self.assertEqual(s.finish(), (0, b""))
                 self.wait_file(log, [str(self.root / "c")])
-                s.send(b"\x17")  # fff kept running; the marks are untouched
-                self.assertEqual(s.finish(), (0, os.fsencode(self.root / "a") + b"\0"))
                 s.close()
                 self.session = None
 
     def test_alt_no_matches_stays_open(self):
         (self.root / "a").touch()
-        s = self.start()
+        s = self.start(implicit_root=True, output_paths=False)
         s.send(SHIFT_SPACE, b"Marks (1)")
         s.send(b"izzzz", b"No matching results")
         s.send(b"\x1b9", b"No matching results")
@@ -1017,12 +1051,12 @@ class TerminalTests(unittest.TestCase):
         for i in range(30):
             (self.root / f"file{i:02}").touch()
         env, config, log = self.opener_setup()
-        s = self.start("--config", str(config), size=(16, 160), environment=env)
+        s = self.start("--config", str(config), size=(16, 160), implicit_root=True,
+                       output_paths=False, environment=env)
         s.send(b"\x1b[6~", b"file17")
-        s.send(b"\x1b2", "Opened file10 with viewer")
+        s.send(b"\x1b2")
+        self.assertEqual(s.finish(), (0, b""))
         self.wait_file(log, [str(self.root / "file10")])
-        s.send(b"\x03")
-        self.assertEqual(s.finish(), (130, b""))
 
     def test_right_hand_marks_focus_and_resize(self):
         (self.root / "file").touch()
@@ -1088,7 +1122,7 @@ class TerminalTests(unittest.TestCase):
     def test_go_into_folder_enters_a_directory_or_a_files_folder(self):
         (self.root / "sub" / "deep").mkdir(parents=True)
         (self.root / "sub" / "note.txt").touch()
-        config = self.config("", keys="[normal]\ngo_to_highlighted = 'gd'\n")
+        config = self.config("", keys="[normal]\ngo_to_highlighted = 'gd'\ntoggle_labels = 'none'\n")
         s = self.start("--config", config, "--depth", "2", implicit_root=True, output_paths=False)
         s.send(b"inote", "❯ note")
         s.send(b"\x1b[27u", "NORMAL")
@@ -1201,7 +1235,7 @@ class TerminalTests(unittest.TestCase):
             self.assertIn("q CLASHES WITH ANOTHER KEY", s.screen.text)
             self.assertIn("quit ", s.screen.text)
             s.send(b"t", "taken from the others")
-            self.assertFalse(keys.exists())  # staged until Enter
+            self.assertEqual(keys.read_text(), SMOKE_KEYS.read_text())  # staged until Enter
             s.send(b"\r", "Keys saved to")
             # The default . keeps leaving the query in focus to Neovim.
             self.assertIn(
@@ -1226,7 +1260,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_keys_editor_replaces_a_key_restores_defaults_on_confirmation_and_wraps(self):
         (self.root / "file").touch()
-        s = self.start("--no-config")
+        s = self.start()
         s.send(b"\x1bOP", "showing what works")
         # Typing, r is text: its hint shows in Normal mode only.
         self.assertNotIn("r, then a key", s.screen.text)
@@ -1246,7 +1280,7 @@ class TerminalTests(unittest.TestCase):
         # D asks before putting the defaults back.
         s.send(b"D", "Put back the default keys of toggle_hidden?")
         s.send(b"\r", "Default keys back; Enter saves")
-        self.assertIn("› Alt+.", s.screen.text)
+        self.assertIn("› .", s.screen.text)
         # Moving up from the first key goes round to the last.
         s.send(b"k", "WHERE . APPLIES")
         s.send(b"\x03")
@@ -1561,7 +1595,7 @@ class TerminalTests(unittest.TestCase):
         }])
 
     def test_live_workspaces_session_only_and_external_reload(self):
-        s = self.start(implicit_root=True)
+        s = self.start("--no-config", implicit_root=True)
         s.send(b"gw", "Workspaces")
         s.send(b"\x1bn", "New workspace")
         s.send(b"\r", "for this session")
@@ -1893,9 +1927,8 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u")  # and leave the query
         hint = "Files do not open here. To save over this one, save under its name."
         s.send(b"l", hint)
-        s.send(b"\x1b[27u")  # the status goes; Alt+2 shows it again
-        s.wait_absent(hint)
-        s.send(b"\x1b2", hint)
+        # Alt+2 opens and quits, which a dialog does not.
+        s.send(b"\x1b2", "Alt+2 (open_row) does not work in fff explorer save")
         s.send(b"q")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
@@ -1932,6 +1965,7 @@ class TerminalTests(unittest.TestCase):
         (docs / "other.txt").write_text("o")
         def save():
             s = self.session = Session(self.root, "explorer", "save", str(docs / "a.pdf"),
+                                       "--config", self.row_keys(),
                                        implicit_root=True, output_paths=False)
             s.wait_ui("Save as a.pdf  INSERT")
             s.send(b"new.pdf", "Save as new.pdf  INSERT")
@@ -1960,7 +1994,6 @@ class TerminalTests(unittest.TestCase):
         s.send(b"izzzz", b"No matching results")
         s.send(b"\r", 'Nothing matches "zzzz"; Esc clears the query')
         s.send(b"\x1b[27u", "Query  NORMAL")
-        s.send(b"i\x1b[57;5u", 'Nothing matches "zzzz"')  # Ctrl+9 while typing
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -2242,9 +2275,9 @@ class TerminalTests(unittest.TestCase):
             for name in ("one", "two", "three"):
                 (Path(folder) / name).mkdir()
             config = Path(folder) / "config.toml"
-            (Path(folder) / "keys.toml").write_text(
+            (Path(folder) / "keys.toml").write_text(smoke_keys_with(
                 "[normal]\ntoggle_mark='<S-Space>'\nhighlight_first='<Space>t'\nhighlight_last=['G','<Space>b']\nhighlight_next='none'\n"
-            )
+            ))
             config.write_text(
                 "".join(f"[[workspaces]]\nname='{n}'\npath='{n}'\n" for n in ("one", "two", "three"))
             )
@@ -2267,7 +2300,7 @@ class TerminalTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_nvim_normal_mode_keys_in_palette_chooser(self):
         (self.root / "file").touch()
-        s = self.start("--no-config")
+        s = self.start()
         s.send(b"gp", "Palettes · Enter applies · Esc reverts · NORMAL")
         # G previews and applies the last palette; gg then j select the second.
         mark = len(s.ui)
@@ -2348,7 +2381,8 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-action-keys-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("")
-            (Path(folder) / "keys.toml").write_text("[normal]\ntoggle_mark='x'\ntrash='none'\nquit='none'\n")
+            (Path(folder) / "keys.toml").write_text(
+                smoke_keys_with("[normal]\ntoggle_mark='x'\ntrash='none'\nquit='none'\n"))
             s = self.start("--config", str(config))
             s.send(b"x", "Marks (1)")
             s.send(b"gE", "Edit exclusions")
@@ -2563,7 +2597,7 @@ class TerminalTests(unittest.TestCase):
         config = folder / "config.toml"
         config.write_text(text)
         if keys is not None:
-            (folder / "keys.toml").write_text(keys)
+            (folder / "keys.toml").write_text(smoke_keys_with(keys))
         return str(config)
 
     def trash(self):
@@ -3298,8 +3332,7 @@ class TerminalTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp.name + "-far", True)
         (self.root / "sub").mkdir()
         env = self.run_environment("zoxide", f'echo "{far}"\necho "{far.parent}"\n')
-        s = self.start("--no-config", implicit_root=True,
-                       environment=env, output_paths=False)
+        s = self.start(implicit_root=True, environment=env, output_paths=False)
         s.send(b"g/", "Go to directory")
         self.assertIn("Enter: Go", s.screen.text)
         s.wait_ui(str(far.parent))
@@ -3347,7 +3380,7 @@ class TerminalTests(unittest.TestCase):
         log = self.root / "log"
         env = self.run_environment(
             "tool", f'case "$1" in --help) echo "  -x, --and-exit  stop";; *) printf "%s\\n" "$@" > "{log}";; esac\n')
-        config = self.config("", keys="[normal]\ntrash = 'D'\nedit_files = 'none'\n")
+        config = self.config("", keys="[normal]\ntrash = 'D'\ntoggle_files = 'none'\nedit_files = 'none'\n")
         s = self.start("--config", config, implicit_root=True, environment=env)
         s.send(SHIFT_SPACE, "Marks (1)")
         s.send(b"x")  # no longer trash: Neovim gets it, with the focus
@@ -3362,6 +3395,61 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(log.read_text().splitlines(), ["--and-exit", str(self.root / "alpha")])
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_default_keys_in_roam_enter_open_and_leave(self):
+        # --no-config: the default keys, not the ones the other tests press.
+        (self.root / "sub" / "deep").mkdir(parents=True)
+        (self.root / "sub" / "note.pdf").touch()
+        cd_file = self.root / "cd"
+        start = lambda *args, **kwargs: self.start(
+            "--cd-file", str(cd_file), "--depth", "1", *args, implicit_root=True,
+            output_paths=False, **kwargs)
+        # l goes in and h back out; Enter on a folder stays, g! leaves into it.
+        s = start("--no-config")
+        s.send(b"isub", "❯ sub")
+        s.send(b"\x1b[27u\x1b[27u")
+        s.send(b"l", ("cwd", self.root / "sub"))
+        s.send(b"h", ("cwd", self.root))
+        s.send(b"isub", "❯ sub")
+        s.send(b"\x1b[27u\x1b[27u\r")
+        s.send(b"g!")
+        self.assertEqual(s.finish(), (0, b""))
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(self.root / "sub"))
+        s.close()
+        # Enter on a file opens it and leaves into its folder.
+        env, config, log = self.opener_setup()
+        (config.parent / "keys.toml").write_text("")  # the defaults
+        s = self.session = start("--config", str(config), environment=env)
+        s.send(b"l", ("cwd", self.root / "sub"))
+        s.send(b"inote", "❯ note")
+        s.send(b"\r")
+        self.assertEqual(s.finish(), (0, b""))
+        self.wait_file(log, [str(self.root / "sub" / "note.pdf")])
+        self.assertEqual(cd_file.read_bytes(), os.fsencode(self.root / "sub"))
+
+    def test_default_keys_in_pick_print_the_highlight_the_marks_or_both(self):
+        for name in ("a.txt", "b.txt"):
+            (self.root / name).touch()
+        a, b = (os.fsencode(self.root / n) + b"\n" for n in ("a.txt", "b.txt"))
+        # Space marks a.txt and moves to b.txt: Enter prints both, Shift+Enter
+        # the highlighted one, Ctrl+Enter the marks.
+        for key, expected in [(b"\r", a + b), (b"\x1b[13;2u", b), (b"\x1b[13;5u", a)]:
+            with self.subTest(key=key):
+                s = self.start("--no-config", "--depth", "1")
+                s.send(b"gg ", "Marks (1)")
+                s.send(key)
+                self.assertEqual(s.finish(), (0, expected))
+                s.close()
+                self.session = None
+        # Ctrl+k opens the marked list and leaves it.
+        s = self.start("--no-config", "--depth", "1")
+        s.send(b"gg ", "Marks (1)")
+        s.send(b"\x1b[107;5u", "› ●")
+        s.send(b"\x1b[107;5u")
+        s.wait_absent("› ●")
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
 
     def deep_tree(self):
         # top.txt, folder/, and a deep result sub/more/a.pdf beside 0first.txt.
@@ -3393,8 +3481,7 @@ class TerminalTests(unittest.TestCase):
             (b"folder", (), os.fsencode(self.root / "folder") + b"\n"),
             (b"zzzz", (), os.fsencode(self.root) + b"\n"),  # nothing listed
         ]:
-            # Ctrl+1 highlights the first row, already highlighted.
-            for key in [b"\r", b"\x1b[49;5u\r"]:
+            for key in [b"\r"]:
                 with self.subTest(query=query, args=args, key=key):
                     s = self.start("--depth", "3", *args, implicit_root=True)
                     s.send(SHIFT_SPACE, "Marks (1)")  # marks are ignored
@@ -3570,7 +3657,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_alt_number_opens_a_file_at_the_match_of_its_row(self):
+    def test_a_match_row_opens_its_file_at_that_match(self):
         for name in ("one.txt", "two.txt"):
             (self.root / name).write_text("canard\nmiddle\ncanard\n")
         env, config, log = self.opener_setup(
@@ -3579,10 +3666,11 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\t", "Contents  INSERT")
         s.send(b"canard", "❯ canard")
         s.wait_ui("4 matches in 2 files")
-        # Each row's own match, not the first of its file's.
-        s.send(b"\x1b[50;3u", "Opened one.txt with viewer")  # CSI-u Alt+2
+        # Each row's own match, not the first of its file's: Alt+j to the
+        # second row, Alt+l opens it in the background.
+        s.send(b"\x1bj\x1bl", "Opened one.txt with viewer")
         self.wait_file(log, ["+3", str(self.root / "one.txt")])
-        s.send(b"\x1b[52;3u", "Opened two.txt with viewer")  # Alt+4
+        s.send(b"\x1bj\x1bj\x1bl", "Opened two.txt with viewer")  # the fourth
         self.wait_file(log, ["+3", str(self.root / "two.txt")])
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
@@ -3659,14 +3747,31 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
+    def keys_config(self, keys, config=""):
+        # A configuration, with config's text, whose keys.toml beside it is
+        # keys: the row functions have no default keys. Returns its path.
+        folder = Path(tempfile.mkdtemp(prefix="fff-keys-"))
+        self.addCleanup(lambda: shutil.rmtree(folder, ignore_errors=True))
+        (folder / "keys.toml").write_text(smoke_keys_with(keys))
+        (folder / "config.toml").write_text(config)
+        return str(folder / "config.toml")
+
+    def row_keys(self, config=""):
+        # Ctrl+number highlights its row and Ctrl+Alt+number the one below.
+        return self.keys_config(
+            '[insert]\nhighlight_row = "<C-#>"\nhighlight_next_in_row = "<C-M-#>"\n'
+            '[normal]\nhighlight_row = "<C-#>"\nhighlight_next_in_row = "<C-M-#>"\n', config)
+
     def opener_setup(self, body=None, rules="[[open.rules]]\ncommand = 'viewer'\npatterns = ['*']\n", terminal=None):
         # A stub GUI opener "viewer" on PATH that logs its arguments, and a
         # config naming it for every file. Returns (environment, config, log).
         log = Path(self.tmp.name + "-opened.log")
         self.addCleanup(lambda: log.unlink(missing_ok=True))
         env = self.run_environment("viewer", body or f'printf "%s\\n" "$@" > "{log}"\n')
-        config = Path(self.tmp.name + "-open.toml")
-        self.addCleanup(lambda: config.unlink(missing_ok=True))
+        folder = Path(self.tmp.name + "-open")
+        folder.mkdir(exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(folder, ignore_errors=True))
+        config = folder / "config.toml"
         config.write_text((f"[open]\nterminal = {terminal!r}\n" if terminal else "") + rules)
         return env, config, log
 
@@ -3738,7 +3843,7 @@ class TerminalTests(unittest.TestCase):
         cd_file = self.root / "cd"
         cd_file.write_bytes(b"")
         env = self.run_environment("finale", f'printf "%s\\n" "$@" > "{log}"; exit 7\n')
-        s = self.start("--no-config", "--cd-file", str(cd_file),
+        s = self.start("--cd-file", str(cd_file),
                        implicit_root=True, environment=env, output_paths=False)
         s.send(b"\x1bl", ("cwd", sub))
         s.send(b"gX", "Run and exit · INSERT")
@@ -3760,7 +3865,7 @@ class TerminalTests(unittest.TestCase):
         broken.chmod(0o755)
         cd_file = self.root / "cd"
         cd_file.write_bytes(b"")
-        s = self.start("--no-config", "--cd-file", str(cd_file),
+        s = self.start("--cd-file", str(cd_file),
                        implicit_root=True, output_paths=False)
         s.send(b"\x1bl", ("cwd", sub))
         s.send(b"gX", "Run and exit · INSERT")
@@ -3843,7 +3948,7 @@ class TerminalTests(unittest.TestCase):
 
     def test_rebound_choice(self):
         (self.root / "file").touch()
-        s = self.start("--config", self.config("", keys="[normal]\nprint_highlighted = ['<CR>', '<C-n>']\n"))
+        s = self.start("--config", self.config("", keys="[normal]\nprint_highlighted = '<C-n>'\n"))
         s.send(b"\x0e")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
@@ -3914,9 +4019,9 @@ class TerminalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="fff-palette-pin-") as folder:
             config = Path(folder) / "config.toml"
             config.write_text("[ui]\npalette='nord'\n")
-            (Path(folder) / "keys.toml").write_text(
+            (Path(folder) / "keys.toml").write_text(smoke_keys_with(
                 "[normal]\nshow_palettes = ['gp', '<C-t>']\nreload_palette = ['gP', '<C-r>']\n"
-            )
+            ))
             s = self.start("--config", str(config), "--palette", "forest")
             s.send(b"\x14", "Palettes · Enter applies")
             s.send(b"ilight\r", "Palette light applied")
