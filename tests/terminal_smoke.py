@@ -2725,8 +2725,9 @@ class TerminalTests(unittest.TestCase):
         s.send(b"p", "Copying tree")
         s.wait_ui(" of 4.9 MiB · ", timeout=10)
         # The terminal goes away mid-copy: fff gets SIGHUP and its screen is
-        # gone, yet the copy is published whole before fff ends.
-        self.assertEqual(self.hang_up(s, timeout=60), -signal.SIGHUP)
+        # gone, yet the copy is published whole before fff ends. Syncing
+        # 80,000 files takes over a minute on slow disks (CI's macOS).
+        self.assertEqual(self.hang_up(s, timeout=180), -signal.SIGHUP)
         self.assertEqual(os.listdir(target), ["tree"])
         self.assertEqual(len(os.listdir(target / "tree")), 80000)
 
