@@ -1024,9 +1024,9 @@ window to a running server and return at once.
 
 Unset, both are detected, in this order:
 
-1. the terminal fff runs in, found among its parent processes, else by the
-   `$TERM_PROGRAM` it sets (iTerm2, WezTerm and Ghostty do; inside tmux it
-   names tmux);
+1. the terminal fff runs in, found among its parent processes, else on
+   macOS by the `$TERM_PROGRAM` it sets (iTerm2, WezTerm and Ghostty do;
+   inside tmux it names tmux);
 2. `$TERMINAL`, a known terminal in its own syntax, any other with `-e`;
 3. `x-terminal-emulator -e` (Debian's choice of terminal);
 4. the first of the known terminals installed: st, Alacritty, kitty,

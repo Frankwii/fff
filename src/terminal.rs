@@ -1,6 +1,6 @@
 //! The terminal emulator fff runs programs in when `[open] terminal` or
 //! `[open] fff_terminal` is unset: the one fff itself runs in (among its
-//! parent processes, else by `$TERM_PROGRAM`), else `$TERMINAL`, else the
+//! parent processes, else on macOS by `$TERM_PROGRAM`), else `$TERMINAL`, else the
 //! first known one installed; on macOS, Terminal.app at the last.
 //!
 //! Each known terminal has its own way to run a command, and to give fff's
@@ -244,7 +244,7 @@ pub enum Purpose {
 pub struct Environment<'a> {
     /// The executables of fff's ancestor processes, nearest first.
     pub ancestors: Vec<PathBuf>,
-    /// `$TERM_PROGRAM`.
+    /// `$TERM_PROGRAM`, read only on macOS.
     pub term_program: Option<String>,
     /// `$TERMINAL`.
     pub terminal: Option<String>,
@@ -302,10 +302,10 @@ pub fn detect(purpose: Purpose, env: &Environment) -> Option<String> {
             return Some(line(known, &command(known, path)));
         }
     }
-    // Set by the terminal and inherited by what runs in it, also where its
-    // process is no ancestor of fff's. Only a script or an installed
-    // command can run it.
-    if let Some(program) = env.term_program.as_deref() {
+    // Set by macOS's terminals and inherited by what runs in it, also where
+    // its process is no ancestor of fff's. Only a script or an installed
+    // command can run it. Elsewhere `$TERMINAL` is the convention.
+    if let Some(program) = env.term_program.as_deref().filter(|_| env.macos) {
         let found = KNOWN
             .iter()
             .filter(here)
@@ -552,7 +552,7 @@ mod tests {
         let ghostty = ["/usr/bin/ghostty"];
         let open = detect_with(Purpose::Open, &ghostty, None, false, &["ghostty"]);
         assert_eq!(open.as_deref(), Some("ghostty -e"));
-        // `$TERM_PROGRAM` that came along over ssh.
+        // `$TERM_PROGRAM` is macOS's way, not Linux's.
         let open = detect_on(
             false,
             Purpose::Open,
@@ -572,7 +572,7 @@ mod tests {
             false,
             &["ghostty", "st"],
         );
-        assert_eq!(open.as_deref(), Some("ghostty -e"));
+        assert_eq!(open.as_deref(), Some("st -e"));
         assert_eq!(
             detect_with(Purpose::Open, &shells, Some("Terminal"), false, &[]).as_deref(),
             Some("Terminal -e")

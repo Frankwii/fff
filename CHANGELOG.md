@@ -14,8 +14,7 @@ history.
   and Ghostty), and falls back to Terminal.app. Terminal.app and iTerm2 get
   the program typed into a new window through `osascript`, Ghostty a new
   instance through `open`; kitty, Alacritty and WezTerm run from their app
-  bundles when not on the PATH. Elsewhere, `$TERM_PROGRAM` likewise finds
-  WezTerm or Ghostty when no parent process names the terminal.
+  bundles when not on the PATH.
 
 ## 0.20.2 — 2026-11-08
 
