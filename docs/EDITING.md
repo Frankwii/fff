@@ -93,11 +93,15 @@ query becomes `bye world`. `u` restores it and Ctrl+r reapplies the change.
 
 ## Application keys and Escape
 
-In Normal mode, `q` exits choosing nothing (no output, no directory change);
-`!` exits and returns the current browsing directory in the normal path
-output format (`--relative` and `--null` apply). Both ignore marks. In
-`fff seek`, both exit successfully without output. They also work in the marked list. Insert-mode
-fields treat them as text. They are `quit` and `quit_here` on the [Keys screen](CONFIGURATION.md#keys).
+In Normal mode, `q` exits choosing nothing (no output, no directory change,
+a dialog cancelled); `!` exits with the current browsing directory: `fff
+roam` changes to it (`fff window` starts a shell there), `fff pick` and
+folder dialogs print it in the normal path output format (`--relative` and
+`--null` apply), and a save dialog saves there. Both ignore marks. In
+`fff seek`, whose directory never changes, `!` does nothing. They also work
+in the marked list. Insert-mode fields treat them as text. They are `quit`,
+`quit_here`, `print_here` and `save_here` on the
+[Keys screen](CONFIGURATION.md#keys).
 
 Ctrl+c always cancels fff. Alt shortcuts, Ctrl/Alt+digits, marking with
 Shift+Space, and Ctrl+w retain their fff actions in results/marks, in every

@@ -1793,23 +1793,6 @@ impl App {
         self.status_success = self.status.clone();
         true
     }
-    /// Enter with nothing listed while typing: in a folder verified empty,
-    /// where a folder is an answer, the marks and the folder. Otherwise
-    /// `None`, the status saying why.
-    pub fn empty_folder(&mut self) -> Option<Vec<PathBuf>> {
-        if self.scanning || !self.physical_empty || !self.returns_folder() {
-            self.nothing_to_enter();
-            return None;
-        }
-        self.confirm(Some(self.cwd.clone()))
-    }
-    /// Whether Enter in a verified empty folder may answer with the folder:
-    /// not in `fff seek`, with no shell to leave into (`fff window`), or in a
-    /// dialog choosing files, whose answer has no room for a folder.
-    fn returns_folder(&self) -> bool {
-        use crate::program::Program::*;
-        matches!(self.program(), Roam | Pick | ExplorerFolder)
-    }
     /// Says why Enter (or Ctrl+number) with no row did nothing.
     pub fn nothing_to_enter(&mut self) {
         self.status = if self.scanning {

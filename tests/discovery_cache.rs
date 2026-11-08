@@ -235,10 +235,10 @@ fn disabled_cache_and_empty_directory_confirmation_are_safe() {
     complete(&mut d, &mut app);
     d.start(&mut app, true);
     assert!(app.cache_pending);
-    // A replayed empty folder is no answer until a scan verifies it.
-    assert_eq!(app.empty_folder(), None);
+    // A replayed empty folder is not known empty until a scan verifies it.
+    assert!(!app.physical_empty);
     complete(&mut d, &mut app);
-    assert_eq!(app.empty_folder(), Some(vec![f.0.clone()]));
+    assert!(app.physical_empty);
 }
 #[test]
 fn overlapping_roots_keep_effective_depth_and_scope_attribution_on_hits() {
@@ -565,7 +565,6 @@ fn truncated_or_empty_snapshots_never_skip_verification() {
     complete(&mut d, &mut app);
     d.start(&mut app, true);
     assert!(app.scanning && !app.physical_empty);
-    assert_eq!(app.empty_folder(), None);
 }
 
 #[test]

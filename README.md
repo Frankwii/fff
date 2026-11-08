@@ -79,7 +79,7 @@ name.
 `fff roam`, the default, changes directory on exit: `q` leaves you where you
 started, `!` takes you to the directory you were browsing, Normal-mode Enter
 on a directory takes you into it, and on a file opens it and leaves you in its
-folder. Ctrl+number is Enter on that row. To open several files at once, `o`
+folder. Ctrl+number highlights that row. To open several files at once, `o`
 opens the marked ones in this terminal and comes back.
 
 `fff pick` prints the selection instead, for scripts and command substitution,
@@ -192,15 +192,15 @@ folder, and `!` starts a shell in the folder you are in
 
 Shift+Space toggles a mark in every mode, and Space in Normal mode; marks
 survive navigation and filtering. On a [contents match](#searching-contents)
-the mark is its file's, and the highlight moves on to the next file. Escape twice in Normal mode, with the
-query empty, clears every mark. Ctrl+w finishes
-with the marks only, and only where the answer can be several paths: `fff
-pick` returns them (as do `fff explorer open-multiple` and `folder --multiple`).
-Elsewhere (`fff roam`,
-`fff seek`, other dialogs) it does nothing but say so; there the marks are for
-file operations, `o`, `e` and `gx`. Insert-mode Enter in a verified physically empty directory returns marks
-plus that directory; a no-match query in a nonempty directory stays open, and
-a short status message says nothing matches (Ctrl+number likewise).
+the mark is its file's, and the highlight moves on to the next file.
+`clear_marks` clears every mark; it has no key until you
+[give it one](docs/CONFIGURATION.md#keys). Ctrl+w finishes
+with the marks only, and works only where the answer can be several paths:
+`fff pick` returns them (as do `fff explorer open-multiple` and `folder
+--multiple`). Elsewhere (`fff roam`, `fff seek`, other dialogs) it does not
+work and the status line says so; there the marks are for file operations,
+`o`, `e` and `gx`. Enter while typing with a query matching nothing stays
+open, and a short status message says nothing matches.
 Missing marks block confirmation until unmarked.
 
 ### Tabs
@@ -216,16 +216,12 @@ it again with an empty query; a tab whose directory is moved follows it, and one
 back to the nearest existing parent. F2's session details list every tab's directory. `fff seek`, which cannot
 change directory, has no tabs: Up / Down in Normal mode move the highlight there.
 
-Ctrl+number is Enter on a visible row, exactly as if that row were highlighted
-and Enter pressed, in the current editing mode: in Normal mode it finishes with
-the row (opens a file and leaves, prints it in `fff pick`, leaves into
-a directory); while typing it enters a directory, and on a file returns the
-marks plus that file (`fff pick`) or reveals it. Alt+number acts like `l`
-on the same row: it enters a directory or opens a file in the background.
+Ctrl+number highlights a visible row, in either editing mode; what Enter or
+any other key then does is done to that row. Alt+number acts like `l` on its
+row: it enters a directory or opens a file in the background.
 Labels refer to the last fully rendered page: 1–9 select that position,
 out-of-range digits clamp to the last row, and 0 selects the last row. With no
-visible rows, Ctrl+number is Enter with nothing highlighted (in Normal mode,
-the current directory; in `fff seek`, nothing) and Alt+number does nothing.
+visible rows, both do nothing.
 
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
@@ -338,8 +334,7 @@ fd -0 -e pdf | fff -0 | xargs -0r zathura
   `find -print0` and names with newlines.
 - **Choosing** prints paths as the list spelled them (`./src/main.rs` stays
   `./src/main.rs`), NUL-terminated with `-0`: Enter prints the highlighted
-  path (while typing, the marks and it), Ctrl+number does the same for its
-  row, and Ctrl+w prints the marks. A double click is Enter. `q` prints
+  path (while typing, the marks and it), and Ctrl+w prints the marks. A double click is Enter. `q` prints
   nothing and Ctrl+c exits with 130, as in `fff pick`.
 - **What works** is the choice and how it looks: the names and
   [contents](#searching-contents) queries, marks, the preview, sorting
@@ -531,7 +526,6 @@ key says which one.
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then clear the query or close a chooser/location prompt; keep the session |
-| Escape twice in Normal | With the query empty: clear every mark |
 | Tab / Alt+/ | Type into the other query, contents or names, in either mode |
 | Enter in Normal | Exit into a highlighted directory; on a highlighted file, open it and leave (`fff roam`), print it (`fff pick`) or exit into its folder (`fff seek`) |
 | Enter while typing | Enter a directory; on a file, return marks + file (`fff pick`), exit into its folder (`fff seek`) or reveal it in its folder |
@@ -554,9 +548,9 @@ key says which one.
 | m / M in Normal | Mark every listed row / invert the listed rows' marks (results or marked list) |
 | K / Alt+K / Alt+Space | Focus / leave the marked list (K in Normal mode) |
 | J / Alt+J | Focus / leave the [jobs list](docs/OPERATIONS.md#progress-and-stopping) of operations still running; x there stops one and undoes it |
-| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer open-multiple`; nothing elsewhere) |
+| Ctrl+w | Finish with the marks, from results or the marked list: return them (`fff pick`, `fff explorer open-multiple`, `folder --multiple`; it does not work elsewhere) |
 | ZZ / ZQ | In multiline Neovim buffers (exclusions, filters, rename), save and close / discard and close; `:wq` / `:q!` also work |
-| Ctrl+1 … Ctrl+9 / Ctrl+0 | Enter on that visible row / the last row |
+| Ctrl+1 … Ctrl+9 / Ctrl+0 | Highlight that visible row / the last row |
 | Alt+1 … Alt+9 / Alt+0 | Like `l` on a visible target / last target |
 | PageUp / PageDown | Page through results |
 | Alt+. / . in Normal | Toggle hidden entries |
@@ -598,8 +592,8 @@ key says which one.
 `q` and `!` exit with status 0. `q` chooses nothing: it prints nothing and
 changes no directory, so `fff pick | xargs -r …` opens nothing. `!` prints
 the current directory in `fff pick`, in the usual output format, and changes
-to it in `fff roam`. `fff seek` makes either exit successfully without
-output. Insert mode keeps these characters as
+to it in `fff roam`. In `fff seek`, which never changes directory, `!` does
+nothing. Insert mode keeps these characters as
 text. `gx` / `gX` are described under [running programs](docs/OPERATIONS.md#running-programs).
 
 Normal-mode list keys apply to results, marks, workspaces and palettes; the

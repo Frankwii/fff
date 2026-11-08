@@ -1135,16 +1135,19 @@ A place is a combination of three things, fixed by design:
 
 | Dimension | Values |
 | --- | --- |
-| program | `roam`, `window`, `pick`, `seek`, `explorer-open`, `explorer-open-multiple`, `explorer-folder`, `explorer-save` (`fff explorer open`, `open-multiple`, `folder` with or without `--multiple`, and `save`), `piped` (`fff` with [paths on stdin](../README.md#choosing-from-another-programs-paths-command--fff)) |
+| program | `roam`, `window`, `pick`, `seek`, `explorer-open`, `explorer-open-multiple`, `explorer-folder`, `explorer-folder-multiple`, `explorer-save` (`fff explorer open`, `open-multiple`, `folder`, `folder --multiple` and `save`), `piped` (`fff` with [paths on stdin](../README.md#choosing-from-another-programs-paths-command--fff)) |
 | focus | `query`, `results`, `marks` (the marked list) |
 | highlight | `dir`, `file`, `none` |
 
-Each function works only in some places, which may be several:
-`quit_into_highlighted` works in `roam` and `pick` on a directory, or in
-`seek` on a file; `go_to_parent` everywhere but `seek` and `piped`; `restore`
-in the results and the marked list. In `piped` only moving the highlight, the
-marks, the queries, the view, printing and quitting work. Whatever works on
-the results works from their query too.
+Each function does one thing, the same in both modes, and works only in
+the places where that thing means something, which may be several:
+`quit_into_highlighted` works in `roam` and `seek`, whose shell follows
+fff; `print_highlighted` where fff answers with a path (`pick`, `piped`, a
+dialog), on a file or a folder as the program asks; `print_marks` where the
+answer can be several paths; `go_to_parent` everywhere but `seek` and
+`piped`; `restore` in the results and the marked list. In `piped` only
+moving the highlight, the marks, the queries, the view, printing and
+quitting work. Whatever works on the results works from their query too.
 
 Keys are bound per mode, Insert or Normal, and each key applies in one place
 you choose: some programs, some focuses, some highlights, all of them unless
@@ -1153,7 +1156,9 @@ their functions work, do not meet, so a key does exactly one thing wherever
 it is pressed. That is how Enter does different things in different places:
 in Normal mode it is `quit_into_highlighted` on a directory in `fff roam`,
 `go_to_highlighted` on one in a window of its own, `open_and_quit` on a file
-in `fff roam`, `print_highlighted` on a file in `fff pick`, and so on.
+in `fff roam`, `print_highlighted` in `fff pick`, `print_here` with nothing
+highlighted there, and so on. Some functions have no key by default
+(`clear_marks`); bind them to use them.
 
 ### The query in focus
 
@@ -1232,7 +1237,7 @@ The same three keys work at every level: **Space goes a level deeper**
   applies. `R` replaces the highlighted key: press the new one, and Enter
   puts it where the old one applied, at once when nothing else has it there,
   else through where it applies, with the clash shown. A digit for
-  `search_to_depth`, `open_row` or `confirm_row` stands for every digit. `d`
+  `search_to_depth`, `open_row` or `highlight_row` stands for every digit. `d`
   deletes the highlighted row, and `D` puts the function's default keys
   back, after asking.
 - **Where a key applies:** the checklists, to change. Tab and Shift+Tab go

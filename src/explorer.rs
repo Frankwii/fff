@@ -24,6 +24,8 @@ impl Dialog {
         use crate::program::Program;
         if self.save.is_some() {
             Program::ExplorerSave
+        } else if self.directory && self.multiple {
+            Program::ExplorerFolderMultiple
         } else if self.directory {
             Program::ExplorerFolder
         } else if self.multiple {
@@ -91,11 +93,18 @@ impl Dialog {
                 names.join(" or ")
             }
         };
-        let enter = keys(Function::PrintHighlighted, Mode::Normal);
+        let enter = keys(
+            if self.multiple {
+                Function::PrintHighlightedAndMarks
+            } else {
+                Function::PrintHighlighted
+            },
+            Mode::Normal,
+        );
         let here = if self.save.is_some() {
             Function::SaveHere
         } else {
-            Function::QuitHere
+            Function::PrintHere
         };
         match (&self.save, self.directory, self.multiple) {
             (Some(_), _, _) if typing => format!(
@@ -109,13 +118,8 @@ impl Dialog {
                 keys(Function::ToggleQueryFocus, Mode::Normal)
             ),
             (Some(name), _, _) => format!(
-                "Press {} to save {name} here. Press i to type a custom name.{}",
+                "Press {} to save {name} here. Press i to type a custom name.",
                 keys(here, Mode::Normal),
-                if app.bound(Function::ConfirmRow).is_some() {
-                    " Press Ctrl+number on a file's row to replace it."
-                } else {
-                    ""
-                }
             ),
             (None, true, _) if typing => format!(
                 "Press {} to choose the folder you are in.",
@@ -139,25 +143,14 @@ impl Dialog {
     /// chooses files or where to save, and what to do instead. `None` for
     /// folder dialogs, where files open as in a normal session.
     pub fn file_hint(&self, app: &crate::App) -> Option<String> {
-        let row = app.bound(crate::keymap::Function::ConfirmRow).is_some();
         let how = format!(
-            "press {} on it{}",
-            app.bound_or_none(crate::keymap::Function::PrintHighlighted),
-            if row {
-                " or Ctrl+number on its row"
-            } else {
-                ""
-            }
+            "press {} on it",
+            app.bound_or_none(crate::keymap::Function::PrintHighlighted)
         );
         match (&self.save, self.directory) {
-            (Some(_), _) => Some(format!(
-                "Files do not open here. To save over this one, {}.",
-                if row {
-                    "press Ctrl+number on its row or save under its name"
-                } else {
-                    "save under its name"
-                }
-            )),
+            (Some(_), _) => {
+                Some("Files do not open here. To save over this one, save under its name.".into())
+            }
             (None, true) => None,
             (None, false) => Some(format!(
                 "Files do not open here. To choose this one, {how}."

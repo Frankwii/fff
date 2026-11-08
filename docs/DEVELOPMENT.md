@@ -25,7 +25,7 @@ listed separately in the [roadmap](ROADMAP.md).
 | `src/prefetch.rs` | Bounded child-directory prefetch, cancellation, cooldown and mount eligibility. |
 | `src/ui/mod.rs` | The session loop (`Session`): focus states, background polling, the editor's field, drawing and wakeups. While a scan runs, what it, the rankings and the contents search change is drawn at most every `SCAN_FRAME` (33 ms); input and everything else draw on the next pass. |
 | `src/ui/dispatch.rs` | One event's route: the running job's `cancel`, pastes, the mouse, then keys in the results and marked list through the keymap to a function (`list_key`), what each function does (`run_function`), and other focuses' fixed keys (`act`). |
-| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (the sheets and choosers); Enter in the lists (`enter`: the function Enter has there by default, for the mouse and `confirm_row`), the entry Enter's functions act on (`chosen`) and what each does with it (`finish_with_entry`), and the larger functions' code. |
+| `src/ui/focus.rs` | Each focus's own keys, one handler per `Focus` variant (the sheets and choosers); Enter in the lists (`enter`: the function Enter has there by default, for the mouse), the entry Enter's functions act on (`chosen`) and what each does with it (`finish_with_entry`), and the larger functions' code. |
 | `src/ui/screen.rs` | Terminal lifecycle (enter, suspend for programs, resume) and the input reader. |
 | `src/ui/input.rs` | The choosers' fixed Normal-mode keys; text fields (`focused_text` maps each focus to its Neovim field, for typing and paste alike); status timing, numbered keys. |
 | `src/ui/configure.rs` | `gc`: the configuration in `$EDITOR`, its backup, and every setting applied to the running session. |
@@ -207,14 +207,13 @@ planner share runs, so merging a run they share copies it, as it did before.
   read. Large re-rankings run on another thread; every key except typing into
   the query and Ctrl+c waits for a pending one, so no action uses stale rows.
 - Marks are unique, ordered and independent of navigation, policies and filters.
-  Ctrl+number is Enter on its row and Alt+number is `l` on it; both address
+  Ctrl+number highlights its row and Alt+number is `l` on it; both address
   the last fully rendered visible labels.
 - The input reader hands every handler a shifted letter as legacy terminals
   send it, uppercase with Shift, whatever the kitty protocol reported, so
   typing and key bindings agree everywhere (`keymap::Key::press` folds the
   two encodings).
-- Escape preserves the session (twice with an empty query clears the marks,
-  nothing more). In Neovim it first exits transient editing modes;
+- Escape preserves the session: it never clears the marks. In Neovim it first exits transient editing modes;
   Ctrl+c cancels with no selected-path output.
 - Drawing never touches the filesystem: what a frame shows about an entry
   (details, `[MISSING]`, a folder's slash, a workspace's availability) comes

@@ -613,24 +613,13 @@ impl Session {
             }
         }
     }
-    /// Ctrl+number: Enter on that row, as if it were highlighted first (with
-    /// no visible rows, Enter with nothing highlighted).
-    pub(super) fn confirm_row(&mut self, app: &mut App, digit: u32) -> io::Result<Option<Finish>> {
-        let mut row = Row::default();
+    /// `highlight_row`: the row numbered `digit` on screen.
+    pub(super) fn highlight_row(&mut self, app: &mut App, digit: u32) {
         if !app.rendered.is_empty() {
             app.highlight_numbered(digit);
             app.highlight_top = false;
             app.wanted = None;
-            row.on_row = true;
-        } else if !app.program().navigates() {
-            // Static (fff seek) sessions never fall back to the current
-            // directory.
-            app.nothing_to_enter();
-            return Ok(None);
-        } else {
-            row.unnumbered = true;
         }
-        self.enter(app, app.mode(), row)
     }
     /// Enter's functions that finish with the highlighted entry
     /// (`finish_with_entry`).
@@ -640,9 +629,8 @@ impl Session {
         function: Function,
         row: Row,
     ) -> Option<Finish> {
-        let (mode, _) = self.here(app);
         let chosen = chosen(app, &self.focus, &mut self.discovery, row).ok()?;
-        finish_with_entry(app, &mut self.focus, function, chosen, mode)
+        finish_with_entry(app, &mut self.focus, function, chosen)
     }
     /// `go_to_highlighted`: into the highlighted directory, or to the
     /// highlighted file's folder with the file highlighted.
@@ -697,8 +685,8 @@ impl Session {
             original: app.palette,
         };
     }
-    /// `clear_query`: the query; pressed again with none, the marks. With
-    /// a contents query, the query being typed into, else the other one.
+    /// `clear_query`. With a contents query, the query being typed into,
+    /// else the other one.
     pub(super) fn clear_query(&mut self, app: &mut App) {
         if !app.grep.text.is_empty() && (app.grep.editing || app.query.is_empty()) {
             app.set_contents(String::new());
@@ -706,12 +694,6 @@ impl Session {
             app.query.clear();
             app.offset = 0;
             app.refresh();
-        } else if std::mem::replace(&mut self.escape_armed, true) && !app.marks.is_empty() {
-            let count = app.marks.len();
-            app.marks.clear();
-            app.status = format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
-            app.status_success = app.status.clone();
-            self.escape_armed = false;
         }
     }
     /// Alt+t: the trash, a folder like any other; again, the next one (each
@@ -815,14 +797,13 @@ pub(super) fn chosen(
     Ok(Some((target.path, target.directory)))
 }
 /// What Enter's functions that finish do with the `chosen` entry, each its
-/// one thing where its scopes let it run; `mode` is the one keys are read
-/// in. `None` stays, the status saying why.
+/// one thing where its scopes let it run. `None` stays, the status saying
+/// why.
 pub(super) fn finish_with_entry(
     app: &mut App,
     focus: &mut Focus,
     function: Function,
     chosen: Option<(PathBuf, bool)>,
-    mode: keymap::Mode,
 ) -> Option<Finish> {
     use Function::*;
     match (function, chosen) {
@@ -841,13 +822,8 @@ pub(super) fn finish_with_entry(
         (QuitIntoHighlighted, Some((path, false))) => {
             Some(Finish::Folder(path.parent().unwrap_or(&app.cwd).to_owned()))
         }
-        // Nothing highlighted: the current directory. While typing, only a
-        // folder verified empty, so that a query matching nothing does not
-        // leave.
-        (QuitIntoHighlighted, None) if mode == keymap::Mode::Normal => {
-            Some(Finish::Folder(app.cwd.clone()))
-        }
-        (QuitIntoHighlighted, None) => app.empty_folder().map(Finish::Paths),
+        // Nothing highlighted: the current directory.
+        (QuitIntoHighlighted, None) => Some(Finish::Folder(app.cwd.clone())),
         _ => {
             app.nothing_to_enter();
             None

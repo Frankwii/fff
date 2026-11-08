@@ -664,26 +664,14 @@ fn normal_enter_on_a_cached_entry_that_is_gone_stays() {
         assert!(chosen.is_err());
         assert!(app.status.contains("no longer exists"), "{}", app.status);
     }
-    // fff seek never leaves into its folder for want of a row, and while
-    // typing, only a folder verified empty is left into.
+    // With nothing highlighted, the current directory, whatever is listed
+    // and in either mode.
     let mut app = App::browse(root.clone(), 1, crate::Policy::default());
-    app.set_program(Program::Seek);
     app.scanning = false;
     let mut focus = Focus::Results;
     let quit = Function::QuitIntoHighlighted;
-    assert!(finish_with_entry(&mut app, &mut focus, quit, None, keymap::Mode::Insert).is_none());
-    assert_eq!(app.status, "Nothing listed here");
-    app.set_program(Program::Roam);
-    assert!(finish_with_entry(&mut app, &mut focus, quit, None, keymap::Mode::Insert).is_none());
-    app.physical_empty = true;
     assert!(matches!(
-        finish_with_entry(&mut app, &mut focus, quit, None, keymap::Mode::Insert),
-        Some(Finish::Paths(p)) if p == [root.clone()]
-    ));
-    // In Normal mode, the current directory whatever is listed.
-    app.physical_empty = false;
-    assert!(matches!(
-        finish_with_entry(&mut app, &mut focus, quit, None, keymap::Mode::Normal),
+        finish_with_entry(&mut app, &mut focus, quit, None),
         Some(Finish::Folder(p)) if p == root
     ));
     std::fs::remove_dir_all(&root).unwrap();

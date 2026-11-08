@@ -327,9 +327,6 @@ struct Session {
     progress_shown: bool,
     /// Whether the last frame drew the button bar.
     buttons_shown: bool,
-    /// The last key cleared an empty query in Normal mode: clearing again
-    /// clears the marks.
-    escape_armed: bool,
     drawn: Drawn,
     mouse: Mouse,
     status: StatusTimer,
@@ -415,7 +412,6 @@ impl Session {
             drawn_at: std::time::Instant::now(),
             progress_shown: true,
             buttons_shown: false,
-            escape_armed: false,
             drawn: Drawn::default(),
             mouse: Mouse::default(),
             status: StatusTimer::default(),
@@ -888,7 +884,7 @@ impl Picker {
                     f.works(keymap::Mode::Normal, here)
                         && !matches!(
                             f,
-                            Function::SearchToDepth | Function::OpenRow | Function::ConfirmRow
+                            Function::SearchToDepth | Function::OpenRow | Function::HighlightRow
                         )
                 })
                 .map(|&f| Choice::Function(f))

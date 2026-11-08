@@ -59,7 +59,6 @@ impl Session {
             // default, past the keymap.
             Event::Mouse(event) => match self.click(app, event) {
                 Click::Key { key, on_row } => {
-                    self.escape_armed = false;
                     self.status.before_key(app);
                     self.act(app, key, on_row)
                 }
@@ -203,11 +202,8 @@ impl Session {
             _ => {}
         }
         let list = matches!(self.focus, Focus::Results | Focus::Marks { .. });
-        if !list {
-            self.escape_armed = false;
-            if cancels(app, key) {
-                return Ok(Some(Finish::Cancelled));
-            }
+        if !list && cancels(app, key) {
+            return Ok(Some(Finish::Cancelled));
         }
         // Multiline buffers keep Neovim's write/close lifecycle; single-line
         // names and destinations take Enter/Escape like the workspace form.
@@ -238,7 +234,8 @@ impl Session {
         match chooser_key(app, &mut self.focus, &mut self.editor, key) {
             ChooserKey::Pass(key) => self.act(app, key, false),
             ChooserKey::Consumed => Ok(None),
-            ChooserKey::Quit(current) => Ok(self.quit(app, current)),
+            ChooserKey::Quit(false) => Ok(self.quit(app)),
+            ChooserKey::Quit(true) => Ok(self.quit_here(app)),
         }
     }
     /// A key in the results or the marked list: the keymap says which
@@ -253,24 +250,15 @@ impl Session {
             && key.code == K::Char(':')
             && !key.modifiers.intersects(M::ALT | M::CONTROL)
         {
-            self.escape_armed = false;
             self.open_picker(Picker::Commands(cell), 0);
             return Ok(None);
         }
         match self.query_key(app, mode, cell, key) {
-            Typed::Waiting => {}
-            Typed::Neovim => self.escape_armed = false,
+            Typed::Waiting | Typed::Neovim => {}
             Typed::Run(function, digit) => {
-                // Clearing twice in a row clears the marks.
-                if function != Function::ClearQuery {
-                    self.escape_armed = false;
-                }
                 return self.run_function(app, function, digit, Row::default());
             }
-            Typed::Unbound(cell) => {
-                self.escape_armed = false;
-                self.unbound(app, mode, cell, key);
-            }
+            Typed::Unbound(cell) => self.unbound(app, mode, cell, key),
         }
         Ok(None)
     }
@@ -408,12 +396,12 @@ impl Session {
                     self.open_trash(app);
                 }
             }
-            GoBack | GoForward => {
+            GoToOlderJump | GoToNewerJump => {
                 if !app.can_navigate() {
-                } else if app.jump(function == GoBack) {
+                } else if app.jump(function == GoToOlderJump) {
                     self.discovery.start(app, true);
                 } else {
-                    app.status = if function == GoBack {
+                    app.status = if function == GoToOlderJump {
                         "No earlier directory to go back to"
                     } else {
                         "No later directory to go forward to"
@@ -432,7 +420,7 @@ impl Session {
                 activate_highlighted(app, &mut self.discovery);
             }
             OpenRow => self.open_numbered(app, u32::from(digit.unwrap_or(0))),
-            ConfirmRow => return self.confirm_row(app, u32::from(digit.unwrap_or(0))),
+            HighlightRow => self.highlight_row(app, u32::from(digit.unwrap_or(0))),
             SaveOver
             | PrintHighlighted
             | PrintHighlightedAndMarks
@@ -482,6 +470,12 @@ impl Session {
             }
             PrintMarks => return Ok(leave_with_marks(app)),
             ClearQuery => self.clear_query(app),
+            ClearMarks => {
+                let count = app.marks.len();
+                app.marks.clear();
+                app.status = format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
+                app.status_success = app.status.clone();
+            }
             ToggleQueryFocus => app.query_focused = !app.query_focused,
             SwitchQuery => {
                 app.grep.editing = !app.grep.editing;
@@ -576,7 +570,8 @@ impl Session {
             EditConfig => self.edit_config(app)?,
             SwitchProgram => self.focus = Focus::ProgramChoice,
             ShowSorting => self.show_sorting(app),
-            Quit | QuitHere => return Ok(self.quit(app, function == QuitHere)),
+            Quit => return Ok(self.quit(app)),
+            QuitHere | PrintHere => return Ok(self.quit_here(app)),
             Cancel => return Ok(Some(Finish::Cancelled)),
         }
         Ok(None)
@@ -673,6 +668,17 @@ impl Session {
         let starts = |b: &&keymap::Binding| b.keys.len() == 1 && b.keys[0] == press;
         let special = key.modifiers.intersects(M::ALT | M::CONTROL) || matches!(key.code, K::F(_));
         let name = press.display();
+        // A file's open key in a dialog, which chooses files instead.
+        let opens = app.keymap.bindings().iter().filter(starts).any(|b| {
+            b.mode == mode && b.function == Function::OpenInBackground && b.scope.contains(cell)
+        });
+        if opens
+            && cell.highlight == keymap::Highlight::File
+            && let Some(hint) = app.running.dialog().and_then(|d| d.file_hint(app))
+        {
+            app.status = hint;
+            return;
+        }
         if special {
             let bindings = app.keymap.bindings();
             // Here, in the other mode: outside the marked list, where keys
@@ -826,32 +832,38 @@ impl Session {
             _ => {}
         }
     }
-    pub(super) fn quit(&mut self, app: &mut App, current: bool) -> Option<Finish> {
-        if app.program().dialog() && !current {
-            return Some(Finish::Cancelled);
-        }
-        if app.program() == Program::ExplorerSave {
-            return save_here(app, &mut self.focus);
-        }
-        // fff seek, and q in fff pick, leave without choosing anything.
-        if !app.program().navigates() || (app.program().prints_paths() && !current) {
-            return Some(Finish::Paths(Vec::new()));
-        }
-        // With a window of its own, ! leaves into a shell there.
-        if app.program() == Program::Window && current {
-            return match crate::run::shell_plan(&app.cwd) {
+    /// `quit`: leave without an answer, back where fff started.
+    pub(super) fn quit(&self, app: &App) -> Option<Finish> {
+        Some(if app.program().dialog() {
+            Finish::Cancelled
+        } else if app.program().prints_paths() || !app.program().navigates() {
+            Finish::Paths(Vec::new())
+        } else {
+            Finish::Paths(vec![self.invocation.clone()])
+        })
+    }
+    /// `quit_here` and `print_here`, which never work in one program, and
+    /// `!` in the choosers: leave with the current directory, saving there
+    /// in a save dialog and leaving a shell there in a window of its own.
+    /// Where the current directory is no answer, `!` quits.
+    pub(super) fn quit_here(&mut self, app: &mut App) -> Option<Finish> {
+        match app.program() {
+            Program::ExplorerSave => save_here(app, &mut self.focus),
+            Program::Window => match crate::run::shell_plan(&app.cwd) {
                 Ok(plan) => Some(Finish::Exec(plan)),
                 Err(error) => {
                     app.status = error;
                     None
                 }
-            };
+            },
+            Program::Roam
+            | Program::Pick
+            | Program::ExplorerFolder
+            | Program::ExplorerFolderMultiple => Some(Finish::Paths(vec![app.cwd.clone()])),
+            Program::Seek | Program::ExplorerOpen | Program::ExplorerMultiple | Program::Piped => {
+                self.quit(app)
+            }
         }
-        Some(Finish::Paths(vec![if current {
-            app.cwd.clone()
-        } else {
-            self.invocation.clone()
-        }]))
     }
     /// A file operation, from Normal mode in the results or the marked list.
     fn operation(&mut self, app: &mut App, function: Function) -> io::Result<()> {

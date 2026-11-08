@@ -152,17 +152,9 @@ pub(super) fn open_and_leave(app: &App, paths: &[PathBuf]) -> Result<Finish, Str
 pub(super) fn select_returns_marks(app: &App) -> bool {
     !app.marks.is_empty() && app.returns_marks()
 }
-/// Ctrl+w: the marks are returned where the answer can be several paths
-/// (`App::returns_marks`); elsewhere nothing happens and the status line says
-/// why. `None` when fff stays.
+/// `print_marks`, which works only where the answer can be several paths
+/// (`App::returns_marks`). `None` when fff stays.
 pub(super) fn leave_with_marks(app: &mut App) -> Option<Finish> {
-    if !app.returns_marks() {
-        app.status = format!(
-            "{} returns the marks only where several paths can be chosen, as in fff pick",
-            app.bound_or_none(Function::PrintMarks)
-        );
-        return None;
-    }
     app.confirm(None).map(Finish::Paths)
 }
 /// fff explorer save, Enter, Ctrl+s or !: saves under the typed name (else

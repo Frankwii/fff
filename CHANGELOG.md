@@ -16,6 +16,11 @@ history.
   other default keys typed as text left to Neovim, while Enter, Tab and the
   Alt and Ctrl keys still act on the results. Whichever of the query and
   the results lacks the focus is drawn dimmed.
+- **`print_here`** prints the current directory and quits, in `fff pick`
+  and folder dialogs (`!` there, as before), and **`clear_marks`** clears
+  every mark; it has no default key.
+- **`explorer-folder-multiple`**: keys can apply to `fff explorer folder
+  --multiple` apart from `folder`.
 
 ### Changed
 
@@ -30,6 +35,21 @@ history.
 - **The save dialog's hint names the keys that work where you are.**
 - **Clearer function descriptions** on the Keys screen, written for someone
   new to fff.
+- **Each function does one thing wherever it works, in both modes**, and
+  works only where that means something: `quit_into_highlighted` in `fff
+  roam` and `fff seek`, `quit_here` in `fff roam` and `fff window`, the
+  `print_` functions where fff answers with paths (`print_marks` where
+  several paths can be the answer), `open_in_background` outside the
+  dialogs choosing files. Elsewhere their keys say they do not work there.
+  With nothing highlighted, `quit_into_highlighted` leaves into the current
+  directory in either mode.
+- **Ctrl+number highlights its row** (`highlight_row`, formerly
+  `confirm_row`) instead of acting as Enter on it.
+- **Escape no longer clears the marks** when pressed again with the query
+  empty; bind `clear_marks` for that.
+- **The jump list's functions are named as Neovim's**: `go_to_older_jump`
+  (Ctrl+o) and `go_to_newer_jump` (Ctrl+i), formerly `go_back` and
+  `go_forward`.
 
 ## 0.21.0 — 2026-11-08
 

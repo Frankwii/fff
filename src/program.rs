@@ -17,6 +17,7 @@ pub enum Program {
     ExplorerOpen,
     ExplorerMultiple,
     ExplorerFolder,
+    ExplorerFolderMultiple,
     ExplorerSave,
     /// Bare `fff` with paths on stdin: a choice among them, printed.
     Piped,
@@ -41,6 +42,7 @@ impl Program {
             | Self::ExplorerOpen
             | Self::ExplorerMultiple
             | Self::ExplorerFolder
+            | Self::ExplorerFolderMultiple
             | Self::ExplorerSave => 1,
         }
     }
@@ -69,7 +71,11 @@ impl Program {
     pub fn dialog(self) -> bool {
         matches!(
             self,
-            Self::ExplorerOpen | Self::ExplorerMultiple | Self::ExplorerFolder | Self::ExplorerSave
+            Self::ExplorerOpen
+                | Self::ExplorerMultiple
+                | Self::ExplorerFolder
+                | Self::ExplorerFolderMultiple
+                | Self::ExplorerSave
         )
     }
     /// A second click on a row is Enter there: in a file dialog, and on a
@@ -112,6 +118,7 @@ impl Program {
             Self::ExplorerOpen => "explorer open",
             Self::ExplorerMultiple => "explorer open-multiple",
             Self::ExplorerFolder => "explorer folder",
+            Self::ExplorerFolderMultiple => "explorer folder --multiple",
             Self::ExplorerSave => "explorer save",
             Self::Piped => "piped",
         }
@@ -188,6 +195,7 @@ mod tests {
             ExplorerOpen,
             ExplorerMultiple,
             ExplorerFolder,
+            ExplorerFolderMultiple,
             ExplorerSave,
         ] {
             assert_eq!(program.rank(), Rank::Log, "{program:?}");

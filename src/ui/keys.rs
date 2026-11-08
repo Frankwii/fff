@@ -436,7 +436,7 @@ impl Editor {
 fn takes_digits(function: Function) -> bool {
     matches!(
         function,
-        Function::SearchToDepth | Function::OpenRow | Function::ConfirmRow
+        Function::SearchToDepth | Function::OpenRow | Function::HighlightRow
     )
 }
 
@@ -591,8 +591,8 @@ impl Session {
             Function::ToggleQueryFocus => screen.query_focused = !screen.query_focused,
             Function::ShowSession => self.focus = Focus::Info { offset: 0 },
             Function::Cancel => return Some(Finish::Cancelled),
-            Function::Quit => return self.quit(app, false),
-            Function::QuitHere => return self.quit(app, true),
+            Function::Quit => return self.quit(app),
+            Function::QuitHere | Function::PrintHere => return self.quit_here(app),
             other => {
                 app.status = format!(
                     "{} ({}) does nothing on the Keys screen",

@@ -568,7 +568,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (130, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_space_marks_tab_switches_queries_and_escape_twice_clears_marks(self):
+    def test_space_marks_tab_switches_queries_and_escape_keeps_the_marks(self):
         for name in ("one", "two", "three"):
             (self.root / name).touch()
         s = self.start("--depth", "1", implicit_root=True)
@@ -591,14 +591,11 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u")  # and leave the query
         s.send(b"\x1b[27u", "❯ type to filter")
         self.assertIn("Marks (2)", s.screen.text)
-        # An Escape followed by another key does not clear them either.
-        s.send(b"j")
+        # Nor does Escape again, however often.
+        s.send(b"\x1b[27u")
         s.send(b"\x1b[27u")
         s.send(b"j")
-        s.send(b"\x1b[27u")
         self.assertIn("Marks (2)", s.screen.text)
-        s.send(b"\x1b[27u", "Cleared 2 marks")
-        self.assertIn("Marks (0)", s.screen.text)
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
 
@@ -743,7 +740,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_no_dir_starts_in_insert_and_quit_returns_no_directory(self):
+    def test_no_dir_starts_in_insert_and_q_returns_no_directory(self):
         (self.root / "file").touch()
         s = self.start("seek")
         # A file choice starts ready to type: "!" is query text here.
@@ -752,7 +749,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")  # and leave the query
         s.send(b"\x1b[27u", "❯ type to filter")
-        s.send(b"!")
+        s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
 
     def test_workspace_alt_digits_use_visible_filtered_rows_and_clamp(self):
@@ -781,7 +778,8 @@ class TerminalTests(unittest.TestCase):
         (self.root / "c.txt").touch()
         s = self.start("--null", "--depth", "1")
         s.send(SHIFT_SPACE, b"Marks (1)")
-        s.send(b"\x1b[50;5u")  # CSI-u: Ctrl+2
+        # CSI-u: Ctrl+2 highlights the second row; Enter prints it alone.
+        s.send(b"\x1b[50;5u\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "b") + b"\0"))
 
     def test_plain_digit_escape_then_cancel(self):
@@ -800,15 +798,15 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\0"))
 
-    def test_no_matches_numbered_acts_like_enter(self):
+    def test_no_matches_stays_while_typing_and_normal_enter_takes_the_folder(self):
         (self.root / "file").touch()
         s = self.start("--null")
         s.send(b"izzzz", b"No matching results")
-        # While typing, Enter with no matches stays open; so does Ctrl+9.
-        s.send(b"\x1b[57;5u")
+        # While typing, Enter with no matches stays open; Ctrl+9 has no row.
+        s.send(b"\r\x1b[57;5u")
         s.send(b"\x1b[27u", "Query  NORMAL")
         # In Normal mode, Enter with nothing listed takes the current directory.
-        s.send(b"\x1b[57;5u")
+        s.send(b"\r")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\0"))
 
     def test_depth_and_exclusion_editor(self):
@@ -885,7 +883,7 @@ class TerminalTests(unittest.TestCase):
                 s.wait_ui("▸ docs/")
                 s.wait_ui("· main.rs")
                 self.assertNotIn("", s.screen.text)
-                s.send(b"\x1b[49;5u")  # Ctrl+1: numbering is unaffected
+                s.send(b"\x1b[49;5u\r")  # Ctrl+1: numbering is unaffected
                 self.assertEqual(s.finish(), (0, os.fsencode(self.root / "docs") + b"\n"))
                 s.close()
             self.session = None
@@ -895,7 +893,7 @@ class TerminalTests(unittest.TestCase):
             (self.root / f"file{i:02}").touch()
         s = self.start(size=(16, 160))  # 9 visible result rows in the split layout
         s.send(b"\x1b[6~", b"file17")  # PageDown
-        s.send(b"\x1b[48;5u")  # Ctrl+0 => last of the next 9 rows
+        s.send(b"\x1b[48;5u\r")  # Ctrl+0 => last of the next 9 rows
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file17") + b"\n"))
 
     def test_filtered_enter_stays_open_and_missing_marks_block(self):
@@ -913,11 +911,12 @@ class TerminalTests(unittest.TestCase):
     def test_tiny_terminal_has_no_numbered_rows(self):
         (self.root / "file").touch()
         s = self.start(size=(5, 160))
-        # fff pick starts typing; Normal-mode Ctrl+1 with no rows leaves.
+        # fff pick starts typing; Ctrl+1 has no row on screen to highlight,
+        # so Normal-mode Enter prints the one highlighted from the start.
         s.send(b"\x1b[27u")
         time.sleep(0.3)
-        s.send(b"\x1b[49;5u")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root) + b"\n"))
+        s.send(b"\x1b[49;5u\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file") + b"\n"))
 
     def test_location_navigation_preserves_marks_and_fixed_root(self):
         (self.root / "a").touch()
@@ -1283,13 +1282,13 @@ class TerminalTests(unittest.TestCase):
             self.assertTrue(any(" ".join(l.split()).startswith(f"@ {self.root}") for l in s.screen.text.splitlines()))
             self.assertNotIn("Go to directory", s.screen.text)
             self.assertNotIn("Workspaces ·", s.screen.text)
-        # A no-match query: Ctrl+number does not fall back to the directory.
+        # A no-match query: Enter does not fall back to the directory.
         s.send(b"zzzz", b"No matching results")
-        s.send(b"\x1b[49;5u")  # CSI-u: Ctrl+1
+        s.send(b"\r")
         s.send(b"\x7f\x7f\x7f\x7f", b"top.txt")
         s.send(SHIFT_SPACE, b"Marks (1)")
-        # Ctrl+w returns marks only in fff pick; seek stays.
-        s.send(b"\x17", b"Ctrl+w returns the marks only where")
+        # Ctrl+w returns marks only where several paths can be chosen.
+        s.send(b"\x17", b"Ctrl+w (print_marks) does not work in fff seek")
         s.send(b"\x03")
         self.assertEqual(s.finish(), (130, b""))
 
@@ -1892,8 +1891,11 @@ class TerminalTests(unittest.TestCase):
                        implicit_root=True, output_paths=False)
         s.send(b"\x1b[27u", "NORMAL")  # save dialogs start typing a name
         s.send(b"\x1b[27u")  # and leave the query
-        s.send(b"l", "Files do not open here. To save over this one, press Ctrl+number")
-        s.send(b"\x1b2", "press Ctrl+number on its row")  # Alt+2: the same
+        hint = "Files do not open here. To save over this one, save under its name."
+        s.send(b"l", hint)
+        s.send(b"\x1b[27u")  # the status goes; Alt+2 shows it again
+        s.wait_absent(hint)
+        s.send(b"\x1b2", hint)
         s.send(b"q")
         self.assertEqual(s.finish(), (130, b""))
         s.close()
@@ -1923,7 +1925,7 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "alpha" / "inside") + b"\n"))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
-    def test_while_typing_a_name_to_save_ctrl_number_and_double_click_act_on_their_row(self):
+    def test_while_typing_a_name_to_save_ctrl_number_highlights_and_double_click_acts(self):
         docs = self.root / "docs"
         (docs / "sub").mkdir(parents=True)
         (docs / "a.pdf").write_text("a")
@@ -1934,22 +1936,13 @@ class TerminalTests(unittest.TestCase):
             s.wait_ui("Save as a.pdf  INSERT")
             s.send(b"new.pdf", "Save as new.pdf  INSERT")
             return s
-        # Ctrl+3 is Enter on other.txt: it offers to replace that file, not
-        # to save under the typed name.
+        # Ctrl+3 only highlights other.txt: Enter still saves under the
+        # typed name.
         s = save()
-        s.send(b"\x1b[51;5u", "other.txt already exists")
-        s.send(b"\r")
-        self.assertEqual(s.finish(), (0, os.fsencode(docs / "other.txt") + b"\n"))
+        s.send(b"\x1b[51;5u\r")
+        self.assertEqual(s.finish(), (0, os.fsencode(docs / "new.pdf") + b"\n"))
         s.close()
-        # Ctrl+1 is Enter on the folder: it goes into it.
-        s = save()
-        s.send(b"\x1b[49;5u", ("cwd", docs / "sub"))
-        s.send(b"\x13")
-        status, output = s.finish()
-        self.assertEqual(status, 0)
-        self.assertEqual(os.path.dirname(output.strip()), os.fsencode(docs / "sub"))
-        s.close()
-        # So is a double click.
+        # A double click is Enter on its row: it offers to replace that file.
         s = save()
         lines = s.screen.text.splitlines()
         row = next(i for i, l in enumerate(lines) if " other.txt" in l and "@" not in l)
@@ -2717,7 +2710,9 @@ class TerminalTests(unittest.TestCase):
         # The copy took alpha's mark as it started; undoing it gives it back.
         self.assertIn("Marks (1)", s.screen.text)
         s.send(b"u", "Nothing to undo")
-        s.send(b"\x1b[27u\x1b[27u\x1b[27u", "Marks (0)")
+        s.send(b"\x1b ", "› ●")
+        s.send(b" ", "Marks (0)")
+        s.send(b"\x1b[27u")
         # A move is undone too, but never out from under the browsing directory.
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")  # and leave the query
@@ -2823,7 +2818,9 @@ class TerminalTests(unittest.TestCase):
         s.wait_absent("Jobs (")
         self.assertEqual(os.listdir(target), [])
         self.assertIn("Marks (1)", s.screen.text)
-        s.send(b"\x1b[27u\x1b[27u\x1b[27u", "Marks (0)")
+        s.send(b"\x1b ", "› ●")
+        s.send(b" ", "Marks (0)")
+        s.send(b"\x1b[27u")
         # Checking a large selection before a confirmation shows its sheet,
         # and Ctrl+c stops it at once.
         s.send(b"h", ("cwd", self.root))
@@ -3387,7 +3384,7 @@ class TerminalTests(unittest.TestCase):
                 s.take(chunk)
         self.assertIn(name, self.highlighted(s), s.screen.text)
 
-    def test_normal_enter_prints_a_file_or_directory_and_ctrl_digit_matches_it(self):
+    def test_normal_enter_prints_a_file_or_directory_and_ctrl_digit_highlights_it(self):
         more = self.deep_tree()
         for query, args, expected in [
             (b"top.txt", (), os.fsencode(self.root / "top.txt") + b"\n"),
@@ -3396,8 +3393,8 @@ class TerminalTests(unittest.TestCase):
             (b"folder", (), os.fsencode(self.root / "folder") + b"\n"),
             (b"zzzz", (), os.fsencode(self.root) + b"\n"),  # nothing listed
         ]:
-            # Ctrl+1 is Enter on the first row.
-            for key in [b"\r", b"\x1b[49;5u"]:
+            # Ctrl+1 highlights the first row, already highlighted.
+            for key in [b"\r", b"\x1b[49;5u\r"]:
                 with self.subTest(query=query, args=args, key=key):
                     s = self.start("--depth", "3", *args, implicit_root=True)
                     s.send(SHIFT_SPACE, "Marks (1)")  # marks are ignored
@@ -3451,15 +3448,16 @@ class TerminalTests(unittest.TestCase):
     def test_ctrl_w_returns_marks_only_where_several_paths_can_be_chosen(self):
         (self.root / "a.pdf").write_text("a")
         (self.root / "b.pdf").write_text("b")
-        refused = "Ctrl+w returns the marks only where several paths can be chosen"
         # fff roam, fff seek, a one-file dialog and a save dialog: nothing
         # happens but the message, and the marks stay.
-        for args, kwargs in [
-            ((), {"output_paths": False}),
-            (("seek",), {}),
-            (("explorer", "open"), {"output_paths": False}),
-            (("explorer", "save", str(self.root / "c.pdf")), {"output_paths": False}),
+        for args, kwargs, program in [
+            ((), {"output_paths": False}, "fff roam"),
+            (("seek",), {}, "fff seek"),
+            (("explorer", "open"), {"output_paths": False}, "fff explorer open"),
+            (("explorer", "save", str(self.root / "c.pdf")), {"output_paths": False},
+             "fff explorer save"),
         ]:
+            refused = f"Ctrl+w (print_marks) does not work in {program}"
             s = self.session = Session(self.root, *args, implicit_root=True, **kwargs)
             s.send(b"\x1b[27u", "NORMAL")
             s.send(b"\x1b[27u")  # and leave the query

@@ -598,7 +598,7 @@ fn alt_numbered_directories_navigate_and_keep_session_state() {
     assert_eq!(app.depth, depth);
 }
 #[test]
-fn numbered_files_confirm_with_the_marks_and_an_empty_folder_needs_verifying() {
+fn numbered_files_confirm_with_the_marks() {
     let f = Fixture::new();
     let a = f.file("a");
     let b = f.file("b");
@@ -617,15 +617,6 @@ fn numbered_files_confirm_with_the_marks_and_an_empty_folder_needs_verifying() {
     fs::remove_file(&a).unwrap();
     assert_eq!(app.confirm(Some(b.clone())), None);
     assert!(app.status.contains("Missing"));
-    // With nothing listed, only a folder verified empty is an answer.
-    app.marks.clear();
-    app.physical_empty = false;
-    assert_eq!(app.empty_folder(), None);
-    app.physical_empty = true;
-    app.scanning = true;
-    assert_eq!(app.empty_folder(), None);
-    app.scanning = false;
-    assert_eq!(app.empty_folder(), Some(vec![f.0.clone()]));
 }
 #[test]
 fn alt_numbers_are_distinct_from_plain_and_control_digits() {
@@ -670,38 +661,6 @@ fn seek_hides_directories_and_never_navigates_or_returns_them() {
     assert!(app.status.contains("fff seek"));
     assert!(!app.navigate_highlighted());
     assert_eq!(app.cwd, Path::new("/fixture"));
-    // An empty directory never returns itself.
-    app.rows = Default::default();
-    app.scanning = false;
-    app.physical_empty = true;
-    assert_eq!(app.empty_folder(), None);
-}
-#[test]
-fn an_empty_folder_answers_enter_only_where_a_folder_is_an_answer() {
-    use fuzzy_file_finder::explorer::Dialog;
-    let f = Fixture::new();
-    let empty = |set: &dyn Fn(&mut App)| {
-        let mut app = App::browse(f.0.clone(), 1, Policy::default());
-        app.scanning = false;
-        app.physical_empty = true;
-        set(&mut app);
-        app.empty_folder()
-    };
-    let folder = Some(vec![f.0.clone()]);
-    assert_eq!(empty(&|_| {}), folder);
-    let dialog = |directory| Dialog {
-        multiple: false,
-        directory,
-        save: None,
-    };
-    assert_eq!(empty(&|app| app.open_dialog(dialog(true))), folder);
-    // A file dialog cannot take a folder, and a window has no shell to
-    // leave into: a stray Enter must not end either.
-    assert_eq!(empty(&|app| app.open_dialog(dialog(false))), None);
-    assert_eq!(
-        empty(&|app| app.set_program(fuzzy_file_finder::program::Program::Window)),
-        None
-    );
 }
 #[test]
 fn status_messages_expire_and_restart_when_reported_again() {
