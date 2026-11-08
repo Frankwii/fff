@@ -5,14 +5,15 @@ Set Shell "bash"
 Set FontFamily "JetBrainsMono Nerd Font Mono"
 Set FontSize 16
 Set Width 1280
-Set Height 720
+Set Height 780
 Set Padding 16
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 90ms
 
 Hide
-Type "source docs/demos/env.sh && clear"
+Type "exec docs/demos/session.sh"
 Enter
+Sleep 1.5s
 Show
 
 Type "fff" Sleep 400ms Enter Sleep 1.5s

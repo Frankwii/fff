@@ -6,7 +6,8 @@ export PATH="$repo/target/release:$PATH"
 export HOME="$demo/home"
 export XDG_CONFIG_HOME="$demo/config" XDG_STATE_HOME="$demo/state"
 export XDG_CACHE_HOME="$demo/cache" XDG_DATA_HOME="$demo/data"
-export EDITOR=nvim TERM=xterm-256color COLORTERM=truecolor
+export EDITOR=nvim COLORTERM=truecolor
+[ -n "$TMUX" ] || export TERM=xterm-256color
 unset NO_COLOR
 eval "$(fff setup --init bash)"
 PS1='\[\e[1;34m\]\w\[\e[0m\] $ '

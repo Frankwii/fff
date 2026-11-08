@@ -115,3 +115,28 @@ roots = ["~/papers"]
 depth = 4
 filters = ["*.pdf"]
 TOML
+
+# The X recording (record-x.sh) opens PDFs with zathura, at a contents
+# match's page with the query found, in the recordings' colors.
+cat >> "$demo/config/fff/config.toml" <<'TOML'
+
+[[open.rules]]
+command = "zathura"
+extensions = ["pdf"]
+at_grep_match = "--page {page} --find {query}"
+TOML
+mkdir -p "$demo/config/zathura"
+cat > "$demo/config/zathura/zathurarc" <<'RC'
+set default-bg "#1e1e2e"
+set statusbar-bg "#313244"
+set statusbar-fg "#cdd6f4"
+set inputbar-bg "#1e1e2e"
+set inputbar-fg "#cdd6f4"
+set highlight-color "rgba(249,226,175,0.6)"
+set highlight-active-color "rgba(137,180,250,0.6)"
+set adjust-open "width"
+set guioptions "s"
+set recolor true
+set recolor-lightcolor "#1e1e2e"
+set recolor-darkcolor "#cdd6f4"
+RC

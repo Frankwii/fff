@@ -1,7 +1,8 @@
 #!/bin/sh
 # Records the README's GIFs with VHS (https://github.com/charmbracelet/vhs;
 # on Arch, pacman -S vhs). Run from anywhere; builds fff first. With
-# arguments, records only those tapes: record.sh find contents.
+# arguments, records only those tapes: record.sh find pick. The contents
+# GIF, which shows a PDF viewer too, is record-x.sh's.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
