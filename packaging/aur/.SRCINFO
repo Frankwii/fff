@@ -1,6 +1,6 @@
 pkgbase = fuzzy-file-finder
 	pkgdesc = Terminal file finder and manager with fuzzy filtering, content search and Neovim editing (fff)
-	pkgver = 0.22.0
+	pkgver = 0.22.1
 	pkgrel = 1
 	url = https://github.com/Frankwii/fff
 	arch = x86_64
@@ -17,7 +17,7 @@ pkgbase = fuzzy-file-finder
 	optdepends = poppler: search and preview PDF text
 	optdepends = ffmpeg: preview audio and video details
 	conflicts = fff
-	source = fuzzy-file-finder-0.22.0.tar.gz::https://github.com/Frankwii/fff/archive/refs/tags/v0.22.0.tar.gz
-	sha256sums = 9c96b809fd05b758b3efd69bba471cabec331b19d2e433326cd428218d90d6a0
+	source = fuzzy-file-finder-0.22.1.tar.gz::https://github.com/Frankwii/fff/archive/refs/tags/v0.22.1.tar.gz
+	sha256sums = 3f7b59691c46524bb5f50115f1710c9f547fc6e026180365b5df99831e259c51
 
 pkgname = fuzzy-file-finder
