@@ -220,6 +220,18 @@ fn detached_matches(
 fn mount_root(parent: &File, name: &OsStr) -> Result<bool> {
     platform::is_mount_root(parent, name).map_err(err)
 }
+/// Whether rename destination `d` is its own source under a name that
+/// differs in case only, as a case-insensitive filesystem (macOS's default)
+/// finds it: renaming `a` to `A` there is no collision. A hard link with such
+/// a name on a case-sensitive one is still refused by the no-replace rename.
+fn case_alias(src: &[Entry], i: usize, d: &Entry, renaming: bool) -> bool {
+    let Some(s) = src.get(i).filter(|_| renaming) else {
+        return false;
+    };
+    s.name != d.name
+        && s.name.to_string_lossy().to_lowercase() == d.name.to_string_lossy().to_lowercase()
+        && identity(&s.parent, &s.name).is_some_and(|id| identity(&d.parent, &d.name) == Some(id))
+}
 /// Device and inode of `name`, without following a final symlink.
 fn identity(parent: &File, name: &OsStr) -> Option<(u64, u64)> {
     let m = platform::lstat_at(parent, name).ok()?;
@@ -729,7 +741,7 @@ impl Engine {
             if !seen.insert(d.path.clone()) {
                 return Err("Duplicate destination".into());
             }
-            let existing = exists(&d.parent, &d.name)?;
+            let existing = exists(&d.parent, &d.name)? && !case_alias(&src, i, d, renaming);
             match request {
                 Request::Extract { .. } => {
                     if !existing {

@@ -498,6 +498,7 @@ they are published, as on Linux, rather than `F_FULLFSYNC`, which empties the
 drive's cache for every file (minutes for a large tree): whatever ends fff,
 nothing is ever partly there under its name, though a power cut can lose
 writes the drive had not yet stored.
+macOS's case-insensitive filesystems let a rename change only a name's case.
 Building/running requires **libarchive**, including its development linker files
 when building (for example `libarchive-dev` on Debian/Ubuntu; macOS includes
 it). Browsing also links to this library. No shell or external extractor is

@@ -4,6 +4,13 @@ User-visible changes in each release of fff (the `fuzzy-file-finder` crate).
 Entries before 0.8.0 were written afterwards from the release notes and
 history.
 
+## Unreleased
+
+### Fixed
+
+- **A rename may change only a name's case on macOS's case-insensitive
+  disks** (`notes` to `Notes`) instead of being refused as a collision.
+
 ## 0.20.2 — 2026-11-08
 
 fff runs on macOS. Queries match the path below each result, folders

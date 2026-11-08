@@ -346,6 +346,19 @@ fn rename_success_and_unchanged_changes_nothing() {
     assert!(!a.exists());
     assert_eq!(fs::read(f.work.join("new name")).unwrap(), b"a");
 }
+#[test]
+fn renaming_changes_only_the_case_of_a_name() {
+    // On a case-insensitive disk (macOS's default) `Notes` is found as the
+    // source itself, which is no collision.
+    let f = Fixture::new();
+    let notes = f.file("notes", b"n");
+    let _ = f
+        .engine()
+        .execute(rename_request(vec![notes], &f.work, "Notes").unwrap())
+        .unwrap();
+    assert_eq!(names(&open_dir(&f.work).unwrap()).unwrap(), ["Notes"]);
+    assert_eq!(fs::read(f.work.join("Notes")).unwrap(), b"n");
+}
 fn docs_tree(f: &Fixture) -> Vec<PathBuf> {
     let docs = f.work.join("docs");
     fs::create_dir(&docs).unwrap();
