@@ -323,6 +323,11 @@ tests that need a user namespace (`unshare`), names that are not UTF-8
 early, and fixtures canonicalize their temporary directory, which is below the
 `/var` symlink there.
 
+GitHub Actions (`.github/workflows/ci.yml`) runs these on Linux and macOS
+after every push and on pull requests, without Neovim, so the tests needing
+it are skipped. The stress tests run there only when started by hand:
+`gh workflow run ci.yml -f stress=true`, then `gh run watch`.
+
 `src/operations_tests.rs` covers collisions, confirmation binding, injected
 races and rollback, mount points (bind mounts in a user namespace via `unshare`),
 the trash, undo, purge, progress and stopping (`src/trash_tests.rs`, with

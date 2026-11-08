@@ -1,0 +1,43 @@
+# The verification of docs/DEVELOPMENT.md on Linux and macOS, after every
+# push. The stress tests are heavy: run them by hand from the Actions tab
+# (or `gh workflow run ci.yml -f stress=true`).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      stress:
+        description: Run the stress tests too
+        type: boolean
+        default: false
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: libarchive
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-dev
+          # The mount tests make bind mounts in a user namespace.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked
+      - run: python3 tests/terminal_smoke.py
+      - name: Stress tests
+        if: inputs.stress
+        run: cargo test --locked --lib stress -- --ignored
