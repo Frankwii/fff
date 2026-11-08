@@ -10,6 +10,9 @@ history.
 
 - **A rename may change only a name's case on macOS's case-insensitive
   disks** (`notes` to `Notes`) instead of being refused as a collision.
+- **The shell reads keys normally after fff exits** in terminals with the
+  kitty keyboard protocol that keep the main and alternate screens' keyboard
+  modes apart (kitty, Ghostty, WezTerm): typing no longer shows escape codes.
 
 ## 0.20.2 — 2026-11-08
 
