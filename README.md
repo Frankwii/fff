@@ -98,13 +98,16 @@ fff                                  # start browsing
 | F1 | Every key, searchable and rebindable |
 
 The [tutorial](docs/GETTING_STARTED.md) walks through your first session in
-about fifteen minutes.
+about fifteen minutes, and [Everyday tasks](docs/TASKS.md) shows short
+recipes: finding a file among thousands, freeing disk space, renaming
+photos.
 
 ## Documentation
 
 **Learning fff**
 
 - [Getting started](docs/GETTING_STARTED.md): a first session, step by step.
+- [Everyday tasks](docs/TASKS.md): recipes, each with a recording.
 - [Browsing](docs/BROWSING.md): moving around, tabs, the preview, the mouse.
 - [Finding files](docs/SEARCHING.md): the query, depth, filters, exclusions,
   sorting and contents search.

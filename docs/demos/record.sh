@@ -1,8 +1,9 @@
 #!/bin/sh
-# Records the README's GIFs with VHS (https://github.com/charmbracelet/vhs;
-# on Arch, pacman -S vhs). Run from anywhere; builds fff first. With
-# arguments, records only those tapes: record.sh find pick. The contents
-# GIF, which shows a PDF viewer too, is record-x.sh's.
+# Records the README's GIFs and the everyday tasks' (task-*.tape) with VHS
+# (https://github.com/charmbracelet/vhs; on Arch, pacman -S vhs). Run from
+# anywhere; builds fff first. With arguments, records only those tapes:
+# record.sh find pick. The contents GIF, which shows a PDF viewer too, is
+# record-x.sh's.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
@@ -12,7 +13,11 @@ cd "$repo"
 if [ $# -eq 0 ]; then set -- "$here"/*.tape; fi
 for tape in "$@"; do
   case $tape in *.tape) ;; *) tape=$here/$tape.tape ;; esac
-  # Each recording starts from the same files, remembered rows and caches.
-  sh "$here/fixture.sh" "$FFF_DEMO"
+  # Each recording starts from the same files, remembered rows and caches;
+  # the everyday tasks' from a larger home.
+  case $(basename "$tape") in
+    task-*) sh "$here/fixture-tasks.sh" "$FFF_DEMO" ;;
+    *) sh "$here/fixture.sh" "$FFF_DEMO" ;;
+  esac
   vhs "$tape"
 done

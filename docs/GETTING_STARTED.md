@@ -211,8 +211,24 @@ deep below you) and switching between them in a running session (`gm`).
 
 The footer always says how to open the Keys screen and how to leave.
 
+## 12. If something looks wrong
+
+- **A key edits the query instead of acting.** The query has the focus:
+  press Escape, then try again.
+- **Boxes instead of icons.** Your terminal's font has no Nerd Font
+  symbols. Install one, or set `icons = false` under `[ui]` in your
+  configuration (`--no-icons` for one run).
+- **Leaving fff doesn't change your shell's folder.** The line from
+  [step 2](#2-let-fff-change-your-shells-directory) is missing, or the
+  terminal was opened before you added it.
+- **No PDF text in previews or searches.** Install poppler.
+- **Anything else.** `fff setup --check-config` checks your configuration,
+  keys and optional programs, and says what to fix.
+
 ## Where to go next
 
+- [Everyday tasks](TASKS.md): recipes for common jobs, such as freeing
+  disk space or renaming many files.
 - [Browsing](BROWSING.md): tabs, the jump list, the go-to prompt and the
   mouse.
 - [Workspaces](WORKSPACES.md): save the places and setups you use often.

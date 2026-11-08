@@ -6,6 +6,14 @@ history.
 
 ## Unreleased
 
+### Added
+
+- **Everyday tasks.** A new guide, [docs/TASKS.md](docs/TASKS.md), of
+  short recipes with recordings: finding one file among thousands, finding
+  which file says something, freeing disk space, tidying Downloads and
+  renaming many files at once. The tutorial ends with what to try when
+  something looks wrong.
+
 ### Changed
 
 - **Sorted by size, folders take their place as they are added up.** Every

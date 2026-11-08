@@ -474,11 +474,15 @@ measurements. Slow storage and large trees still require progressive updates.
 
 ## Recording the demos
 
-The README's GIFs and the tutorial's `screen.png` are recorded from scripts
-in `docs/demos/`, so they can be made again after the screen changes. Each
-recording builds fff in release mode and starts from the same demo home
-(`fixture.sh`, in `/tmp/fff-demo`): its own files, configuration, state and
-caches, never yours.
+The README's GIFs, the tutorial's `screen.png` and the recipes in
+[Everyday tasks](../TASKS.md) are recorded from scripts in `docs/demos/`,
+so they can be made again after the screen changes. Each recording builds
+fff in release mode and starts from the same demo home (`fixture.sh`, in
+`/tmp/fff-demo`): its own files, configuration, state and caches, never
+yours. The recipes' tapes (`task-*.tape`) start from a larger one,
+`fixture-tasks.sh`: the same home with seven years of teaching folders
+(about 1300 files), a cluttered Downloads, photos to rename and a few
+large files, made sparse with `truncate` so they take no room.
 
 On Arch, the packages needed:
 
@@ -496,8 +500,9 @@ recording has nothing to find. `record-x.sh` also needs
 [st](https://st.suckless.org/), which is not packaged on Arch.
 
 ```sh
-docs/demos/record.sh               # every tape: the five GIFs and screen.png
+docs/demos/record.sh               # every tape: the GIFs and screen.png
 docs/demos/record.sh find pick     # only these tapes
+docs/demos/record.sh task-space    # a recipe, from the larger home
 docs/demos/record-x.sh             # contents.gif
 ```
 
