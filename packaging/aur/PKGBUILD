@@ -1,6 +1,6 @@
 # Maintainer: Frank Hammond <frank dot william dot hammond at gmail dot com>
 pkgname=fuzzy-file-finder
-pkgver=0.21.0
+pkgver=0.22.0
 pkgrel=1
 pkgdesc='Terminal file finder and manager with fuzzy filtering, content search and Neovim editing (fff)'
 arch=('x86_64' 'aarch64')
@@ -18,7 +18,7 @@ optdepends=(
 # Both install /usr/bin/fff.
 conflicts=('fff')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('d2c7ba5abab275a68ace9e78302de57c3e955f4f75e09757b8b961a78299ba26')
+sha256sums=('9c96b809fd05b758b3efd69bba471cabec331b19d2e433326cd428218d90d6a0')
 
 prepare() {
   cd "fff-$pkgver"
