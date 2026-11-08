@@ -191,3 +191,21 @@ pub fn umask() -> u32 {
     let _ = std::fs::remove_dir(&probe);
     mode.map_or(0o077, |m| !m.mode() & 0o777)
 }
+/// The list piped to fff, read from a copy of its stdin, while the terminal
+/// takes stdin's place: crossterm reads keys from stdin when it is a
+/// terminal and otherwise opens `/dev/tty`, which kqueue refuses here.
+pub fn piped_input() -> Box<dyn io::Read + Send> {
+    use std::os::fd::{AsFd, AsRawFd};
+    let stdin = io::stdin();
+    let Ok(list) = stdin.as_fd().try_clone_to_owned() else {
+        return Box::new(stdin);
+    };
+    let Ok(terminal) = open_terminal() else {
+        return Box::new(stdin);
+    };
+    // SAFETY: dup2 replaces descriptor 0, whose list `list` still reads.
+    if unsafe { libc::dup2(terminal.as_raw_fd(), libc::STDIN_FILENO) } == -1 {
+        return Box::new(stdin);
+    }
+    Box::new(File::from(list))
+}

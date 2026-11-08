@@ -24,6 +24,12 @@ pub fn stdin_lists() -> bool {
         .is_ok_and(|meta| meta.file_type().is_fifo() || meta.is_file())
 }
 
+/// The list on stdin, to read once the session starts. Taken before the
+/// interface starts, which reads keys from the terminal.
+pub fn input() -> Box<dyn io::Read + Send> {
+    crate::platform::piped_input()
+}
+
 /// What a session reading a list keeps: the input until a scan reads it,
 /// and each listed path's line as it was read, to print.
 pub struct Piped {

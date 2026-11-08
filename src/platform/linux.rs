@@ -113,3 +113,7 @@ pub fn umask() -> u32 {
         })
         .map_or(0o077, |mask| mask & 0o777)
 }
+/// The list piped to fff: its stdin.
+pub fn piped_input() -> Box<dyn io::Read + Send> {
+    Box::new(io::stdin())
+}

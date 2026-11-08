@@ -659,7 +659,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
         .depth
         .map_or(mode.program.default_depth(), |depth| depth as usize);
     let mut app = if piped {
-        let input = Box::new(io::stdin());
+        let input = fuzzy_file_finder::piped::input();
         App::piped(
             invocation.clone(),
             fuzzy_file_finder::piped::Piped::new(input, mode.null),
