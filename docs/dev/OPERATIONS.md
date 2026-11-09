@@ -264,8 +264,9 @@ when it is zsh (`$SHELL`, by its name): whatever its completion system offers
 for the line, such as `dragon --and` → `dragon --and-exit` or `git ch` →
 `checkout`, `cherry-pick`. A zsh starts when the prompt opens, on a thread of
 its own, with your configuration (`.zshrc`), and stays for the session; it
-runs on a pseudo-terminal of its own that nothing reads, and its aliases are
-dropped, since fff runs the program itself. Tab hands it the folder and the
+runs on a pseudo-terminal of its own that nothing reads. Aliases work as they do
+in your terminal, and the options offered are those of the command the line
+names; fff itself still runs the program on PATH, not an alias. Tab hands it the folder and the
 line over a pipe: nothing is typed into it, it inserts and lists nothing, and
 only its plain completer runs (no expansion, correction or menus), on a line
 fff itself would take. Tab waits for it at most 1.5 seconds (3 while it

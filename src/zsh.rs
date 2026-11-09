@@ -39,7 +39,6 @@ const MOST: usize = 2000;
 /// and answered with its matches and then `!`.
 const SETUP: &str = r##"unset HISTFILE FFF_ZSH
 typeset -g +x FFF_IN FFF_OUT
-unalias -m '*'
 PROMPT= RPROMPT=
 precmd_functions=() preexec_functions=() chpwd_functions=()
 (( $+functions[compdef] )) || { autoload -Uz compinit && compinit -u -D }
@@ -332,8 +331,6 @@ mod tests {
         )
         .unwrap();
         fs::set_permissions(work.join("deploy"), fs::Permissions::from_mode(0o755)).unwrap();
-        // The configuration is read: it says what completes `tool`, and its
-        // alias does not stand for the program fff would run.
         // Where this zsh reads its configuration with `dir` as the home
         // folder: a system file may name another place than the home.
         let asked = Command::new(&zsh)
@@ -349,7 +346,7 @@ mod tests {
             config.join(".zshrc"),
             "autoload -Uz compinit && compinit -u -D\n\
              _tool() { _arguments '--and-exit[stop]' '--color=[when]:when:(always never)' '*:file:_files' }\n\
-             compdef _tool tool\nalias tool='ls'\n",
+             compdef _tool tool\n",
         )
         .unwrap();
         let env = [("HOME", dir.as_os_str()), ("ZDOTDIR", config.as_os_str())];
