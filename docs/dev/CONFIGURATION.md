@@ -1180,8 +1180,8 @@ mode), `-` and `+` (`search_shallower` and `search_deeper`), `q`
 while Enter,
 Tab, the arrows and the Alt and Ctrl keys still act on the results below. Escape
 there (`toggle_query_focus`) gives the results the focus back, and a click
-on a row does too. `toggle_query_focus` (by default also Tab in the
-results and Shift+Tab anywhere) works from Insert mode as well: it leaves
+on a row does too. `toggle_query_focus` (by default also
+Shift+Tab anywhere) works from Insert mode as well: it leaves
 Insert mode for Normal and gives the results the focus. The Keys screen's query and list take the focus the
 same way.
 
@@ -1247,7 +1247,7 @@ The same three keys work at every level: **Space goes a level deeper**
   applies. `R` replaces the highlighted key: press the new one, and Enter
   puts it where the old one applied, at once when nothing else has it there,
   else through where it applies, with the clash shown. A digit for
-  `search_to_depth`, `open_row`, `highlight_row` or `highlight_next_in_row`
+  `search_to_depth`, `open_row`, `highlight_row` or `go_to_row`
   stands for every digit. `d`
   deletes the highlighted row, and `D` puts the function's default keys
   back, after asking.

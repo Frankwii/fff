@@ -904,7 +904,7 @@ impl Picker {
                             Function::SearchToDepth
                                 | Function::OpenRow
                                 | Function::HighlightRow
-                                | Function::HighlightNextInRow
+                                | Function::GoToRow
                         )
                 })
                 .map(|&f| Choice::Function(f))

@@ -9,8 +9,8 @@ highlight_next_page = [{ keys = "<PageDown>" }]
 highlight_first = "none"
 highlight_last = "none"
 highlight_row = "none"
-highlight_next_in_row = "none"
 go_to_parent = [{ keys = "<M-h>" }]
+go_to_row = "none"
 go_to_highlighted = [{ keys = "<M-l>", highlight = ["dir"] }, { keys = "<CR>", program = ["roam", "window", "pick", "explorer-open", "explorer-open-multiple", "explorer-folder", "explorer-folder-multiple"], highlight = ["dir"] }, { keys = "<CR>", program = ["roam", "window"], highlight = ["file"] }]
 go_to_path = [{ keys = "<M-g>" }]
 go_to_trash = [{ keys = "<M-t>" }]
@@ -87,8 +87,8 @@ highlight_next_page = [{ keys = "<PageDown>" }]
 highlight_first = [{ keys = "gg", focus = ["results", "marks"] }]
 highlight_last = [{ keys = "G", focus = ["results", "marks"] }]
 highlight_row = "none"
-highlight_next_in_row = "none"
 go_to_parent = [{ keys = "h", focus = ["results", "marks"] }, { keys = "<M-h>" }]
+go_to_row = "none"
 go_to_highlighted = [{ keys = "l", focus = ["results", "marks"], highlight = ["dir"] }, { keys = "<M-l>", highlight = ["dir"] }, { keys = "<CR>", program = ["window", "explorer-open", "explorer-open-multiple", "explorer-folder", "explorer-folder-multiple"], focus = ["query", "results"], highlight = ["dir"] }, { keys = "<CR>", program = ["window"], focus = ["marks"], highlight = ["dir"] }]
 go_to_path = [{ keys = "g/", focus = ["results", "marks"] }]
 go_to_trash = [{ keys = "gt", focus = ["results", "marks"] }]

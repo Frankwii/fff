@@ -642,9 +642,9 @@ functions! {
     HighlightFirst "highlight_first" Highlight "Highlight the first row of the list that has the focus; from the query in Normal mode, the first result, giving the results the focus.";
     HighlightLast "highlight_last" Highlight "Highlight the last row of the list that has the focus; from the query in Normal mode, the last result, giving the results the focus.";
     HighlightRow "highlight_row" Highlight "Highlight row # (the number shown before each row on screen). 0 is the last row on screen.";
-    HighlightNextInRow "highlight_next_in_row" Highlight "Highlight row # (the number shown before each row on screen), then do what highlight_next does there: highlight the row below it. 0 is the last row on screen.";
     GoToParent "go_to_parent" GoTo "Go up to the parent of the current directory. The query is kept, so the parent's entries are filtered by it too.";
     GoToHighlighted "go_to_highlighted" GoTo "Go to the highlighted entry: into it if it is a directory; if it is a file, to the directory holding it, with the file highlighted (the query is cleared so that the file shows).";
+    GoToRow "go_to_row" GoTo "Highlight row # (the number shown before each row on screen), then do what go_to_highlighted does there: go into its directory, or to the directory holding its file. 0 is the last row on screen.";
     GoToPath "go_to_path" GoTo "Go to a directory typed in a prompt. Words typed there also suggest your workspaces and, with zoxide installed, the directories you use most.";
     GoToTrash "go_to_trash" GoTo "Go to the trash and browse it like any directory; restore puts entries back where they were. Pressed again in the trash, go to the next filesystem's trash.";
     GoToOlderJump "go_to_older_jump" GoTo "Go to the older directory in this tab's jump list: the one you were in before, as Neovim's Ctrl+o goes to an older position. Each tab keeps its own jump list.";
@@ -799,7 +799,6 @@ impl Function {
                 | HighlightFirst
                 | HighlightLast
                 | HighlightRow
-                | HighlightNextInRow
                 | PrintHighlighted
                 | PrintHighlightedAndMarks
                 | PrintMarks
@@ -845,7 +844,6 @@ impl Function {
             HighlightPreviousPage
             | HighlightNextPage
             | HighlightRow
-            | HighlightNextInRow
             | SearchShallower
             | SearchDeeper
             | SearchToDepth
@@ -875,7 +873,8 @@ impl Function {
             ToggleDirectories | ToggleFiles => vec![scope(&BOTH_KINDS, &RESULTS, &[])],
             GoToHighlighted => vec![scope(&NAVIGATE, &[], &entry)],
             OpenInBackground => vec![scope(&OPENING, &RESULTS, &file)],
-            // Whatever is highlighted: the row it opens is its number's.
+            // Whatever is highlighted: the row it acts on is its number's.
+            GoToRow => vec![scope(&NAVIGATE, &RESULTS, &[])],
             OpenRow => vec![scope(&[Roam, Window], &RESULTS, &[])],
             OpenAndQuit => vec![scope(&[Roam, Window], &[], &file)],
             SaveHere => vec![scope(&[ExplorerSave], &RESULTS, &[])],
@@ -945,7 +944,7 @@ impl Function {
             GoToPreviousTab => &[("<Down>", all)],
             OpenAndQuit => &[("<CR>", all)],
             OpenRow => &[("<C-#>", all)],
-            HighlightNextInRow => &[("<M-#>", all)],
+            GoToRow => &[("<M-#>", all)],
             PrintHighlighted => &[("<S-CR>", all), ("<CR>", scope(&[ExplorerOpen], &[], &[]))],
             PrintHighlightedAndMarks => {
                 &[("<CR>", scope(&[Pick, Piped, ExplorerMultiple], &[], &[]))]
@@ -981,7 +980,7 @@ impl Function {
             GoToTrash => &[("gt", all)],
             GoToOlderJump => &[("<C-o>", all)],
             GoToNewerJump => &[("<C-i>", all)],
-            GoToNextTab => &[("<Up>", all)],
+            GoToNextTab => &[("<Up>", all), ("<Tab>", results)],
             GoToPreviousTab => &[("<Down>", all)],
             SaveHere => &[
                 ("!", all),
@@ -1011,7 +1010,7 @@ impl Function {
             OpenInBackground => &[("L", all)],
             OpenRow => &[("<C-#>", all)],
             HighlightRow => &[("<#>", lists)],
-            HighlightNextInRow => &[("<M-#>", all)],
+            GoToRow => &[("<M-#>", all)],
             Run => &[("gx", all)],
             RunAndQuit => &[("gX", all)],
             EditFiles => &[("e", all)],
@@ -1022,7 +1021,7 @@ impl Function {
             ToggleMarkedList => &[("<C-k>", all)],
             ToggleJobList => &[("<C-j>", all)],
             ClearQuery => &[("<Esc>", results)],
-            ToggleQueryFocus => &[("<Esc>", query), ("<Tab>", results), ("<S-Tab>", all)],
+            ToggleQueryFocus => &[("<Esc>", query), ("<S-Tab>", all)],
             SwitchQuery => &[("<Tab>", scope(&[], &[Query, Marks], &[]))],
             SearchShallower => &[("-", all)],
             SearchDeeper => &[("+", all)],
@@ -1855,17 +1854,19 @@ mod tests {
                 ..here
             };
             // Tab switches queries from the query; from the results it
-            // goes up into the query first.
-            for (mode, cell, function) in [
-                (Mode::Insert, query, Function::SwitchQuery),
-                (Mode::Normal, query, Function::SwitchQuery),
-                (Mode::Normal, here, Function::ToggleQueryFocus),
-            ] {
+            // goes to the next tab, where there are tabs.
+            for mode in Mode::ALL {
                 assert_eq!(
-                    run(&keymap, mode, cell, &[tab]),
-                    Step::Run(function, None),
-                    "{program:?} {mode:?} {:?}",
-                    cell.focus
+                    run(&keymap, mode, query, &[tab]),
+                    Step::Run(Function::SwitchQuery, None),
+                    "{program:?} {mode:?}"
+                );
+            }
+            if NAVIGATE.contains(&program) {
+                assert_eq!(
+                    run(&keymap, Mode::Normal, here, &[tab]),
+                    Step::Run(Function::GoToNextTab, None),
+                    "{program:?}"
                 );
             }
             // Shift+Tab toggles the query's focus, in Insert mode too.
@@ -1963,6 +1964,13 @@ mod tests {
             run(&keymap, Mode::Insert, here, &[alt]),
             Step::Run(Function::OpenRow, Some(0))
         );
+        let alt = KeyEvent::new(KeyCode::Char('2'), M::ALT);
+        for mode in Mode::ALL {
+            assert_eq!(
+                run(&keymap, mode, here, &[alt]),
+                Step::Run(Function::GoToRow, Some(2))
+            );
+        }
         // Seek lists only files: gd does nothing there.
         let gd = [press('g'), press('d')];
         assert_ne!(

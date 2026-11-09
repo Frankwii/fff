@@ -213,8 +213,8 @@ back to the nearest existing parent. F2's session details list every tab's direc
 change directory, has no tabs.
 
 Rows are numbered on screen, and three functions act on a numbered row: a
-digit in Normal mode highlights it (`highlight_row`), Alt+number highlights
-the row below it (`highlight_next_in_row`), and Ctrl+number opens its file
+digit in Normal mode highlights it (`highlight_row`), Alt+number goes to
+it as `l` does, into its folder or to its file's folder (`go_to_row`), and Ctrl+number opens its file
 and quits, as Enter does in `fff roam` and `fff window` (`open_row`; on a
 directory it only highlights it). Labels refer to the last fully rendered
 page: 1–9 select that position, out-of-range digits clamp to the last row,
@@ -527,7 +527,7 @@ focus, but `j` / `k`, which go down into the results, and `gc`. Some functions h
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then give the results the focus back, then clear the query; keep the session |
-| Tab | Type into the other query, contents or names, in either mode; from the results in Normal mode, give the query the focus |
+| Tab | Type into the other query, contents or names, in either mode; from the results in Normal mode, go to the next tab |
 | Shift+Tab | Give the query or the results the focus; from Insert mode, leave it for the results |
 | Enter | Open the highlighted file and leave (`fff roam`), print the marks and the highlighted entry (`fff pick`), leave into the file's folder (`fff seek`); enter a folder in `fff window` and the dialogs |
 | Shift+Enter / Ctrl+Enter | Print the highlighted entry alone / the marks alone (`fff pick`, dialogs choosing several) |

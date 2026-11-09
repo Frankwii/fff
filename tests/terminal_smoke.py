@@ -707,10 +707,6 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[Z")
         s.send(b"x", "❯ alph")
         s.send(b"\x1b[Z")
-        # Tab from the results focuses the query too.
-        s.send(b"\t")
-        s.send(b"x", "❯ alp")
-        s.send(b"\x1b[Z")
         s.send(b"l", ("cwd", self.root / "alpha"))
         s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
@@ -985,12 +981,17 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[6~", b"file17")  # PageDown
         s.send(b"\x1b[48;5u\r")  # Ctrl+0 => last of the next 9 rows
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file17") + b"\n"))
-        s.close()
-        # Ctrl+Alt+1: the first visible row, then the one below it.
-        s = self.session = Session(self.root, "--config", self.row_keys(), size=(16, 160))
-        s.send(b"gg\x1b[6~", b"file17")  # from the top, not the remembered row
-        s.send(b"\x1b[49;7u\r")
-        self.assertEqual(s.finish(), (0, os.fsencode(self.root / "file10") + b"\n"))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_go_to_row_goes_into_its_folder(self):
+        for name in ["alpha", "beta"]:
+            (self.root / name).mkdir()
+        s = self.start("--depth", "1", "--config", self.row_keys(), implicit_root=True)
+        s.send(b"", "beta")
+        # Ctrl+Alt+2: the second row, beta, then into it.
+        s.send(b"\x1b[50;7u", ("cwd", self.root / "beta"))
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
 
     def test_filtered_enter_stays_open_and_missing_marks_block(self):
         marked = self.root / "a"
@@ -3811,10 +3812,10 @@ class TerminalTests(unittest.TestCase):
         return str(folder / "config.toml")
 
     def row_keys(self, config=""):
-        # Ctrl+number highlights its row and Ctrl+Alt+number the one below.
+        # Ctrl+number highlights its row and Ctrl+Alt+number goes to it.
         return self.keys_config(
-            '[insert]\nhighlight_row = "<C-#>"\nhighlight_next_in_row = "<C-M-#>"\n'
-            '[normal]\nhighlight_row = "<C-#>"\nhighlight_next_in_row = "<C-M-#>"\n', config)
+            '[insert]\nhighlight_row = "<C-#>"\ngo_to_row = "<C-M-#>"\n'
+            '[normal]\nhighlight_row = "<C-#>"\ngo_to_row = "<C-M-#>"\n', config)
 
     def opener_setup(self, body=None, rules="[[open.rules]]\ncommand = 'viewer'\npatterns = ['*']\n", terminal=None):
         # A stub GUI opener "viewer" on PATH that logs its arguments, and a

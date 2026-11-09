@@ -46,7 +46,7 @@ flowchart LR
 
 So: `i` to type, Escape to stop typing, Escape again (or `j`) to get back
 to the results. Shift+Tab goes straight between the two, even while
-typing; Tab from the results goes up into the query. Ctrl+k goes into the marked list and back. A click on a
+typing. Ctrl+k goes into the marked list and back. A click on a
 row gives the results the focus too.
 
 **Why the query in Normal mode matters.** With the query focused, most
@@ -208,12 +208,13 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | `gg` / `G` | `highlight_first` / `highlight_last` | First / last row |
 | `j` / `k` in the query | `highlight_first` / `highlight_last` | Down into the results, at the first / last row |
 | `1`…`9` | `highlight_row` | Highlight that numbered row |
-| Alt+`1`…`9`, Alt+`0` | `highlight_next_in_row` | Highlight the row below that one / below the last |
+| Alt+`1`…`9`, Alt+`0` | `go_to_row` | Go to that numbered row / the last, as `l` does |
 | `l` (*Alt*) | `go_to_highlighted` | Into a folder, or to a file's folder |
 | `h` (*Alt*) | `go_to_parent` | Up to the parent folder |
 | `/` | `go_to_path` | Go to a typed folder |
 | Ctrl+o / Ctrl+i | `go_to_older_jump` / `go_to_newer_jump` | Back / forward through visited folders |
 | Up / Down | `go_to_next_tab` / `go_to_previous_tab` | Next / previous tab |
+| Tab | `go_to_next_tab` | Next tab |
 | `gt` | `go_to_trash` | Open the trash |
 | `gw` | `show_workspaces` | Workspaces |
 
@@ -252,7 +253,6 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | Tab | `switch_query` | Switch between the names and contents queries (from the query) |
 | Escape | `clear_query` | Clear the query (in the results) |
 | Escape in the query | `toggle_query_focus` | Give the results the focus |
-| Tab in the results | `toggle_query_focus` | Give the query the focus |
 | Shift+Tab | `toggle_query_focus` | Give the query or the results the focus, also while typing |
 | `+` / `-` | `search_deeper` / `search_shallower` | One level deeper / shallower |
 | Ctrl+Alt+`1`…`9` | `search_to_depth` | Search to that depth |

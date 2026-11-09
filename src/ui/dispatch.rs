@@ -425,9 +425,7 @@ impl Session {
                 activate_highlighted(app, &mut self.discovery);
             }
             HighlightRow => self.highlight_row(app, u32::from(digit.unwrap_or(0))),
-            HighlightNextInRow => {
-                return self.on_row(app, u32::from(digit.unwrap_or(0)), HighlightNext);
-            }
+            GoToRow => return self.on_row(app, u32::from(digit.unwrap_or(0)), GoToHighlighted),
             OpenRow => return self.on_row(app, u32::from(digit.unwrap_or(0)), OpenAndQuit),
             SaveOver
             | PrintHighlighted
