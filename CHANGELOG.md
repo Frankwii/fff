@@ -32,6 +32,8 @@ history.
   values. fff used to read the program's man page, or run it with `--help`,
   which ran a script that ignores its arguments; it never runs the program
   now. With another shell, these words complete as paths only.
+- **Folders' sizes kept from earlier sessions take a third less memory.**
+  With the sizes of 385,000 folders kept, fff used 118 MiB and now uses 79.
 - **Copying and extracting many small files is far faster on Linux**:
   3,000 files copy in a third of a second, where they took twelve. What
   is copied is still on disk before it appears under its name, written

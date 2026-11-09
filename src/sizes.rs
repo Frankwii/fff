@@ -22,10 +22,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
     fs,
-    os::unix::{
-        ffi::{OsStrExt, OsStringExt},
-        fs::MetadataExt,
-    },
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Component, Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex,
@@ -67,16 +64,20 @@ pub struct Size {
 struct Stamp {
     dev: u64,
     ino: u64,
-    mtime: (i64, i64),
-    ctime: (i64, i64),
+    mtime: i64,
+    ctime: i64,
+    mtime_nsec: u32,
+    ctime_nsec: u32,
 }
 impl Stamp {
     fn of(meta: &fs::Metadata) -> Self {
         Self {
             dev: meta.dev(),
             ino: meta.ino(),
-            mtime: (meta.mtime(), meta.mtime_nsec()),
-            ctime: (meta.ctime(), meta.ctime_nsec()),
+            mtime: meta.mtime(),
+            ctime: meta.ctime(),
+            mtime_nsec: meta.mtime_nsec() as u32,
+            ctime_nsec: meta.ctime_nsec() as u32,
         }
     }
 }
@@ -95,15 +96,71 @@ struct Sum {
     partial: bool,
 }
 
+/// Bytes and two flags, or nothing, in one word: a saved tree holds
+/// hundreds of thousands of folders, each with three of these. Sizes stay
+/// far below the 2^61 bytes there is room for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Kept(u64);
+impl Kept {
+    const SET: u64 = 1 << 63;
+    const FLAGS: [u64; 2] = [1 << 62, 1 << 61];
+    const MOST: u64 = (1 << 61) - 1;
+    fn of(bytes: u64, flags: [bool; 2]) -> Self {
+        let flags = (u64::from(flags[0]) * Self::FLAGS[0]) | (u64::from(flags[1]) * Self::FLAGS[1]);
+        Self(Self::SET | flags | bytes.min(Self::MOST))
+    }
+    fn get(self) -> Option<(u64, [bool; 2])> {
+        (self.0 & Self::SET != 0).then(|| {
+            let flags = Self::FLAGS.map(|flag| self.0 & flag != 0);
+            (self.0 & Self::MOST, flags)
+        })
+    }
+    fn is_some(self) -> bool {
+        self.0 != 0
+    }
+    /// As a total: the bytes and whether some could not be read.
+    fn total(self) -> Option<(u64, bool)> {
+        self.get().map(|(bytes, [partial, _])| (bytes, partial))
+    }
+    fn of_total((bytes, partial): (u64, bool)) -> Self {
+        Self::of(bytes, [partial, false])
+    }
+}
+
+/// When a folder was last checked, to the second, in four bytes: seconds
+/// since the first one was, from 1 (0 is never).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Checked(u32);
+impl Checked {
+    fn start() -> Instant {
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        *START.get_or_init(Instant::now)
+    }
+    fn at(now: Instant) -> Self {
+        let secs = now.saturating_duration_since(Self::start()).as_secs();
+        Self(u32::try_from(secs + 1).unwrap_or(u32::MAX))
+    }
+    fn is_some(self) -> bool {
+        self.0 != 0
+    }
+    fn fresh(self) -> bool {
+        self.0 != 0 && Self::at(Instant::now()).0 - self.0 < FRESH.as_secs() as u32
+    }
+}
+
+/// A folder of the tree, kept small (128 bytes): its name is in the tree's
+/// `names`, and what is added up below it is in one word each.
 #[derive(Debug, Default)]
 struct Node {
-    name: OsString,
+    /// Where its name is in `Tree::names`, and how long.
+    name: u32,
+    name_len: u16,
     parent: u32,
-    children: Vec<u32>,
+    children: Box<[u32]>,
     stamp: Stamp,
     /// The bytes of its files with one link.
     files: u64,
-    links: Vec<Link>,
+    links: Box<[Link]>,
     /// Its entries were read (or found unreadable); else it is only on the
     /// way to a folder that was.
     listed: bool,
@@ -115,20 +172,34 @@ struct Node {
     /// On another filesystem than its parent: not part of its total.
     foreign: bool,
     /// When every folder below was last found unchanged or read again.
-    checked: Option<Instant>,
-    /// Its subtree's sum, while nothing below changes.
-    sum: Option<Sum>,
+    checked: Checked,
+    /// Its subtree's sum (`Sum`), while nothing below changes.
+    sum: Kept,
     /// Its total (`Tree::total`), while nothing below changes: files with
     /// several links are counted once by walking the subtree.
-    total: Option<(u64, bool)>,
+    total: Kept,
     /// The last total found, shown while it is added up again.
-    shown: Option<(u64, bool)>,
+    shown: Kept,
+}
+impl Node {
+    fn sum(&self) -> Option<Sum> {
+        self.sum.get().map(|(plain, [links, partial])| Sum {
+            plain,
+            links,
+            partial,
+        })
+    }
 }
 
 /// The folders known, by their parents: node 0 is `/`.
 struct Tree {
     nodes: Vec<Node>,
     free: Vec<u32>,
+    /// The folders' names, one after another; those of folders removed
+    /// stay until `tidy`.
+    names: Vec<u8>,
+    /// The bytes of `names` that folders still have.
+    named: usize,
 }
 impl Default for Tree {
     fn default() -> Self {
@@ -138,10 +209,30 @@ impl Default for Tree {
                 ..Node::default()
             }],
             free: Vec::new(),
+            names: Vec::new(),
+            named: 0,
         }
     }
 }
 impl Tree {
+    fn name(&self, at: u32) -> &OsStr {
+        let node = &self.nodes[at as usize];
+        let start = node.name as usize;
+        OsStr::from_bytes(&self.names[start..start + node.name_len as usize])
+    }
+    /// Drops the names of folders removed, once they are most of `names`.
+    fn tidy(&mut self) {
+        if self.names.len() < 2 * self.named + (1 << 20) {
+            return;
+        }
+        let mut names = Vec::with_capacity(self.named);
+        for node in &mut self.nodes {
+            let start = node.name as usize;
+            node.name = names.len() as u32;
+            names.extend_from_slice(&self.names[start..start + node.name_len as usize]);
+        }
+        self.names = names;
+    }
     fn live(&self) -> usize {
         self.nodes.len() - self.free.len()
     }
@@ -150,7 +241,7 @@ impl Tree {
             .children
             .iter()
             .copied()
-            .find(|&c| self.nodes[c as usize].name == name)
+            .find(|&c| self.name(c) == name)
     }
     fn names(path: &Path) -> Option<impl Iterator<Item = &OsStr>> {
         path.is_absolute().then(|| {
@@ -169,18 +260,33 @@ impl Tree {
         for name in Self::names(path)? {
             at = match self.child(at, name) {
                 Some(child) => child,
-                None => self.add(at, name.to_owned()),
+                None => {
+                    let child = self.add(at, name);
+                    let mut children =
+                        std::mem::take(&mut self.nodes[at as usize].children).into_vec();
+                    children.push(child);
+                    self.nodes[at as usize].children = children.into();
+                    child
+                }
             };
         }
         Some(at)
     }
-    fn add(&mut self, parent: u32, name: OsString) -> u32 {
+    /// A new folder of `parent`, which does not have it among its
+    /// children yet.
+    fn add(&mut self, parent: u32, name: &OsStr) -> u32 {
+        self.tidy();
+        // Names are at most 255 bytes long.
+        let name = &name.as_bytes()[..name.len().min(u16::MAX as usize)];
         let node = Node {
-            name,
+            name: self.names.len() as u32,
+            name_len: name.len() as u16,
             parent,
             ..Node::default()
         };
-        let at = match self.free.pop() {
+        self.names.extend_from_slice(name);
+        self.named += name.len();
+        match self.free.pop() {
             Some(at) => {
                 self.nodes[at as usize] = node;
                 at
@@ -189,14 +295,13 @@ impl Tree {
                 self.nodes.push(node);
                 (self.nodes.len() - 1) as u32
             }
-        };
-        self.nodes[parent as usize].children.push(at);
-        at
+        }
     }
     fn remove(&mut self, at: u32) {
         let mut stack = vec![at];
         while let Some(at) = stack.pop() {
             let node = std::mem::take(&mut self.nodes[at as usize]);
+            self.named -= node.name_len as usize;
             stack.extend(node.children);
             self.free.push(at);
         }
@@ -206,7 +311,7 @@ impl Tree {
         let mut names = Vec::new();
         while at != 0 && at != NONE {
             let node = &self.nodes[at as usize];
-            names.push(node.name.as_os_str());
+            names.push(self.name(at));
             at = node.parent;
         }
         let mut path = PathBuf::from("/");
@@ -218,20 +323,20 @@ impl Tree {
     fn invalidate(&mut self, mut at: u32) {
         while at != NONE {
             let node = &mut self.nodes[at as usize];
-            node.sum = None;
-            node.total = None;
-            node.checked = None;
+            node.sum = Kept::default();
+            node.total = Kept::default();
+            node.checked = Checked::default();
             at = node.parent;
         }
     }
     fn fresh(&self, at: u32) -> bool {
         let node = &self.nodes[at as usize];
-        !node.dirty && node.checked.is_some_and(|t| t.elapsed() < FRESH)
+        !node.dirty && node.checked.fresh()
     }
     /// The subtree's sum, if every folder in it was read.
     fn sum(&mut self, at: u32) -> Option<Sum> {
         let node = &self.nodes[at as usize];
-        if let Some(sum) = node.sum {
+        if let Some(sum) = node.sum() {
             return Some(sum);
         }
         if !node.listed {
@@ -242,7 +347,7 @@ impl Tree {
             links: !node.links.is_empty(),
             partial: node.partial,
         };
-        for child in node.children.clone() {
+        for child in node.children.clone().into_vec() {
             let below = &self.nodes[child as usize];
             if below.foreign {
                 continue;
@@ -253,14 +358,14 @@ impl Tree {
             sum.links |= more.links;
             sum.partial |= more.partial || unreadable;
         }
-        self.nodes[at as usize].sum = Some(sum);
+        self.nodes[at as usize].sum = Kept::of(sum.plain, [sum.links, sum.partial]);
         Some(sum)
     }
     /// The subtree's bytes and whether some of it could not be read, files
     /// with several links counted once; remembered to show while it is
     /// added up again.
     fn total(&mut self, at: u32) -> Option<(u64, bool)> {
-        if let Some(total) = self.nodes[at as usize].total {
+        if let Some(total) = self.nodes[at as usize].total.total() {
             return Some(total);
         }
         let sum = self.sum(at)?;
@@ -270,27 +375,27 @@ impl Tree {
             let mut stack = vec![at];
             while let Some(at) = stack.pop() {
                 let node = &self.nodes[at as usize];
-                for &(dev, ino, len) in &node.links {
+                for &(dev, ino, len) in node.links.iter() {
                     if seen.insert((dev, ino)) {
                         bytes += len;
                     }
                 }
                 stack.extend(node.children.iter().copied().filter(|&c| {
                     let child = &self.nodes[c as usize];
-                    !child.foreign && child.sum.is_some_and(|s| s.links)
+                    !child.foreign && child.sum().is_some_and(|s| s.links)
                 }));
             }
         }
         let total = (bytes, sum.partial);
         let node = &mut self.nodes[at as usize];
-        node.shown = Some(total);
-        node.total = Some(total);
+        node.shown = Kept::of_total(total);
+        node.total = node.shown;
         Some(total)
     }
     /// A walk of `root` is done: each folder whose subtree has nothing left
     /// to read again is checked now.
     fn checked(&mut self, root: u32) {
-        let now = Instant::now();
+        let now = Checked::at(Instant::now());
         // Fresh subtrees were left alone by the walk, and keep their time.
         let mut order = vec![root];
         let mut i = 0;
@@ -312,13 +417,13 @@ impl Tree {
                     let child = &self.nodes[c as usize];
                     child.foreign || child.checked.is_some()
                 });
-            self.nodes[at as usize].checked = done.then_some(now);
+            self.nodes[at as usize].checked = if done { now } else { Checked::default() };
         }
     }
     fn dirty_all(&mut self) {
         for node in &mut self.nodes {
             node.dirty = true;
-            node.checked = None;
+            node.checked = Checked::default();
         }
     }
 
@@ -332,7 +437,7 @@ impl Tree {
             let at = order[i];
             index.insert(at, i as u32);
             let node = &self.nodes[at as usize];
-            order.extend(&node.children);
+            order.extend(node.children.iter());
             let parent = if node.parent == NONE {
                 NONE
             } else {
@@ -340,13 +445,13 @@ impl Tree {
             };
             let word = |out: &mut Vec<u8>, v: u64| out.extend(v.to_le_bytes());
             out.extend(parent.to_le_bytes());
-            out.extend((node.name.len() as u32).to_le_bytes());
-            out.extend(node.name.as_bytes());
+            out.extend(u32::from(node.name_len).to_le_bytes());
+            out.extend(self.name(at).as_bytes());
             let s = node.stamp;
-            for v in [s.dev, s.ino, s.mtime.0 as u64, s.mtime.1 as u64] {
+            for v in [s.dev, s.ino, s.mtime as u64, s.mtime_nsec.into()] {
                 word(&mut out, v);
             }
-            for v in [s.ctime.0 as u64, s.ctime.1 as u64, node.files] {
+            for v in [s.ctime as u64, s.ctime_nsec.into(), node.files] {
                 word(&mut out, v);
             }
             let flags = u8::from(node.listed && !node.dirty)
@@ -356,7 +461,7 @@ impl Tree {
             out.push(flags);
             out.extend((node.children.len() as u32).to_le_bytes());
             out.extend((node.links.len() as u32).to_le_bytes());
-            for &(dev, ino, len) in &node.links {
+            for &(dev, ino, len) in node.links.iter() {
                 for v in [dev, ino, len] {
                     word(&mut out, v);
                 }
@@ -375,12 +480,15 @@ impl Tree {
             Some(head)
         };
         let mut nodes: Vec<Node> = Vec::new();
+        let mut names = Vec::new();
+        // Each folder's parent and how many subfolders it was saved with.
+        let mut parents = Vec::new();
         let mut counts = Vec::new();
         while let Some(parent) = take(4) {
             let parent = u32::from_le_bytes(parent.try_into().ok()?);
             let u32_of = |b: &[u8]| -> Option<u32> { Some(u32::from_le_bytes(b.try_into().ok()?)) };
             let length = u32_of(take(4)?)? as usize;
-            let name = OsString::from_vec(take(length)?.to_vec());
+            let name = take(u16::try_from(length).ok()?.into())?;
             let mut words = [0u64; 7];
             for word in &mut words {
                 *word = u64::from_le_bytes(take(8)?.try_into().ok()?);
@@ -399,39 +507,60 @@ impl Tree {
                 (0, NONE) => {}
                 (0, _) | (_, NONE) => return None,
                 (_, parent) if parent >= at => return None,
-                (_, parent) => nodes[parent as usize].children.push(at),
+                _ => {}
             }
+            parents.push(parent);
             nodes.push(Node {
-                name,
+                name: u32::try_from(names.len()).ok()?,
+                name_len: name.len() as u16,
                 parent,
                 stamp: Stamp {
                     dev: words[0],
                     ino: words[1],
-                    mtime: (words[2] as i64, words[3] as i64),
-                    ctime: (words[4] as i64, words[5] as i64),
+                    mtime: words[2] as i64,
+                    ctime: words[4] as i64,
+                    mtime_nsec: words[3] as u32,
+                    ctime_nsec: words[5] as u32,
                 },
                 files: words[6],
-                links: found,
+                links: found.into(),
                 listed: flags & 1 != 0,
                 unreadable: flags & 2 != 0,
                 partial: flags & 4 != 0,
                 foreign: flags & 8 != 0,
                 ..Node::default()
             });
+            names.extend_from_slice(name);
             counts.push(children);
         }
         if nodes.is_empty() {
             return None;
         }
-        // A folder missing some of its subfolders is read again.
-        for (node, count) in nodes.iter_mut().zip(counts) {
-            if node.children.len() != count as usize {
+        // Each folder's subfolders, in the order saved: counted, then put
+        // in a list of just their number.
+        let mut found = vec![0u32; nodes.len()];
+        for &parent in &parents[1..] {
+            found[parent as usize] += 1;
+        }
+        let mut children: Vec<Vec<u32>> = found
+            .iter()
+            .map(|&n| Vec::with_capacity(n as usize))
+            .collect();
+        for (at, &parent) in parents.iter().enumerate().skip(1) {
+            children[parent as usize].push(at as u32);
+        }
+        for ((node, children), count) in nodes.iter_mut().zip(children).zip(counts) {
+            // A folder missing some of its subfolders is read again.
+            if children.len() != count as usize {
                 node.listed = false;
             }
+            node.children = children.into();
         }
         Some(Self {
             nodes,
             free: Vec::new(),
+            named: names.len(),
+            names,
         })
     }
 }
@@ -556,7 +685,10 @@ impl Sizes {
         let mut state = self.shared.state.lock().unwrap();
         if let Some(at) = state.tree.lookup(path) {
             let unreadable = state.tree.nodes[at as usize].unreadable;
-            let found = state.tree.total(at).or(state.tree.nodes[at as usize].shown);
+            let found = state
+                .tree
+                .total(at)
+                .or(state.tree.nodes[at as usize].shown.total());
             if let Some((bytes, partial)) = found {
                 return Some(Size {
                     bytes,
@@ -698,7 +830,10 @@ impl Totals {
     pub fn bytes(&self, path: &Path) -> Option<u64> {
         let mut state = self.0.state.lock().unwrap();
         let at = state.tree.lookup(path)?;
-        let found = state.tree.total(at).or(state.tree.nodes[at as usize].shown);
+        let found = state
+            .tree
+            .total(at)
+            .or(state.tree.nodes[at as usize].shown.total());
         found.map(|(bytes, _)| bytes)
     }
     /// `bytes` of the first of `paths`, under one lock held for at most
@@ -716,7 +851,7 @@ impl Totals {
                 break;
             }
             let total = tree.lookup(path).and_then(|at| {
-                let total = tree.total(at).or(tree.nodes[at as usize].shown);
+                let total = tree.total(at).or(tree.nodes[at as usize].shown.total());
                 total.map(|(bytes, _)| bytes)
             });
             found.push(total);
@@ -935,7 +1070,7 @@ impl Walk<'_> {
                     .children
                     .iter()
                     .filter(|&&c| !tree.nodes[c as usize].foreign && !tree.fresh(c))
-                    .map(|&c| (c, path.join(&tree.nodes[c as usize].name), None))
+                    .map(|&c| (c, path.join(tree.name(c)), None))
                     .collect();
                 drop(state);
                 self.add(files);
@@ -989,7 +1124,7 @@ impl Walk<'_> {
         let mut old: HashMap<OsString, u32> = tree.nodes[at as usize]
             .children
             .iter()
-            .map(|&c| (tree.nodes[c as usize].name.clone(), c))
+            .map(|&c| (tree.name(c).to_owned(), c))
             .collect();
         let mut children = Vec::with_capacity(listing.dirs.len());
         let mut below = Vec::new();
@@ -997,11 +1132,7 @@ impl Walk<'_> {
             let foreign = meta.dev() != listing.stamp.dev;
             let child = match old.remove(&name) {
                 Some(child) => child,
-                None => {
-                    let child = tree.add(at, name.clone());
-                    tree.nodes[at as usize].children.pop();
-                    child
-                }
+                None => tree.add(at, &name),
             };
             tree.nodes[child as usize].foreign = foreign;
             children.push(child);
@@ -1015,10 +1146,10 @@ impl Walk<'_> {
             tree.remove(gone);
         }
         let node = &mut tree.nodes[at as usize];
-        node.children = children;
+        node.children = children.into();
         node.stamp = listing.stamp;
         node.files = listing.files;
-        node.links = listing.links;
+        node.links = listing.links.into();
         node.partial = listing.partial;
         node.unreadable = listing.unreadable;
         node.listed = true;
@@ -1275,21 +1406,39 @@ mod tests {
         fs::remove_dir_all(&root).unwrap();
     }
     #[test]
+    fn names_of_removed_folders_are_dropped_in_time() {
+        let mut tree = Tree::default();
+        let kept = tree.ensure(Path::new("/keep/this")).unwrap();
+        // Folders that come and go, as a build's or a test's do.
+        let name = "n".repeat(1000);
+        for _ in 0..3000 {
+            let at = tree.add(0, OsStr::new(&name));
+            tree.remove(at);
+        }
+        assert!(tree.names.len() < 2 << 20, "{}", tree.names.len());
+        assert_eq!(tree.named, "keepthis".len());
+        assert_eq!(tree.path(kept), Path::new("/keep/this"));
+        assert_eq!(tree.lookup(Path::new("/keep/this")), Some(kept));
+    }
+    #[test]
     fn trees_round_trip() {
         let mut tree = Tree::default();
         let a = tree.ensure(Path::new("/x/a")).unwrap();
         let node = &mut tree.nodes[a as usize];
         node.listed = true;
         node.files = 5;
-        node.links = vec![(1, 2, 3)];
-        node.stamp.mtime = (-1, 7);
+        node.links = vec![(1, 2, 3)].into();
+        (node.stamp.mtime, node.stamp.mtime_nsec) = (-1, 7);
         let x = tree.lookup(Path::new("/x")).unwrap();
         tree.nodes[x as usize].listed = true;
         let back = Tree::load(&tree.save()).unwrap();
         let a = back.lookup(Path::new("/x/a")).unwrap() as usize;
         assert_eq!(back.nodes[a].files, 5);
-        assert_eq!(back.nodes[a].links, [(1, 2, 3)]);
-        assert_eq!(back.nodes[a].stamp.mtime, (-1, 7));
+        assert_eq!(*back.nodes[a].links, [(1, 2, 3)]);
+        let stamp = back.nodes[a].stamp;
+        assert_eq!((stamp.mtime, stamp.mtime_nsec), (-1, 7));
+        assert_eq!(back.path(a as u32), Path::new("/x/a"));
+        assert_eq!(std::mem::size_of::<Node>(), 128);
         assert!(back.nodes[a].listed);
         assert_eq!(back.path(a as u32), Path::new("/x/a"));
     }
