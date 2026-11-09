@@ -1073,7 +1073,8 @@ impl Function {
                 // Neovim: there h moves the cursor and x deletes. Those
                 // meant for the query too keep it: j and k go down from it,
                 // - and + change the depth (Neovim's line motions, idle on a
-                // one-line query), and gc would comment a one-line query out.
+                // one-line query), q quits rather than record a macro, and gc
+                // would comment a one-line query out.
                 let typed = mode == Mode::Normal
                     && keys[0].printable()
                     && !matches!(
@@ -1082,6 +1083,7 @@ impl Function {
                             | (HighlightLast, "k")
                             | (SearchShallower, "-")
                             | (SearchDeeper, "+")
+                            | (Quit, "q")
                             | (EditConfig, "gc")
                     );
                 Binding {
@@ -2063,8 +2065,12 @@ mod tests {
             normal(query, &[press('g'), press('u')]),
             Step::Flush(vec![press('g')])
         );
-        // But - and + change the depth from there too, and gc edits the
-        // configuration.
+        // But - and + change the depth from there too, q quits and gc edits
+        // the configuration.
+        assert_eq!(
+            normal(query, &[press('q')]),
+            Step::Run(Function::Quit, None)
+        );
         assert_eq!(
             normal(query, &[press('-')]),
             Step::Run(Function::SearchShallower, None)

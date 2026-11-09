@@ -16,6 +16,9 @@ history.
 
 ### Changed
 
+- **`q` quits from the query in focus too**, instead of starting
+  Neovim's macro recording. To record macros there, leave `query` out of
+  `quit`'s focus (`quit = { keys = "q", focus = ["results", "marks"] }`).
 - **Tab in the results gives the query the focus**, and **Shift+Tab**
   toggles between the query and the results, also while typing. Tab still
   switches between the names and contents queries from the query.

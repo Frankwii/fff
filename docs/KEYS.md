@@ -52,7 +52,7 @@ row gives the results the focus too.
 **Why the query in Normal mode matters.** With the query focused, most
 letters are Neovim's, so you can edit your query with Vim's motions:
 `0`, `w`, `cw`, `x`, `u` (undo), `p` (paste) and so on. Only `j`, `k`,
-`-`, `+` and `gc` keep their fff meaning there. That's why `x` or `u` sometimes edit
+`-`, `+`, `q` and `gc` keep their fff meaning there. That's why `x` or `u` sometimes edit
 the query instead of trashing or undoing: press Escape to give the results
 the focus. Keys that aren't text (Enter, Tab, arrows, Alt and Ctrl keys)
 still act on the results from the query.

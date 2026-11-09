@@ -1175,8 +1175,9 @@ Neovim does: by default every key typed as text (`h`, `l`, `x`, `v`, `p`,
 `u`, `.`, digits, `g` sequences, `:`) is Neovim's there but `j` and `k`,
 which give the results the focus on their first or last row
 (`highlight_first` and `highlight_last` do that from the query in Normal
-mode), `-` and `+` (`search_shallower` and `search_deeper`), and `gc`
-(`edit_config`), while Enter,
+mode), `-` and `+` (`search_shallower` and `search_deeper`), `q`
+(`quit`, rather than Neovim's macro recording), and `gc` (`edit_config`),
+while Enter,
 Tab, the arrows and the Alt and Ctrl keys still act on the results below. Escape
 there (`toggle_query_focus`) gives the results the focus back, and a click
 on a row does too. `toggle_query_focus` (by default also Tab in the

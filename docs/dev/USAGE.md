@@ -581,7 +581,7 @@ focus, but `j` / `k`, which go down into the results, and `gc`. Some functions h
 | e | Open the current or marked paths in `$EDITOR`, then come back |
 | gm | [Switch](#switching-programs) to `fff roam`, `pick` or `seek`, keeping the session |
 | gc | [Edit the configuration](CONFIGURATION.md#editing-while-fff-runs) in `$EDITOR`, then apply it to the session; from the query in focus too |
-| q / ! / g! | Leave without choosing (where you started) / leave into the current directory / leave into the highlighted one (`fff roam`) |
+| q / ! / g! | Leave without choosing (where you started) / leave into the current directory / leave into the highlighted one (`fff roam`); q from the query in focus too |
 | Ctrl+c | Cancel without selected-path output |
 | Click / double-click | Highlight a row (clearing the marks) / act like `l` on it (in `fff explorer`, like Enter) |
 | Drag with the button held | Mark every row from where it was pressed to where it is; past the top or bottom edge, keep scrolling and marking |
