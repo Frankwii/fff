@@ -189,151 +189,6 @@ fn suggestion<'a>(word: &str, names: &'a [String]) -> Option<&'a str> {
         .map(|(_, n)| n.as_str())
 }
 
-/// The options a program documents, for completing `-…` words: its man page
-/// first (reading it runs only `man`), else its `--help` output. `--help` runs
-/// in its own session with no terminal and no input, and its whole process
-/// group is killed after a short timeout, so a program that ignores `--help`
-/// cannot take over the screen or hang fff.
-pub fn flags(program: &Path, name: &str, cwd: &Path) -> Vec<String> {
-    let mut found = vec![];
-    // man reads a name with a slash as a page file: only commands have pages.
-    if !name.contains('/')
-        && let Ok(man) = resolve("man", cwd)
-    {
-        let mut command = Command::new(man);
-        command
-            .arg("--")
-            .arg(name)
-            .env("MANPAGER", "cat")
-            .env("PAGER", "cat")
-            .env("MANWIDTH", "160")
-            .env("GROFF_NO_SGR", "1")
-            .env_remove("MAN_KEEP_FORMATTING");
-        if let Some(page) = capture(command, std::time::Duration::from_secs(2)) {
-            found = parse_flags(&page);
-        }
-    }
-    if found.is_empty() {
-        let mut command = Command::new(program);
-        command.arg("--help").current_dir(cwd);
-        if let Some(help) = capture(command, std::time::Duration::from_secs(1)) {
-            found = parse_flags(&help);
-        }
-    }
-    found
-}
-/// Output (stdout then stderr) of a detached run, or `None` on timeout.
-fn capture(mut command: Command, timeout: std::time::Duration) -> Option<String> {
-    use io::Read;
-    use std::{process::Stdio, sync::mpsc};
-    // A new session has no controlling terminal: /dev/tty cannot be opened.
-    detach(&mut command);
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
-    let (sender, received) = mpsc::channel();
-    for stream in [
-        child
-            .stdout
-            .take()
-            .map(|s| Box::new(s) as Box<dyn Read + Send>),
-        child
-            .stderr
-            .take()
-            .map(|s| Box::new(s) as Box<dyn Read + Send>),
-    ]
-    .into_iter()
-    .flatten()
-    .enumerate()
-    {
-        let sender = sender.clone();
-        std::thread::spawn(move || {
-            let (index, mut stream) = stream;
-            let mut bytes = vec![];
-            let _ = stream.read_to_end(&mut bytes);
-            let _ = sender.send((index, bytes));
-        });
-    }
-    drop(sender);
-    let deadline = std::time::Instant::now() + timeout;
-    let mut parts = vec![];
-    while parts.len() < 2 {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        match received.recv_timeout(left) {
-            Ok(part) => parts.push(part),
-            Err(_) => break,
-        }
-    }
-    // Ends the program and anything it started, then reaps it.
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
-    let _ = child.wait();
-    if parts.len() < 2 {
-        return None;
-    }
-    parts.sort();
-    Some(
-        parts
-            .into_iter()
-            .map(|(_, bytes)| String::from_utf8_lossy(&bytes).into_owned())
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
-}
-/// Option names introduced at the start of a line (`-x, --and-exit  …`), in
-/// order of appearance; values such as `=WHEN` or `[FILE]` are dropped.
-/// Overstrike (`c\bc`) and ANSI sequences from man output are ignored.
-pub fn parse_flags(text: &str) -> Vec<String> {
-    let mut clean = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\x08' => {
-                clean.pop();
-            }
-            '\x1b' => {
-                for c in chars.by_ref() {
-                    if c.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            c => clean.push(c),
-        }
-    }
-    let mut flags: Vec<String> = vec![];
-    for line in clean.lines() {
-        for token in line.split_whitespace() {
-            let token = token.trim_end_matches([',', ';', ':', '.']);
-            if !token.starts_with('-') || token == "-" || token == "--" {
-                break;
-            }
-            let name = token
-                .split(['=', '[', '<', '(', '"', '\''])
-                .next()
-                .unwrap_or_default();
-            let body = name.trim_start_matches('-');
-            let valid = !body.is_empty()
-                && name.len() - body.len() <= 2
-                && body
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphanumeric())
-                && body
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-            if valid && !flags.iter().any(|f| f == name) {
-                flags.push(name.to_string());
-            }
-        }
-    }
-    flags
-}
-
 /// The command prompt: the typed line, the paths it will receive, and Tab
 /// completion state.
 #[derive(Clone, Debug)]
@@ -348,8 +203,6 @@ pub struct Prompt {
     /// The line as Tab last left it; any other edit restarts completion.
     completed: String,
     commands: Option<Vec<String>>,
-    /// Options per program, read once per prompt.
-    options: std::collections::HashMap<PathBuf, Vec<String>>,
 }
 impl Prompt {
     pub fn new(paths: Vec<PathBuf>, exit: bool) -> Self {
@@ -361,7 +214,6 @@ impl Prompt {
             chosen: None,
             completed: String::new(),
             commands: None,
-            options: Default::default(),
         }
     }
     /// Where the word being completed starts, and whether it is the command.
@@ -390,8 +242,20 @@ impl Prompt {
     }
     /// Tab: complete the last word. A single candidate is inserted (with a
     /// space after a command or file); several insert their common prefix, and
-    /// pressing Tab again cycles through them.
+    /// pressing Tab again cycles through them. The command is completed from
+    /// PATH and a word with a `/` or a leading `~` as a path; any other word
+    /// is what the user's shell completes it with (`zsh::matches`: options,
+    /// subcommands, files), or a path when it offers nothing or is not asked.
     pub fn complete(&mut self, cwd: &Path, home: Option<&Path>) {
+        self.complete_with(cwd, home, crate::zsh::matches);
+    }
+    /// `complete`, asking `shell` (the folder and the line) for the matches.
+    fn complete_with(
+        &mut self,
+        cwd: &Path,
+        home: Option<&Path>,
+        shell: impl FnOnce(&Path, &str) -> Option<Vec<crate::zsh::Match>>,
+    ) {
         let (start, command) = self.current_word();
         if self.text == self.completed && !self.candidates.is_empty() {
             let next = self.chosen.map_or(0, |i| (i + 1) % self.candidates.len());
@@ -401,19 +265,25 @@ impl Prompt {
             return;
         }
         let word = &self.text[start..];
-        let program = (!command && word.starts_with('-'))
-            .then(|| split(&self.text[..start], home).ok())
-            .flatten()
-            .and_then(|words| words.into_iter().next())
-            .and_then(|name| Some((resolve(&name, cwd).ok()?, name)));
-        let candidates = if let Some((path, name)) = program {
-            self.options
-                .entry(path.clone())
-                .or_insert_with(|| flags(&path, &name, cwd))
+        // Only a line fff itself would take: nothing in it is shell syntax.
+        let asked = (!command
+            && !word.contains('/')
+            && !word.starts_with('~')
+            && split(&self.text, home).is_ok())
+        .then(|| shell(cwd, &self.text))
+        .flatten()
+        .filter(|matches| !matches.is_empty());
+        let candidates = if let Some(matches) = asked {
+            let mut words: Vec<String> = matches
                 .iter()
-                .filter(|f| f.starts_with(word))
-                .cloned()
-                .collect()
+                .map(|m| {
+                    let folder = m.file && !m.word.ends_with('/') && cwd.join(&m.word).is_dir();
+                    format!("{}{}", escape(&m.word), if folder { "/" } else { "" })
+                })
+                .collect();
+            words.sort();
+            words.dedup();
+            words
         } else if command && !word.contains('/') {
             let commands = self.commands.get_or_insert_with(commands);
             commands
@@ -429,7 +299,8 @@ impl Prompt {
         match self.candidates.as_slice() {
             [] => {}
             [only] => {
-                let space = if only.ends_with('/') { "" } else { " " };
+                // A folder goes on, as does an option awaiting its value.
+                let space = if only.ends_with(['/', '=']) { "" } else { " " };
                 self.text = format!("{}{only}{space}", &self.text[..start]);
                 self.candidates.clear();
             }
@@ -760,67 +631,55 @@ mod flag_tests {
         fs::remove_dir_all(&home).unwrap();
     }
     #[test]
-    fn options_are_read_from_line_starts_only() {
-        let help = "Usage: dragon [OPTION] [FILENAME]
-  --and-exit,    -x  exit after a single completed drop
-  --target,      -t  act as a target instead of source
-  -k, --keep         with --target, keep files to drag out
-      --color[=WHEN]  colorize
-  -I FILE, --include=FILE  read FILE
-some prose mentioning --not-a-flag
-";
-        assert_eq!(
-            parse_flags(help),
-            [
-                "--and-exit",
-                "-x",
-                "--target",
-                "-t",
-                "-k",
-                "--keep",
-                "--color",
-                "-I"
-            ]
-        );
-        // man overstrike and escape sequences are ignored.
-        assert_eq!(
-            parse_flags("  -\x08--\x08-a\x08al\x08ll\x08l\x1b[0m  show all"),
-            ["--all"]
-        );
-    }
-    #[test]
-    fn help_runs_detached_and_cannot_hang() {
-        let dir = std::env::temp_dir().join(format!("fff-flags-{}", std::process::id()));
+    fn other_words_are_what_the_shell_completes_them_with() {
+        use crate::zsh::Match;
+        let dir = std::env::temp_dir().join(format!("fff-shell-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let script = dir.join("slow");
-        // Ignores --help, starts a child that keeps the pipe, and never ends.
-        fs::write(
-            &script,
-            "#!/bin/sh\nsleep 30 &\necho '  --fast  quick'\nsleep 30\n",
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        let started = std::time::Instant::now();
-        assert!(flags(&script, "definitely-no-man-page-xyz", &dir).is_empty());
-        // Long before the background sleep ends, however busy the machine.
-        assert!(started.elapsed() < std::time::Duration::from_secs(20));
-        let quick = dir.join("quick");
-        fs::write(&quick, "#!/bin/sh\n( : > /dev/tty ) 2>/dev/null && echo '  --had-a-tty'\necho '  -q, --quiet  hush' >&2\n").unwrap();
-        fs::set_permissions(&quick, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::create_dir_all(dir.join("sub dir")).unwrap();
+        fs::write(dir.join("checks"), b"").unwrap();
+        let word = |word: &str, file| Match {
+            word: word.into(),
+            file,
+        };
+        let asked = std::cell::Cell::new(0);
+        let tab = |text: &str, matches: Option<Vec<Match>>| {
+            let mut p = Prompt::new(vec![], false);
+            p.commands = Some(vec!["git".into()]);
+            p.text = text.into();
+            p.complete_with(&dir, None, |_, _| {
+                asked.set(asked.get() + 1);
+                matches
+            });
+            (p.text, p.candidates)
+        };
+        let subcommands = vec![word("checkout", false), word("cherry", false)];
+        // Its matches replace the word; files of the same start are not mixed in.
+        let (text, candidates) = tab("git ch", Some(subcommands));
+        assert_eq!(text, "git che");
+        assert_eq!(candidates, ["checkout", "cherry"]);
+        // One match is inserted: an option awaiting its value goes on, and a
+        // folder is one by what is there, quoted as fff reads it.
         assert_eq!(
-            flags(&quick, "definitely-no-man-page-xyz", &dir),
-            ["-q", "--quiet"]
+            tab("git --col", Some(vec![word("--color=", false)])).0,
+            "git --color="
         );
-        // A path is never handed to man, which would format the file itself.
-        let page = dir.join("page");
-        fs::write(
-            &page,
-            "#!/bin/sh\necho '  --from-help  yes'\nexit\n.TH PAGE 1\n.SH OPTIONS\n.TP\n\\-\\-from\\-man\nno\n",
-        )
-        .unwrap();
-        fs::set_permissions(&page, fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(flags(&page, page.to_str().unwrap(), &dir), ["--from-help"]);
+        assert_eq!(
+            tab("git --am", Some(vec![word("--amend", false)])).0,
+            "git --amend "
+        );
+        assert_eq!(
+            tab("git su", Some(vec![word("sub dir", true)])).0,
+            "git sub\\ dir/"
+        );
+        // Nothing offered, or no shell: a path, as before.
+        assert_eq!(tab("git ch", Some(vec![])).0, "git checks ");
+        assert_eq!(tab("git ch", None).0, "git checks ");
+        assert_eq!(asked.get(), 6);
+        // The command, a path, and a line fff would refuse are not asked.
+        for text in ["gi", "git ./ch", "git ~", "git $(x) ch", "git 'ch"] {
+            tab(text, Some(vec![word("never", false)]));
+        }
+        assert_eq!(asked.get(), 6);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

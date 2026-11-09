@@ -44,6 +44,7 @@ mod view;
 #[cfg_attr(not(target_os = "linux"), path = "platform/watch_none.rs")]
 pub mod watch;
 pub mod workspaces;
+pub mod zsh;
 
 use matching::narrows;
 pub use matching::{Matcher, relative, score};

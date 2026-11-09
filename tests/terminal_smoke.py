@@ -13,6 +13,7 @@ import re
 import select
 import signal
 import struct
+import subprocess
 import sys
 import termios
 import tempfile
@@ -115,6 +116,8 @@ class Session:
             # A stray l on a file must not open the tester's editor in a new
             # terminal window; tests that open files name their own programs.
             os.environ["EDITOR"] = "fff-test-no-editor"
+            # Nor is the tester's own shell asked what completes a command.
+            os.environ["SHELL"] = "/bin/sh"
             if environment: os.environ.update(environment)
             # The tests press the keys they were written against (SMOKE_KEYS),
             # whatever the defaults; those run with --no-config.
@@ -3436,12 +3439,32 @@ class TerminalTests(unittest.TestCase):
         s.send(b"!")
         self.assertEqual(s.finish(), (0, os.fsencode(self.root / "right") + b"\n"))
 
+    def zsh_environment(self, zshrc):
+        # zsh as the user's shell, with zshrc as its configuration, in a
+        # home folder of its own. A system file may name another place for
+        # it than the home folder: zsh itself says where it reads it.
+        zsh = shutil.which("zsh")
+        home = Path(self.tmp.name + "-home")
+        home.mkdir(exist_ok=True)
+        self.addCleanup(shutil.rmtree, home, True)
+        env = {k: v for k, v in os.environ.items() if k != "ZDOTDIR"} | {"HOME": str(home)}
+        config = Path(os.fsdecode(subprocess.run(
+            [zsh, "-c", "print -rn -- ${ZDOTDIR:-$HOME}"], env=env, capture_output=True, check=True).stdout))
+        config.mkdir(parents=True, exist_ok=True)
+        (config / ".zshrc").write_text(zshrc)
+        return {"SHELL": zsh, "HOME": str(home), "ZDOTDIR": str(config)}
+
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    @unittest.skipUnless(shutil.which("zsh"), "zsh is not installed")
     def test_rebound_operations_and_flag_completion(self):
         (self.root / "alpha").write_text("a")
         log = self.root / "log"
-        env = self.run_environment(
-            "tool", f'case "$1" in --help) echo "  -x, --and-exit  stop";; *) printf "%s\\n" "$@" > "{log}";; esac\n')
+        # The shell says what completes the program's words, from its own
+        # configuration; the program is never run to learn its options.
+        env = self.run_environment("tool", f'printf "%s\\n" "$@" >> "{log}"\n')
+        env |= self.zsh_environment(
+            "autoload -Uz compinit && compinit -u -D\n"
+            "_tool() { _arguments '--and-exit[stop]' '-x[stop]' }\ncompdef _tool tool\n")
         config = self.config("", keys="[normal]\ntrash = 'D'\ntoggle_files = 'none'\nedit_files = 'none'\n")
         s = self.start("--config", config, implicit_root=True, environment=env)
         s.send(SHIFT_SPACE, "Marks (1)")

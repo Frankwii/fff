@@ -65,6 +65,7 @@ separately in the [roadmap](ROADMAP.md).
 | `src/location.rs` | The go-to prompt (`/`): typed paths, workspaces and zoxide suggestions. |
 | `src/terminal.rs` | The terminal `[open] terminal` and `fff_terminal` default to: the one fff runs in (a parent process, else `$TERM_PROGRAM` on macOS), `$TERMINAL`, an installed known one, or Terminal.app on macOS, each in its own syntax; macOS's own terminals through an `osascript` script. |
 | `src/run.rs` | gx/gX and E: shell-free word splitting, PATH resolution, Tab completion, running and exec. |
+| `src/zsh.rs` | What completes a word of the command prompt, asked of the user's zsh: one kept beside the session on a pseudo-terminal of its own, started when a prompt opens (`warm`), answering requests over pipes (`matches`). |
 | `src/state.rs` | Per-directory highlights, saved atomically. |
 | `src/operations.rs` | Validation, confirmation snapshots, staged file operations, rollback, deletion review, progress and stopping. |
 | `src/trash.rs` | Trash bins per filesystem, their records (found again after a rename, for restoring), and the startup purge. |

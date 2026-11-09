@@ -178,8 +178,9 @@ whose program isn't installed.
 in fff's place:
 
 1. A prompt asks for the command, such as `wc -l` or `dragon --and-exit`.
-   **Tab** completes program names, file paths, and the program's options
-   after a `-` (read from its man page or `--help`). The line below says
+   **Tab** completes program names and file paths and, when your shell is
+   zsh, whatever it would complete there: options, subcommands and the
+   like, from your own `.zshrc`. The line below says
    which program it will run, or that there's none.
 2. **Enter** shows the exact command, the program and the files, in order.
    Enter again runs it; Escape cancels.

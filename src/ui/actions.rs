@@ -357,6 +357,8 @@ pub(super) fn start_run(editor: &mut Nvim, paths: Vec<PathBuf>, exit: bool) -> F
         let e = &mut *editor;
         e.reset_insert(Field::Command);
     }
+    // The shell that completes its words starts meanwhile.
+    crate::zsh::warm();
     Focus::Command(crate::run::Prompt::new(paths, exit))
 }
 pub(super) fn workspace_saved(app: &App, action: &str) -> String {

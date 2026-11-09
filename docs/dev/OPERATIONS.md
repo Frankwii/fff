@@ -259,14 +259,21 @@ line under the input shows what the command resolves to (`✓ /usr/bin/nvim`) or
 that it does not exist. **Enter** reviews; **Esc** cancels. Nothing is recorded:
 there is no command history.
 
-Tab on a word starting with `-` completes the program's options, such as
-`dragon --and` → `dragon --and-exit`. They come from its man page when it has
-one (reading it runs only `man`), otherwise from `program --help`. That run is
-detached from the terminal (it cannot open `/dev/tty`), gets no input, and is
-stopped together with anything it started after one second, so a program that
-ignores `--help` cannot take over the screen or hang fff. Options are read once
-per prompt; only names at the start of a help line count, so options mentioned
-inside descriptions are not offered.
+Later words without a `/` or a leading `~` are completed by your own shell
+when it is zsh (`$SHELL`, by its name): whatever its completion system offers
+for the line, such as `dragon --and` → `dragon --and-exit` or `git ch` →
+`checkout`, `cherry-pick`. A zsh starts when the prompt opens, on a thread of
+its own, with your configuration (`.zshrc`), and stays for the session; it
+runs on a pseudo-terminal of its own that nothing reads, and its aliases are
+dropped, since fff runs the program itself. Tab hands it the folder and the
+line over a pipe: nothing is typed into it, it inserts and lists nothing, and
+only its plain completer runs (no expansion, correction or menus), on a line
+fff itself would take. Tab waits for it at most 1.5 seconds (3 while it
+starts); a shell that takes longer is ended, and the next prompt starts
+another, but one that never starts is not tried again. When it offers
+nothing, and with any other shell, the word is completed as a path. fff
+never runs the program being completed to learn its options (zsh's own
+completion functions may run programs they know, as they do in a terminal).
 
 There is no shell. The line is split into words like a shell would split it
 (spaces separate; `'…'` is literal; `"…"` allows `\"`, `\\`, `\$` and
