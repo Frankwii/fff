@@ -46,7 +46,7 @@ flowchart LR
 
 So: `i` to type, Escape to stop typing, Escape again (or `j`) to get back
 to the results. Shift+Tab goes straight between the two, even while
-typing. Ctrl+k goes into the marked list and back. A click on a
+typing; Tab from the results goes up into the query. Ctrl+k goes into the marked list and back. A click on a
 row gives the results the focus too.
 
 **Why the query in Normal mode matters.** With the query focused, most
@@ -214,7 +214,7 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | `/` | `go_to_path` | Go to a typed folder |
 | Ctrl+o / Ctrl+i | `go_to_older_jump` / `go_to_newer_jump` | Back / forward through visited folders |
 | Up / Down | `go_to_next_tab` / `go_to_previous_tab` | Next / previous tab |
-| Tab | `go_to_next_tab` | Next tab (not in `fff seek`) |
+| Ctrl+Tab | `go_to_next_tab` | Next tab (not in `fff seek`) |
 | `gt` | `go_to_trash` | Open the trash |
 | `gw` | `show_workspaces` | Workspaces |
 
@@ -253,6 +253,7 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | Tab | `switch_query` | Switch between the names and contents queries (from the query) |
 | Escape | `clear_query` | Clear the query (in the results) |
 | Escape in the query | `toggle_query_focus` | Give the results the focus |
+| Tab in the results | `toggle_query_focus` | Give the query the focus |
 | Shift+Tab | `toggle_query_focus` | Give the query or the results the focus, also while typing |
 | `+` / `-` | `search_deeper` / `search_shallower` | One level deeper / shallower |
 | Ctrl+Alt+`1`…`9` | `search_to_depth` | Search to that depth |
@@ -319,7 +320,7 @@ registers, undo, `:s/old/new/`. A few things to know:
 ## Terminals
 
 Some keys need a terminal that reports them distinctly: Shift+Enter,
-Ctrl+Enter, Ctrl+digits and Ctrl+m. fff asks for the kitty keyboard
+Ctrl+Enter, Ctrl+Tab, Ctrl+digits and Ctrl+m. fff asks for the kitty keyboard
 protocol, which kitty, foot, WezTerm, Ghostty, Alacritty and iTerm2 support
 among others. In a terminal without it, bind those functions to other keys.
 Ctrl+i likewise needs the terminal to tell it apart from Tab.

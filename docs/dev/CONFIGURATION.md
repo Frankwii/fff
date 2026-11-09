@@ -1191,8 +1191,8 @@ mode), `-` and `+` (`search_shallower` and `search_deeper`), `q`
 while Enter,
 Tab, the arrows and the Alt and Ctrl keys still act on the results below. Escape
 there (`toggle_query_focus`) gives the results the focus back, and a click
-on a row does too. `toggle_query_focus` (by default also
-Shift+Tab anywhere) works from Insert mode as well: it leaves
+on a row does too. `toggle_query_focus` (by default also Tab in the
+results and Shift+Tab anywhere) works from Insert mode as well: it leaves
 Insert mode for Normal and gives the results the focus. The Keys screen's query and list take the focus the
 same way.
 

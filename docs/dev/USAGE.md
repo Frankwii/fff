@@ -203,7 +203,7 @@ Missing marks block confirmation until unmarked.
 
 Every session has three tabs, like nnn's contexts, numbered in the top-right
 corner of the results, the active one in the `@` badge's colors. All start in
-the session's first directory. Up / Down switch to the next / previous tab,
+the session's first directory. Up / Down switch to the next / previous tab (Ctrl+Tab to the next too),
 wrapping around; each tab keeps its own directory and Ctrl+o / Ctrl+i history,
 while marks, the query, depth, hidden entries, exclusions and filters are
 shared. Mark files in one tab, switch, browse somewhere far away, then move
@@ -530,7 +530,7 @@ focus, but `j` / `k`, which go down into the results, and `gc`. Some functions h
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then give the results the focus back, then clear the query; keep the session |
-| Tab | Type into the other query, contents or names, in either mode; from the results in Normal mode, go to the next tab (nothing in `fff seek`) |
+| Tab | Type into the other query, contents or names, in either mode; from the results in Normal mode, give the query the focus |
 | Shift+Tab | Give the query or the results the focus; from Insert mode, leave it for the results |
 | Enter | Open the highlighted file and leave (`fff roam`), print the marks and the highlighted entry (`fff pick`), leave into the file's folder (`fff seek`); enter a folder in `fff window` and the dialogs |
 | Shift+Enter / Ctrl+Enter | Print the highlighted entry alone / the marks alone (`fff pick`, dialogs choosing several) |
@@ -544,6 +544,7 @@ focus, but `j` / `k`, which go down into the results, and `gc`. Some functions h
 | `/` | Go to a typed path, or words picking a workspace or one of zoxide's frequent folders |
 | Ctrl+o / Ctrl+i | Older / newer folder in this tab's jump list (Ctrl+i needs a terminal that tells it from Tab) |
 | Up / Down | Next / previous [tab](#tabs), in either mode |
+| Ctrl+Tab | Next [tab](#tabs), in either mode (not in `fff seek`) |
 | `gw` | [Workspace](#workspaces) chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | `gP` | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
 | `+` / `-` | Increase / decrease depth; minimum 1; from the query in focus too |

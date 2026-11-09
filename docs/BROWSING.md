@@ -71,6 +71,7 @@ history; the query, the marks and the search settings are shared.
 | Key | Does |
 | --- | --- |
 | Up / Down | Next / previous tab |
+| Ctrl+Tab | Next tab |
 
 Tabs work in either mode. They're handy for file operations: mark files in
 one tab, switch to another tab in the destination folder, and copy them

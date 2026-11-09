@@ -23,10 +23,10 @@ history.
 - **`q` quits from the query in focus too**, instead of starting
   Neovim's macro recording. To record macros there, leave `query` out of
   `quit`'s focus (`quit = { keys = "q", focus = ["results", "marks"] }`).
-- **Tab in the results goes to the next tab** (in `fff seek`, which has
-  no tabs, it does nothing there), and **Shift+Tab** toggles
-  between the query and the results, also while typing. Tab still
+- **Tab in the results gives the query the focus**, and **Shift+Tab**
+  toggles between the query and the results, also while typing. Tab still
   switches between the names and contents queries from the query.
+- **Ctrl+Tab goes to the next tab**, in either mode, as Up does.
 - **Alt+number goes to its row**, as `l` does: into its folder, or to its
   file's folder (`go_to_row`, new). In `fff seek`, which does not change
   folder, it highlights its row, as `1`…`9` do.

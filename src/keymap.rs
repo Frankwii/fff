@@ -940,7 +940,7 @@ impl Function {
             GoToHighlighted => &[("<M-l>", all), ("<CR>", enters)],
             GoToOlderJump => &[("<C-o>", all)],
             GoToNewerJump => &[("<C-i>", all)],
-            GoToNextTab => &[("<Up>", all)],
+            GoToNextTab => &[("<Up>", all), ("<C-Tab>", scope(&NAVIGATE, &[], &[]))],
             GoToPreviousTab => &[("<Down>", all)],
             OpenAndQuit => &[("<CR>", all)],
             OpenRow => &[("<C-#>", all)],
@@ -982,8 +982,7 @@ impl Function {
             GoToTrash => &[("gt", all)],
             GoToOlderJump => &[("<C-o>", all)],
             GoToNewerJump => &[("<C-i>", all)],
-            // fff seek has no tabs: Tab there does nothing in the results.
-            GoToNextTab => &[("<Up>", all), ("<Tab>", scope(&NAVIGATE, &[Results], &[]))],
+            GoToNextTab => &[("<Up>", all), ("<C-Tab>", scope(&NAVIGATE, &[], &[]))],
             GoToPreviousTab => &[("<Down>", all)],
             SaveHere => &[
                 ("!", all),
@@ -1024,7 +1023,7 @@ impl Function {
             ToggleMarkedList => &[("<C-k>", all)],
             ToggleJobList => &[("<C-j>", all)],
             ClearQuery => &[("<Esc>", results)],
-            ToggleQueryFocus => &[("<Esc>", query), ("<S-Tab>", all)],
+            ToggleQueryFocus => &[("<Esc>", query), ("<Tab>", results), ("<S-Tab>", all)],
             SwitchQuery => &[("<Tab>", scope(&[], &[Query, Marks], &[]))],
             SearchShallower => &[("-", all)],
             SearchDeeper => &[("+", all)],
@@ -1850,13 +1849,7 @@ mod tests {
         let keymap = Keymap::default();
         let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
         let shift_tab = KeyEvent::new(KeyCode::BackTab, M::SHIFT);
-        // fff seek has no tabs, and no default Tab in the results.
-        let seek = cell(Seek, H::File);
-        assert!(
-            keymap.bindings().iter().all(|b| !(b.mode == Mode::Normal
-                && b.keys == [Key::press(tab)]
-                && b.applies(seek)))
-        );
+        let ctrl_tab = KeyEvent::new(KeyCode::Tab, M::CONTROL);
         for program in <Program as Dimension>::ALL.iter().copied() {
             let here = cell(program, H::File);
             let query = Cell {
@@ -1864,20 +1857,34 @@ mod tests {
                 ..here
             };
             // Tab switches queries from the query; from the results it
-            // goes to the next tab, where there are tabs.
-            for mode in Mode::ALL {
+            // goes up into the query first.
+            for (mode, cell, function) in [
+                (Mode::Insert, query, Function::SwitchQuery),
+                (Mode::Normal, query, Function::SwitchQuery),
+                (Mode::Normal, here, Function::ToggleQueryFocus),
+            ] {
                 assert_eq!(
-                    run(&keymap, mode, query, &[tab]),
-                    Step::Run(Function::SwitchQuery, None),
-                    "{program:?} {mode:?}"
+                    run(&keymap, mode, cell, &[tab]),
+                    Step::Run(function, None),
+                    "{program:?} {mode:?} {:?}",
+                    cell.focus
                 );
             }
-            if NAVIGATE.contains(&program) {
-                assert_eq!(
-                    run(&keymap, Mode::Normal, here, &[tab]),
-                    Step::Run(Function::GoToNextTab, None),
-                    "{program:?}"
-                );
+            // Ctrl+Tab goes to the next tab, where there are tabs.
+            for mode in Mode::ALL {
+                for cell in [query, here] {
+                    let step = run(&keymap, mode, cell, &[ctrl_tab]);
+                    if NAVIGATE.contains(&program) {
+                        assert_eq!(
+                            step,
+                            Step::Run(Function::GoToNextTab, None),
+                            "{program:?} {mode:?} {:?}",
+                            cell.focus
+                        );
+                    } else {
+                        assert_ne!(step, Step::Run(Function::GoToNextTab, None), "{program:?}");
+                    }
+                }
             }
             // Shift+Tab toggles the query's focus, in Insert mode too.
             for (mode, cell) in [

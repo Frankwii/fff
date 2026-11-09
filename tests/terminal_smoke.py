@@ -707,6 +707,10 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1b[Z")
         s.send(b"x", "❯ alph")
         s.send(b"\x1b[Z")
+        # Tab from the results focuses the query too.
+        s.send(b"\t")
+        s.send(b"x", "❯ alp")
+        s.send(b"\x1b[Z")
         s.send(b"l", ("cwd", self.root / "alpha"))
         s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
