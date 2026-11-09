@@ -431,7 +431,7 @@ const OPEN: Viewer = Viewer {
     ..viewer("open", Systems::MacOs)
 };
 const XDG_OPEN: Viewer = Viewer {
-    note: "the desktop's default application",
+    note: "asks your desktop each time, so it follows the desktop's choice",
     ..viewer("xdg-open", Systems::NotMacOs)
 };
 const AT_PAGE: &str = "opens at a contents match's page";
@@ -924,8 +924,8 @@ pub fn run(
         for (i, viewer) in viewers.iter().enumerate() {
             let note = match (viewer.note, chosen_by_desktop(viewer)) {
                 (note, false) => note.to_owned(),
-                ("", true) => "what your desktop opens them with".to_owned(),
-                (note, true) => format!("{note}; what your desktop opens them with"),
+                ("", true) => "your desktop's current choice".to_owned(),
+                (note, true) => format!("{note}; your desktop's current choice"),
             };
             let line = format!("  {}  {:width$}  {note}", i + 1, viewer.command);
             report.line(line.trim_end())?;
@@ -1478,7 +1478,7 @@ mod tests {
         let (result, out) = guided(&linux, &path, "y\n\n\n\ny\n");
         result.unwrap();
         assert!(
-            out.contains("1  evince   what your desktop opens them with\n    2  zathura  opens at"),
+            out.contains("1  evince   your desktop's current choice\n    2  zathura  opens at"),
             "{out}"
         );
         assert!(out.contains("1  imv\n    2  feh\n"), "{out}");

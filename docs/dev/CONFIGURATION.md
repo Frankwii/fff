@@ -77,7 +77,7 @@ a usage error (exit 2). In order:
    then zathura or mpv if installed; on Linux zathura, okular, evince or
    mupdf, imv, nsxiv, sxiv, feh, eog, gwenview or ristretto, `mpv
    --force-window` (a window even for audio) or VLC, LibreOffice, and
-   `xdg-open` (the desktop's default) last. zathura, okular and mupdf get
+   `xdg-open` (which asks the desktop each time) last. zathura, okular and mupdf get
    their [`at_grep_match`](#opening-at-a-contents-match). `0` leaves a kind
    to `$EDITOR`. Kinds opened by the same program share one rule.
 
@@ -85,7 +85,9 @@ a usage error (exit 2). In order:
    default` for `application/pdf`, `image/png`, `video/mp4` and
    `application/vnd.oasis.opendocument.text`, by the first word of its
    desktop entry's `Exec` line, after `env` and its variables) moves to the
-   top, the default answer, marked `what your desktop opens them with`.
+   top, the default answer, marked `your desktop's current choice`: the
+   rule names that program, whereas `xdg-open` (marked `asks your desktop
+   each time, so it follows the desktop's choice`) follows later changes.
 
    Extensions the file's own `[[open.rules]]` already open (by extension or
    pattern) are not asked about; a kind they all open is skipped.
