@@ -8,6 +8,8 @@ repository = "https://github.com/Frankwii/fff"
 license = "GPL-3.0-only"
 keywords = ["cli", "terminal", "fuzzy", "file", "tui"]
 categories = ["command-line-utilities", "filesystem"]
+# The recordings the guides show (crates.io finds them on GitHub).
+exclude = ["docs/demos"]
 
 [[bin]]
 name = "fff"

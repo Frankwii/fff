@@ -16,6 +16,8 @@ history.
 
 ### Changed
 
+- **The crate is much smaller to download**: 0.7 MiB, where it was 5.8.
+  It leaves out the guides' recordings, which crates.io shows from GitHub.
 - **Sorted by size, folders take their place as they are added up.** Every
   folder listed is added up in the background, not only those on screen,
   and the list follows the totals as they arrive, at most every two

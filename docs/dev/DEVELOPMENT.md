@@ -527,6 +527,11 @@ docs/demos/find.gif -vf "fps=1/2,scale=640:-1,tile=3x4" -frames:v 1
 sheet.png` makes a contact sheet. `tests/doc_links.rs` fails if a GIF the
 documents show is missing.
 
+`Cargo.toml` leaves `docs/demos` out of the crate, which keeps it under
+1 MiB. crates.io resolves the README's relative image links against the
+`repository` URL, so the recordings show there once pushed to GitHub's
+default branch; after a release, check that they do on the crate's page.
+
 ## Packaging
 
 `packaging/aur/PKGBUILD` builds the Arch package `fuzzy-file-finder` from the

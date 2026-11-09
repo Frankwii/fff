@@ -67,15 +67,6 @@ a Rust toolchain. `packaging/aur/PKGBUILD` installs `docs/*.md` and
 `config.example.toml`: add `keys.example.toml`, which [KEYS.md](../KEYS.md)
 links, at the next release.
 
-The crate was 5.8 MiB compressed (0.23.0), about 5.4 MiB of it the
-recordings in `docs/demos`, which building never reads; the recipes'
-recordings in [Everyday tasks](../TASKS.md) have since brought them to
-about 9 MiB. An `exclude` for
-that folder in `Cargo.toml` would bring it to a few hundred KiB; the
-README links the recordings by relative paths, which crates.io resolves
-against the `repository` URL, so check with `cargo package --list` and on
-the published page that they still show.
-
 ## Post-launch
 
 Ideas for after 1.0, once the features above are done.
