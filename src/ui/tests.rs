@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::Palette;
+use crate::ui::dispatch::toggle_query_focus;
 use crate::ui::focus::{chosen, finish_with_entry};
 use std::time::Instant;
 
@@ -675,4 +676,52 @@ fn normal_enter_on_a_cached_entry_that_is_gone_stays() {
         Some(Finish::Folder(p)) if p == root
     ));
     std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn toggle_query_focus_leaves_insert_mode_for_the_list_and_back() {
+    if std::process::Command::new("nvim")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("nvim missing; skipping");
+        return;
+    }
+    let mut editor = Nvim::start().unwrap();
+    let type_in = |app: &mut App, focus: &mut Focus, editor: &mut Nvim, keys: &str| {
+        for c in keys.chars() {
+            deliver(app, focus, editor, KeyEvent::new(K::Char(c), M::NONE));
+        }
+    };
+    // The results' query, typed into.
+    let mut app = App::browse("/fixture".into(), 1, crate::Policy::default());
+    let mut focus = Focus::Results;
+    editor.activate(Field::Query, "").unwrap();
+    type_in(&mut app, &mut focus, &mut editor, "iab");
+    app.query_focused = true;
+    assert_eq!(app.mode(), crate::keymap::Mode::Insert);
+    // Leaving it leaves Insert mode too, keeping what was typed.
+    toggle_query_focus(&mut app, &mut focus, &mut editor);
+    assert_eq!(app.mode(), crate::keymap::Mode::Normal);
+    assert!(!app.query_in_focus());
+    assert_eq!(app.query, "ab");
+    // In Normal mode it goes back and forth.
+    toggle_query_focus(&mut app, &mut focus, &mut editor);
+    assert!(app.query_in_focus());
+    assert_eq!(app.mode(), crate::keymap::Mode::Normal);
+    toggle_query_focus(&mut app, &mut focus, &mut editor);
+    assert!(!app.query_in_focus());
+    // The Keys screen's query works the same way.
+    let mut focus = Focus::Keys(Box::new(keys::KeysScreen::new(app.cell())));
+    editor.activate(Field::Keys, "").unwrap();
+    type_in(&mut app, &mut focus, &mut editor, "iq");
+    assert_eq!(app.mode(), crate::keymap::Mode::Insert);
+    toggle_query_focus(&mut app, &mut focus, &mut editor);
+    let Focus::Keys(screen) = &focus else {
+        unreachable!()
+    };
+    assert_eq!(app.mode(), crate::keymap::Mode::Normal);
+    assert!(!screen.query_in_focus(&app));
+    assert_eq!(screen.query, "q");
 }

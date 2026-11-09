@@ -484,14 +484,7 @@ impl Session {
                 app.status = format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
                 app.status_success = app.status.clone();
             }
-            // Insert mode always types into the query: leaving the query
-            // leaves Insert mode too.
-            ToggleQueryFocus if app.mode() == keymap::Mode::Insert => {
-                let esc = KeyEvent::new(K::Esc, M::NONE);
-                deliver(app, &mut self.focus, &mut self.editor, esc);
-                app.query_focused = false;
-            }
-            ToggleQueryFocus => app.query_focused = !app.query_focused,
+            ToggleQueryFocus => toggle_query_focus(app, &mut self.focus, &mut self.editor),
             SwitchQuery => {
                 app.grep.editing = !app.grep.editing;
                 // The other query is typed into in the mode Tab was pressed in.
@@ -1174,6 +1167,17 @@ pub(super) enum Typed {
     /// No binding has it at this cell (the query, once keys held back
     /// went to it).
     Unbound(keymap::Cell),
+}
+/// Give the query on screen or the list below it the focus. Insert mode
+/// always types into the query: leaving the query leaves Insert mode too.
+pub(super) fn toggle_query_focus(app: &mut App, focus: &mut Focus, editor: &mut Nvim) {
+    if app.mode() == keymap::Mode::Insert {
+        deliver(app, focus, editor, KeyEvent::new(K::Esc, M::NONE));
+        *query_focus(focus, app) = false;
+    } else {
+        let focused = query_focus(focus, app);
+        *focused = !*focused;
+    }
 }
 /// Whether the query on screen has the focus: the Keys screen's, or the
 /// results'.

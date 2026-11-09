@@ -11,7 +11,7 @@
 //! until Enter saves them (refused when they would clash or lock you in).
 //! The `show_keys` key closes the screen from anywhere in it, dropping what
 //! was not saved.
-use super::dispatch::Typed;
+use super::dispatch::{Typed, toggle_query_focus};
 use super::*;
 use crate::keymap::{Binding, Cell, Dimension, Function, Key, Keymap, Mode, Scope};
 
@@ -572,17 +572,8 @@ impl Session {
         key: KeyEvent,
     ) -> Option<Finish> {
         let page = self.drawn.page.max(1);
-        // As on the main screen, leaving the query leaves Insert mode too.
-        if function == Function::ToggleQueryFocus && app.mode() == Mode::Insert {
-            deliver(
-                app,
-                &mut self.focus,
-                &mut self.editor,
-                KeyEvent::new(K::Esc, M::NONE),
-            );
-            if let Focus::Keys(screen) = &mut self.focus {
-                screen.query_focused = false;
-            }
+        if function == Function::ToggleQueryFocus {
+            toggle_query_focus(app, &mut self.focus, &mut self.editor);
             return None;
         }
         let Focus::Keys(screen) = &mut self.focus else {
@@ -612,7 +603,6 @@ impl Session {
                 screen.query.clear();
                 *index = 0;
             }
-            Function::ToggleQueryFocus => screen.query_focused = !screen.query_focused,
             Function::ShowSession => self.focus = Focus::Info { offset: 0 },
             Function::Cancel => return Some(Finish::Cancelled),
             Function::Quit => return self.quit(app),
