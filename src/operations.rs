@@ -362,7 +362,7 @@ fn copy_entry(
             .set_permissions(fs::Permissions::from_mode(m.mode & 0o777))
             .map_err(err)?;
         keep_times(dst, to, &m)?;
-        platform::sync(&output).map_err(err)?;
+        platform::sync_staged(&output).map_err(err)?;
     } else if m.is_file() {
         let input = File::from(
             sys::openat(
@@ -389,7 +389,7 @@ fn copy_entry(
             .set_permissions(fs::Permissions::from_mode(m.mode & 0o777))
             .map_err(err)?;
         keep_times(dst, to, &m)?;
-        platform::sync(&output).map_err(err)?;
+        platform::sync_staged(&output).map_err(err)?;
         if stamp(&platform::fstat(&input).map_err(err)?) != stamp(&m) {
             return Err("Source changed while copying".into());
         }
@@ -1003,6 +1003,10 @@ impl Engine {
             }
             staged.push(identity(&stage.dir, OsStr::new(&name)));
         }
+        // On disk before any of it appears under its name.
+        if !linking {
+            platform::sync_stage(&stage.dir).map_err(err)?;
+        }
         self.settle();
         for (source, was) in src.iter().zip(&before) {
             if tree(source)? != *was {
@@ -1291,6 +1295,8 @@ impl Engine {
                     return Err(format!("{:?} changed during extraction", s.name));
                 }
             }
+            // On disk before any of it appears under its name.
+            platform::sync_stage(&stage.dir).map_err(err)?;
             groups.push((k, existing, dest, stage));
         }
         self.settle();

@@ -446,6 +446,10 @@ then takes effect. Signals ignored when fff started (such as under `nohup`) stay
 fff then ends once the operation has finished, as its terminal is gone. Copies
 and extracted files are written in full and synced to disk before they appear
 under their names, so no interruption leaves a truncated file at a destination.
+On Linux the stage is synced once, whole, before it is published (`syncfs`
+on its filesystem, which also writes out what other programs left unwritten
+there): an `fsync` of each file costs a journal commit each, minutes for a
+tree of many small files.
 A kill that cannot be held (`SIGKILL`) can leave hidden
 `.fff-stage-*` directories holding data (an entry already moved to the trash
 stays there, with its record); when fff enters a directory with such a
@@ -497,8 +501,9 @@ renames. On macOS (13+ for `O_SEARCH`, which walks through folders that cannot
 be listed) it opens each component of a path in the one before with
 `O_NOFOLLOW`, so a symlink anywhere is refused just as well, takes a change of
 device for a mount root, and publishes with `renameatx_np(RENAME_EXCL)`.
-Copied and extracted files are written through with `fsync` there before
-they are published, as on Linux, rather than `F_FULLFSYNC`, which empties the
+Copied and extracted files are written through there with an `fsync` each
+before they are published (macOS has no `syncfs` for the whole stage, as
+Linux uses), rather than `F_FULLFSYNC`, which empties the
 drive's cache for every file (minutes for a large tree): whatever ends fff,
 nothing is ever partly there under its name, though a power cut can lose
 writes the drive had not yet stored.

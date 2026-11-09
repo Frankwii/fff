@@ -1,5 +1,5 @@
 //! What differs between Linux and macOS, behind one interface: the
-//! controlling terminal, syncing a file to disk, opening a directory without
+//! controlling terminal, syncing a file or a stage to disk, opening a directory without
 //! following symlinks, where an opened directory is,
 //! mount roots and identities, the mount table, the program a process runs
 //! and its parent, and abstract sockets. The rest of fff is the same code on both systems,

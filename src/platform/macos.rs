@@ -69,6 +69,16 @@ pub fn sync(file: &File) -> io::Result<()> {
         Err(io::Error::last_os_error())
     }
 }
+/// A file or folder written into a stage: written through as `sync` does,
+/// there being no `syncfs` to do it for the whole stage at once.
+pub fn sync_staged(file: &File) -> io::Result<()> {
+    sync(file)
+}
+/// The stage `dir` before any of it is published: `sync_staged` already
+/// wrote each of its files through.
+pub fn sync_stage(_dir: &File) -> io::Result<()> {
+    Ok(())
+}
 /// `O_SEARCH` (macOS 13+): a directory opened only to look names up in it,
 /// with search permission alone, like Linux's `O_PATH`.
 fn search() -> OFlags {

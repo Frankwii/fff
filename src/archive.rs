@@ -325,7 +325,7 @@ fn scan(input: File, stage: Option<&File>, tick: &dyn Fn(u64) -> Result<()>) -> 
             }
         }
         if let Some(file) = file {
-            crate::platform::sync(&file).map_err(|e| e.to_string())?;
+            crate::platform::sync_staged(&file).map_err(|e| e.to_string())?;
         }
     }
     Ok(())

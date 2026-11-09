@@ -26,6 +26,10 @@ history.
 
 - **`fff setup` suggests the programs your desktop already uses** to open
   documents, images, videos and office files, as the first choice.
+- **Copying and extracting many small files is far faster on Linux**:
+  3,000 files copy in a third of a second, where they took twelve. What
+  is copied is still on disk before it appears under its name, written
+  out once for all of it rather than file by file.
 - **An empty query says `i to filter names…` in Normal mode.** It said
   `type to filter names…` there too, where typing runs commands instead
   (`x` trashes the highlighted file). The contents bar and a save dialog's

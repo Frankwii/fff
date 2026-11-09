@@ -32,6 +32,18 @@ pub fn open_terminal() -> io::Result<File> {
 pub fn sync(file: &File) -> io::Result<()> {
     file.sync_all()
 }
+/// A file or folder written into a stage. Nothing yet: `sync_stage` writes
+/// the whole stage through at once, where an `fsync` of each file costs a
+/// journal commit each (about 4 ms on ext4: minutes for a large tree).
+pub fn sync_staged(_file: &File) -> io::Result<()> {
+    Ok(())
+}
+/// Writes everything in the stage `dir` through to the disk, before any of
+/// it is published: one `syncfs` of its filesystem, which a stage never
+/// leaves.
+pub fn sync_stage(dir: &File) -> io::Result<()> {
+    Ok(sys::syncfs(dir)?)
+}
 /// Opens the directory at `path` (absolute, canonical) without following a
 /// symlink anywhere along it.
 pub fn open_dir_nofollow(path: &Path) -> io::Result<File> {
