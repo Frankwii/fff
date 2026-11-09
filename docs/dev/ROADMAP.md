@@ -20,11 +20,6 @@ order a newcomer meets them:
 - **A setting to start typing.** `[ui] start_in = "insert"` (or similar)
   for `fff roam` and `fff window`, as `fff pick` and `fff seek` already
   start, for people who think of fff as a finder first and of Vim second.
-- **Setup that sets up.** `fff setup` lists the shell line and completions
-  under **Next** for the user to copy; it could offer to add them itself
-  (append the `eval` line to `~/.zshrc`, save `_fff` where `$fpath` finds
-  it, run `--man`), each asked and shown first, as it does the
-  configuration.
 - **What a `g` waits for.** About twenty functions start with `g` (`gs`,
   `gw`, `gP`, `gm`, `gc`, `gx`, `g.`, `gd`, `gE`, `gF`, `gl`, `gt`, `g!`,
   `gpp`…). While a prefix waits as PENDING, a small sheet listing what can

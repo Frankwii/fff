@@ -15,26 +15,27 @@ fff setup
 
 It lists the programs fff can use and whether you have them (with the
 command that installs any missing one), then asks a few questions: whether
-your terminal shows fff's icons, and which of your programs should open
-PDFs, images, videos and office files. It shows what it would write to
-your configuration file and asks before writing anything. You can run it
-again at any time.
+your terminal shows fff's icons, which colors you like, and which of your
+programs should open PDFs, images, videos and office files. It shows what
+it would write to your configuration file and asks before writing
+anything. You can run it again at any time: it only asks about what isn't
+set up yet.
 
 ## 2. Let fff change your shell's directory
 
 A program can't change the directory of the shell that started it, so fff
-needs a small shell function to do it. Add one line to your shell's
-startup file:
+needs a small shell function to do it. `fff setup` offers to add it to
+your shell's startup file, with completions:
 
 ```sh
-eval "$(fff setup --init zsh)"     # ~/.zshrc
-eval "$(fff setup --init bash)"    # ~/.bashrc
-fff setup --init fish | source     # ~/.config/fish/config.fish
+# Added by fff setup
+eval "$(fff setup --init zsh)"
+source <(fff setup --completions zsh)
 ```
 
-Open a new terminal so the line takes effect. Now when you leave fff, your
+Open a new terminal so the lines take effect. Now when you leave fff, your
 shell can be left in the folder you were looking at. [Setup and
-integration](SETUP.md) has more, such as completions and man pages.
+integration](SETUP.md) has more, such as using another shell.
 
 ## 3. The screen
 

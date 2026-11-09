@@ -983,12 +983,15 @@ fn report(
 /// (`$SHELL`): the line that sets it up, and where it goes.
 fn shell_function_hint(shell: Option<&std::ffi::OsStr>) -> String {
     let name = shell.map(Path::new).and_then(Path::file_name);
-    let setup = match name.and_then(|n| n.to_str()) {
-        Some(shell @ ("bash" | "zsh")) => {
-            format!("add `eval \"$(fff setup --init {shell})\"` to ~/.{shell}rc")
-        }
-        Some("fish") => "add `fff setup --init fish | source` to ~/.config/fish/config.fish".into(),
-        _ => "load the shell function of `fff setup --init` (bash, zsh or fish)".into(),
+    let name = name.and_then(|n| n.to_str());
+    let line = match name {
+        Some(shell @ ("bash" | "zsh")) => format!("eval \"$(fff setup --init {shell})\""),
+        Some("fish") => "fff setup --init fish | source".into(),
+        _ => String::new(),
+    };
+    let setup = match line.as_str() {
+        "" => "load the shell function of `fff setup --init` (bash, zsh or fish)".into(),
+        line => format!("add `{line}` to {}", guided::startup_file(name)),
     };
     format!(
         "fff: the shell stays where it was. To have it change to the folder fff \
@@ -1015,6 +1018,7 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
             Some(dir) => dir.clone(),
             None => man_dir()?,
         };
+        report.heading("Manual pages")?;
         write_man_pages(&dir, &mut report)?;
         return Ok(true);
     }
@@ -1064,9 +1068,10 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
             report.done(&format!("valid: {}", report.path(&path)))?;
         }
         report.done("every program [open] names is installed")?;
-        report.section(&guided::programs(&guided::System::from_env(
-            settings.open.terminal().ok(),
-        )))?;
+        report.section(&guided::programs(
+            &guided::System::from_env(settings.open.terminal().ok()),
+            guided::fallback(&settings.open),
+        ))?;
         // The desktop integration, if set up: warnings, since the
         // configuration itself is valid.
         if !fuzzy_file_finder::setup::FREEDESKTOP {
@@ -1111,9 +1116,12 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Err(format!("{}: {e}", path.display()).into()),
         };
-        let system = guided::System::from_env(settings.open.terminal().ok());
+        let mut system = guided::System::from_env(settings.open.terminal().ok());
+        // The shell function passes --cd-file to every command.
+        system.shell_function = args.cd_file.is_some();
         guided::run(
             &system,
+            integrations(&settings, home.as_deref()),
             path,
             before.as_deref(),
             home.as_deref(),
@@ -1141,6 +1149,41 @@ fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::E
     Ok(true)
 }
 
+/// What the guided setup offers besides the configuration and the shell:
+/// the manual pages unless `man` finds them, and on a freedesktop.org
+/// desktop, opening folders and file dialogs in fff.
+fn integrations<'a>(settings: &'a Settings, home: Option<&'a Path>) -> guided::Integrations<'a> {
+    use fuzzy_file_finder::setup;
+    let installed = std::process::Command::new("man")
+        .args(["-w", "fff"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    let man: Option<guided::SetUp> = (!installed).then(|| {
+        Box::new(|report: &mut setup::Report| {
+            let dir = man_dir()?;
+            write_man_pages(&dir, report).map_err(|e| format!("{}: {e}", dir.display()))
+        }) as guided::SetUp
+    });
+    let desktop = setup::Dirs::from_env()
+        .ok()
+        .filter(|_| setup::FREEDESKTOP)
+        .map(|dirs| guided::Desktop {
+            folders: setup::folder_default().as_deref() == Some(setup::DESKTOP_ID),
+            chooser: setup::chooser_status(&dirs),
+            set_up: Box::new(move |target, report| {
+                let terminal = settings
+                    .open
+                    .fff_terminal()
+                    .and_then(|line| fuzzy_file_finder::run::split(&line, home))
+                    .map_err(|e| format!("[open] fff_terminal: {e}"))?;
+                let fff = std::env::current_exe().map_err(|e| e.to_string())?;
+                setup::run(target, &dirs, &fff, &terminal, report)
+            }),
+        });
+    guided::Integrations { man, desktop }
+}
 /// Where `fff setup --man` writes without a DIR: the man1 folder of a
 /// directory man searches, or why there is none.
 fn man_dir() -> Result<PathBuf, String> {
@@ -1213,7 +1256,6 @@ fn write_man_pages(dir: &Path, report: &mut fuzzy_file_finder::setup::Report) ->
         clap_mangen::Man::new(page).generate_to(dir)?;
     }
     // Reports fail quietly: the pages are written, and stderr may be closed.
-    let _ = report.heading("Manual pages");
     let _ = report.done(&format!("wrote {count} pages to {}", report.path(dir)));
     let _ = report.step("Read them with:");
     let _ = report.command("man fff; man fff-pick; man fff-setup");

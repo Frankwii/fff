@@ -1621,9 +1621,11 @@ class TerminalTests(unittest.TestCase):
             os.environ.pop("EDITOR", None)
             os.environ.pop("XDG_CONFIG_HOME", None)
             os.execv(BINARY, [BINARY, "setup", "--config", str(config)])
-        # No icons, zathura for documents (the only program installed), and
-        # write the file.
-        os.write(terminal, b"n\n\ny\n")
+        # No icons, the default palette, zathura for documents (the only
+        # program installed), and write the file; then no to the manual
+        # pages and the desktop (file dialogs, if the host has the portal).
+        # Ctrl+d ends a question not answered here instead of waiting.
+        os.write(terminal, b"n\n\n\ny\nn\nn\nn\n\x04")
         output = b""
         while True:
             try:
@@ -1641,6 +1643,7 @@ class TerminalTests(unittest.TestCase):
                      "$EDITOR is unset",
                      "1  zathura  opens at a contents match's page",
                      "Images (png",
+                     "Which palette?",
                      "Write this to a new"):
             self.assertIn(line, text)
         written = tomllib.loads(config.read_text())

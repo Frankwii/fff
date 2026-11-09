@@ -7,13 +7,17 @@ fff as your desktop's file manager and file chooser. Each is one
 
 | What | Command |
 | --- | --- |
-| A first configuration, from a few questions | `fff setup` |
+| A first configuration and all of the below, from a few questions | `fff setup` |
 | [Change directory on exit](#change-directory-on-exit) | `fff setup --init SHELL` |
 | [Shell completions](#shell-completions) | `fff setup --completions SHELL` |
 | [Man pages](#man-pages) | `fff setup --man` |
 | [Open folders in fff](#the-desktops-file-manager) (Linux) | `fff setup --desktop` |
 | [Firefox's file dialogs](#firefox-and-other-applications-file-dialogs) (Linux) | `fff setup --browser` |
 | Check all of the above | `fff setup --check-config` |
+
+`fff setup` on its own asks about each of these that isn't set up yet,
+shows what it would write, and writes it if you say yes: it adds the lines
+for your shell to its startup file, under `# Added by fff setup`.
 
 `fff setup --check-config` checks your configuration and keys, which
 optional programs you have, and whether the desktop integration is

@@ -88,7 +88,8 @@ list paths can [pipe them in](#choosing-from-another-programs-paths-command--fff
 instead: `nvim "$(rg -l TODO | fff)"`.
 
 A program cannot change its parent shell's directory, so the shell does it, as
-with nnn's quitcd scripts and zoxide. Add one line to your shell's startup file:
+with nnn's quitcd scripts and zoxide. Add one line to your shell's startup file
+(the [guided `fff setup`](CONFIGURATION.md#guided-start-fff-setup) offers to):
 
 ```sh
 eval "$(fff setup --init zsh)"     # ~/.zshrc (or $ZDOTDIR/.zshrc)

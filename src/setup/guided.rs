@@ -1,11 +1,16 @@
 //! `fff setup` without an option: a guided start. It reports which of the
 //! programs fff uses are installed ([`programs`], which `--check-config`
-//! reports too), asks whether the terminal shows Nerd Font icons and which
-//! of the installed programs open documents, images, media and office files,
-//! shows what it would add to the configuration file and adds it once
-//! confirmed. What the file sets already is never asked about or changed:
-//! `[ui] icons` once set, and the files its `[[open.rules]]` open; rules
-//! for the others are added after the file's own.
+//! reports too), asks whether the terminal shows Nerd Font icons, which
+//! palette to use, which of the installed programs open documents, images,
+//! media and office files (the desktop's own choice first) and, without
+//! `$EDITOR`, which editor opens the rest; shows what it would add to the
+//! configuration file and adds it once confirmed. What the file sets
+//! already is never asked about or changed: `[ui] icons` and `palette`
+//! once set, and the files its `[[open.rules]]` open; rules for the others
+//! are added after the file's own. Then it offers what is not set up yet,
+//! each shown and asked: the shell function and completions (a block
+//! appended to the shell's startup file), the manual pages and, on a
+//! freedesktop.org desktop, opening folders and file dialogs in fff.
 use super::{Finding, Report, Section};
 use std::{
     fs,
@@ -28,25 +33,147 @@ pub struct System {
     pub nerd_font: bool,
     /// `$SHELL`'s name: `zsh`, `bash`, `fish`.
     pub shell: Option<String>,
+    /// The startup file of `shell`, when it is bash, zsh or fish.
+    pub startup: Option<PathBuf>,
+    /// Setup runs through the shell function, which passes `--cd-file`.
+    pub shell_function: bool,
+    /// fff's completions for `shell` are installed where it finds them
+    /// without a startup line (the Arch package's, or saved by hand).
+    pub completions: bool,
+    /// The program the desktop opens a MIME type with, by its desktop
+    /// entry's `Exec` line (Linux; None on macOS, where `open` is).
+    pub default_app: DefaultApp,
 }
+/// The program the desktop opens a MIME type with.
+pub type DefaultApp = Box<dyn Fn(&str) -> Option<String>>;
 impl System {
     /// This system, with `terminal` from `[open]`.
     pub fn from_env(terminal: Option<String>) -> Self {
         let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
         let home = var("HOME").map(PathBuf::from);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        let shell =
+            var("SHELL").and_then(|s| Some(Path::new(&s).file_name()?.to_str()?.to_owned()));
+        let absolute = |name: &str| var(name).map(PathBuf::from).filter(|p| p.is_absolute());
+        let config_home =
+            absolute("XDG_CONFIG_HOME").or_else(|| Some(home.as_ref()?.join(".config")));
+        let data_home =
+            absolute("XDG_DATA_HOME").or_else(|| Some(home.as_ref()?.join(".local/share")));
+        let startup = startup_path(
+            shell.as_deref(),
+            home.as_deref(),
+            absolute("ZDOTDIR").as_deref(),
+            config_home.as_deref(),
+        );
+        let data_dirs: Vec<PathBuf> = data_home
+            .into_iter()
+            .chain(
+                var("XDG_DATA_DIRS")
+                    .unwrap_or_else(|| "/usr/local/share:/usr/share".into())
+                    .split(':')
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute()),
+            )
+            .collect();
+        let mut completion_dirs = data_dirs.clone();
+        completion_dirs.extend(config_home);
+        let completions = completions_installed(shell.as_deref(), &completion_dirs);
+        let macos = crate::platform::MACOS;
         Self {
-            macos: crate::platform::MACOS,
+            macos,
             installed: Box::new(move |name| crate::run::resolve(name, &cwd).is_ok()),
             editor: var("EDITOR"),
             terminal,
             nerd_font: nerd_font_installed(&crate::platform::font_dirs(home.as_deref())),
-            shell: var("SHELL").and_then(|s| Some(Path::new(&s).file_name()?.to_str()?.to_owned())),
+            shell,
+            startup,
+            shell_function: false,
+            completions,
+            default_app: Box::new(move |mime| {
+                (!macos)
+                    .then(|| desktop_default(mime, &data_dirs))
+                    .flatten()
+            }),
         }
     }
     fn has(&self, program: &str) -> bool {
         (self.installed)(program)
     }
+}
+
+/// The startup file of `shell`: `$ZDOTDIR/.zshrc` (else `~/.zshrc`),
+/// `~/.bashrc`, or fish's `config.fish` in `config_home`.
+pub fn startup_path(
+    shell: Option<&str>,
+    home: Option<&Path>,
+    zdotdir: Option<&Path>,
+    config_home: Option<&Path>,
+) -> Option<PathBuf> {
+    match shell? {
+        "zsh" => Some(zdotdir.or(home)?.join(".zshrc")),
+        "bash" => Some(home?.join(".bashrc")),
+        "fish" => Some(config_home?.join("fish/config.fish")),
+        _ => None,
+    }
+}
+/// Whether fff's completions for `shell` are in a folder of `dirs` (the
+/// XDG data and configuration folders) where the shell finds them itself.
+fn completions_installed(shell: Option<&str>, dirs: &[PathBuf]) -> bool {
+    let places: &[&str] = match shell {
+        Some("zsh") => &["zsh/site-functions/_fff"],
+        Some("bash") => &["bash-completion/completions/fff"],
+        Some("fish") => &[
+            "fish/vendor_completions.d/fff.fish",
+            "fish/completions/fff.fish",
+        ],
+        _ => &[],
+    };
+    dirs.iter()
+        .any(|dir| places.iter().any(|place| dir.join(place).is_file()))
+}
+/// The program the desktop opens `mime` with: `xdg-mime`'s default
+/// application, by the first word of its entry's `Exec` line (after `env`
+/// and its variables), looked up in the `applications` folder of `dirs`.
+fn desktop_default(mime: &str, dirs: &[PathBuf]) -> Option<String> {
+    let output = std::process::Command::new("xdg-mime")
+        .args(["query", "default", mime])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let id = String::from_utf8(output.stdout).ok()?;
+    let id = id.trim();
+    if id.is_empty() || id.contains('/') {
+        return None;
+    }
+    let text = dirs
+        .iter()
+        .find_map(|dir| fs::read_to_string(dir.join("applications").join(id)).ok())?;
+    exec_program(&text)
+}
+/// The program a desktop entry's `[Desktop Entry]` `Exec` line runs.
+fn exec_program(entry: &str) -> Option<String> {
+    let mut section = "";
+    let line = entry.lines().map(str::trim).find(|line| {
+        if line.starts_with('[') {
+            section = line;
+        }
+        section == "[Desktop Entry]" && line.starts_with("Exec=")
+    })?;
+    // Words, a quoted one (a path with spaces) kept whole.
+    let mut rest = line["Exec=".len()..].trim_start();
+    let mut word = || -> Option<&str> {
+        let (word, after) = match rest.strip_prefix('"') {
+            Some(quoted) => quoted.split_once('"')?,
+            None => rest.split_once(char::is_whitespace).unwrap_or((rest, "")),
+        };
+        rest = after.trim_start();
+        (!word.is_empty()).then_some(word)
+    };
+    let mut first = word()?;
+    if Path::new(first).file_name()? == "env" {
+        first = std::iter::from_fn(&mut word).find(|w| !w.contains('='))?;
+    }
+    Some(Path::new(first).file_name()?.to_str()?.to_owned())
 }
 
 /// Whether a font file below `dirs` (a few folders deep) is a Nerd Font,
@@ -199,8 +326,9 @@ const SETTINGS_URL: &str = concat!(
 );
 
 /// The programs fff uses, whether each is installed (with how to install
-/// it), the terminal terminal programs open in and `$EDITOR`.
-pub fn programs(system: &System) -> Section {
+/// it), the terminal terminal programs open in and `$EDITOR`, or without it
+/// `fallback`, the command of an `[[open.rules]]` entry every file matches.
+pub fn programs(system: &System, fallback: Option<&str>) -> Section {
     let manager = Manager::find(system);
     let mut findings: Vec<Finding> = TOOLS
         .iter()
@@ -238,16 +366,24 @@ pub fn programs(system: &System) -> Section {
             None,
         ),
     });
-    findings.push(match &system.editor {
-        Some(editor) => Finding::Fine(format!(
+    let export = match system.shell.as_deref() {
+        Some("fish") => "set -Ux EDITOR nvim".into(),
+        shell => format!("export EDITOR=nvim   # in {}", startup_file(shell)),
+    };
+    findings.push(match (&system.editor, fallback) {
+        (Some(editor), _) => Finding::Fine(format!(
             "$EDITOR ({editor}) opens files no opener rule matches"
         )),
-        None => Finding::Problem(
+        (None, Some(command)) => Finding::Optional(
+            format!(
+                "$EDITOR is unset: `{command}` opens the files no other opener rule matches, \
+                 but editing a file or the configuration from fff needs $EDITOR"
+            ),
+            Some(export),
+        ),
+        (None, None) => Finding::Problem(
             "$EDITOR is unset: files no opener rule matches do not open".into(),
-            Some(match system.shell.as_deref() {
-                Some("fish") => "set -Ux EDITOR nvim".into(),
-                shell => format!("export EDITOR=nvim   # in {}", startup_file(shell)),
-            }),
+            Some(export),
         ),
     });
     Section {
@@ -256,7 +392,7 @@ pub fn programs(system: &System) -> Section {
     }
 }
 /// The startup file of a shell, for the lines setup suggests.
-fn startup_file(shell: Option<&str>) -> &'static str {
+pub fn startup_file(shell: Option<&str>) -> &'static str {
     match shell {
         Some("zsh") => "~/.zshrc",
         Some("bash") => "~/.bashrc",
@@ -302,12 +438,15 @@ const AT_PAGE: &str = "opens at a contents match's page";
 /// A kind of file and the programs that open it, in order of preference.
 struct Kind {
     title: &'static str,
+    /// The MIME type whose default application the desktop's choice is.
+    mime: &'static str,
     extensions: &'static [&'static str],
     viewers: &'static [Viewer],
 }
 const KINDS: &[Kind] = &[
     Kind {
         title: "Documents",
+        mime: "application/pdf",
         extensions: &["pdf", "djvu", "epub"],
         viewers: &[
             OPEN,
@@ -336,6 +475,7 @@ const KINDS: &[Kind] = &[
     },
     Kind {
         title: "Images",
+        mime: "image/png",
         extensions: &["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"],
         viewers: &[
             OPEN,
@@ -351,6 +491,7 @@ const KINDS: &[Kind] = &[
     },
     Kind {
         title: "Audio and video",
+        mime: "video/mp4",
         extensions: &[
             "mp4", "mkv", "webm", "avi", "mov", "m4v", "mp3", "flac", "ogg", "opus", "m4a", "wav",
         ],
@@ -364,6 +505,7 @@ const KINDS: &[Kind] = &[
     },
     Kind {
         title: "Office documents",
+        mime: "application/vnd.oasis.opendocument.text",
         extensions: &[
             "odt", "ods", "odp", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf",
         ],
@@ -389,7 +531,11 @@ impl Viewer {
 pub struct Plan {
     /// `[ui] icons`.
     pub icons: Option<bool>,
+    /// `[ui] palette`.
+    pub palette: Option<&'static str>,
     pub rules: Vec<PlannedRule>,
+    /// The editor of a last rule, for every file, when `$EDITOR` is unset.
+    pub fallback: Option<&'static str>,
 }
 /// An `[[open.rules]]` entry, with the kinds of file it is for.
 #[derive(Debug, PartialEq)]
@@ -401,7 +547,10 @@ pub struct PlannedRule {
 }
 impl Plan {
     fn is_empty(&self) -> bool {
-        self.icons.is_none() && self.rules.is_empty()
+        self.icons.is_none()
+            && self.palette.is_none()
+            && self.rules.is_empty()
+            && self.fallback.is_none()
     }
     /// `viewer` for `extensions`, of `kind`: one rule per program, so that
     /// kinds opening with the same one share it.
@@ -461,7 +610,11 @@ pub fn apply(text: Option<&str>, plan: &Plan) -> Result<String, String> {
         table(&mut document, "ui")?;
         document["ui"]["icons"] = value(icons);
     }
-    if !plan.rules.is_empty() {
+    if let Some(palette) = plan.palette {
+        table(&mut document, "ui")?;
+        document["ui"]["palette"] = value(palette);
+    }
+    if !plan.rules.is_empty() || plan.fallback.is_some() {
         table(&mut document, "open")?;
         // After the file's own rules, which match first.
         let mut rules = match document["open"].get_mut("rules").map(std::mem::take) {
@@ -490,6 +643,17 @@ pub fn apply(text: Option<&str>, plan: &Plan) -> Result<String, String> {
             }
             rules.push(table);
         }
+        // Last, as rules match in order.
+        if let Some(editor) = plan.fallback {
+            let mut table = Table::new();
+            table
+                .decor_mut()
+                .set_prefix("\n# Everything else, as $EDITOR would (it is unset)\n");
+            table["command"] = value(editor);
+            table["patterns"] = value(Array::from_iter(["*"]));
+            table["terminal"] = value(true);
+            rules.push(table);
+        }
         document["open"]["rules"] = Item::ArrayOfTables(rules);
     }
     let added = document.to_string();
@@ -500,7 +664,7 @@ pub fn apply(text: Option<&str>, plan: &Plan) -> Result<String, String> {
 }
 
 /// Reads an answer, asking again until `parse` takes it. The end of input
-/// stops setup, before anything is written.
+/// stops setup, leaving what was confirmed before.
 fn ask<T>(
     report: &mut Report,
     input: &mut dyn BufRead,
@@ -514,7 +678,7 @@ fn ask<T>(
             report.line("")?;
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "setup stopped; nothing was written",
+                "setup stopped; only what you confirmed was written",
             ));
         }
         if let Some(answer) = parse(line.trim()) {
@@ -522,24 +686,104 @@ fn ask<T>(
         }
     }
 }
-fn yes_or_no(report: &mut Report, input: &mut dyn BufRead, question: &str) -> io::Result<bool> {
+/// Asks `question`, `yes` the answer when none is typed.
+fn yes_or_no(
+    report: &mut Report,
+    input: &mut dyn BufRead,
+    question: &str,
+    yes: bool,
+) -> io::Result<bool> {
+    let choices = if yes { "[Y/n]" } else { "[y/N]" };
     ask(
         report,
         input,
-        &format!("{question} [Y/n]"),
+        &format!("{question} {choices}"),
         |answer| match answer.to_lowercase().as_str() {
-            "" | "y" | "yes" => Some(true),
+            "" => Some(yes),
+            "y" | "yes" => Some(true),
             "n" | "no" => Some(false),
             _ => None,
         },
     )
 }
 
+/// The palettes setup offers, fff's default first; `gP` in fff shows them all.
+const PALETTES: &[&str] = &[
+    "midnight",
+    "light",
+    "catppuccin-mocha",
+    "gruvbox-dark",
+    "tokyonight-night",
+    "nord",
+    "rose-pine-dawn",
+];
+/// A few rows of results in `palette`'s colors: (foreground, background, text).
+fn sample(palette: &crate::config::Palette) -> Vec<(Rgb, Rgb, &'static str)> {
+    let rgb = |color: ratatui::style::Color| match color {
+        ratatui::style::Color::Rgb(r, g, b) => (r, g, b),
+        _ => (0, 0, 0),
+    };
+    let (background, selection) = (rgb(palette.background), rgb(palette.selection));
+    vec![
+        (rgb(palette.accent), background, " ▸ folder/ "),
+        (rgb(palette.text), background, " notes.pdf "),
+        (rgb(palette.marked), background, " ● marked "),
+        (rgb(palette.muted), background, " 2 days ago "),
+        (rgb(palette.text), selection, " highlighted "),
+    ]
+}
+/// An RGB color, for [`Report::swatch`].
+pub type Rgb = (u8, u8, u8);
+
+/// Editors for the files no other rule opens when `$EDITOR` is unset, in
+/// order of preference: Neovim, which fff needs, first.
+const EDITORS: &[(&str, &str)] = &[
+    ("nvim", "Neovim"),
+    ("vim", "Vim"),
+    ("hx", "Helix"),
+    ("kak", "Kakoune"),
+    ("micro", "micro"),
+    ("nano", "nano"),
+    ("emacs -nw", "Emacs"),
+];
+/// The command of the `[[open.rules]]` entry that opens any file, if one does.
+pub fn fallback(open: &crate::open::OpenConfig) -> Option<&str> {
+    // A name no extension rule matches; a `*` pattern does.
+    open.rule(Path::new("any file"))
+        .map(|rule| rule.command.as_str())
+}
+
+/// What setup can set up besides the configuration file and the shell
+/// (whose state is in [`System`]), and how; tests make their own.
+#[derive(Default)]
+pub struct Integrations<'a> {
+    /// Writes the manual pages, reporting where; None when `man` finds them.
+    pub man: Option<SetUp<'a>>,
+    /// The freedesktop.org desktop's; None without one (macOS).
+    pub desktop: Option<Desktop<'a>>,
+}
+/// Sets something up, reporting what it wrote, or says why it could not.
+pub type SetUp<'a> = Box<dyn FnOnce(&mut Report) -> Result<(), String> + 'a>;
+/// Sets up one desktop integration, as [`SetUp`] does.
+pub type SetUpTarget<'a> =
+    Box<dyn FnMut(crate::setup::Target, &mut Report) -> Result<(), String> + 'a>;
+pub struct Desktop<'a> {
+    /// Folders open in fff already.
+    pub folders: bool,
+    /// The file chooser portal fff works with: None when it is not
+    /// installed, else whether fff is its chooser already.
+    pub chooser: Option<bool>,
+    /// `fff setup --desktop` and `--browser`.
+    pub set_up: SetUpTarget<'a>,
+}
+
 /// The guided setup: the programs, the questions, then the file at
 /// `path` (holding `before`, None when there is none) with the answers
-/// added. Questions and the report go to `report`, answers come from `input`.
+/// added, then what `integrations` and the shell leave to set up.
+/// Questions and the report go to `report`, answers come from `input`.
 pub fn run(
     system: &System,
+    integrations: Integrations,
     path: &Path,
     before: Option<&str>,
     home: Option<&Path>,
@@ -547,7 +791,6 @@ pub fn run(
     report: &mut Report,
 ) -> io::Result<()> {
     let invalid = |e: String| io::Error::new(io::ErrorKind::InvalidData, e);
-    report.section(&programs(system))?;
     let document: DocumentMut = before
         .unwrap_or_default()
         .parse()
@@ -564,6 +807,7 @@ pub fn run(
             .unwrap_or_default(),
         None => Default::default(),
     };
+    report.section(&programs(system, fallback(&mine)))?;
     let opened = |extension: &str| mine.rule(Path::new(&format!("file.{extension}"))).is_some();
     let mut plan = Plan::default();
     let mut next: Vec<(String, Option<String>)> = vec![];
@@ -588,6 +832,7 @@ pub fn run(
             report,
             input,
             "Do you see five small icons, not boxes or blanks?",
+            true,
         )? {
             report.done("icons stay on")?;
         } else {
@@ -612,6 +857,43 @@ pub fn run(
         }
     }
 
+    report.heading("Colors")?;
+    if sets("ui", "palette") {
+        report.same("[ui] palette is set already")?;
+    } else {
+        report.line(&format!(
+            "Which palette? A few of fff's {}; gP in fff tries each of them on the whole screen.",
+            crate::config::Palette::names().len()
+        ))?;
+        let label = |i: usize, name: &str| match i {
+            0 => format!("{name} (default)"),
+            _ => name.to_owned(),
+        };
+        let width = PALETTES
+            .iter()
+            .enumerate()
+            .map(|(i, name)| label(i, name).len())
+            .max()
+            .unwrap_or(0);
+        for (i, name) in PALETTES.iter().enumerate() {
+            let palette = crate::config::Palette::named(name).unwrap_or_default();
+            let label = label(i, name);
+            report.swatch(&format!("{}  {label:width$}  ", i + 1), &sample(&palette))?;
+        }
+        let chosen = ask(report, input, "Choice [1]:", |answer| match answer {
+            "" => Some(1),
+            _ => answer
+                .parse::<usize>()
+                .ok()
+                .filter(|n| (1..=PALETTES.len()).contains(n)),
+        })?;
+        // The default needs no line.
+        if chosen > 1 {
+            plan.palette = Some(PALETTES[chosen - 1]);
+        }
+        report.done(&format!("{} colors", PALETTES[chosen - 1]))?;
+    }
+
     report.heading("Opening files")?;
     report.line("Which program opens each kind of file? Files no rule matches open in $EDITOR.")?;
     for kind in KINDS {
@@ -626,17 +908,26 @@ pub fn run(
             report.same(&format!("{}: your [[open.rules]] open them", kind.title))?;
             continue;
         }
-        let viewers: Vec<&Viewer> = kind.viewers.iter().filter(|v| v.offered(system)).collect();
+        let mut viewers: Vec<&Viewer> = kind.viewers.iter().filter(|v| v.offered(system)).collect();
         let what = format!("{} ({})", kind.title, extensions.join(", "));
         if viewers.is_empty() {
             report.same(&format!("{what}: no program for them is installed"))?;
             continue;
         }
+        // What the desktop opens them with comes first, the default answer.
+        let desktop = (system.default_app)(kind.mime);
+        let chosen_by_desktop = |viewer: &Viewer| desktop.as_deref() == Some(viewer.program());
+        viewers.sort_by_key(|viewer| !chosen_by_desktop(viewer));
         report.line("")?;
         report.line(&format!("{what}:"))?;
         let width = viewers.iter().map(|v| v.command.len()).max().unwrap_or(0);
         for (i, viewer) in viewers.iter().enumerate() {
-            let line = format!("  {}  {:width$}  {}", i + 1, viewer.command, viewer.note);
+            let note = match (viewer.note, chosen_by_desktop(viewer)) {
+                (note, false) => note.to_owned(),
+                ("", true) => "what your desktop opens them with".to_owned(),
+                (note, true) => format!("{note}; what your desktop opens them with"),
+            };
+            let line = format!("  {}  {:width$}  {note}", i + 1, viewer.command);
             report.line(line.trim_end())?;
         }
         report.line(&format!("  0  {:width$}  no rule", "none"))?;
@@ -646,6 +937,29 @@ pub fn run(
         })?;
         if chosen > 0 {
             plan.open_with(kind, &extensions, viewers[chosen - 1]);
+        }
+    }
+    // Without $EDITOR, the rest opens nowhere: a last rule can open it.
+    if system.editor.is_none() && fallback(&mine).is_none() {
+        let editors: Vec<&(&str, &str)> = EDITORS
+            .iter()
+            .filter(|(command, _)| system.has(command.split(' ').next().unwrap_or(command)))
+            .collect();
+        if !editors.is_empty() {
+            report.line("")?;
+            report.line("Everything else, which $EDITOR would open but it is unset:")?;
+            let width = editors.iter().map(|(c, _)| c.len()).max().unwrap_or(0);
+            for (i, (command, name)) in editors.iter().enumerate() {
+                report.line(&format!("  {}  {command:width$}  {name}", i + 1))?;
+            }
+            report.line(&format!("  0  {:width$}  no rule", "none"))?;
+            let chosen = ask(report, input, "Choice [1]:", |answer| match answer {
+                "" => Some(1),
+                _ => answer.parse::<usize>().ok().filter(|&n| n <= editors.len()),
+            })?;
+            if chosen > 0 {
+                plan.fallback = Some(editors[chosen - 1].0);
+            }
         }
     }
 
@@ -667,7 +981,7 @@ pub fn run(
             Some(_) => format!("Add this to {shown}?"),
             None => format!("Write this to a new {shown}?"),
         };
-        if yes_or_no(report, input, &question)? {
+        if yes_or_no(report, input, &question, true)? {
             crate::workspaces::atomic_write(path, before, &text).map_err(invalid)?;
             report.done(&match before {
                 Some(_) => format!("added to {shown}"),
@@ -678,32 +992,196 @@ pub fn run(
         }
     }
 
+    shell(system, input, report, &mut next)?;
+    report.heading("Manual pages")?;
+    match integrations.man {
+        None => report.done("man finds fff's pages: man fff")?,
+        Some(write) => {
+            if yes_or_no(report, input, "Write fff's manual pages (man fff)?", true)? {
+                if let Err(error) = write(report) {
+                    report.warn(&error)?;
+                }
+            } else {
+                report.same("not written; fff setup --man writes them")?;
+            }
+        }
+    }
+    if let Some(desktop) = integrations.desktop {
+        desktop_integration(desktop, input, report)?;
+    }
+
     for (text, fix) in next {
         report.step(&text)?;
         if let Some(fix) = fix {
             report.command(&fix)?;
         }
     }
-    let shell = system.shell.as_deref();
-    if let Some(shell @ ("zsh" | "bash" | "fish")) = shell {
-        report.step(&format!(
-            "For leaving fff to change your shell's directory, and for completions, add to {}:",
-            startup_file(Some(shell))
+    report.step(&format!("Every setting is described in {SETTINGS_URL}"))
+}
+
+/// The shell function and completions: the lines that load them, appended
+/// to the shell's startup file once confirmed, unless something loads them
+/// already. What is left to do by hand goes to `next`.
+fn shell(
+    system: &System,
+    input: &mut dyn BufRead,
+    report: &mut Report,
+    next: &mut Vec<(String, Option<String>)>,
+) -> io::Result<()> {
+    let (Some(shell), Some(startup)) = (system.shell.as_deref(), system.startup.as_deref()) else {
+        return Ok(());
+    };
+    report.heading("Shell")?;
+    let shown = report.path(startup);
+    let text = match fs::read_to_string(startup) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(e) => return report.warn(&format!("{shown}: {e}")),
+    };
+    let fish = shell == "fish";
+    let mut lines = vec![];
+    let mut wanted = vec![];
+    if system.shell_function {
+        report.done("the shell function is loaded: leaving fff changes the shell's folder")?;
+    } else if text.contains("fff setup --init") {
+        report.same(&format!(
+            "{shown} loads the shell function; new shells have it"
         ))?;
-        if shell == "fish" {
-            report.command("fff setup --init fish | source")?;
-            report.command("fff setup --completions fish | source")?;
-        } else {
-            report.command(&format!("eval \"$(fff setup --init {shell})\""))?;
-            report.command(&format!("source <(fff setup --completions {shell})"))?;
+    } else {
+        lines.push(match fish {
+            true => "fff setup --init fish | source".to_owned(),
+            false => format!("eval \"$(fff setup --init {shell})\""),
+        });
+        wanted.push("leaving fff to change the shell's folder");
+    }
+    let completions = match fish {
+        true => "fff setup --completions fish | source".to_owned(),
+        false => format!("source <(fff setup --completions {shell})"),
+    };
+    if system.completions {
+        report.done("completions are installed")?;
+    } else if text.contains("fff setup --completions") {
+        report.same(&format!("{shown} loads completions"))?;
+    } else if shell == "zsh" && !runs_compinit(&text) {
+        // compdef, which the script calls, needs it.
+        report.same(&format!(
+            "completions need compinit, which {shown} does not seem to run"
+        ))?;
+        next.push((
+            format!("For completions, run compinit in {shown}, then load them after it:"),
+            Some(completions),
+        ));
+    } else {
+        lines.push(completions);
+        wanted.push("completions");
+    }
+    if lines.is_empty() {
+        return Ok(());
+    }
+    report.line(&format!("For {}, add to {shown}:", wanted.join(" and ")))?;
+    for line in &lines {
+        report.command(line)?;
+    }
+    let these = if lines.len() == 1 {
+        "this line"
+    } else {
+        "these lines"
+    };
+    if !yes_or_no(report, input, &format!("Add {these} to {shown}?"), true)? {
+        return report.same("nothing written");
+    }
+    match append_block(startup, &text, &lines) {
+        Ok(()) => report.done(&format!("added to {shown}: new shells load it")),
+        Err(e) => report.warn(&format!("{shown}: {e}")),
+    }
+}
+/// Whether a `.zshrc` runs compinit, itself or through a framework.
+fn runs_compinit(text: &str) -> bool {
+    [
+        "compinit",
+        "oh-my-zsh",
+        "prezto",
+        "zim",
+        "zinit",
+        "antidote",
+        "antigen",
+        "zplug",
+        "zgen",
+        "sheldon",
+    ]
+    .iter()
+    .any(|word| text.contains(word))
+}
+/// Appends `lines` to the startup file at `path` (holding `text`) under a
+/// comment naming fff setup. Appending writes through a link to the file it
+/// points to, as dotfiles managers make them, rather than replacing it.
+fn append_block(path: &Path, text: &str, lines: &[String]) -> io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut block = String::new();
+    if !text.is_empty() {
+        block.push_str(if text.ends_with('\n') { "\n" } else { "\n\n" });
+    }
+    block.push_str("# Added by fff setup\n");
+    for line in lines {
+        block.push_str(line);
+        block.push('\n');
+    }
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?
+        .write_all(block.as_bytes())
+}
+/// Opening folders and file dialogs in fff: asked first, each defaulting
+/// to no as it changes other applications, then set up.
+fn desktop_integration(
+    mut desktop: Desktop,
+    input: &mut dyn BufRead,
+    report: &mut Report,
+) -> io::Result<()> {
+    use crate::setup::Target;
+    report.heading("Desktop")?;
+    let mut targets = vec![];
+    if desktop.folders {
+        report.done("folders open in fff")?;
+    } else if yes_or_no(
+        report,
+        input,
+        "Open folders in fff from other applications (as your file manager)?",
+        false,
+    )? {
+        targets.push(Target::Desktop);
+    } else {
+        report.same("folders: left as they are; fff setup --desktop does it")?;
+    }
+    match desktop.chooser {
+        Some(true) => report.done("file dialogs open in fff")?,
+        None => report.same(
+            "file dialogs: with xdg-desktop-portal-termfilechooser installed, \
+             fff setup --browser opens them in fff",
+        )?,
+        Some(false) => {
+            if yes_or_no(
+                report,
+                input,
+                "Choose files in fff in Firefox's file dialogs (and other applications')?",
+                false,
+            )? {
+                targets.push(Target::FileChooser);
+            } else {
+                report.same("file dialogs: left as they are; fff setup --browser does it")?;
+            }
         }
     }
-    // The freedesktop.org desktop's, which macOS has not.
-    if !system.macos {
-        report.step("To open folders and file dialogs (Firefox's, among others) in fff:")?;
-        report.command("fff setup --desktop; fff setup --browser")?;
+    for target in targets {
+        if let Err(error) = (desktop.set_up)(target, report) {
+            report.warn(&error)?;
+        }
     }
-    report.step(&format!("Every setting is described in {SETTINGS_URL}"))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -718,6 +1196,10 @@ mod tests {
             terminal: Some("st -e".into()),
             nerd_font: false,
             shell: Some("zsh".into()),
+            startup: None,
+            shell_function: false,
+            completions: false,
+            default_app: Box::new(|_| None),
         }
     }
     fn scratch(name: &str) -> PathBuf {
@@ -729,10 +1211,19 @@ mod tests {
     /// Runs the guided setup on `path` with `answers`, one per line: the
     /// result and what it printed.
     fn guided(system: &System, path: &Path, answers: &str) -> (io::Result<()>, String) {
+        with(system, Integrations::default(), path, answers)
+    }
+    fn with(
+        system: &System,
+        integrations: Integrations,
+        path: &Path,
+        answers: &str,
+    ) -> (io::Result<()>, String) {
         let before = fs::read_to_string(path).ok();
         let mut out = vec![];
         let result = run(
             system,
+            integrations,
             path,
             before.as_deref(),
             None,
@@ -746,7 +1237,7 @@ mod tests {
     fn programs_say_what_is_missing_and_how_to_install_it() {
         let mut arch = system(false, &["pacman", "pdftotext", "pdfinfo", "zoxide"]);
         arch.editor = None;
-        let findings = programs(&arch).findings;
+        let findings = programs(&arch, None).findings;
         assert_eq!(
             findings[0],
             Finding::Problem(
@@ -767,13 +1258,13 @@ mod tests {
             Some("export EDITOR=nvim   # in ~/.zshrc".into())
         )));
         // Each system its own manager and names; none known, no command.
-        let debian = programs(&system(false, &["apt"])).findings;
+        let debian = programs(&system(false, &["apt"]), None).findings;
         assert!(
             matches!(&debian[1], Finding::Optional(_, Some(c)) if c == "sudo apt install poppler-utils")
         );
-        let mac = programs(&system(true, &["brew", "apt"])).findings;
+        let mac = programs(&system(true, &["brew", "apt"]), None).findings;
         assert!(matches!(&mac[0], Finding::Problem(_, Some(c)) if c == "brew install neovim"));
-        let bare = programs(&system(true, &[])).findings;
+        let bare = programs(&system(true, &[]), None).findings;
         assert!(matches!(&bare[0], Finding::Problem(_, None)));
     }
 
@@ -782,8 +1273,9 @@ mod tests {
         let dir = scratch("macos");
         let path = dir.join("fff/config.toml");
         let mac = system(true, &["open", "nvim"]);
-        // Icons seen, every default taken, then the file written.
-        let (result, out) = guided(&mac, &path, "y\n\n\n\n\n\n");
+        // Icons seen, the default palette, every default taken, then the
+        // file written.
+        let (result, out) = guided(&mac, &path, "y\n\n\n\n\n\n\n");
         result.unwrap();
         assert!(
             out.contains("1  open  the application macOS opens them with"),
@@ -809,9 +1301,9 @@ mod tests {
             settings.open.opener(Path::new("b.docx")).unwrap().line,
             "open"
         );
-        // Run again, it asks only about icons, which the file leaves on:
-        // the end of the answers would stop it.
-        let (result, out) = guided(&mac, &path, "y\n");
+        // Run again, it asks only about icons and colors, which the file
+        // leaves to their defaults: the end of the answers would stop it.
+        let (result, out) = guided(&mac, &path, "y\n\n");
         result.unwrap();
         assert!(
             out.contains("Documents: your [[open.rules]] open them"),
@@ -874,8 +1366,9 @@ mod tests {
                     [trash]\ndays = 7\n";
         fs::write(&path, mine).unwrap();
         let linux = system(false, &["zathura", "feh"]);
-        // Documents with zathura again, images with feh; then write.
-        let (result, out) = guided(&linux, &path, "\n\ny\n");
+        // The default palette, documents with zathura again, images with
+        // feh; then write.
+        let (result, out) = guided(&linux, &path, "\n\n\ny\n");
         result.unwrap();
         assert!(out.contains("Documents (djvu, epub):"), "{out}");
         assert!(
@@ -907,7 +1400,7 @@ mod tests {
         let dir = scratch("stopped");
         let path = dir.join("config.toml");
         let linux = system(false, &["zathura"]);
-        let (result, out) = guided(&linux, &path, "n\n\nn\n");
+        let (result, out) = guided(&linux, &path, "n\n\n\nn\n");
         result.unwrap();
         assert!(out.contains("nothing written"), "{out}");
         let (result, _) = guided(&linux, &path, "n\n");
@@ -919,6 +1412,8 @@ mod tests {
     fn apply_refuses_tables_it_cannot_add_to() {
         let plan = Plan {
             icons: None,
+            palette: None,
+            fallback: None,
             rules: vec![PlannedRule {
                 kinds: vec!["Images"],
                 command: "feh".into(),
@@ -932,6 +1427,264 @@ mod tests {
             text,
             "[open]\nterminal = \"st -e\"\n\n# Images\n[[open.rules]]\ncommand = \"feh\"\nextensions = [\"png\"]\n"
         );
+    }
+
+    #[test]
+    fn a_chosen_palette_is_written_and_the_default_is_not() {
+        let dir = scratch("palette");
+        let path = dir.join("config.toml");
+        let linux = system(false, &[]);
+        // Icons seen, catppuccin-mocha, then write.
+        let (result, out) = guided(&linux, &path, "y\n9\n3\ny\n");
+        result.unwrap();
+        assert!(out.contains("1  midnight (default)\n"), "{out}");
+        assert!(out.contains("3  catppuccin-mocha\n"), "{out}");
+        assert_eq!(out.matches("Choice [1]:").count(), 2, "asked again: {out}");
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("[ui]\npalette = \"catppuccin-mocha\"\n"),
+            "{text}"
+        );
+        let settings = crate::config::Settings::parse(&text, &dir, None, None).unwrap();
+        assert_eq!(settings.palette_name, "catppuccin-mocha");
+        // Set, it is not asked again.
+        let (result, out) = guided(&linux, &path, "y\n");
+        result.unwrap();
+        assert!(out.contains("[ui] palette is set already"), "{out}");
+        // Colors on, each choice shows a sample in its own colors.
+        let mut out = vec![];
+        let mut report = Report::new(&mut out, true, None);
+        let palette = crate::config::Palette::named("nord").unwrap();
+        report.swatch("6  nord  ", &sample(&palette)).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.starts_with("  6  nord  \x1b[38;2;"), "{out:?}");
+        assert!(
+            out.contains(" highlighted ") && out.ends_with("\x1b[0m\n"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn the_desktops_own_viewer_comes_first() {
+        let dir = scratch("desktop-default");
+        let path = dir.join("config.toml");
+        let mut linux = system(false, &["zathura", "evince", "feh", "imv"]);
+        linux.default_app = Box::new(|mime| match mime {
+            "application/pdf" => Some("evince".into()),
+            // Not offered: the list keeps its order.
+            "image/png" => Some("gimp".into()),
+            _ => None,
+        });
+        let (result, out) = guided(&linux, &path, "y\n\n\n\ny\n");
+        result.unwrap();
+        assert!(
+            out.contains("1  evince   what your desktop opens them with\n    2  zathura  opens at"),
+            "{out}"
+        );
+        assert!(out.contains("1  imv\n    2  feh\n"), "{out}");
+        let text = fs::read_to_string(&path).unwrap();
+        let settings = crate::config::Settings::parse(&text, &dir, None, None).unwrap();
+        assert_eq!(
+            settings.open.opener(Path::new("a.pdf")).unwrap().line,
+            "evince"
+        );
+    }
+
+    #[test]
+    fn without_editor_a_last_rule_opens_everything_else() {
+        let dir = scratch("editor");
+        let path = dir.join("config.toml");
+        let mut linux = system(false, &["nvim", "nano", "feh"]);
+        linux.editor = None;
+        // Icons, colors, feh for images, then nano for everything else.
+        let (result, out) = guided(&linux, &path, "y\n\n\n2\ny\n");
+        result.unwrap();
+        assert!(
+            out.contains("1  nvim  Neovim\n    2  nano  nano\n"),
+            "{out}"
+        );
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(
+            text.ends_with(
+                "# Everything else, as $EDITOR would (it is unset)\n[[open.rules]]\n\
+                 command = \"nano\"\npatterns = [\"*\"]\nterminal = true\n"
+            ),
+            "{text}"
+        );
+        let settings = crate::config::Settings::parse(&text, &dir, None, None).unwrap();
+        let open = |name: &str| settings.open.opener(Path::new(name)).unwrap();
+        assert_eq!(open("a.png").line, "feh");
+        assert_eq!(
+            (open("notes.txt").line, open("Makefile").terminal),
+            ("nano".into(), true)
+        );
+        assert_eq!(fallback(&settings.open), Some("nano"));
+        // The programs say so; with the rule there, it is not asked again.
+        let findings = programs(&linux, fallback(&settings.open)).findings;
+        assert!(
+            findings
+                .iter()
+                .any(|f| matches!(f, Finding::Optional(t, _) if t.contains("`nano` opens"))),
+            "{findings:?}"
+        );
+        let (result, out) = guided(&linux, &path, "y\n\n");
+        result.unwrap();
+        assert!(!out.contains("Everything else"), "{out}");
+    }
+
+    #[test]
+    fn the_shell_lines_are_appended_once_confirmed() {
+        let dir = scratch("shell");
+        let path = dir.join("config.toml");
+        let zshrc = dir.join("zdot/.zshrc");
+        fs::create_dir_all(dir.join("zdot")).unwrap();
+        fs::write(&zshrc, "autoload -Uz compinit && compinit").unwrap();
+        let mut zsh = system(false, &[]);
+        zsh.startup = Some(zshrc.clone());
+        // Icons, colors, then no to the lines: nothing changes.
+        let (result, out) = guided(&zsh, &path, "y\n\nn\n");
+        result.unwrap();
+        assert!(
+            out.contains("For leaving fff to change the shell's folder and completions, add to"),
+            "{out}"
+        );
+        assert_eq!(
+            fs::read_to_string(&zshrc).unwrap(),
+            "autoload -Uz compinit && compinit"
+        );
+        let (result, out) = guided(&zsh, &path, "y\n\ny\n");
+        result.unwrap();
+        assert!(out.contains("added to"), "{out}");
+        assert_eq!(
+            fs::read_to_string(&zshrc).unwrap(),
+            "autoload -Uz compinit && compinit\n\n# Added by fff setup\n\
+             eval \"$(fff setup --init zsh)\"\nsource <(fff setup --completions zsh)\n"
+        );
+        // Run again, the file loads both: nothing is asked.
+        let (result, out) = guided(&zsh, &path, "y\n\n");
+        result.unwrap();
+        assert!(out.contains("loads the shell function") && out.contains("loads completions"));
+        // Without compinit, completions are left as a step; with the
+        // function loaded and fish's completions installed, nothing to add.
+        fs::write(&zshrc, "").unwrap();
+        let (result, out) = guided(&zsh, &path, "y\n\ny\n");
+        result.unwrap();
+        assert!(out.contains("completions need compinit"), "{out}");
+        assert_eq!(
+            fs::read_to_string(&zshrc).unwrap(),
+            "# Added by fff setup\neval \"$(fff setup --init zsh)\"\n"
+        );
+        let mut fish = system(false, &[]);
+        let config = dir.join("fish/config.fish");
+        fish.shell = Some("fish".into());
+        fish.startup = Some(config.clone());
+        fish.shell_function = true;
+        fish.completions = true;
+        let (result, out) = guided(&fish, &path, "y\n\n");
+        result.unwrap();
+        assert!(out.contains("the shell function is loaded"), "{out}");
+        assert!(out.contains("completions are installed"), "{out}");
+        assert!(!config.exists());
+    }
+
+    #[test]
+    fn man_pages_and_the_desktop_are_set_up_when_asked() {
+        let dir = scratch("integrations");
+        let path = dir.join("config.toml");
+        let linux = system(false, &[]);
+        let done = std::cell::RefCell::new(vec![]);
+        let integrations = || Integrations {
+            man: Some(Box::new(|_: &mut Report| {
+                done.borrow_mut().push("man".to_string());
+                Ok(())
+            }) as SetUp),
+            desktop: Some(Desktop {
+                folders: false,
+                chooser: Some(false),
+                set_up: Box::new(|target, _: &mut Report| {
+                    done.borrow_mut().push(format!("{target:?}"));
+                    Err("no bus".into())
+                }),
+            }),
+        };
+        // Icons, colors; no man pages; the desktop questions default to no.
+        let (result, out) = with(&linux, integrations(), &path, "y\n\nn\n\n\n");
+        result.unwrap();
+        assert!(
+            out.contains(
+                "Open folders in fff from other applications (as your file manager)? [y/N]"
+            )
+        );
+        assert!(done.borrow().is_empty(), "{out}");
+        let (result, out) = with(&linux, integrations(), &path, "y\n\ny\ny\ny\n");
+        result.unwrap();
+        assert_eq!(*done.borrow(), ["man", "Desktop", "FileChooser"]);
+        assert_eq!(out.matches("! no bus").count(), 2, "{out}");
+        // Set up already, nothing is asked.
+        let ready = Integrations {
+            man: None,
+            desktop: Some(Desktop {
+                folders: true,
+                chooser: None,
+                set_up: Box::new(|_, _: &mut Report| unreachable!()),
+            }),
+        };
+        let (result, out) = with(&linux, ready, &path, "y\n\n");
+        result.unwrap();
+        assert!(out.contains("man finds fff's pages") && out.contains("folders open in fff"));
+        assert!(
+            out.contains("with xdg-desktop-portal-termfilechooser installed"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn startup_files_and_desktop_entries_are_read_as_shells_and_launchers_do() {
+        let home = Path::new("/home/u");
+        let config = Path::new("/home/u/.config");
+        let path = |shell, zdotdir: Option<&str>| {
+            startup_path(
+                Some(shell),
+                Some(home),
+                zdotdir.map(Path::new),
+                Some(config),
+            )
+        };
+        assert_eq!(path("zsh", None).unwrap(), Path::new("/home/u/.zshrc"));
+        assert_eq!(path("zsh", Some("/z")).unwrap(), Path::new("/z/.zshrc"));
+        assert_eq!(path("bash", None).unwrap(), Path::new("/home/u/.bashrc"));
+        assert_eq!(path("fish", None).unwrap(), config.join("fish/config.fish"));
+        assert_eq!(path("tcsh", None), None);
+        let entry = |exec: &str| {
+            exec_program(&format!(
+                "[Desktop Entry]\nName=x\n{exec}\n[Desktop Action new]\nExec=other\n"
+            ))
+        };
+        assert_eq!(
+            entry("Exec=/usr/bin/zathura %U").as_deref(),
+            Some("zathura")
+        );
+        assert_eq!(
+            entry("Exec=env GDK_BACKEND=x11 evince %U").as_deref(),
+            Some("evince")
+        );
+        assert_eq!(
+            entry("Exec=\"/opt/my viewer/imv\" %f").as_deref(),
+            Some("imv")
+        );
+        assert_eq!(entry("TryExec=x").as_deref(), None);
+        let dir = scratch("completions");
+        assert!(!completions_installed(
+            Some("zsh"),
+            std::slice::from_ref(&dir)
+        ));
+        fs::create_dir_all(dir.join("zsh/site-functions")).unwrap();
+        fs::write(dir.join("zsh/site-functions/_fff"), "").unwrap();
+        assert!(completions_installed(
+            Some("zsh"),
+            std::slice::from_ref(&dir)
+        ));
+        assert!(!completions_installed(Some("bash"), &[dir]));
     }
 
     #[test]

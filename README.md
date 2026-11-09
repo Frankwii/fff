@@ -82,9 +82,8 @@ suggestions) and a [Nerd Font](https://www.nerdfonts.com) (file icons).
 ## Quick start
 
 ```sh
-fff setup                            # check what's installed, write a first configuration
-eval "$(fff setup --init zsh)"       # in ~/.zshrc, so leaving fff can change your directory
-fff                                  # start browsing
+fff setup    # check what's installed, write a first configuration, set up your shell
+fff          # start browsing (in a new shell, so that leaving fff can change its directory)
 ```
 
 | Key | Does |

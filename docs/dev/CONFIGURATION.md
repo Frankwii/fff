@@ -66,7 +66,12 @@ a usage error (exit 2). In order:
    names of the font files (then the terminal's font needs changing), or how
    to install one (`ttf-nerd-fonts-symbols` with pacman, the cask
    `font-symbols-only-nerd-font` with Homebrew, else nerdfonts.com).
-3. **Opening files.** For documents (PDF, DjVu, EPUB), images, audio and
+3. **Colors.** Seven [palettes](PALETTES.md), each with a row of sample
+   results in its colors (24-bit; only names with `NO_COLOR`): `midnight`
+   (the default, `1`), `light`, `catppuccin-mocha`, `gruvbox-dark`,
+   `tokyonight-night`, `nord` and `rose-pine-dawn`. Another than the
+   default sets `[ui] palette`.
+4. **Opening files.** For documents (PDF, DjVu, EPUB), images, audio and
    video, and office files, the installed programs that open them, the
    first one the default: on macOS `open` (the application macOS uses),
    then zathura or mpv if installed; on Linux zathura, okular, evince or
@@ -76,16 +81,57 @@ a usage error (exit 2). In order:
    their [`at_grep_match`](#opening-at-a-contents-match). `0` leaves a kind
    to `$EDITOR`. Kinds opened by the same program share one rule.
 
+   On Linux, the program the desktop opens the kind with (`xdg-mime query
+   default` for `application/pdf`, `image/png`, `video/mp4` and
+   `application/vnd.oasis.opendocument.text`, by the first word of its
+   desktop entry's `Exec` line, after `env` and its variables) moves to the
+   top, the default answer, marked `what your desktop opens them with`.
+
    Extensions the file's own `[[open.rules]]` already open (by extension or
    pattern) are not asked about; a kind they all open is skipped.
 
+   Without `$EDITOR`, files no rule matches open nowhere, so it asks which
+   installed editor opens **everything else** (`nvim` first, then `vim`,
+   `hx`, `kak`, `micro`, `nano`, `emacs -nw`): a last rule with `patterns =
+   ["*"]` and `terminal = true`. Not asked when `$EDITOR` is set or a rule
+   of the file opens every file already; `--check-config` then names that
+   rule's program, since editing from fff (`gc`, editing marked files)
+   still needs `$EDITOR`.
+
 It then shows the TOML it would add and asks before writing. Nothing the file
-sets is asked about or changed: `[ui] icons` once set, and its rules, after
+sets is asked about or changed: `[ui] icons` and `palette` once set, and its rules, after
 which the new ones are added, so that its own still match first; everything
-else in the file, comments included, stays as it was. The end of input (Ctrl+d) stops it with nothing written. Its last
-part, **Next**, lists what is left: the shell integration and completions
-for `$SHELL`, the desktop integration on Linux, and where every setting is
-described.
+else in the file, comments included, stays as it was. The end of input
+(Ctrl+d) stops it; what was confirmed before stays written.
+
+Then it offers what is not set up yet, each shown before it is asked:
+
+5. **Shell**, for bash, zsh and fish (`$SHELL`): the line loading the
+   [shell function](USAGE.md#shell-integration) and the one loading
+   completions, appended to the startup file (`$ZDOTDIR/.zshrc` or
+   `~/.zshrc`, `~/.bashrc`, fish's `config.fish`) under `# Added by fff
+   setup`. Appending writes through a link to the file it points to. A line
+   is left out when the file already has `fff setup --init` (or
+   `--completions`), when setup runs through the shell function (which
+   passes `--cd-file`), or for completions, when fff's are installed in the
+   XDG data folders (`zsh/site-functions/_fff`,
+   `bash-completion/completions/fff`, `fish/vendor_completions.d/fff.fish`,
+   as the Arch package installs them) or fish's `completions/fff.fish`. In
+   zsh, the completion script needs compinit: when `.zshrc` names neither
+   compinit nor a framework that runs it (oh-my-zsh, prezto, zim, zinit,
+   antidote, antigen, zplug, zgen, sheldon), the line goes under **Next**
+   instead. Other shells are skipped.
+6. **Manual pages**, unless `man -w fff` finds them: written as `fff setup
+   --man` writes them.
+7. **Desktop**, on a freedesktop.org desktop: opening folders in fff
+   (`fff setup --desktop`), unless they open in it already, and file
+   dialogs (`fff setup --browser`), when xdg-desktop-portal-termfilechooser
+   is installed and fff is not its chooser yet. These default to no, as
+   they change what other applications do.
+
+Its last part, **Next**, lists what is left: a Nerd Font, completions
+without compinit, what `--desktop` and `--browser` print, and where every
+setting is described.
 
 ## Editing while fff runs
 

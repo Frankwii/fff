@@ -8,6 +8,14 @@ history.
 
 ### Added
 
+- **`fff setup` sets up the rest too.** After the configuration, it offers
+  what isn't set up yet, showing what it would write first: the lines for
+  the shell function and completions, added to your shell's startup file;
+  the manual pages; and on Linux, opening folders and file dialogs in fff.
+- **`fff setup` asks about colors**, showing a few palettes as rows of
+  results in their own colors.
+- **Without `$EDITOR`, `fff setup` asks which editor opens everything
+  else.** Files no rule matched opened nowhere.
 - **Everyday tasks.** A new guide, [docs/TASKS.md](docs/TASKS.md), of
   short recipes with recordings: finding one file among thousands, finding
   which file says something, freeing disk space, tidying Downloads,
@@ -16,6 +24,8 @@ history.
 
 ### Changed
 
+- **`fff setup` suggests the programs your desktop already uses** to open
+  documents, images, videos and office files, as the first choice.
 - **An empty query says `i to filter names…` in Normal mode.** It said
   `type to filter names…` there too, where typing runs commands instead
   (`x` trashes the highlighted file). The contents bar and a save dialog's

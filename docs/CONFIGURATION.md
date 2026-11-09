@@ -8,7 +8,8 @@ beside it, `keys.toml`; see [Keys](KEYS.md).
 ## Getting started
 
 - **`fff setup`** writes a first configuration from a few questions (your
-  icons, and which programs open your documents, images and videos).
+  icons, colors, and which programs open your documents, images and
+  videos).
 - **[`config.example.toml`](config.example.toml)** is a commented example
   of every setting.
 - **`gc`** in fff opens the configuration in your `$EDITOR` and applies it
