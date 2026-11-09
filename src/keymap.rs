@@ -1071,12 +1071,17 @@ impl Function {
                 // A default key typed as text leaves the query in focus to
                 // Neovim: there h moves the cursor and x deletes. Those
                 // meant for the query too keep it: j and k go down from it,
-                // and gc would comment a one-line query out.
+                // - and + change the depth (Neovim's line motions, idle on a
+                // one-line query), and gc would comment a one-line query out.
                 let typed = mode == Mode::Normal
                     && keys[0].printable()
                     && !matches!(
                         (self, text),
-                        (HighlightFirst, "j") | (HighlightLast, "k") | (EditConfig, "gc")
+                        (HighlightFirst, "j")
+                            | (HighlightLast, "k")
+                            | (SearchShallower, "-")
+                            | (SearchDeeper, "+")
+                            | (EditConfig, "gc")
                     );
                 Binding {
                     function: self,
@@ -2032,7 +2037,16 @@ mod tests {
             normal(query, &[press('g'), press('u')]),
             Step::Flush(vec![press('g')])
         );
-        // But gc edits the configuration from there too.
+        // But - and + change the depth from there too, and gc edits the
+        // configuration.
+        assert_eq!(
+            normal(query, &[press('-')]),
+            Step::Run(Function::SearchShallower, None)
+        );
+        assert_eq!(
+            normal(query, &[press('+')]),
+            Step::Run(Function::SearchDeeper, None)
+        );
         assert_eq!(
             normal(query, &[press('g'), press('c')]),
             Step::Run(Function::EditConfig, None)

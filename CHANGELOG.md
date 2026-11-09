@@ -16,6 +16,9 @@ history.
 
 ### Changed
 
+- **`+` and `-` change the search depth from the query in focus too**,
+  instead of going to Neovim, whose line motions do nothing on a one-line
+  query.
 - **The go-to prompt (`/`) leaves you in Normal mode.** It used to leave
   the query in Insert mode, so the next key, such as `v` to move marked
   files into the folder you went to, was typed into the query.

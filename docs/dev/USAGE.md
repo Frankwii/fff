@@ -542,7 +542,7 @@ focus, but `j` / `k`, which go down into the results, and `gc`. Some functions h
 | Up / Down | Next / previous [tab](#tabs), in either mode |
 | `gw` | [Workspace](#workspaces) chooser; in Normal mode n adds, e edits, d deletes, r reloads (Alt+ while typing); Up/Down reorder |
 | `gP` | Palette chooser; highlight for 100 ms to preview, Enter applies, Escape reverts |
-| `+` / `-` | Increase / decrease depth; minimum 1 |
+| `+` / `-` | Increase / decrease depth; minimum 1; from the query in focus too |
 | Ctrl+Alt+1 … 9 | Search results to that depth |
 | 1 … 9 | Highlight that visible row |
 | Alt+1 … Alt+9 / Alt+0 | Highlight the row below that visible row / below the last |
