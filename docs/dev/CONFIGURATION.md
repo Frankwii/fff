@@ -572,6 +572,17 @@ parser. The text never waits for its colors: when they take longer than
 worked out. `[ui] highlight = false` turns colors off; without `nvim`, text
 stays plain.
 
+A [contents match](USAGE.md#searching-contents)'s lines are colored too,
+those of text files (not the text of a PDF, DjVu or EPUB), and only once
+nothing else waits: the search has finished, the match's lines are drawn
+plain and the highlight has rested on it for 30 ms; colors asked for are
+dropped when it moves on. They cover 250 lines either side of the match,
+found from the file's start when the match is within its first 1,000
+lines (so a comment or string begun above is read as one), and at most
+400 bytes of a line and 128 KiB in all. They are kept for the file while
+its match is shown, so its other matches nearby show theirs at once. A
+line cut around its match, wrapping off, stays plain.
+
 The helper programs are optional. Without poppler (`pdfinfo`, `pdftotext`) or
 FFmpeg's `ffprobe`, the pane names the file's type and says which package
 would show more. They run without a shell, with no terminal, on the file's own

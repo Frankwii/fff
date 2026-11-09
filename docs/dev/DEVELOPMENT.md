@@ -92,7 +92,8 @@ separately in the [roadmap](ROADMAP.md).
   moves. A read stuck on a slow mount cannot be interrupted, so at most 16
   run at once; past that, the pane says it waits for one to end. Syntax
   colors keep to the same rule: a read waits at most 50 ms for them before
-  showing the text plain.
+  showing the text plain, and a contents match's are asked for only once
+  its search has finished and its plain lines are drawn.
 
 ## How rows are kept and ordered
 

@@ -370,7 +370,8 @@ match**: the file, the match's page (`p. 12`), how far into an EPUB it is
 highlighted. Cleared, they are the entries again, and its bar stays while it
 is set or typed into. The preview pane shows the lines around the
 highlighted match, which PageDown and PageUp scroll from there, up to 500
-lines either side. **Names** filters the files by name as usual, so it
+lines either side, a text file's in its [syntax
+colors](CONFIGURATION.md#syntax-colors) once the search has finished. **Names** filters the files by name as usual, so it
 chooses which files are read, and `--depth`, `--glob`, `--exclude` and
 `--hidden` apply as they do to names. For a printed choice of documents by
 what they contain, use `fff pick`:

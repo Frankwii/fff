@@ -145,6 +145,14 @@ impl RefreshBasis {
     }
 }
 
+/// A contents match's file, read for its preview: its lines, and the
+/// syntax colors found so far for lines of it, by where each starts.
+pub struct MatchText {
+    pub path: PathBuf,
+    pub lines: Arc<grep::Lines>,
+    pub colors: HashMap<usize, Vec<(usize, usize, highlight::Syntax)>>,
+}
+
 /// How many tabs a session has. Each starts in the session's first directory.
 pub const TABS: usize = 3;
 /// A tab's own directory and Ctrl+o / Ctrl+i history. Marks, the query, depth
@@ -256,7 +264,7 @@ pub struct App {
     pub palettes: Vec<(String, config::Palette)>,
     /// With a contents query, the highlighted match's file as lines, once
     /// read, for its preview to scroll past the match's context.
-    pub match_text: Option<(PathBuf, std::sync::Arc<grep::Lines>)>,
+    pub match_text: Option<MatchText>,
     /// Every key binding: the defaults with `keys.toml` applied.
     pub keymap: keymap::Keymap,
     /// The keys of a sequence begun and not finished yet.

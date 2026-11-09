@@ -95,12 +95,25 @@ pub struct Hit {
 #[derive(Default)]
 pub struct Lines {
     text: Vec<u8>,
+    /// Read as it is, not extracted from a document: it can have syntax.
+    pub text_file: bool,
+}
+/// The lines `around` a match, by where each starts in the text.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Window {
+    pub before: Vec<usize>,
+    /// The match's context lines, fewer when the text ends first.
+    pub context: Vec<usize>,
+    pub after: Vec<usize>,
 }
 /// The lines of `path`'s text, read as the search reads it (a document's
 /// from the cache); `None` when it has none.
 pub fn lines(path: &Path) -> Option<Lines> {
-    let text = text_of(path, cache_dir().as_deref()).ok()?.bytes;
-    Some(Lines { text })
+    let text = text_of(path, cache_dir().as_deref()).ok()?;
+    Some(Lines {
+        text_file: text.units == Units::Lines,
+        text: text.bytes,
+    })
 }
 impl Lines {
     /// Up to `most` lines, as shown, before and after the `count` lines
@@ -113,6 +126,20 @@ impl Lines {
         count: usize,
         most: usize,
     ) -> Option<(Vec<String>, Vec<String>)> {
+        let window = self.window(start, at, count, most, most)?;
+        let shown = |lines: &[usize]| lines.iter().map(|&s| self.line(s)).collect();
+        Some((shown(&window.before), shown(&window.after)))
+    }
+    /// As [`Lines::around`], by where the lines start, with up to `before`
+    /// lines before and `after` after, and the context lines between them.
+    pub fn window(
+        &self,
+        start: usize,
+        at: usize,
+        count: usize,
+        before: usize,
+        after: usize,
+    ) -> Option<Window> {
         let text = &self.text[..];
         if start > text.len() || start > 0 && !matches!(text[start - 1], b'\n' | 0x0c) {
             return None;
@@ -126,17 +153,31 @@ impl Lines {
         for _ in 0..at {
             first = previous(first)?;
         }
-        let mut before: Vec<_> = std::iter::successors(previous(first), |&s| previous(s))
-            .take(most)
+        let mut lines: Vec<_> = std::iter::successors(previous(first), |&s| previous(s))
+            .take(before)
             .collect();
-        before.reverse();
-        let after = (0..count).try_fold(first, |s, _| next(s));
-        let after = std::iter::successors(after, |&s| next(s)).take(most);
-        let shown = |s: usize| shown_line(&text[s..line_end(text, s)]);
-        Some((
-            before.into_iter().map(shown).collect(),
-            after.map(shown).collect(),
-        ))
+        lines.reverse();
+        let context: Vec<_> = std::iter::successors(Some(first), |&s| next(s))
+            .take(count)
+            .collect();
+        let rest = match context.last() {
+            _ if count == 0 => Some(first),
+            Some(&last) if context.len() == count => next(last),
+            _ => None,
+        };
+        Some(Window {
+            before: lines,
+            context,
+            after: std::iter::successors(rest, |&s| next(s))
+                .take(after)
+                .collect(),
+        })
+    }
+    /// The line that starts at `start`, as shown.
+    pub fn line(&self, start: usize) -> String {
+        let text = &self.text[..];
+        let start = start.min(text.len());
+        shown_line(&text[start..line_end(text, start)])
     }
 }
 impl Hit {
@@ -1786,6 +1827,7 @@ mod tests {
         let text = "zero\none\ntwo\r\nthree\x0cfour\n\nsix\n";
         let lines = Lines {
             text: text.as_bytes().to_vec(),
+            text_file: true,
         };
         let split: Vec<&str> = text.split(['\n', '\x0c']).collect();
         let starts: Vec<usize> = std::iter::once(0)
@@ -1818,6 +1860,34 @@ mod tests {
         assert_eq!(lines.around(2, 0, 1, 5), None);
         assert_eq!(lines.around(text.len() + 1, 0, 1, 5), None);
         assert_eq!(Lines::default().around(0, 0, 1, 5), Some((vec![], vec![])));
+    }
+    #[test]
+    fn a_match_s_window_says_where_its_lines_start() {
+        let text = "zero\none\ntwo\x0cthree\nfour\n";
+        let lines = Lines {
+            text: text.as_bytes().to_vec(),
+            text_file: true,
+        };
+        // "two" (at 9) is the second of the match's two context lines.
+        assert_eq!(
+            lines.window(9, 1, 2, 5, 1),
+            Some(Window {
+                before: vec![0],
+                context: vec![5, 9],
+                after: vec![13],
+            })
+        );
+        assert_eq!(lines.line(13), "three");
+        // A context past the text's end: what there is, and nothing after.
+        assert_eq!(
+            lines.window(19, 0, 3, 1, 5),
+            Some(Window {
+                before: vec![13],
+                context: vec![19, 24],
+                after: vec![],
+            })
+        );
+        assert_eq!(lines.window(2, 0, 1, 1, 1), None);
     }
     #[test]
     fn a_file_of_many_short_lines_takes_the_room_of_its_text() {

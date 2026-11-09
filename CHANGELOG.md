@@ -16,6 +16,10 @@ history.
 
 ### Changed
 
+- **A contents match's preview shows syntax colors**, as a text file's
+  preview does. They come once the search has finished and the match's
+  lines are drawn, so they never slow the search or moving between
+  matches.
 - **`q` quits from the query in focus too**, instead of starting
   Neovim's macro recording. To record macros there, leave `query` out of
   `quit`'s focus (`quit = { keys = "q", focus = ["results", "marks"] }`).

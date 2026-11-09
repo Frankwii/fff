@@ -282,18 +282,32 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
     let file = app
         .match_text
         .as_ref()
-        .filter(|(path, _)| Some(path) == app.highlight.as_ref())
-        .and_then(|(_, lines)| lines.around(hit.start, hit.at, hit.context.len(), AROUND));
-    let push_plain = |rows: &mut Vec<Line<'static>>, line: &str| {
-        let spans = vec![styled(safe(line), theme.muted)];
+        .filter(|text| Some(&text.path) == app.highlight.as_ref());
+    let window = file.and_then(|text| {
+        text.lines
+            .window(hit.start, hit.at, hit.context.len(), AROUND, AROUND)
+    });
+    // A line's syntax colors, once found: a line with none is then plain
+    // text like the rest, in a file that has some.
+    let file_colored = app.preview.highlight
+        && file.is_some_and(|text| text.colors.values().any(|spans| !spans.is_empty()));
+    let colors = |start: usize| {
+        file.filter(|_| file_colored)
+            .and_then(|text| text.colors.get(&start))
+    };
+    let push_line = |rows: &mut Vec<Line<'static>>, line: &str, start: usize| {
+        let spans = match colors(start) {
+            Some(spans) => colored_marked(line, spans, &[], theme),
+            None => vec![styled(safe(line), theme.muted)],
+        };
         for mut row in fit(spans, width.saturating_sub(2), wrap) {
             row.spans.insert(0, Span::raw("  "));
             rows.push(row);
         }
     };
-    if let Some((before, _)) = &file {
-        for line in before {
-            push_plain(&mut rows, line);
+    if let (Some(text), Some(window)) = (file, &window) {
+        for &start in &window.before {
+            push_line(&mut rows, &text.lines.line(start), start);
         }
     }
     for (i, line) in hit.context.iter().enumerate() {
@@ -302,14 +316,24 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
             start = rows.len();
         }
         let room = width.saturating_sub(2);
-        let spans = if parts.is_empty() {
-            vec![styled(safe(line), theme.muted)]
-        } else if wrap {
-            marked(line, &parts, theme.text, theme)
-        } else {
-            // Cut, the line keeps its match in view.
-            let (line, parts) = lead_window(line, &parts, room);
-            marked(&line, &parts, theme.text, theme)
+        // Colors only for a line as the file has it: a long one is kept
+        // around its match.
+        let syntax = window
+            .as_ref()
+            .and_then(|w| w.context.get(i))
+            .filter(|&&s| file.is_some_and(|text| text.lines.line(s) == *line))
+            .and_then(|&s| colors(s));
+        let spans = match syntax {
+            Some(syntax) if wrap || lead_window(line, &parts, room).0 == *line => {
+                colored_marked(line, syntax, &parts, theme)
+            }
+            _ if parts.is_empty() => vec![styled(safe(line), theme.muted)],
+            _ if wrap => marked(line, &parts, theme.text, theme),
+            _ => {
+                // Cut, the line keeps its match in view.
+                let (line, parts) = lead_window(line, &parts, room);
+                marked(&line, &parts, theme.text, theme)
+            }
         };
         // The match's line is marked; wrapped rows line up under the text.
         for (n, mut row) in fit(spans, room, wrap).into_iter().enumerate() {
@@ -322,9 +346,9 @@ fn match_preview(frame: &mut Frame, area: Rect, app: &App, row: usize, hit: &cra
             rows.push(row);
         }
     }
-    if let Some((_, after)) = &file {
-        for line in after {
-            push_plain(&mut rows, line);
+    if let (Some(text), Some(window)) = (file, &window) {
+        for &start in &window.after {
+            push_line(&mut rows, &text.lines.line(start), start);
         }
     }
     // The match a third of the way down, its lines around it, until the
@@ -473,14 +497,10 @@ pub(super) fn fit(spans: Vec<Span<'static>>, width: usize, wrap: bool) -> Vec<Li
     rows.push(line(&row));
     rows
 }
-/// A line of a text file in its syntax colors.
-fn colored(
-    text: &str,
-    spans: &[(usize, usize, crate::highlight::Syntax)],
-    theme: Palette,
-) -> Vec<Span<'static>> {
+/// A kind of syntax's style.
+fn syntax_style(syntax: crate::highlight::Syntax, theme: Palette) -> Style {
     use crate::highlight::Syntax;
-    let style = |syntax| match syntax {
+    match syntax {
         Syntax::Comment => Style::default()
             .fg(theme.muted)
             .add_modifier(Modifier::ITALIC),
@@ -492,7 +512,54 @@ fn colored(
         Syntax::Heading => Style::default()
             .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
-    };
+    }
+}
+/// A line of a text file in its syntax colors, with `parts` (byte ranges)
+/// marked over them as [`marked`] marks them.
+pub(super) fn colored_marked(
+    text: &str,
+    spans: &[(usize, usize, crate::highlight::Syntax)],
+    parts: &[std::ops::Range<usize>],
+    theme: Palette,
+) -> Vec<Span<'static>> {
+    let mut cuts: Vec<usize> = [0, text.len()]
+        .into_iter()
+        .chain(spans.iter().flat_map(|&(start, end, _)| [start, end]))
+        .chain(parts.iter().flat_map(|p| [p.start, p.end]))
+        .filter(|&i| text.is_char_boundary(i))
+        .collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut out: Vec<Span<'static>> = Vec::new();
+    for cut in cuts.windows(2) {
+        let (start, end) = (cut[0], cut[1]);
+        let style = if parts.iter().any(|p| p.start <= start && end <= p.end) {
+            Style::default()
+                .fg(theme.marked)
+                .add_modifier(Modifier::BOLD)
+        } else if let Some(&(_, _, syntax)) = spans
+            .iter()
+            .find(|&&(from, to, _)| from <= start && end <= to)
+        {
+            syntax_style(syntax, theme)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        let piece = safe(&text[start..end]);
+        match out.last_mut() {
+            Some(last) if last.style == style => last.content.to_mut().push_str(&piece),
+            _ => out.push(Span::styled(piece, style)),
+        }
+    }
+    out
+}
+/// A line of a text file in its syntax colors.
+fn colored(
+    text: &str,
+    spans: &[(usize, usize, crate::highlight::Syntax)],
+    theme: Palette,
+) -> Vec<Span<'static>> {
+    let style = |syntax| syntax_style(syntax, theme);
     let mut out = Vec::new();
     let mut at = 0;
     for &(start, end, syntax) in spans {

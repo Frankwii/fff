@@ -112,7 +112,7 @@ Press **Tab** to open the **Contents** query beside the names query. Type
 in it, and the rows become the matches: one row per match, with the file,
 its line (`l. 40`), page (`p. 12`) or position in an e-book (`42%`), and
 the text around it. The preview shows the lines around the highlighted
-match.
+match, in syntax colors once the search has finished.
 
 Tab switches between the two queries, each keeping its text. The names
 query still applies: it chooses which files are searched. So does

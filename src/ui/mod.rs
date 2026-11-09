@@ -166,6 +166,22 @@ const SCAN_FRAME: Duration = Duration::from_millis(33);
 const RELIST_DELAY: Duration = Duration::from_millis(150);
 /// The same while file operations run, which change folders for long.
 const RELIST_DELAY_BUSY: Duration = Duration::from_secs(1);
+/// How long a contents match rests, its plain lines drawn, before their
+/// syntax colors are asked for.
+const COLORS_REST: Duration = Duration::from_millis(30);
+/// Lines either side of a contents match whose colors are asked for.
+const COLORS_AROUND: usize = 250;
+/// A match within this many lines of its file's start has its colors
+/// found from the start, where the syntax begins.
+const COLORS_FROM_START: usize = 1000;
+/// Lines either side of a match that, already colored, need no asking.
+const COLORS_NEAR: usize = 50;
+/// Bytes of a line, and of all the lines, sent for colors: Neovim's classic
+/// syntax looks at each character.
+const COLORS_LINE: usize = 400;
+const COLORS_BUDGET: usize = 128 << 10;
+/// Times a match's colors are asked for when no answer comes.
+const COLORS_TRIES: u8 = 2;
 /// Whether `event` only edits the query being typed in Insert mode, which
 /// needs no current rows.
 fn types_query(app: &App, focus: &Focus, event: &Event) -> bool {
@@ -353,6 +369,22 @@ struct Session {
     palettes: crate::reload::PaletteWatcher,
     /// A contents query: the highlighted match's file being read as lines.
     match_lines: Option<MatchLines>,
+    /// When the match's file's lines arrived: its colors wait for them to
+    /// be drawn plain.
+    match_text_at: std::time::Instant,
+    /// The highlighted match, and since when: its colors wait for it to rest.
+    shown_match: Option<(u64, std::time::Instant)>,
+    /// Its colors being found, and the times they were asked for.
+    match_colors: Option<MatchColors>,
+    color_tries: u8,
+}
+/// Syntax colors asked for lines of a contents match's file.
+struct MatchColors {
+    lines: std::sync::Arc<crate::grep::Lines>,
+    /// Where each line starts.
+    starts: Vec<usize>,
+    answer: std::sync::mpsc::Receiver<Option<crate::highlight::Lines>>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 /// A file being read for a contents match's preview, one at a time: its
 /// text is kept only if its file is still the one wanted when it arrives.
@@ -437,6 +469,10 @@ impl Session {
             invocation,
             palettes,
             match_lines: None,
+            match_text_at: std::time::Instant::now(),
+            shown_match: None,
+            match_colors: None,
+            color_tries: 0,
         })
     }
     /// Catches up with what happened meanwhile: a finished job, notices,
@@ -496,8 +532,8 @@ impl Session {
             }
             app.grep.touched(&changes.touched);
             // A changed file's lines are read again for its matches.
-            if let Some((path, _)) = &app.match_text
-                && changes.touched.contains(path)
+            if let Some(text) = &app.match_text
+                && changes.touched.contains(&text.path)
             {
                 app.match_text = None;
             }
@@ -685,6 +721,16 @@ impl Session {
                 id.finish()
             });
         app.preview.follow_match(showing);
+        let now = std::time::Instant::now();
+        if self.shown_match.map(|(id, _)| id) != showing {
+            self.shown_match = showing.map(|id| (id, now));
+            if let Some(asked) = self.match_colors.take() {
+                asked
+                    .cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            self.color_tries = 0;
+        }
         // Its file's lines, read on another thread, let it scroll past the
         // match's context; a hidden preview needs none.
         if !app.preview.shown {
@@ -700,7 +746,12 @@ impl Session {
                 // A file with no lines to read (gone, say) is remembered as
                 // such, rather than read again on every pass.
                 let lines = lines.unwrap_or_default();
-                app.match_text = Some((reading.path.clone(), std::sync::Arc::new(lines)));
+                app.match_text = Some(crate::MatchText {
+                    path: reading.path.clone(),
+                    lines: std::sync::Arc::new(lines),
+                    colors: Default::default(),
+                });
+                self.match_text_at = now;
                 app.preview.more_match_lines();
                 self.dirty = true;
             }
@@ -709,7 +760,7 @@ impl Session {
         // Another file waits for the one being read: moving quickly over
         // matches in large files reads one of them at a time.
         if let Some(path) = path
-            && app.match_text.as_ref().is_none_or(|(p, _)| *p != path)
+            && app.match_text.as_ref().is_none_or(|text| text.path != path)
             && self.match_lines.is_none()
         {
             let (send, lines) = std::sync::mpsc::channel();
@@ -725,6 +776,131 @@ impl Session {
                 stale: false,
             });
         }
+        self.follow_match_colors(app, now);
+    }
+    /// A contents match's syntax colors: taken when they arrive, and asked
+    /// for once it has rested with its plain lines drawn.
+    fn follow_match_colors(&mut self, app: &mut App, now: std::time::Instant) {
+        if let Some(asked) = &self.match_colors
+            && let Ok(answer) = asked.answer.try_recv()
+        {
+            // Lines of the same text, kept where they already have colors:
+            // those found from the file's start are the surer.
+            if let Some(answer) = answer
+                && let Some(text) = &mut app.match_text
+                && std::sync::Arc::ptr_eq(&text.lines, &asked.lines)
+            {
+                for (&start, spans) in asked.starts.iter().zip(answer) {
+                    text.colors.entry(start).or_insert(spans);
+                }
+                self.dirty = true;
+            }
+            self.match_colors = None;
+        }
+        if self.colors_due(app).is_some_and(|at| at <= now) && self.drawn_at >= self.match_text_at {
+            self.color_tries += 1;
+            self.ask_colors(app);
+        }
+    }
+    /// When the highlighted match's colors are to be asked for: once it has
+    /// rested, its file's lines have arrived and the search is done, when
+    /// lines near it have none yet.
+    fn colors_due(&self, app: &App) -> Option<std::time::Instant> {
+        let (_, since) = self.shown_match?;
+        if !app.preview.highlight
+            || self.match_colors.is_some()
+            || self.color_tries >= COLORS_TRIES
+            || app.grep.progress().is_some()
+        {
+            return None;
+        }
+        let text = app
+            .match_text
+            .as_ref()
+            .filter(|text| Some(&text.path) == app.highlight.as_ref() && text.lines.text_file)?;
+        let hit = app.highlighted_hit()?;
+        let near = text.lines.window(
+            hit.start,
+            hit.at,
+            hit.context.len(),
+            COLORS_NEAR,
+            COLORS_NEAR,
+        )?;
+        let missing = (near.before.iter())
+            .chain(&near.context)
+            .chain(&near.after)
+            .any(|start| !text.colors.contains_key(start));
+        missing.then_some(since + COLORS_REST)
+    }
+    /// Asks for the colors of the lines around the highlighted match, from
+    /// its file's start when near it, within `COLORS_BUDGET`.
+    fn ask_colors(&mut self, app: &App) {
+        let (Some(text), Some(hit)) = (&app.match_text, app.highlighted_hit()) else {
+            return;
+        };
+        let Some(window) = text.lines.window(
+            hit.start,
+            hit.at,
+            hit.context.len(),
+            COLORS_FROM_START,
+            COLORS_AROUND,
+        ) else {
+            return;
+        };
+        let from_start = window.before.len() < COLORS_FROM_START;
+        let first = window.before.len();
+        let mut starts: Vec<usize> = (window.before.into_iter())
+            .chain(window.context)
+            .chain(window.after)
+            .collect();
+        let mut lines: Vec<String> = (starts.iter())
+            .map(|&start| {
+                let mut line = text.lines.line(start);
+                let mut end = line.len().min(COLORS_LINE);
+                while !line.is_char_boundary(end) {
+                    end -= 1;
+                }
+                line.truncate(end);
+                line
+            })
+            .collect();
+        if !from_start || lines.iter().map(String::len).sum::<usize>() > COLORS_BUDGET {
+            // The lines nearest the match, as many as fit.
+            let (mut low, mut high, mut used) = (first, first, 0);
+            let lowest = first.saturating_sub(COLORS_AROUND);
+            loop {
+                let mut grew = false;
+                if high < lines.len() && used + lines[high].len() <= COLORS_BUDGET {
+                    used += lines[high].len();
+                    high += 1;
+                    grew = true;
+                }
+                if low > lowest && used + lines[low - 1].len() <= COLORS_BUDGET {
+                    low -= 1;
+                    used += lines[low].len();
+                    grew = true;
+                }
+                if !grew {
+                    break;
+                }
+            }
+            starts = starts[low..high].to_vec();
+            lines = lines[low..high].to_vec();
+        }
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let colors = crate::highlight::request(&text.path, lines, cancel.clone());
+        let (send, answer) = std::sync::mpsc::channel();
+        let wake = self.wake.clone();
+        std::thread::spawn(move || {
+            let _ = send.send(colors.recv().ok());
+            let _ = wake.try_send(());
+        });
+        self.match_colors = Some(MatchColors {
+            lines: text.lines.clone(),
+            starts,
+            answer,
+            cancel,
+        });
     }
     /// A bar while typing, a block in Neovim's other modes.
     fn set_cursor_shape(&mut self, app: &App) -> io::Result<()> {
@@ -811,6 +987,11 @@ impl Session {
             .preview
             .remaining(std::time::Instant::now())
             .map_or(wait, |delay| delay.min(wait));
+        // A due ask for colors passes once more, after the plain lines are drawn.
+        let wait = self.colors_due(app).map_or(wait, |at| {
+            at.saturating_duration_since(std::time::Instant::now())
+                .min(wait)
+        });
         let wait = app
             .buttons_hide()
             .filter(|_| self.buttons_shown)

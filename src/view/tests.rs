@@ -743,6 +743,91 @@ fn match_rows_fit_their_labels_and_keep_them_until_relabelled() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 #[test]
+fn a_match_s_lines_draw_their_syntax_colors_under_the_match() {
+    use crate::highlight::Syntax;
+    let root = std::env::temp_dir().join(format!("fff-match-colors-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("main.rs");
+    std::fs::write(&path, "fn main() {\n    let canard = 1;\n}\n").unwrap();
+    let mut app = App::new(vec![root.clone()], 6, crate::Policy::default());
+    app.icons = false;
+    app.grep.cache = Some(root.join("cache"));
+    app.insert(
+        0,
+        Candidate {
+            path: path.clone(),
+            directory: false,
+            depth: 1,
+            root: 0,
+            order: 0,
+        },
+    );
+    app.scanning = false;
+    app.refresh();
+    app.set_contents("canard".into());
+    let start = std::time::Instant::now();
+    while app.grep.progress().is_some() || app.shown().is_empty() {
+        assert!(start.elapsed() < std::time::Duration::from_secs(300));
+        app.poll_grep();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    app.preview.shown = true;
+    app.preview.highlight = true;
+    let lines = crate::grep::lines(&path).unwrap();
+    assert!(lines.text_file);
+    // "fn main() {" starts at 0, the match's line at 12, "}" at 32.
+    let colors = [
+        (0, vec![(0, 2, Syntax::Keyword), (3, 7, Syntax::Function)]),
+        (
+            12,
+            vec![(4, 7, Syntax::Keyword), (17, 18, Syntax::Constant)],
+        ),
+        (32, vec![]),
+    ];
+    app.match_text = Some(crate::MatchText {
+        path: path.clone(),
+        lines: std::sync::Arc::new(lines),
+        colors: colors.into_iter().collect(),
+    });
+    let draw = |app: &mut App| {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|f| {
+                render(f, app, &mut Focus::Results);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    };
+    let buffer = draw(&mut app);
+    let screen = text(&buffer);
+    let theme = app.palette;
+    // In the preview pane, below the rows.
+    let at = |token: &str| {
+        let rows: Vec<&str> = screen.lines().collect();
+        let row = rows.iter().rposition(|l| l.contains(token)).unwrap();
+        let column = rows[row][..rows[row].rfind(token).unwrap()].chars().count();
+        (column as u16, row as u16)
+    };
+    assert_eq!(buffer[at("fn main")].fg, theme.accent, "{screen}");
+    let main = at("main()");
+    assert_eq!(buffer[main].fg, theme.link);
+    assert_eq!(buffer[at("let canard")].fg, theme.accent);
+    let canard = at("canard =");
+    assert_eq!(buffer[canard].fg, theme.marked);
+    assert!(buffer[canard].modifier.contains(Modifier::BOLD));
+    assert_eq!(buffer[(canard.0 + 7, canard.1)].fg, theme.text);
+    assert_eq!(buffer[(canard.0 + 9, canard.1)].fg, theme.error);
+    // A line with nothing to color is text like the rest, not muted.
+    assert_eq!(buffer[at("}")].fg, theme.text, "{screen}");
+    // With `[ui] highlight = false`, they stay plain.
+    app.preview.highlight = false;
+    let buffer = draw(&mut app);
+    assert_eq!(buffer[main].fg, theme.muted);
+    assert_eq!(buffer[canard].fg, theme.marked);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+#[test]
 fn pick_rows_show_names_folders_included_and_follow_navigation() {
     let mut app = App::browse("/work".into(), 3, crate::Policy::default());
     app.short_labels = true;
