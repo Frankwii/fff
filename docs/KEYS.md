@@ -45,7 +45,8 @@ flowchart LR
 ```
 
 So: `i` to type, Escape to stop typing, Escape again (or `j`) to get back
-to the results. Ctrl+k goes into the marked list and back. A click on a
+to the results. Shift+Tab goes straight between the two, even while
+typing; Tab from the results goes up into the query. Ctrl+k goes into the marked list and back. A click on a
 row gives the results the focus too.
 
 **Why the query in Normal mode matters.** With the query focused, most
@@ -248,9 +249,11 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | Key | Function | Does |
 | --- | --- | --- |
 | `i`, `a` | (Neovim) | Start typing in the query |
-| Tab | `switch_query` | Switch between the names and contents queries |
+| Tab | `switch_query` | Switch between the names and contents queries (from the query) |
 | Escape | `clear_query` | Clear the query (in the results) |
 | Escape in the query | `toggle_query_focus` | Give the results the focus |
+| Tab in the results | `toggle_query_focus` | Give the query the focus |
+| Shift+Tab | `toggle_query_focus` | Give the query or the results the focus, also while typing |
 | `+` / `-` | `search_deeper` / `search_shallower` | One level deeper / shallower |
 | Ctrl+Alt+`1`…`9` | `search_to_depth` | Search to that depth |
 | `g.` | `toggle_hidden` | Hidden entries |

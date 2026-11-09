@@ -484,6 +484,13 @@ impl Session {
                 app.status = format!("Cleared {count} mark{}", if count == 1 { "" } else { "s" });
                 app.status_success = app.status.clone();
             }
+            // Insert mode always types into the query: leaving the query
+            // leaves Insert mode too.
+            ToggleQueryFocus if app.mode() == keymap::Mode::Insert => {
+                let esc = KeyEvent::new(K::Esc, M::NONE);
+                deliver(app, &mut self.focus, &mut self.editor, esc);
+                app.query_focused = false;
+            }
             ToggleQueryFocus => app.query_focused = !app.query_focused,
             SwitchQuery => {
                 app.grep.editing = !app.grep.editing;

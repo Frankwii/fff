@@ -696,6 +696,26 @@ class TerminalTests(unittest.TestCase):
         self.assertEqual(s.finish(), (0, b""))
 
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
+    def test_shift_tab_toggles_the_query_focus_even_while_typing(self):
+        (self.root / "alpha").mkdir()
+        (self.root / "beta").touch()
+        s = self.start("--depth", "1", "--no-config", implicit_root=True)
+        s.send(b"ialpha", "❯ alpha")
+        # Shift+Tab leaves Insert mode and the query at once, keeping it.
+        s.send(b"\x1b[Z", "NORMAL")
+        # Back in the query, x is Neovim's; Shift+Tab leaves it again.
+        s.send(b"\x1b[Z")
+        s.send(b"x", "❯ alph")
+        s.send(b"\x1b[Z")
+        # Tab from the results focuses the query too.
+        s.send(b"\t")
+        s.send(b"x", "❯ alp")
+        s.send(b"\x1b[Z")
+        s.send(b"l", ("cwd", self.root / "alpha"))
+        s.send(b"q")
+        self.assertEqual(s.finish(), (0, b""))
+
+    @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_progress_marker_goes_a_while_after_the_scan(self):
         (self.root / "x.txt").touch()
         s = self.start("--depth", "1", implicit_root=True)

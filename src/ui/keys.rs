@@ -572,6 +572,19 @@ impl Session {
         key: KeyEvent,
     ) -> Option<Finish> {
         let page = self.drawn.page.max(1);
+        // As on the main screen, leaving the query leaves Insert mode too.
+        if function == Function::ToggleQueryFocus && app.mode() == Mode::Insert {
+            deliver(
+                app,
+                &mut self.focus,
+                &mut self.editor,
+                KeyEvent::new(K::Esc, M::NONE),
+            );
+            if let Focus::Keys(screen) = &mut self.focus {
+                screen.query_focused = false;
+            }
+            return None;
+        }
         let Focus::Keys(screen) = &mut self.focus else {
             return None;
         };

@@ -527,7 +527,8 @@ focus, but `j` / `k`, which go down into the results, and `gc`. Some functions h
 | --- | --- |
 | i / a, then type | Edit a Neovim field |
 | Escape | Leave transient editing modes, then give the results the focus back, then clear the query; keep the session |
-| Tab | Type into the other query, contents or names, in either mode |
+| Tab | Type into the other query, contents or names, in either mode; from the results in Normal mode, give the query the focus |
+| Shift+Tab | Give the query or the results the focus; from Insert mode, leave it for the results |
 | Enter | Open the highlighted file and leave (`fff roam`), print the marks and the highlighted entry (`fff pick`), leave into the file's folder (`fff seek`); enter a folder in `fff window` and the dialogs |
 | Shift+Enter / Ctrl+Enter | Print the highlighted entry alone / the marks alone (`fff pick`, dialogs choosing several) |
 | j / k (Alt+j / Alt+k while typing) | Next / previous row |

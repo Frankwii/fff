@@ -16,6 +16,9 @@ history.
 
 ### Changed
 
+- **Tab in the results gives the query the focus**, and **Shift+Tab**
+  toggles between the query and the results, also while typing. Tab still
+  switches between the names and contents queries from the query.
 - **`+` and `-` change the search depth from the query in focus too**,
   instead of going to Neovim, whose line motions do nothing on a one-line
   query.
@@ -37,6 +40,12 @@ history.
   rows found happen on another thread: listing `/usr` holds keys up for at
   most about 10 ms at a time, where it was up to 17 ms, and 15 ms sorted
   by size, where it was up to 37.
+
+### Fixed
+
+- **`toggle_query_focus` works while typing.** Bound to an Insert-mode
+  key, it did nothing, since Insert mode keeps the query in focus; it now
+  leaves Insert mode and gives the results the focus.
 
 ## 0.23.0 — 2026-11-08
 

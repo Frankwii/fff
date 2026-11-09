@@ -955,6 +955,7 @@ impl Function {
             PrintHere => &[("<C-s>", scope(&folders, &[], &[]))],
             QuitIntoHighlighted => &[("<CR>", scope(&[Seek], &[], &[]))],
             SwitchQuery => &[("<Tab>", all)],
+            ToggleQueryFocus => &[("<S-Tab>", all)],
             ClearMarks => &[("<C-m>", all)],
             Rescan => &[("<F5>", all)],
             Cancel => &[("<C-c>", all)],
@@ -1021,8 +1022,8 @@ impl Function {
             ToggleMarkedList => &[("<C-k>", all)],
             ToggleJobList => &[("<C-j>", all)],
             ClearQuery => &[("<Esc>", results)],
-            ToggleQueryFocus => &[("<Esc>", query)],
-            SwitchQuery => &[("<Tab>", all)],
+            ToggleQueryFocus => &[("<Esc>", query), ("<Tab>", results), ("<S-Tab>", all)],
+            SwitchQuery => &[("<Tab>", scope(&[], &[Query, Marks], &[]))],
             SearchShallower => &[("-", all)],
             SearchDeeper => &[("+", all)],
             SearchToDepth => &[("<C-M-#>", all)],
@@ -1844,13 +1845,38 @@ mod tests {
     fn tab_switches_queries_and_space_m_and_shift_m_mark() {
         let keymap = Keymap::default();
         let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
+        let shift_tab = KeyEvent::new(KeyCode::BackTab, M::SHIFT);
         for program in <Program as Dimension>::ALL.iter().copied() {
             let here = cell(program, H::File);
-            for mode in Mode::ALL {
+            let query = Cell {
+                focus: Query,
+                ..here
+            };
+            // Tab switches queries from the query; from the results it
+            // goes up into the query first.
+            for (mode, cell, function) in [
+                (Mode::Insert, query, Function::SwitchQuery),
+                (Mode::Normal, query, Function::SwitchQuery),
+                (Mode::Normal, here, Function::ToggleQueryFocus),
+            ] {
                 assert_eq!(
-                    run(&keymap, mode, here, &[tab]),
-                    Step::Run(Function::SwitchQuery, None),
-                    "{program:?} {mode:?}"
+                    run(&keymap, mode, cell, &[tab]),
+                    Step::Run(function, None),
+                    "{program:?} {mode:?} {:?}",
+                    cell.focus
+                );
+            }
+            // Shift+Tab toggles the query's focus, in Insert mode too.
+            for (mode, cell) in [
+                (Mode::Insert, query),
+                (Mode::Normal, query),
+                (Mode::Normal, here),
+            ] {
+                assert_eq!(
+                    run(&keymap, mode, cell, &[shift_tab]),
+                    Step::Run(Function::ToggleQueryFocus, None),
+                    "{program:?} {mode:?} {:?}",
+                    cell.focus
                 );
             }
             let normal = |key| run(&keymap, Mode::Normal, here, &[key]);

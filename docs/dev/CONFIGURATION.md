@@ -1179,7 +1179,9 @@ mode), `-` and `+` (`search_shallower` and `search_deeper`), and `gc`
 (`edit_config`), while Enter,
 Tab, the arrows and the Alt and Ctrl keys still act on the results below. Escape
 there (`toggle_query_focus`) gives the results the focus back, and a click
-on a row does too. The Keys screen's query and list take the focus the
+on a row does too. `toggle_query_focus` (by default also Tab in the
+results and Shift+Tab anywhere) works from Insert mode as well: it leaves
+Insert mode for Normal and gives the results the focus. The Keys screen's query and list take the focus the
 same way.
 
 A key you bind always comes before Neovim's: bound without a `focus`, it
