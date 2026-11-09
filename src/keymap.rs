@@ -944,7 +944,9 @@ impl Function {
             GoToPreviousTab => &[("<Down>", all)],
             OpenAndQuit => &[("<CR>", all)],
             OpenRow => &[("<C-#>", all)],
-            GoToRow => &[("<M-#>", all)],
+            GoToRow => &[("<M-#>", scope(&NAVIGATE, &[], &[]))],
+            // fff seek does not navigate: there Alt+number only highlights.
+            HighlightRow => &[("<M-#>", scope(&[Seek], &[], &[]))],
             PrintHighlighted => &[("<S-CR>", all), ("<CR>", scope(&[ExplorerOpen], &[], &[]))],
             PrintHighlightedAndMarks => {
                 &[("<CR>", scope(&[Pick, Piped, ExplorerMultiple], &[], &[]))]
@@ -980,7 +982,8 @@ impl Function {
             GoToTrash => &[("gt", all)],
             GoToOlderJump => &[("<C-o>", all)],
             GoToNewerJump => &[("<C-i>", all)],
-            GoToNextTab => &[("<Up>", all), ("<Tab>", results)],
+            // fff seek has no tabs: Tab there does nothing in the results.
+            GoToNextTab => &[("<Up>", all), ("<Tab>", scope(&NAVIGATE, &[Results], &[]))],
             GoToPreviousTab => &[("<Down>", all)],
             SaveHere => &[
                 ("!", all),
@@ -1009,8 +1012,8 @@ impl Function {
             OpenAndQuit => &[("<CR>", all)],
             OpenInBackground => &[("L", all)],
             OpenRow => &[("<C-#>", all)],
-            HighlightRow => &[("<#>", lists)],
-            GoToRow => &[("<M-#>", all)],
+            HighlightRow => &[("<#>", lists), ("<M-#>", scope(&[Seek], &[], &[]))],
+            GoToRow => &[("<M-#>", scope(&NAVIGATE, &[], &[]))],
             Run => &[("gx", all)],
             RunAndQuit => &[("gX", all)],
             EditFiles => &[("e", all)],
@@ -1847,6 +1850,13 @@ mod tests {
         let keymap = Keymap::default();
         let tab = KeyEvent::new(KeyCode::Tab, M::NONE);
         let shift_tab = KeyEvent::new(KeyCode::BackTab, M::SHIFT);
+        // fff seek has no tabs, and no default Tab in the results.
+        let seek = cell(Seek, H::File);
+        assert!(
+            keymap.bindings().iter().all(|b| !(b.mode == Mode::Normal
+                && b.keys == [Key::press(tab)]
+                && b.applies(seek)))
+        );
         for program in <Program as Dimension>::ALL.iter().copied() {
             let here = cell(program, H::File);
             let query = Cell {
@@ -1969,6 +1979,12 @@ mod tests {
             assert_eq!(
                 run(&keymap, mode, here, &[alt]),
                 Step::Run(Function::GoToRow, Some(2))
+            );
+            // fff seek does not navigate: Alt+number only highlights there.
+            assert_eq!(
+                run(&keymap, mode, cell(Seek, H::File), &[alt]),
+                Step::Run(Function::HighlightRow, Some(2)),
+                "{mode:?}"
             );
         }
         // Seek lists only files: gd does nothing there.
