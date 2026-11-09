@@ -10,12 +10,15 @@ history.
 
 - **Everyday tasks.** A new guide, [docs/TASKS.md](docs/TASKS.md), of
   short recipes with recordings: finding one file among thousands, finding
-  which file says something, freeing disk space, tidying Downloads and
-  renaming many files at once. The tutorial ends with what to try when
+  which file says something, freeing disk space, tidying Downloads,
+  renaming many files at once and archiving a selection. The tutorial ends with what to try when
   something looks wrong.
 
 ### Changed
 
+- **The go-to prompt (`/`) leaves you in Normal mode.** It used to leave
+  the query in Insert mode, so the next key, such as `v` to move marked
+  files into the folder you went to, was typed into the query.
 - **The crate is much smaller to download**: 0.7 MiB, where it was 5.8.
   It leaves out the guides' recordings, which crates.io shows from GitHub.
 - **Sorted by size, folders take their place as they are added up.** Every

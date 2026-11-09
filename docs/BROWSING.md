@@ -59,7 +59,8 @@ on the row you last highlighted in that folder.
   [zoxide](https://github.com/ajeetdsouza/zoxide), the folders you visit
   most. **Up** / **Down** choose among the suggestions.
 - **Enter** goes to the chosen suggestion, else to the folder you typed if
-  it exists, else to the best suggestion. **Escape** cancels.
+  it exists, else to the best suggestion, back in Normal mode. **Escape**
+  cancels.
 
 ## Tabs
 

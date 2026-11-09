@@ -314,9 +314,12 @@ impl Nvim {
     }
     /// Replace text while keeping the active field's stable editing mode.
     /// Operators, command-line input and pending motions are cancelled.
+    /// The go-to prompt's Insert mode is for typing the path only: after
+    /// it, `field` starts in Normal mode.
     pub fn reset_preserving_mode(&mut self, field: Field) {
         let mode = self
             .active
+            .filter(|&active| active != Field::Location || field == Field::Location)
             .and_then(|active| self.buffers.get(&active))
             .map(|b| b.view.mode.as_str())
             .unwrap_or("n");

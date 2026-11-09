@@ -1004,7 +1004,9 @@ class TerminalTests(unittest.TestCase):
             s.send(b"g/", b"Go to directory")
             s.send(os.fsencode(other) + b"\r", ("cwd", other))
             self.assertIn(other, s.screen.text)
-            s.send(b"b", "❯ b")  # the go-to prompt leaves the query in Insert
+            # The go-to prompt leaves the query in Normal mode.
+            s.send(b"i", "Query  INSERT")
+            s.send(b"b", "❯ b")
             s.send(b"\r")
             expected = os.fsencode(self.root / "a") + b"\n" + os.fsencode(target) + b"\n"
             self.assertEqual(s.finish(), (0, expected))
@@ -3369,7 +3371,9 @@ class TerminalTests(unittest.TestCase):
         # zoxide-style words in order pick a frequent folder.
         s.send(b"proj ff", "❯ proj ff")
         s.send(b"\r", ("cwd", far))
-        s.send(b"\x1bg", "Go to directory")
+        # Arriving, keys act on the results again.
+        s.wait_ui("Query  NORMAL")
+        s.send(b"g/", "Go to directory")
         s.send(b"\x1b[B\x1b[B\r", ("cwd", far.parent))
         # Ctrl+o goes back through the visited folders; Ctrl+i forward again.
         s.send(b"\x1b[111;5u", ("cwd", far))

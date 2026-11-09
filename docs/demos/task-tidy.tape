@@ -22,6 +22,5 @@ Type "i" Sleep 300ms Type@150ms ".pdf" Sleep 1s
 Escape Sleep 300ms Escape Sleep 300ms
 Type "m" Sleep 1.5s
 Type "/" Sleep 600ms Type@100ms "~/papers" Sleep 800ms Enter Sleep 1.5s
-Escape Sleep 300ms Escape Sleep 500ms
 Type "v" Sleep 2.5s
 Type "q" Sleep 800ms

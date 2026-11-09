@@ -22,7 +22,9 @@ history. Switching programs (`gm`) keeps the mode it was pressed in, in
 whichever query the new program types into.
 Press `i` or `a` to type in a Normal field. Directory navigation
 preserves the initiating field's mode, including Insert, Normal, Replace, Visual
-and Select modes. Pending motions/operators and command-line input are cancelled;
+and Select modes, except from the go-to prompt: its Insert mode is for
+typing the path, and the query starts in Normal mode in the folder it goes
+to, so keys act on the results at once. Pending motions/operators and command-line input are cancelled;
 visual selections restart in the new query buffer. Returning to an existing
 nonempty field preserves its editing state and cursor.
 

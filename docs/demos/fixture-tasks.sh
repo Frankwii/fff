@@ -42,6 +42,13 @@ printf '%s\n' '% Exercise 3 uses Cauchy--Schwarz; see the exam.' \
   >> "$t/2025-2026/linear-algebra/week-05/solutions.tex"
 printf '%s\n' '\item Show that every Cauchy sequence in $\mathbb{R}$ converges.' \
   >> "$t/2024-2025/real-analysis/exam-june.tex"
+for f in 2021-2022/linear-algebra/exam-june.tex \
+  2023-2024/real-analysis/exam-january.tex \
+  2025-2026/linear-algebra/exam-january.tex \
+  2025-2026/linear-algebra/week-05/solutions.tex \
+  2024-2025/real-analysis/exam-june.tex; do
+  touch -d "${f%%-*}-10-01" "$t/$f"
+done
 
 # Downloads: what piles up in a few months, from months ago to yesterday.
 dl=$home/Downloads

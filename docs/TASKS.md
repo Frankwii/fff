@@ -76,8 +76,7 @@ cd ~/Downloads && fff
 
 1. `i`, type `.pdf`, then Escape twice: only the PDFs are listed.
 2. `m` marks everything listed.
-3. `/` opens the go-to prompt. Type `~/papers` and Enter. You arrive
-   typing, ready to filter the new folder, so press Escape twice.
+3. `/` opens the go-to prompt. Type `~/papers` and Enter.
 4. `v` moves the marked files here (`p` would copy them).
 
 Marks stay while you browse, so you can collect files from several folders
@@ -100,18 +99,43 @@ cd ~/Pictures/mallorca-2026 && fff
 To rename only some files, filter them with the query first: `r` lists only
 what matches. If any new name clashes, nothing is renamed. `u` undoes it.
 
+## Archive a selection
+
+Gather this year's exams from four course folders into one archive. `fff
+pick` prints what you choose, and `tar` packs it:
+
+```sh
+cd ~/teaching
+fff pick --relative -0 | xargs -0 -r tar czf exams.tar.gz
+```
+
+![Archiving files chosen with fff pick](demos/task-archive.gif)
+
+1. Type `2025-2026exam`: the eight exams of the year are listed.
+2. Escape twice, then `m` marks them all.
+3. Enter prints them, and `tar` archives them.
+
+`--relative` prints the paths relative to where you started, so the
+archive keeps the folders below it (`2025-2026/pde/exam-june.tex`) rather
+than the whole path from `/`.
+
+For files in one folder, you can stay in fff: mark them, press `gx`, type
+`zip -j week7.zip` and Enter twice. `gx` runs a command on the marked
+files, in the folder you're browsing, and `-j` stores them without their
+folders.
+
 ## Hand files to another program
 
 `fff pick` prints the files you choose, so any command can use them:
 
 ```sh
-nvim "$(fff pick)"                                # edit one file
-fff pick -0 | xargs -0 -r tar czf week7.tar.gz    # archive the files you mark
+nvim "$(fff pick)"                                         # edit one file
 fff pick ~/papers --glob '*.pdf' -0 | xargs -0 -r zathura   # open PDFs
 ```
 
 Mark files with Space, then Enter prints the marked ones and the
-highlighted one; `q` prints nothing. [The programs](PROGRAMS.md) has more.
+highlighted one; `q` prints nothing. `gx` runs a command on the marked files
+without leaving fff. [The programs](PROGRAMS.md) has more.
 
 ## Come back to the same places
 

@@ -227,8 +227,9 @@ fn navigation_keeps_insert_normal_replace_and_visual_modes() {
     e.reset(Field::Location);
     e.activate(Field::Location, "new/path").unwrap();
     chars(&mut e, Field::Location, "A");
+    // Going to a typed folder leaves the prompt's typing behind.
     e.reset_preserving_mode(Field::Query);
-    assert_eq!(e.activate(Field::Query, "").unwrap().label(), "INSERT");
+    assert_eq!(e.activate(Field::Query, "").unwrap().label(), "NORMAL");
 }
 
 #[test]
