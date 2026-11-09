@@ -358,7 +358,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"iq!", "❯ q!")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")  # and leave the query
-        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"\x1b[27u", "❯ i to filter")
         s.send(b"l", ("cwd", self.root / "child"))
         s.send(b"!")
         self.assertEqual(s.finish(), (0, b"child\0"))
@@ -413,7 +413,7 @@ class TerminalTests(unittest.TestCase):
         s = self.start("seek", "--depth", "2", implicit_root=True)
         s.send(b"top", "❯ top")
         s.send(b"\x1b[27u", "NORMAL")
-        s.send(b"0D", "❯ type to filter")
+        s.send(b"0D", "❯ i to filter")
         self.assertNotIn("folders only", s.screen.text)
         s.send(b"\x1bD", "does not work in fff seek")
         s.send(b"\x03")
@@ -657,7 +657,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"t", "❯ t")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")  # and leave the query
-        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"\x1b[27u", "❯ i to filter")
         self.assertIn("Marks (2)", s.screen.text)
         # Nor does Escape again, however often.
         s.send(b"\x1b[27u")
@@ -836,7 +836,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"!", "❯ !")
         s.send(b"\x1b[27u", "NORMAL")
         s.send(b"\x1b[27u")  # and leave the query
-        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"\x1b[27u", "❯ i to filter")
         s.send(b"q")
         self.assertEqual(s.finish(), (0, b""))
 
@@ -3691,7 +3691,7 @@ class TerminalTests(unittest.TestCase):
                 s.send(SHIFT_SPACE, "Marks (1)")
                 s.send(b"\x1b[27u", "NORMAL")
                 s.send(b"\x1b[27u")  # and leave the query
-                s.send(b"\x1b[27u", "❯ type to filter")
+                s.send(b"\x1b[27u", "❯ i to filter")
                 s.send(b"ifolder", "❯ folder")
                 s.send(SHIFT_SPACE, "Marks (2)")
                 s.send(b"\x1b ", "› ●")
@@ -3757,7 +3757,7 @@ class TerminalTests(unittest.TestCase):
         s.send(b"o", "o opens files")
         self.assertFalse(log.exists())
         # Marked files share an opener: one foreground run gets both.
-        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"\x1b[27u", "❯ i to filter")
         s.send(b"i.pdf", "❯ .pdf")
         s.send(SHIFT_SPACE * 2, "Marks (2)")
         s.send(b"\x1b[27u", "Query  NORMAL")
@@ -3797,7 +3797,7 @@ class TerminalTests(unittest.TestCase):
         self.wait_file(log, ["-e", bin_dir + "/pager", "-R", str(self.root / "notes.txt")])
         # Unmatched files use $EDITOR, also as a terminal program.
         log.unlink()
-        s.send(b"\x1b[27u", "❯ type to filter")
+        s.send(b"\x1b[27u", "❯ i to filter")
         s.send(b"iother", "❯ other")
         s.send(b"\x1b[27u", "Query  NORMAL")
         s.send(b"\x1b[27u")  # and leave the query

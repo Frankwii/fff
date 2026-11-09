@@ -16,6 +16,13 @@ history.
 
 ### Changed
 
+- **An empty query says `i to filter names…` in Normal mode.** It said
+  `type to filter names…` there too, where typing runs commands instead
+  (`x` trashes the highlighted file). The contents bar and a save dialog's
+  name say so likewise.
+- **Leaving fff without its shell function says how to set it up.** The
+  folder it prints to the terminal, where no shell reads it, comes with a
+  note naming the line to add to your shell's startup file, once.
 - **A contents match's preview shows syntax colors**, as a text file's
   preview does. They come once the search has finished and the match's
   lines are drawn, so they never slow the search or moving between

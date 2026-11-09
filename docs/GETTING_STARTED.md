@@ -81,7 +81,8 @@ has Vim's modes:
   goes into a folder.
 - In **Insert mode**, letters are typed into the query.
 
-Press `i` and the box's title changes to `INSERT`. Type a few letters of a
+While the box is empty in Normal mode, it reminds you: `i to filter
+names…`. Press `i` and the box's title changes to `INSERT`. Type a few letters of a
 name you see, such as `rea` for `README.md`, and the list narrows to what
 matches. The letters don't need to be next to each other: `rdm` matches
 `README.md` too.

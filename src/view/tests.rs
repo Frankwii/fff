@@ -2306,6 +2306,26 @@ fn the_contents_bar_sits_right_of_the_names_and_the_typed_one_gives_way_last() {
     assert!(line.contains("❯ …yyyy"), "{line}");
 }
 #[test]
+fn an_empty_query_names_the_key_that_starts_typing_in_normal_mode() {
+    let mut app = fixture();
+    // Insert mode types into the query.
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("❯ type to filter names…"), "{screen}");
+    // In Normal mode typing runs commands: the hint says how to type.
+    app.edit_view = Some(normal_view());
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("❯ i to filter names…"), "{screen}");
+    // With two bars, only the one typed into names the key.
+    app.grep.editing = true;
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("❯ type to filter names…"), "{screen}");
+    assert!(screen.contains("❯ i to search contents…"), "{screen}");
+    app.grep.editing = false;
+    app.grep.text = "needle".into();
+    let (screen, _) = draw(&mut app, 120, 26);
+    assert!(screen.contains("❯ i to filter names…"), "{screen}");
+}
+#[test]
 fn a_cut_line_keeps_its_match_marked_wherever_the_cut_falls() {
     // Every cut before the match, the nearest ones included: the ellipsis
     // can be longer than what it replaces.

@@ -17,19 +17,9 @@ The goals for the first release.
 Gaps that writing the [user guides](../GETTING_STARTED.md) showed, in the
 order a newcomer meets them:
 
-- **Typing in Normal mode.** The empty query says `type to filter names…`
-  in Normal mode too, where typing runs commands instead: `s` links the
-  marks, `o` starts Insert mode, `x` trashes. In Normal mode with the
-  results in focus the hint should name the key that starts typing
-  (`i to filter names…`, through `App::bound`).
 - **A setting to start typing.** `[ui] start_in = "insert"` (or similar)
   for `fff roam` and `fff window`, as `fff pick` and `fff seek` already
   start, for people who think of fff as a finder first and of Vim second.
-- **The shell function, found missing.** Leaving `fff roam` with `!`, `g!`
-  or Enter on a file without `--cd-file` prints the folder to a terminal
-  where nothing reads it, and the shell stays where it was. When stdout is
-  a terminal, a line on stderr could say how to set the function up
-  (`fff setup --init`), once.
 - **Setup that sets up.** `fff setup` lists the shell line and completions
   under **Next** for the user to copy; it could offer to add them itself
   (append the `eval` line to `~/.zshrc`, save `_fff` where `$fpath` finds

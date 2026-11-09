@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, builder::styling};
 use clap_complete::{ArgValueCompleter, CompleteEnv};
 use fuzzy_file_finder::{
-    App, Policy, completion, config::Settings, explorer::Dialog, keymap, setup::guided, ui,
+    App, Policy, completion, config::Settings, explorer::Dialog, keymap, setup::guided, state, ui,
     write_paths,
 };
 use std::{
@@ -900,13 +900,24 @@ fn report(
         match cd_file {
             Some(file) => std::fs::write(file, dir.as_os_str().as_encoded_bytes()),
             // Without the wrapper, `cd "$(command fff)"` still works.
-            None => write_paths(
-                io::stdout().lock(),
-                &[dir.to_owned()],
-                invocation,
-                false,
-                false,
-            ),
+            None => {
+                write_paths(
+                    io::stdout().lock(),
+                    &[dir.to_owned()],
+                    invocation,
+                    false,
+                    false,
+                )?;
+                // On a terminal nothing reads it: say once how to set up
+                // the shell function.
+                if io::stdout().is_terminal()
+                    && state::shell_hint_path().is_some_and(|p| state::first_time(&p))
+                {
+                    let shell = std::env::var_os("SHELL");
+                    let _ = writeln!(io::stderr(), "{}", shell_function_hint(shell.as_deref()));
+                }
+                Ok(())
+            }
         }
     };
     if let Some(dialog) = dialog {
@@ -968,6 +979,22 @@ fn report(
     }
 }
 
+/// The note for leaving fff roam without the shell function, for `shell`
+/// (`$SHELL`): the line that sets it up, and where it goes.
+fn shell_function_hint(shell: Option<&std::ffi::OsStr>) -> String {
+    let name = shell.map(Path::new).and_then(Path::file_name);
+    let setup = match name.and_then(|n| n.to_str()) {
+        Some(shell @ ("bash" | "zsh")) => {
+            format!("add `eval \"$(fff setup --init {shell})\"` to ~/.{shell}rc")
+        }
+        Some("fish") => "add `fff setup --init fish | source` to ~/.config/fish/config.fish".into(),
+        _ => "load the shell function of `fff setup --init` (bash, zsh or fish)".into(),
+    };
+    format!(
+        "fff: the shell stays where it was. To have it change to the folder fff \
+         leaves in, {setup}. (This note is shown once.)"
+    )
+}
 /// fff setup: one integration, printed script or check, then exit.
 fn run_setup(setup: SetupArgs, args: Args) -> Result<bool, Box<dyn std::error::Error>> {
     if let Some(shell) = setup.init {
@@ -1299,6 +1326,21 @@ mod tests {
         assert_eq!(choose_man_dir(&[], home, all), None);
     }
 
+    #[test]
+    fn the_shell_function_hint_names_the_line_for_the_shell() {
+        let hint = |shell: &str| shell_function_hint(Some(std::ffi::OsStr::new(shell)));
+        assert!(hint("/bin/zsh").contains(r#"`eval "$(fff setup --init zsh)"` to ~/.zshrc"#));
+        assert!(hint("/usr/bin/bash").contains("--init bash)\"` to ~/.bashrc"));
+        assert!(
+            hint("/usr/bin/fish").contains("`fff setup --init fish | source` to ~/.config/fish")
+        );
+        for other in [shell_function_hint(None), hint("/bin/tcsh")] {
+            assert!(
+                other.contains("`fff setup --init` (bash, zsh or fish)"),
+                "{other}"
+            );
+        }
+    }
     #[test]
     fn registration_scripts_call_back_into_fff() {
         for shell in ["bash", "zsh", "fish"] {

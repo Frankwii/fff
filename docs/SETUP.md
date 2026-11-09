@@ -36,7 +36,8 @@ changes to the folder it chose. Everything else passes through unchanged:
 `fff pick` still prints paths, and options work as before.
 
 Without the function, `fff` prints the folder to change to, so
-`cd "$(command fff)"` works too.
+`cd "$(command fff)"` works too. The first time it prints the folder to
+your terminal, where nothing reads it, it says which line to add.
 
 ## Shell completions
 

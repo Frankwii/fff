@@ -100,7 +100,12 @@ This defines a shell function named `fff` that runs the real binary with
 `--cd-file` (a private temporary file), then changes to the directory fff wrote
 there, if any. Arguments pass through unchanged, so `fff pick` keeps printing
 paths. Without the function, `fff roam` prints the chosen directory instead,
-so `cd "$(command fff)"` also works.
+so `cd "$(command fff)"` also works. When that output goes to a terminal,
+where nothing reads it, a note on stderr gives the line to add for `$SHELL`
+(bash, zsh or fish, else all three), once: fff then leaves
+`$XDG_STATE_HOME/fff/shell-hint` (`~/.local/state/fff/shell-hint`) behind,
+and says it again only after that file is deleted. Leaving where the session
+started prints nothing, so no note.
 
 fff starts in the current directory, on the row last highlighted there (see
 [remembered locations](CONFIGURATION.md#remembered-locations)).
@@ -116,7 +121,10 @@ except prompts made for typing (new names, the go-to prompt, the gx/gX command,
 the workspace form)
 and the query of `fff pick`, `fff seek`, `fff explorer save` and a list read
 from stdin, which start in **Insert mode**.
-Use `j`/`k` to browse and `i` or `a` to type a filter. Directory navigation
+Use `j`/`k` to browse and `i` or `a` to type a filter. An empty query says
+how to type: `type to filter names…` in Insert mode, `i to filter names…` in
+Normal mode, where typing runs commands (likewise the contents bar, and a save
+dialog's name). Directory navigation
 preserves your current editing mode. See [editing](EDITING.md).
 
 ## Browsing and returning paths

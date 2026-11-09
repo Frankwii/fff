@@ -807,16 +807,23 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         let status = status_line(app, names.saturating_sub(4) as usize).right_aligned();
         // A save dialog's names query is the name it saves under.
         let saving = app.running.dialog().filter(|d| d.save.is_some());
+        let names_hint = |insert, normal| typing_hint(app, !grep.editing, insert, normal);
         let (title, hint) = match saving {
-            Some(dialog) => (dialog.title(&app.query), "type a custom name…"),
-            None => ("Names".into(), "type to filter names…"),
+            Some(dialog) => (
+                dialog.title(&app.query),
+                names_hint("type a custom name…", "i to type a custom name…"),
+            ),
+            None => (
+                "Names".into(),
+                names_hint("type to filter names…", "i to filter names…"),
+            ),
         };
         field_box(
             frame,
             names_area,
             app,
             (Field::Query, &title, &app.query),
-            hint.into(),
+            hint,
             focused && !grep.editing,
             vec![status],
         );
@@ -825,7 +832,12 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
             contents_area,
             app,
             (Field::Contents, "Contents", &grep.text),
-            "type to search contents…".into(),
+            typing_hint(
+                app,
+                grep.editing,
+                "type to search contents…",
+                "i to search contents…",
+            ),
             focused && grep.editing,
             vec![summary],
         );
@@ -838,7 +850,7 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         .map_or_else(|| "Query".into(), |d| d.title(&app.query));
     let hint = match app.running.dialog() {
         Some(dialog) => dialog.hint(app.edit_view.as_ref().is_some_and(|v| !v.normal()), app),
-        None => "type to filter names…".into(),
+        None => typing_hint(app, true, "type to filter names…", "i to filter names…"),
     };
     field_box(
         frame,
@@ -849,6 +861,15 @@ fn query(frame: &mut Frame, area: Rect, app: &App, focused: bool) {
         focused,
         vec![status],
     );
+}
+/// An empty query's hint: what typing does, or in Normal mode, where
+/// typing runs commands, the key that starts it, for the field typed into.
+fn typing_hint(app: &App, typed_into: bool, insert: &str, normal: &str) -> String {
+    if typed_into && app.mode() == crate::keymap::Mode::Normal {
+        normal.into()
+    } else {
+        insert.into()
+    }
 }
 /// The widths of the names and the contents bars, side by side in `width`.
 /// The one typed into takes three fifths, or what its query needs when

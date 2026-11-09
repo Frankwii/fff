@@ -35,6 +35,21 @@ pub fn path() -> Option<PathBuf> {
     file("state")
 }
 
+/// Where fff notes that it said how to set up the shell function:
+/// `$XDG_STATE_HOME/fff/shell-hint`.
+pub fn shell_hint_path() -> Option<PathBuf> {
+    file("shell-hint")
+}
+/// True the first time it is asked of `marker`, which it then leaves
+/// behind; true again while it cannot, so that a note shown once is not lost.
+pub fn first_time(marker: &Path) -> bool {
+    if marker.exists() {
+        return false;
+    }
+    let _ = write(marker, b"");
+    true
+}
+
 /// NUL-separated fields keep any path bytes: directory/entry pairs.
 pub fn load(path: &Path) -> State {
     let Ok(bytes) = fs::read(path) else {
@@ -118,6 +133,15 @@ pub(crate) fn private_dir(dir: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn first_time_is_true_once_per_marker() {
+        let dir = std::env::temp_dir().join(format!("fff-first-{}", std::process::id()));
+        let marker = dir.join("fff/shell-hint");
+        assert!(first_time(&marker));
+        assert!(marker.exists());
+        assert!(!first_time(&marker));
+        fs::remove_dir_all(&dir).unwrap();
+    }
     #[test]
     fn state_round_trips_any_path_bytes_and_tolerates_damage() {
         let dir = std::env::temp_dir().join(format!("fff-state-{}", std::process::id()));
