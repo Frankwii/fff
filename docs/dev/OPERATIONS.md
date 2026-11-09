@@ -272,7 +272,15 @@ only its plain completer runs (no expansion, correction or menus), on a line
 fff itself would take. Tab waits for it at most 1.5 seconds (3 while it
 starts); a shell that takes longer is ended, and the next prompt starts
 another, but one that never starts is not tried again. When it offers
-nothing, and with any other shell, the word is completed as a path. fff
+nothing, and with any other shell, the word is completed as a path.
+
+**Not done properly yet:** the command word is still looked up on PATH only,
+so an alias of the user's shell (`e` for `nvim`, `ls` for `eza`) is reported
+as not found, although Tab offers the alias's own completions. Doing it
+properly: ask the same zsh for `${aliases[NAME]}` when PATH has no program,
+split the expansion with `run::split` and run its first word with the rest
+before the typed arguments, with the expansion shown on the review line and
+the same answer used for Tab. Until then fff says so in the error. fff
 never runs the program being completed to learn its options (zsh's own
 completion functions may run programs they know, as they do in a terminal).
 

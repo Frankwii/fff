@@ -151,9 +151,15 @@ pub(crate) fn detach(command: &mut Command) {
     }
 }
 /// Like `resolve`, naming the closest command when there is no match.
+///
+/// Programs are found on PATH only: a name that is an alias in the user's
+/// shell (`e` for `nvim`) is not one, which the error says.
 pub fn resolve_or_suggest(word: &str, cwd: &Path) -> Result<PathBuf, String> {
     resolve(word, cwd).map_err(|error| match suggestion(word, &commands()) {
         Some(near) if !word.contains('/') => format!("{error}; did you mean {near}?"),
+        _ if !word.contains('/') => {
+            format!("{error}; fff does not use your shell's aliases, so name the program itself")
+        }
         _ => error,
     })
 }
