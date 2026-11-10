@@ -240,8 +240,9 @@ Each file type can have an **opener**, configured under `[open]` (see the
   the file's folder. If something cannot open, the status line says why and fff
   stays.
 
-Openers are resolved like `gx` commands: no shell, the program found on PATH
-before anything runs, and the file paths added as separate arguments.
+Openers are resolved like `gx` commands typed without zsh: no shell, the
+program found on PATH before anything runs, and the file paths added as
+separate arguments.
 
 ## Running programs
 
@@ -251,6 +252,53 @@ extraction and deletion; with nothing current or marked, the program runs on no
 paths. Both are Normal-mode keys, `run` and `run_and_quit` on the Keys
 screen (F1).
 
+### With zsh
+
+When your shell is zsh (`$SHELL`, by its name), the command line is your own
+zsh. fff stays on screen and zsh takes its bottom row, with a prompt of
+fff's, `Run ❯ ` or `Run and exit ❯ `, in place of yours (which may span
+several rows or be redrawn by its hooks). The chosen paths are already on
+the line after the cursor, quoted by zsh, so `nvim ` typed at the start runs
+`nvim 'my notes.md'`. A path inside the browsing directory is written
+relative to it, one starting with `-` as `./-name`, and any other path in
+full.
+
+fff runs `zsh -i -c` with the script `src/zsh/line.zsh` and the paths as its
+arguments, in the browsing directory. zsh reads your startup files as for an
+interactive shell (`.zshenv` and `.zshrc`, wherever your `ZDOTDIR` puts them;
+not `.zprofile` or `.zlogin`), then edits the line with its own line editor
+(`vared`): your keymap, bindings and widgets apply, Tab completes as at a
+prompt (the script sets `compcontext` to `_normal`, since `vared` would
+otherwise complete a variable's value), and Up recalls your history, which
+the script reads from `$HISTFILE` as a prompt would. The line is added to
+the history.
+
+**Enter** runs the line as zsh runs any line: aliases, functions, pipes,
+globs and variables all work, and the paths are whatever the line says. The
+line is printed again above what the command prints, as in a terminal (zsh
+clears it when the editing ends outside a prompt). An empty line, **Ctrl+C**
+or **Ctrl+D** runs nothing. fff's own keys do not apply on the line; in vi
+mode, Escape is zsh's.
+
+- `gx`: just before the command runs, zsh switches the terminal back to its
+  normal screen, out of fff's; when zsh exits, fff redraws and re-scans, and
+  marks are kept. The status line says `NAME finished` (the line's first
+  word), `LINE exited with status N`, or `Nothing ran`. If the line failed,
+  fff first waits for Enter so its error messages stay readable. zsh writes
+  the line that ran to a file named by `$FFF_LINE`, in `$XDG_RUNTIME_DIR`
+  (else the temporary folder), which fff reads and removes.
+- `gX`: fff ends first, leaving its screen; zsh's line is on the terminal's
+  normal screen, and fff's exit status is zsh's, which is the line's. In
+  `fff roam` the shell integration then changes to the directory you were
+  browsing, as `!` would.
+
+While zsh runs, Ctrl+c and Ctrl+\\ (quit) reach only zsh and its command; a
+command stopped with Ctrl+c leaves status 130. The script unsets its
+variables (`FFF_PROMPT`, `FFF_LINE`) before the line runs. Your `.zshrc`
+loads each time, as in a new terminal.
+
+### With another shell
+
 A one-line prompt (starting in Insert mode) takes the command. **Tab** completes
 the command name from the programs on your PATH, and later words as paths
 relative to the browsing directory; when several candidates match, Tab inserts
@@ -258,31 +306,6 @@ their common prefix, lists them, and pressing Tab again cycles through them. A
 line under the input shows what the command resolves to (`✓ /usr/bin/nvim`) or
 that it does not exist. **Enter** reviews; **Esc** cancels. Nothing is recorded:
 there is no command history.
-
-Later words without a `/` or a leading `~` are completed by your own shell
-when it is zsh (`$SHELL`, by its name): whatever its completion system offers
-for the line, such as `dragon --and` → `dragon --and-exit` or `git ch` →
-`checkout`, `cherry-pick`. A zsh starts when the prompt opens, on a thread of
-its own, with your configuration (`.zshrc`), and stays for the session; it
-runs on a pseudo-terminal of its own that nothing reads. Aliases work as they do
-in your terminal, and the options offered are those of the command the line
-names; fff itself still runs the program on PATH, not an alias. Tab hands it the folder and the
-line over a pipe: nothing is typed into it, it inserts and lists nothing, and
-only its plain completer runs (no expansion, correction or menus), on a line
-fff itself would take. Tab waits for it at most 1.5 seconds (3 while it
-starts); a shell that takes longer is ended, and the next prompt starts
-another, but one that never starts is not tried again. When it offers
-nothing, and with any other shell, the word is completed as a path.
-
-**Not done properly yet:** the command word is still looked up on PATH only,
-so an alias of the user's shell (`e` for `nvim`, `ls` for `eza`) is reported
-as not found, although Tab offers the alias's own completions. Doing it
-properly: ask the same zsh for `${aliases[NAME]}` when PATH has no program,
-split the expansion with `run::split` and run its first word with the rest
-before the typed arguments, with the expansion shown on the review line and
-the same answer used for Tab. Until then fff says so in the error. fff
-never runs the program being completed to learn its options (zsh's own
-completion functions may run programs they know, as they do in a terminal).
 
 There is no shell. The line is split into words like a shell would split it
 (spaces separate; `'…'` is literal; `"…"` allows `\"`, `\\`, `\$` and

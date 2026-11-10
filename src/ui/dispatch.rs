@@ -972,7 +972,20 @@ impl Session {
                 permanently,
             ),
             ScopedAction::Run(_) if app.in_use(&paths) => self.focus = Focus::Results,
-            ScopedAction::Run(exit) => self.focus = start_run(&mut self.editor, paths, exit),
+            ScopedAction::Run(exit) => match crate::zsh::users() {
+                Some(zsh) => zsh_line(
+                    &mut self.terminal,
+                    &mut self.input,
+                    &self.wake,
+                    app,
+                    &mut self.discovery,
+                    &mut self.focus,
+                    &zsh,
+                    paths,
+                    exit,
+                )?,
+                None => self.focus = start_run(&mut self.editor, paths, exit),
+            },
             ScopedAction::Edit | ScopedAction::Open => {
                 // Leave the scope sheet before the program takes the terminal.
                 if matches!(self.focus, Focus::ScopeChoice { .. }) {

@@ -151,15 +151,9 @@ pub(crate) fn detach(command: &mut Command) {
     }
 }
 /// Like `resolve`, naming the closest command when there is no match.
-///
-/// Programs are found on PATH only: a name that is an alias in the user's
-/// shell (`e` for `nvim`) is not one, which the error says.
 pub fn resolve_or_suggest(word: &str, cwd: &Path) -> Result<PathBuf, String> {
     resolve(word, cwd).map_err(|error| match suggestion(word, &commands()) {
         Some(near) if !word.contains('/') => format!("{error}; did you mean {near}?"),
-        _ if !word.contains('/') => {
-            format!("{error}; fff does not use your shell's aliases, so name the program itself")
-        }
         _ => error,
     })
 }
@@ -249,19 +243,8 @@ impl Prompt {
     /// Tab: complete the last word. A single candidate is inserted (with a
     /// space after a command or file); several insert their common prefix, and
     /// pressing Tab again cycles through them. The command is completed from
-    /// PATH and a word with a `/` or a leading `~` as a path; any other word
-    /// is what the user's shell completes it with (`zsh::matches`: options,
-    /// subcommands, files), or a path when it offers nothing or is not asked.
+    /// PATH, any other word as a path.
     pub fn complete(&mut self, cwd: &Path, home: Option<&Path>) {
-        self.complete_with(cwd, home, crate::zsh::matches);
-    }
-    /// `complete`, asking `shell` (the folder and the line) for the matches.
-    fn complete_with(
-        &mut self,
-        cwd: &Path,
-        home: Option<&Path>,
-        shell: impl FnOnce(&Path, &str) -> Option<Vec<crate::zsh::Match>>,
-    ) {
         let (start, command) = self.current_word();
         if self.text == self.completed && !self.candidates.is_empty() {
             let next = self.chosen.map_or(0, |i| (i + 1) % self.candidates.len());
@@ -271,26 +254,7 @@ impl Prompt {
             return;
         }
         let word = &self.text[start..];
-        // Only a line fff itself would take: nothing in it is shell syntax.
-        let asked = (!command
-            && !word.contains('/')
-            && !word.starts_with('~')
-            && split(&self.text, home).is_ok())
-        .then(|| shell(cwd, &self.text))
-        .flatten()
-        .filter(|matches| !matches.is_empty());
-        let candidates = if let Some(matches) = asked {
-            let mut words: Vec<String> = matches
-                .iter()
-                .map(|m| {
-                    let folder = m.file && !m.word.ends_with('/') && cwd.join(&m.word).is_dir();
-                    format!("{}{}", escape(&m.word), if folder { "/" } else { "" })
-                })
-                .collect();
-            words.sort();
-            words.dedup();
-            words
-        } else if command && !word.contains('/') {
+        let candidates = if command && !word.contains('/') {
             let commands = self.commands.get_or_insert_with(commands);
             commands
                 .iter()
@@ -305,8 +269,7 @@ impl Prompt {
         match self.candidates.as_slice() {
             [] => {}
             [only] => {
-                // A folder goes on, as does an option awaiting its value.
-                let space = if only.ends_with(['/', '=']) { "" } else { " " };
+                let space = if only.ends_with('/') { "" } else { " " };
                 self.text = format!("{}{only}{space}", &self.text[..start]);
                 self.candidates.clear();
             }
@@ -345,6 +308,7 @@ impl Prompt {
             cwd: cwd.to_owned(),
             exit: self.exit,
             line: self.text.trim().to_owned(),
+            env: vec![],
         })
     }
 }
@@ -403,6 +367,8 @@ pub struct Plan {
     pub cwd: PathBuf,
     pub exit: bool,
     pub line: String,
+    /// Variables set for the program, beside fff's own environment.
+    pub env: Vec<(String, OsString)>,
 }
 impl Plan {
     /// The program reads and writes the terminal directly: fff's stdout may
@@ -414,6 +380,7 @@ impl Plan {
             .arg0(&self.name)
             .args(&self.args)
             .args(self.paths.iter().map(|p| OsString::from(p.as_os_str())))
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
             .current_dir(&self.cwd)
             .stdin(tty()?)
             .stdout(tty()?)
@@ -472,6 +439,7 @@ pub fn editor_plan(paths: Vec<PathBuf>, cwd: &Path, home: Option<&Path>) -> Resu
         cwd: cwd.to_owned(),
         exit: false,
         line: value.trim().to_owned(),
+        env: vec![],
     })
 }
 /// `!` in `fff window`: `$SHELL` (else `/bin/sh`) in `cwd`, replacing fff.
@@ -491,6 +459,7 @@ pub fn shell_plan(cwd: &Path) -> Result<Plan, String> {
         cwd: cwd.to_owned(),
         exit: true,
         line: shell,
+        env: vec![],
     })
 }
 /// After a failed program, keeps its messages on screen until Enter.
@@ -635,57 +604,5 @@ mod flag_tests {
         let cwd = Path::new("/");
         assert_eq!(paths("~", cwd, Some(&home), false), ["~/only/"]);
         fs::remove_dir_all(&home).unwrap();
-    }
-    #[test]
-    fn other_words_are_what_the_shell_completes_them_with() {
-        use crate::zsh::Match;
-        let dir = std::env::temp_dir().join(format!("fff-shell-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join("sub dir")).unwrap();
-        fs::write(dir.join("checks"), b"").unwrap();
-        let word = |word: &str, file| Match {
-            word: word.into(),
-            file,
-        };
-        let asked = std::cell::Cell::new(0);
-        let tab = |text: &str, matches: Option<Vec<Match>>| {
-            let mut p = Prompt::new(vec![], false);
-            p.commands = Some(vec!["git".into()]);
-            p.text = text.into();
-            p.complete_with(&dir, None, |_, _| {
-                asked.set(asked.get() + 1);
-                matches
-            });
-            (p.text, p.candidates)
-        };
-        let subcommands = vec![word("checkout", false), word("cherry", false)];
-        // Its matches replace the word; files of the same start are not mixed in.
-        let (text, candidates) = tab("git ch", Some(subcommands));
-        assert_eq!(text, "git che");
-        assert_eq!(candidates, ["checkout", "cherry"]);
-        // One match is inserted: an option awaiting its value goes on, and a
-        // folder is one by what is there, quoted as fff reads it.
-        assert_eq!(
-            tab("git --col", Some(vec![word("--color=", false)])).0,
-            "git --color="
-        );
-        assert_eq!(
-            tab("git --am", Some(vec![word("--amend", false)])).0,
-            "git --amend "
-        );
-        assert_eq!(
-            tab("git su", Some(vec![word("sub dir", true)])).0,
-            "git sub\\ dir/"
-        );
-        // Nothing offered, or no shell: a path, as before.
-        assert_eq!(tab("git ch", Some(vec![])).0, "git checks ");
-        assert_eq!(tab("git ch", None).0, "git checks ");
-        assert_eq!(asked.get(), 6);
-        // The command, a path, and a line fff would refuse are not asked.
-        for text in ["gi", "git ./ch", "git ~", "git $(x) ch", "git 'ch"] {
-            tab(text, Some(vec![word("never", false)]));
-        }
-        assert_eq!(asked.get(), 6);
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

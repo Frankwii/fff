@@ -26,17 +26,16 @@ history.
 
 - **`fff setup` suggests the programs your desktop already uses** to open
   documents, images, videos and office files, as the first choice.
-- **Tab in the command prompt (`gx`, `gX`) asks your shell.** With zsh,
-  words after the program complete as they do in your terminal, from your
-  own `.zshrc`: options, subcommands (`git ch` → `checkout`), an option's
-  values. fff used to read the program's man page, or run it with `--help`,
-  which ran a script that ignores its arguments; it never runs the program
-  now. With another shell, these words complete as paths only.
+- **With zsh, `gx` and `gX` are your own zsh.** The command line is zsh at
+  the bottom of fff's screen, with the files already on it after the
+  cursor: your aliases, functions, Tab completion, history and keys work as
+  in your terminal, and so do pipes and globs. Enter runs the line, with no
+  review step. With another shell the prompt is as before, but Tab
+  completes only program names and paths: fff no longer reads a program's
+  man page, or runs it with `--help`, which ran a script that ignores its
+  arguments.
 - **Folders' sizes kept from earlier sessions take a third less memory.**
   With the sizes of 385,000 folders kept, fff used 118 MiB and now uses 79.
-- **A command named by a shell alias says so.** `e` (an alias of `nvim`)
-  reports that fff does not use your shell's aliases, instead of only
-  "command not found".
 - **Copying and extracting many small files is far faster on Linux**:
   3,000 files copy in a third of a second, where they took twelve. What
   is copied is still on disk before it appears under its name, written

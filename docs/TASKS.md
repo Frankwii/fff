@@ -120,9 +120,9 @@ archive keeps the folders below it (`2025-2026/pde/exam-june.tex`) rather
 than the whole path from `/`.
 
 For files in one folder, you can stay in fff: mark them, press `gx`, type
-`zip -j week7.zip` and Enter twice. `gx` runs a command on the marked
-files, in the folder you're browsing, and `-j` stores them without their
-folders.
+`zip -j week7.zip` and Enter (twice unless your shell is zsh). `gx` runs a
+command on the marked files, in the folder you're browsing, and `-j`
+stores them without their folders.
 
 ## Hand files to another program
 

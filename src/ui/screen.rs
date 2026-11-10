@@ -82,6 +82,27 @@ impl Terminal {
         );
         let _ = terminal::disable_raw_mode();
     }
+    /// Hands the terminal to a program that draws at the bottom of fff's
+    /// screen (zsh for gx): fff's modes are undone, its screen stays, and
+    /// the cursor waits on the last row, cleared.
+    pub(super) fn lend(&mut self) {
+        let _ = self.capture_mouse(false);
+        let _ = self.synchronize(false);
+        let _ = self.keyboard(false);
+        let row = self
+            .0
+            .size()
+            .map_or(0, |size| size.height.saturating_sub(1));
+        let _ = execute!(
+            self.0.backend_mut(),
+            DisableBracketedPaste,
+            SetCursorStyle::DefaultUserShape,
+            MoveTo(0, row),
+            terminal::Clear(terminal::ClearType::CurrentLine),
+            Show
+        );
+        let _ = terminal::disable_raw_mode();
+    }
     /// Takes the terminal back and redraws everything on the next frame.
     pub(super) fn resume(&mut self) -> io::Result<()> {
         terminal::enable_raw_mode()?;

@@ -3459,8 +3459,8 @@ class TerminalTests(unittest.TestCase):
     def test_rebound_operations_and_flag_completion(self):
         (self.root / "alpha").write_text("a")
         log = self.root / "log"
-        # The shell says what completes the program's words, from its own
-        # configuration; the program is never run to learn its options.
+        # With zsh as the shell, gx is zsh's own line: Tab completes the
+        # program's words from its configuration.
         env = self.run_environment("tool", f'printf "%s\\n" "$@" >> "{log}"\n')
         env |= self.zsh_environment(
             "autoload -Uz compinit && compinit -u -D\n"
@@ -3472,12 +3472,15 @@ class TerminalTests(unittest.TestCase):
         s.send(b"D", "Moved alpha to the trash")  # bound, so the query's too
         s.send(b"\x1b[27u")
         s.send(b"u", "Undid: Moved alpha to the trash")
-        s.send(b"gx", "Run · INSERT")
-        s.send(b"tool --and", "❯ tool --and")
-        s.send(b"\t", "❯ tool --and-exit ")
-        s.send(b"\r", "Run here")
+        s.send(b"gx")
+        s.wait_raw("Run ❯ ".encode())
+        s.wait_raw(b" alpha")
+        s.send(b"tool --and")
+        s.send(b"\t")
+        s.wait_raw(b"-exit")  # zsh draws only what it adds
         s.send(b"\r", "tool finished")
-        self.assertEqual(log.read_text().splitlines(), ["--and-exit", str(self.root / "alpha")])
+        # The path as it was on the line, in the folder zsh ran in.
+        self.assertEqual(log.read_text().splitlines(), ["--and-exit", "alpha"])
         s.send(b"\x03")
         self.assertEqual(s.finish()[0], 130)
 

@@ -271,6 +271,7 @@ pub fn plan(
         cwd: cwd.to_owned(),
         exit: false,
         line: line.trim().to_owned(),
+        env: vec![],
     })
 }
 

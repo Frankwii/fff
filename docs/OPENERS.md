@@ -175,25 +175,38 @@ whose program isn't installed.
 ## Running programs
 
 `gx` runs any program on the highlighted or marked files, and `gX` runs it
-in fff's place:
+in fff's place.
 
-1. A prompt asks for the command, such as `wc -l` or `dragon --and-exit`.
-   **Tab** completes program names and file paths and, when your shell is
-   zsh, whatever it would complete there: options, subcommands and the
-   like, from your own `.zshrc`. The line below says
-   which program it will run, or that there's none.
+**When your shell is zsh**, the command line is your own zsh, at the bottom
+of fff's screen, with the files already on it after the cursor:
+
+```
+Run ❯  'my notes.md' draft.tex
+```
+
+Type the command in front of them, such as `wc -l` or `e` (your alias for
+`nvim`), and press Enter. It runs exactly as in your terminal: your
+aliases, functions, Tab completion, history (Up) and keys, pipes and globs.
+An empty line or Ctrl+C runs nothing. Your `.zshrc` loads each time, as in
+a new terminal.
+
+**With another shell**, a prompt asks for the command:
+
+1. Type it, such as `wc -l` or `dragon --and-exit`. **Tab** completes
+   program names and file paths. The line below says which program it will
+   run, or that there's none.
 2. **Enter** shows the exact command, the program and the files, in order.
    Enter again runs it; Escape cancels.
 
-With `gx`, the program gets the terminal and fff comes back when it ends.
-If it failed, fff waits for Enter so you can read its errors. With `gX`,
-fff ends and the program takes its place; in `fff roam` your shell is then
-left in the folder you were browsing.
+   There's no shell here: the files are added at the end as separate
+   arguments, and characters that would need a shell (`|`, `>`, `$`,
+   `*`…) are refused with a message.
 
-As with openers, there's no shell: the files are added at the end as
-separate arguments, and characters that would need a shell (`|`, `>`, `$`,
-`*`…) are refused with a message. Programs run in the folder you're
-browsing.
+Either way, with `gx` the program gets the terminal and fff comes back when
+it ends. If it failed, fff waits for Enter so you can read its errors. With
+`gX`, fff ends and the program takes its place; in `fff roam` your shell is
+then left in the folder you were browsing. Programs run in the folder
+you're browsing.
 
 `e` is the quick version for your editor: it opens the highlighted or
 marked files in `$EDITOR` with no prompt. `$EDITOR` can have arguments,

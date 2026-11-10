@@ -8,7 +8,7 @@ use crate::{
     workspaces::{Change as WorkspaceChange, Draft as WorkspaceDraft, EditField as WorkspaceField},
 };
 use crossterm::{
-    cursor::{Hide, SetCursorStyle, Show},
+    cursor::{Hide, MoveTo, SetCursorStyle, Show},
     event::{
         self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
         Event, KeyCode as K, KeyEvent, KeyEventKind, KeyModifiers as M,

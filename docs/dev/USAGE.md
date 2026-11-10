@@ -118,8 +118,8 @@ fff can also be the desktop's file manager and file chooser: `fff setup
 [desktop integration](DESKTOP.md).
 
 Every text field is a clean embedded Neovim (`nvim` must be on PATH). Fields start in **Normal mode**,
-except prompts made for typing (new names, the go-to prompt, the gx/gX command,
-the workspace form)
+except prompts made for typing (new names, the go-to prompt, the gx/gX command
+without zsh, the workspace form)
 and the query of `fff pick`, `fff seek`, `fff explorer save` and a list read
 from stdin, which start in **Insert mode**.
 Use `j`/`k` to browse and `i` or `a` to type a filter. An empty query says

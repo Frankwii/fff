@@ -352,13 +352,59 @@ pub(super) fn edit_files(
         }
     }
 }
+/// gx and gX when the user's shell is zsh: it takes the line at the bottom
+/// of fff's screen, with the paths on it. gx comes back when zsh ends,
+/// pausing first after a failure; gX leaves fff for it.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn zsh_line(
+    terminal: &mut Terminal,
+    input: &mut Input,
+    wake: &std::sync::mpsc::SyncSender<()>,
+    app: &mut App,
+    discovery: &mut Discovery,
+    focus: &mut Focus,
+    zsh: &std::path::Path,
+    paths: Vec<PathBuf>,
+    exit: bool,
+) -> io::Result<()> {
+    let line = crate::zsh::Line::new(zsh, &app.cwd, &paths, exit);
+    if exit {
+        // Running operations are stopped first, once confirmed.
+        *focus = Focus::QuitConfirm(Box::new(Finish::Exec(line.plan)));
+        return Ok(());
+    }
+    let waiting = input.waiting.clone();
+    drop(std::mem::replace(input, Input::idle()));
+    terminal.lend();
+    let status = line.plan.wait();
+    let typed = line.typed();
+    if let (Ok(status), Some(typed)) = (&status, &typed)
+        && !status.success()
+    {
+        crate::run::pause_after_failure(typed, *status);
+    }
+    terminal.resume()?;
+    *input = Input::start(wake.clone(), waiting);
+    let message = match (status, typed) {
+        (Err(error), _) => format!("Could not run zsh: {error}"),
+        (Ok(_), None) => "Nothing ran".into(),
+        (Ok(status), Some(typed)) if status.success() => {
+            let name = typed.split_whitespace().next().unwrap_or_default();
+            let done = format!("{name} finished");
+            app.status_success = done.clone();
+            done
+        }
+        (Ok(status), Some(typed)) => format!("{typed} {}", crate::run::describe(status)),
+    };
+    discovery.force_refresh(app);
+    app.status = message;
+    Ok(())
+}
 pub(super) fn start_run(editor: &mut Nvim, paths: Vec<PathBuf>, exit: bool) -> Focus {
     {
         let e = &mut *editor;
         e.reset_insert(Field::Command);
     }
-    // The shell that completes its words starts meanwhile.
-    crate::zsh::warm();
     Focus::Command(crate::run::Prompt::new(paths, exit))
 }
 pub(super) fn workspace_saved(app: &App, action: &str) -> String {

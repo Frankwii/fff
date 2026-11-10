@@ -9,7 +9,7 @@ error.
 
 The query, exclusions, file filters, workspace and icon filters, and palette
 filter all initially start in **Normal mode**. New file/directory naming
-buffers, the go-to prompt (`/`), the gx/gX command prompt, the workspace
+buffers, the go-to prompt (`/`), the gx/gX command prompt (zsh users get zsh's own line instead), the workspace
 form's name and path, and the query of `fff pick`, `fff seek`,
 `fff explorer save` and a list read from stdin start in **Insert mode**, ready for typing; rename and
 extraction buffers and the contents query start in Normal. Tab
