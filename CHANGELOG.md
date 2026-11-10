@@ -6,6 +6,11 @@ history.
 
 ## Unreleased
 
+### Fixed
+
+- Saving a workspace while the queries are empty shows its queries as
+  `none` instead of `names "" · contents ""`.
+
 ## 0.24.0 — 2026-11-10
 
 `fff setup` sets up the shell, man pages and desktop too, `gx` runs your

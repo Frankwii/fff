@@ -2488,6 +2488,30 @@ fn workspace_form_explains_the_optional_path_under_it() {
     let screen = text(terminal.backend().buffer());
     assert!(!screen.contains("does not exist"), "{screen}");
     assert!(screen.contains("Optional: left empty"), "{screen}");
+    // The session's empty queries are offered as none, not as quoted empty
+    // strings; a nonempty one is quoted.
+    let query = lines_with(&screen, " queries ");
+    assert!(query.ends_with("queries    none"), "{screen}");
+    assert!(!screen.contains("\"\""), "{screen}");
+    if let Focus::WorkspaceEdit(draft) = &mut focus {
+        draft.offered.query = Some("lemma".into());
+    }
+    terminal
+        .draw(|f| _ = render(f, &mut app, &mut focus))
+        .unwrap();
+    let screen = text(terminal.backend().buffer());
+    let query = lines_with(&screen, " queries ");
+    assert!(
+        query.ends_with("queries    names \"lemma\" · contents none"),
+        "{screen}"
+    );
+}
+fn lines_with(screen: &str, word: &str) -> String {
+    let line = screen
+        .lines()
+        .find(|l| l.contains(word))
+        .unwrap_or_default();
+    line.trim_end_matches(['│', ' ']).to_string()
 }
 #[test]
 fn workspace_chooser_is_drawn_as_the_pickers_are() {

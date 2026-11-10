@@ -374,14 +374,20 @@ impl Setting {
         match self {
             Self::Program => w.program.map(|p| p.title().to_string()).unwrap_or_default(),
             Self::Roots => w.roots.as_deref().map(paths).unwrap_or_default(),
-            Self::Query => [
-                w.query.as_ref().map(|q| format!("names {q:?}")),
-                w.contents.as_ref().map(|q| format!("contents {q:?}")),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · "),
+            // An empty query is kept too (opening clears that query).
+            Self::Query => match (w.query.as_deref(), w.contents.as_deref()) {
+                (Some(""), Some("") | None) | (None, Some("")) => "none".into(),
+                (query, contents) => [("names", query), ("contents", contents)]
+                    .into_iter()
+                    .filter_map(|(field, q)| {
+                        q.map(|q| match q {
+                            "" => format!("{field} none"),
+                            q => format!("{field} {q:?}"),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" · "),
+            },
             Self::Depth => w.depth.map(|d| d.to_string()).unwrap_or_default(),
             Self::Filters => w.filters.as_deref().map(list).unwrap_or_default(),
             Self::Exclusions => w.exclusions.as_deref().map(list).unwrap_or_default(),
