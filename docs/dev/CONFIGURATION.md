@@ -1308,7 +1308,8 @@ The same three keys work at every level: **Space goes a level deeper**
   applies. `R` replaces the highlighted key: press the new one, and Enter
   puts it where the old one applied, at once when nothing else has it there,
   else through where it applies, with the clash shown. A digit for
-  `search_to_depth`, `open_row`, `highlight_row` or `go_to_row`
+  `search_to_depth`, `open_row`, `print_row_and_marks`, `quit_into_row`,
+  `highlight_row` or `go_to_row`
   stands for every digit. `d`
   deletes the highlighted row, and `D` puts the function's default keys
   back, after asking.

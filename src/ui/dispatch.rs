@@ -427,6 +427,13 @@ impl Session {
             HighlightRow => self.highlight_row(app, u32::from(digit.unwrap_or(0))),
             GoToRow => return self.on_row(app, u32::from(digit.unwrap_or(0)), GoToHighlighted),
             OpenRow => return self.on_row(app, u32::from(digit.unwrap_or(0)), OpenAndQuit),
+            PrintRowAndMarks => {
+                let row = u32::from(digit.unwrap_or(0));
+                return self.on_row(app, row, PrintHighlightedAndMarks);
+            }
+            QuitIntoRow => {
+                return self.on_row(app, u32::from(digit.unwrap_or(0)), QuitIntoHighlighted);
+            }
             SaveOver
             | PrintHighlighted
             | PrintHighlightedAndMarks

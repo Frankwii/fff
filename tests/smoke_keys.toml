@@ -22,6 +22,8 @@ open_in_background = [{ keys = "<M-l>" }]
 open_in_terminal = [{ keys = "<M-o>" }]
 open_and_quit = "none"
 open_row = [{ keys = "<M-#>" }]
+print_row_and_marks = "none"
+quit_into_row = "none"
 edit_files = "none"
 run = "none"
 run_and_quit = "none"
@@ -100,6 +102,8 @@ open_in_background = [{ keys = "l", focus = ["results", "marks"] }, { keys = "<M
 open_in_terminal = [{ keys = "o", focus = ["results", "marks"] }]
 open_and_quit = [{ keys = "<CR>" }]
 open_row = [{ keys = "<M-#>" }]
+print_row_and_marks = "none"
+quit_into_row = "none"
 edit_files = [{ keys = "e", focus = ["results", "marks"] }]
 run = [{ keys = "gx", focus = ["results", "marks"] }]
 run_and_quit = [{ keys = "gX", focus = ["results", "marks"] }]

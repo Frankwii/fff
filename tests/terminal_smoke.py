@@ -1407,6 +1407,18 @@ class TerminalTests(unittest.TestCase):
             s.close()
         self.session = None
 
+    def test_seek_ctrl_number_leaves_into_that_rows_folder(self):
+        deep = self.root / "work" / "notes"
+        deep.mkdir(parents=True)
+        (deep / "plan.docx").touch()
+        (self.root / "other.docx").touch()
+        # Row 2 is the deeper file whichever row is highlighted.
+        s = self.session = Session(self.root, "seek", "--no-config", "--glob", "*.docx",
+                                   "--depth", "4", implicit_root=True)
+        s.wait_ui("plan.docx")
+        s.send(b"\x1b[50;5u")
+        self.assertEqual(s.finish(), (0, os.fsencode(deep) + b"\n"))
+
     @unittest.skipUnless(shutil.which("nvim"), "Neovim is not installed")
     def test_paths_on_stdin_are_listed_in_order_and_printed_as_spelled(self):
         (self.root / "src").mkdir()
@@ -3530,6 +3542,14 @@ class TerminalTests(unittest.TestCase):
                 self.assertEqual(s.finish(), (0, expected))
                 s.close()
                 self.session = None
+        # Ctrl+number is Enter on that row: Ctrl+1 prints a.txt, marked and
+        # in row 1, once, though b.txt is highlighted.
+        s = self.start("--no-config", "--depth", "1")
+        s.send(b"gg ", "Marks (1)")
+        s.send(b"\x1b[49;5u")
+        self.assertEqual(s.finish(), (0, a))
+        s.close()
+        self.session = None
         # Ctrl+k opens the marked list and leaves it.
         s = self.start("--no-config", "--depth", "1")
         s.send(b"gg ", "Marks (1)")

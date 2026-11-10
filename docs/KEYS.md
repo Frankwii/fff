@@ -226,7 +226,7 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | Shift+Enter | `print_highlighted` | Print only the highlighted path (`fff pick`, dialogs) |
 | Ctrl+Enter | `print_marks` | Print only the marks (`fff pick`, dialogs for several) |
 | `L` | `open_in_background` | Open the file, staying in fff |
-| Ctrl+`1`…`9`, Ctrl+`0` | `open_row` | Open that row's file and leave (`fff roam`, `fff window`) |
+| Ctrl+`1`…`9`, Ctrl+`0` | `open_row`, `print_row_and_marks`, `quit_into_row` | Enter on that row: open its file and leave (`fff roam`, `fff window`), print it and the marks (`fff pick`), leave into its folder (`fff seek`) |
 | `e` | `edit_files` | Edit in `$EDITOR`, then come back |
 | `gx` / `gX` | `run` / `run_and_quit` | Run a program on the files, then come back / in fff's place |
 | `!` | `quit_here`, `print_here`, `save_here` | Leave into, print, or save in the folder you're in |

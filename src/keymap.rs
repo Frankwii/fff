@@ -660,11 +660,13 @@ functions! {
     RunAndQuit "run_and_quit" Open "Run a program on the highlighted entry, or the marked ones, in place of fff, which quits; fff exits with the program's exit status.";
     PrintHighlighted "print_highlighted" Finish "Print the highlighted path and quit, ignoring any marks: a file or a directory in fff pick, a file in file dialogs, a directory in folder dialogs.";
     PrintHighlightedAndMarks "print_highlighted_and_marks" Finish "Print the marked paths and the highlighted one, then quit, where the answer may be several paths: fff pick, and dialogs choosing several files or folders.";
+    PrintRowAndMarks "print_row_and_marks" Finish "Highlight row # (the number shown before each row on screen), then do what print_highlighted_and_marks does there: print the marked paths and that row's, then quit (fff pick). 0 is the last row on screen.";
     PrintMarks "print_marks" Finish "Print the marked paths and quit, where the answer may be several paths: fff pick, and dialogs choosing several files or folders.";
     PrintHere "print_here" Finish "Print the current directory and quit: the answer of fff pick, or of a folder dialog.";
     SaveHere "save_here" Finish "Save in the current directory, under the name typed in the query or, with the query empty, the suggested one (the save dialog, fff explorer save).";
     SaveOver "save_over" Finish "Save over the highlighted file, after asking whether to replace it (the save dialog, fff explorer save).";
     QuitIntoHighlighted "quit_into_highlighted" Finish "Quit into the highlighted directory, or the one holding the highlighted file; with nothing highlighted, into the current directory. Your shell's directory changes to it, with the shell integration (fff roam and fff seek).";
+    QuitIntoRow "quit_into_row" Finish "Highlight row # (the number shown before each row on screen), then do what quit_into_highlighted does there: quit into the directory holding its file (fff seek). 0 is the last row on screen.";
     QuitHere "quit_here" Finish "Quit into the current directory, ignoring the marks: your shell's directory changes to it, with the shell integration (fff roam). In a terminal window of its own (fff window), fff leaves a shell there.";
     Quit "quit" Finish "Quit without choosing anything: back in the directory you started from (fff roam), printing nothing (fff pick, fff seek), or cancelling the dialog (fff explorer).";
     Cancel "cancel" Finish "Cancel: quit at once from anywhere in fff, printing nothing. While a file operation checks its entries, stop that instead; while operations run, ask first.";
@@ -801,6 +803,7 @@ impl Function {
                 | HighlightRow
                 | PrintHighlighted
                 | PrintHighlightedAndMarks
+                | PrintRowAndMarks
                 | PrintMarks
                 | Quit
                 | Cancel
@@ -890,10 +893,12 @@ impl Function {
                 scope(&[ExplorerMultiple], &[], &file),
                 scope(&[ExplorerFolderMultiple], &[], &[H::Dir]),
             ],
+            PrintRowAndMarks => vec![scope(&[Pick, Piped], &RESULTS, &[])],
             PrintMarks => vec![scope(&SEVERAL, &[], &[])],
             PrintHere => vec![scope(&[Pick, ExplorerFolder, ExplorerFolderMultiple], &[], &[])],
             // Your shell follows: the programs started from it that move.
             QuitIntoHighlighted => vec![scope(&[Roam, Seek], &[], &[])],
+            QuitIntoRow => vec![scope(&[Seek], &RESULTS, &[])],
             QuitHere => vec![scope(&[Roam, Window], &[], &[])],
             SwitchProgram => vec![scope(&Program::SWITCHABLE.map(|(p, _)| p), &[], &[])],
         }
@@ -944,6 +949,8 @@ impl Function {
             GoToPreviousTab => &[("<Down>", all)],
             OpenAndQuit => &[("<CR>", all)],
             OpenRow => &[("<C-#>", all)],
+            PrintRowAndMarks => &[("<C-#>", all)],
+            QuitIntoRow => &[("<C-#>", all)],
             GoToRow => &[("<M-#>", scope(&NAVIGATE, &[], &[]))],
             // fff seek does not navigate: there Alt+number only highlights.
             HighlightRow => &[("<M-#>", scope(&[Seek], &[], &[]))],
@@ -1011,6 +1018,8 @@ impl Function {
             OpenAndQuit => &[("<CR>", all)],
             OpenInBackground => &[("L", all)],
             OpenRow => &[("<C-#>", all)],
+            PrintRowAndMarks => &[("<C-#>", all)],
+            QuitIntoRow => &[("<C-#>", all)],
             HighlightRow => &[("<#>", lists), ("<M-#>", scope(&[Seek], &[], &[]))],
             GoToRow => &[("<M-#>", scope(&NAVIGATE, &[], &[]))],
             Run => &[("gx", all)],
@@ -1981,6 +1990,21 @@ mod tests {
             run(&keymap, Mode::Insert, here, &[alt]),
             Step::Run(Function::OpenRow, Some(0))
         );
+        // Elsewhere Ctrl+number is Enter on that row: printing it with the
+        // marks in fff pick, leaving into its folder in fff seek.
+        for mode in Mode::ALL {
+            for (program, function) in [
+                (Pick, Function::PrintRowAndMarks),
+                (Piped, Function::PrintRowAndMarks),
+                (Seek, Function::QuitIntoRow),
+            ] {
+                assert_eq!(
+                    run(&keymap, mode, cell(program, H::File), &[alt]),
+                    Step::Run(function, Some(0)),
+                    "{program:?} {mode:?}"
+                );
+            }
+        }
         let alt = KeyEvent::new(KeyCode::Char('2'), M::ALT);
         for mode in Mode::ALL {
             assert_eq!(

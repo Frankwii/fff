@@ -221,13 +221,15 @@ it again with an empty query; a tab whose directory is moved follows it, and one
 back to the nearest existing parent. F2's session details list every tab's directory. `fff seek`, which cannot
 change directory, has no tabs.
 
-Rows are numbered on screen, and three functions act on a numbered row: a
+Rows are numbered on screen, and functions act on a numbered row: a
 digit in Normal mode highlights it (`highlight_row`), Alt+number goes to
 it as `l` does, into its folder or to its file's folder (`go_to_row`; in
 `fff seek`, which does not navigate, it only highlights it, as
-`highlight_row`), and Ctrl+number opens its file
-and quits, as Enter does in `fff roam` and `fff window` (`open_row`; on a
-directory it only highlights it). Labels refer to the last fully rendered
+`highlight_row`), and Ctrl+number does what Enter does on it: it opens
+its file and quits in `fff roam` and `fff window` (`open_row`; on a
+directory it only highlights it), prints the marks and that row, a folder
+too, in `fff pick` and on a list read from stdin (`print_row_and_marks`),
+and leaves into its file's folder in `fff seek` (`quit_into_row`). Labels refer to the last fully rendered
 page: 1–9 select that position, out-of-range digits clamp to the last row,
 and 0 selects the last row (plain 0 stays Neovim's). With no visible rows,
 they do nothing.

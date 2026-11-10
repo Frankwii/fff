@@ -1084,6 +1084,8 @@ impl Picker {
                             f,
                             Function::SearchToDepth
                                 | Function::OpenRow
+                                | Function::PrintRowAndMarks
+                                | Function::QuitIntoRow
                                 | Function::HighlightRow
                                 | Function::GoToRow
                         )

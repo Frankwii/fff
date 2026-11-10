@@ -6,6 +6,12 @@ history.
 
 ## Unreleased
 
+### Added
+
+- Ctrl+number is Enter on that row in `fff pick` too, printing the marks
+  and that row (`print_row_and_marks`), and in `fff seek`, leaving into
+  its file's folder (`quit_into_row`).
+
 ### Changed
 
 - The workspace form ticks the names and the contents query separately,
