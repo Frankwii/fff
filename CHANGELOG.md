@@ -6,6 +6,12 @@ history.
 
 ## Unreleased
 
+## 0.24.1 — 2026-11-10
+
+Rows labelled by name match only what they show and rank without a
+penalty for depth they hide, and Ctrl+number is Enter on its row in
+`fff pick` and `fff seek` too.
+
 ### Added
 
 - Ctrl+number is Enter on that row in `fff pick` too, printing the marks
