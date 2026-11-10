@@ -6,6 +6,13 @@ history.
 
 ## Unreleased
 
+## 0.24.0 — 2026-11-10
+
+`fff setup` sets up the shell, man pages and desktop too, `gx` runs your
+own zsh, a guide of everyday tasks, copying many small files is far
+faster on Linux, and sorting by size follows folders' totals as they
+arrive.
+
 ### Added
 
 - **`fff setup` sets up the rest too.** After the configuration, it offers
