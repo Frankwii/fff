@@ -394,16 +394,17 @@ fn drafts_keep_the_ticked_settings_and_an_empty_path_keeps_the_folder() {
     // A setting the session has no value for cannot be ticked.
     assert!(!draft.toggle(Setting::Program));
     assert!(draft.toggle(Setting::Depth) && draft.toggle(Setting::Toggles));
-    assert!(draft.toggle(Setting::Query));
+    // The queries tick separately: an empty contents query alone is kept.
+    assert!(draft.toggle(Setting::Contents));
     draft.path.clear();
     let kept = draft.workspace(&f.0, None).unwrap();
     assert_eq!((kept.path, kept.depth), (None, Some(4)));
-    assert_eq!(kept.query.as_deref(), Some("thesis"));
+    assert_eq!(kept.query, None);
     assert_eq!(kept.contents.as_deref(), Some(""));
     assert_eq!((kept.hidden, kept.preview), (Some(true), Some(false)));
     assert_eq!((kept.roots, kept.filters), (None, None));
     // Unticking drops it again; with nothing left there is nothing to save.
-    for setting in [Setting::Depth, Setting::Toggles, Setting::Query] {
+    for setting in [Setting::Depth, Setting::Toggles, Setting::Contents] {
         assert!(draft.toggle(setting));
     }
     assert!(draft.workspace(&f.0, None).is_err());

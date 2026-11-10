@@ -6,10 +6,11 @@ history.
 
 ## Unreleased
 
-### Fixed
+### Changed
 
-- Saving a workspace while the queries are empty shows its queries as
-  `none` instead of `names "" · contents ""`.
+- The workspace form ticks the names and the contents query separately,
+  so a workspace can keep one without the other; an empty query shows as
+  `empty` and keeping it clears that query.
 
 ## 0.24.0 — 2026-11-10
 

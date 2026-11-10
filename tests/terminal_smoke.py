@@ -1533,8 +1533,8 @@ class TerminalTests(unittest.TestCase):
         s.send(b"\x1bn", "New workspace")
         self.assertIn("KEEPS", s.screen.text)
         s.send(b"\x1b[27uccnotes", "notes")
-        # Past the path, the icon, the program, the roots and the queries.
-        s.send(b"\x1b[27u" + b"\t" * 6, "› ○ depth")
+        # Past the path, the icon, the program, the roots and both queries.
+        s.send(b"\x1b[27u" + b"\t" * 7, "› ○ depth")
         s.send(b" ", "● depth")
         s.send(b"\t ", "● filters")
         s.send(b"\r", "Workspace saved")

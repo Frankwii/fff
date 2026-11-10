@@ -709,7 +709,9 @@ fn summary(app: &App, w: &crate::config::Workspace) -> String {
                 .filter(|s| s.is_in(w))
                 .map(|s| match s {
                     Setting::Roots => count(w.roots.as_ref().map_or(0, Vec::len), "root", "roots"),
-                    Setting::Depth => format!("depth {}", s.describe(w, show)),
+                    Setting::Names | Setting::Contents | Setting::Depth => {
+                        format!("{} {}", s.name(), s.describe(w, show))
+                    }
                     Setting::Filters => {
                         count(w.filters.as_ref().map_or(0, Vec::len), "filter", "filters")
                     }

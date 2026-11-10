@@ -807,8 +807,9 @@ path and icon, then lists the other settings under **Keeps** as a checklist,
 like the Keys screen's: ticked `●`, not ticked `○`, or crossed out `×` where
 there is nothing to keep (the program in `fff window` or a file dialog).
 Each shows the value it keeps: the session's as it is now, or, editing a
-workspace, the one it already keeps; an empty query shows as `none`, and
-keeping it clears that query on opening. A new workspace starts with the current
+workspace, the one it already keeps. The names and the contents query are
+ticked separately; an empty one shows as `empty`, and keeping it clears that
+query on opening. A new workspace starts with the current
 directory as its path and nothing ticked. The path is optional, as the form
 says under it: left empty, the workspace stays in whatever folder you are in
 and applies only its ticked settings (a set of filters, say); a workspace

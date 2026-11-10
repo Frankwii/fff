@@ -2488,11 +2488,16 @@ fn workspace_form_explains_the_optional_path_under_it() {
     let screen = text(terminal.backend().buffer());
     assert!(!screen.contains("does not exist"), "{screen}");
     assert!(screen.contains("Optional: left empty"), "{screen}");
-    // The session's empty queries are offered as none, not as quoted empty
-    // strings; a nonempty one is quoted.
-    let query = lines_with(&screen, " queries ");
-    assert!(query.ends_with("queries    none"), "{screen}");
-    assert!(!screen.contains("\"\""), "{screen}");
+    // Each query is a setting of its own; the session's empty ones are
+    // offered as empty, a typed one in quotes.
+    assert!(
+        lines_with(&screen, " names ").ends_with("names      empty"),
+        "{screen}"
+    );
+    assert!(
+        lines_with(&screen, " contents ").ends_with("contents   empty"),
+        "{screen}"
+    );
     if let Focus::WorkspaceEdit(draft) = &mut focus {
         draft.offered.query = Some("lemma".into());
     }
@@ -2500,9 +2505,8 @@ fn workspace_form_explains_the_optional_path_under_it() {
         .draw(|f| _ = render(f, &mut app, &mut focus))
         .unwrap();
     let screen = text(terminal.backend().buffer());
-    let query = lines_with(&screen, " queries ");
     assert!(
-        query.ends_with("queries    names \"lemma\" · contents none"),
+        lines_with(&screen, " names ").ends_with("names      \"lemma\""),
         "{screen}"
     );
 }
@@ -2526,6 +2530,12 @@ fn workspace_chooser_is_drawn_as_the_pickers_are() {
     app.workspaces = vec![
         workspace("Downloads", Some("/tmp")),
         workspace("Shallow", None),
+        crate::config::Workspace {
+            name: "Fresh".into(),
+            query: Some(String::new()),
+            contents: Some("lemma".into()),
+            ..Default::default()
+        },
     ];
     let mut focus = Focus::Workspaces {
         query: String::new(),
@@ -2539,10 +2549,15 @@ fn workspace_chooser_is_drawn_as_the_pickers_are() {
     // The count on the top border, the keys on the bottom one, the filter
     // with its prompt glyph and one row per workspace, names aligned.
     assert!(screen.contains("╭ Workspaces ─"), "{screen}");
-    assert!(screen.contains(" 2 workspaces ╮"), "{screen}");
+    assert!(screen.contains(" 3 workspaces ╮"), "{screen}");
     assert!(screen.contains("❯ type a workspace's name…"), "{screen}");
     assert!(screen.contains("    1 Downloads  /tmp"), "{screen}");
-    assert!(screen.contains("› 2/0 Shallow    depth 2"), "{screen}");
+    assert!(screen.contains("›   2 Shallow    depth 2"), "{screen}");
+    // Each query says which it is, an empty one that it clears.
+    assert!(
+        screen.contains("  3/0 Fresh      names empty · contents \"lemma\""),
+        "{screen}"
+    );
     assert!(
         screen.contains("Enter: Open ─ Alt+n: New ─ Alt+e: Edit"),
         "{screen}"

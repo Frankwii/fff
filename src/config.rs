@@ -278,12 +278,13 @@ impl Workspace {
     }
 }
 /// The settings a workspace may keep, as its form ticks them: some are
-/// several keys that go together (both queries, the toggles).
+/// several keys that go together (the toggles).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Setting {
     Program,
     Roots,
-    Query,
+    Names,
+    Contents,
     Depth,
     Filters,
     Exclusions,
@@ -291,10 +292,11 @@ pub enum Setting {
     Toggles,
 }
 impl Setting {
-    pub const ALL: [Setting; 8] = [
+    pub const ALL: [Setting; 9] = [
         Self::Program,
         Self::Roots,
-        Self::Query,
+        Self::Names,
+        Self::Contents,
         Self::Depth,
         Self::Filters,
         Self::Exclusions,
@@ -305,7 +307,8 @@ impl Setting {
         match self {
             Self::Program => "program",
             Self::Roots => "roots",
-            Self::Query => "queries",
+            Self::Names => "names",
+            Self::Contents => "contents",
             Self::Depth => "depth",
             Self::Filters => "filters",
             Self::Exclusions => "exclusions",
@@ -318,7 +321,8 @@ impl Setting {
         match self {
             Self::Program => w.program.is_some(),
             Self::Roots => w.roots.is_some(),
-            Self::Query => w.query.is_some() || w.contents.is_some(),
+            Self::Names => w.query.is_some(),
+            Self::Contents => w.contents.is_some(),
             Self::Depth => w.depth.is_some(),
             Self::Filters => w.filters.is_some(),
             Self::Exclusions => w.exclusions.is_some(),
@@ -337,10 +341,8 @@ impl Setting {
         match self {
             Self::Program => to.program = from.program,
             Self::Roots => to.roots = from.roots.clone(),
-            Self::Query => {
-                to.query = from.query.clone();
-                to.contents = from.contents.clone();
-            }
+            Self::Names => to.query = from.query.clone(),
+            Self::Contents => to.contents = from.contents.clone(),
             Self::Depth => to.depth = from.depth,
             Self::Filters => to.filters = from.filters.clone(),
             Self::Exclusions => to.exclusions = from.exclusions.clone(),
@@ -368,26 +370,20 @@ impl Setting {
             }
         };
         let paths = |paths: &[PathBuf]| list(&paths.iter().map(|p| show(p)).collect::<Vec<_>>());
+        let query = |q: Option<&str>| match q {
+            Some("") => "empty".to_string(),
+            Some(q) => format!("{q:?}"),
+            None => String::new(),
+        };
         let flag = |on: Option<bool>, yes: &'static str, no: &'static str| {
             on.map(|on| if on { yes } else { no })
         };
         match self {
             Self::Program => w.program.map(|p| p.title().to_string()).unwrap_or_default(),
             Self::Roots => w.roots.as_deref().map(paths).unwrap_or_default(),
-            // An empty query is kept too (opening clears that query).
-            Self::Query => match (w.query.as_deref(), w.contents.as_deref()) {
-                (Some(""), Some("") | None) | (None, Some("")) => "none".into(),
-                (query, contents) => [("names", query), ("contents", contents)]
-                    .into_iter()
-                    .filter_map(|(field, q)| {
-                        q.map(|q| match q {
-                            "" => format!("{field} none"),
-                            q => format!("{field} {q:?}"),
-                        })
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" · "),
-            },
+            // An empty query is kept too: opening clears that query.
+            Self::Names => query(w.query.as_deref()),
+            Self::Contents => query(w.contents.as_deref()),
             Self::Depth => w.depth.map(|d| d.to_string()).unwrap_or_default(),
             Self::Filters => w.filters.as_deref().map(list).unwrap_or_default(),
             Self::Exclusions => w.exclusions.as_deref().map(list).unwrap_or_default(),
