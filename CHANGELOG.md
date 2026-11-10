@@ -14,6 +14,12 @@ history.
 
 ### Changed
 
+- Rows labelled by name (`gl`) match the query only by what they show, not
+  by folders they hide, and rank by the match alone, as depth they do not
+  show no longer pushes a good match below a poor one. Rows show names only
+  while folders are hidden (`gd`), so `fff pick` starts with paths until
+  you hide them, and only up to 10,000 listed files: past that rows show
+  paths and the status line says why.
 - The workspace form ticks the names and the contents query separately,
   so a workspace can keep one without the other; an empty query shows as
   `empty` and keeping it clears that query.

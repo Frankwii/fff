@@ -693,7 +693,7 @@ functions! {
     TogglePreviewWrap "toggle_preview_wrap" View "Toggle word wrapping in the preview: long lines wrapped onto the next rows, or cut at its edge.";
     ScrollPreviewDown "scroll_preview_down" View "Scroll the preview down by half its height, leaving the highlight where it is.";
     ScrollPreviewUp "scroll_preview_up" View "Scroll the preview up by half its height, leaving the highlight where it is.";
-    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with just the parent folders that tell same-named entries apart (folder1/main.pdf), or by their whole path below the directory searched. fff pick starts with names, the others with paths; the choice stays when switch_program changes program.";
+    ToggleLabels "toggle_labels" View "Toggle how rows are labelled: by name, with just the parent folders that tell same-named entries apart (folder1/main.pdf), or by their whole path below the directory searched. Names show only while files alone are listed, at most 10,000 of them, and the query then matches only what a row shows, whatever its depth. fff pick starts with names, the others with paths; the choice stays when switch_program changes program.";
     ShowPalettes "show_palettes" View "Show the color palettes: the highlighted one is tried out after a moment, and Enter keeps it for this session.";
     ShowSorting "show_sorting" View "Show the sorting picker: sort the results by name, size, a date, extension, kind or depth, or in the program's own order; Tab switches between ascending and descending. The query still decides what is listed.";
     ReloadPalette "reload_palette" View "Reload the palette the configuration names, dropping one chosen with show_palettes for this session.";

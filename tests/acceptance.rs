@@ -929,12 +929,19 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
         ("", true, false),
         ("x1", true, false),
         ("", false, true),
+        // Labels shown, which the query matches: "b" only those naming b/.
+        ("x1", false, true),
+        ("b", false, true),
     ] {
         let mut merged = app();
         if seek {
             merged.set_program(fuzzy_file_finder::program::Program::Seek);
         }
         merged.short_labels = short_labels;
+        // Rows show names only while files alone are listed.
+        if short_labels {
+            merged.kinds = fuzzy_file_finder::Kinds::Files;
+        }
         merged.query = query.into();
         merged.refresh();
         // Batches outgrow a round, so later ones arrive while some wait.
@@ -957,6 +964,9 @@ fn budgeted_merges_match_ranking_everything_including_replaced_kinds() {
             ranked.set_program(fuzzy_file_finder::program::Program::Seek);
         }
         ranked.short_labels = short_labels;
+        if short_labels {
+            ranked.kinds = fuzzy_file_finder::Kinds::Files;
+        }
         ranked.query = query.into();
         for (i, (name, dir, depth)) in names.iter().enumerate() {
             ranked.insert(0, candidate(name, *dir != (i % 11 == 0), *depth));

@@ -225,11 +225,26 @@ planner share runs, so merging a run they share copies it, as it did before.
 
 ## Labels
 
-With short labels (`App::short_labels`), a row shows its name with only the
-parents that tell it apart from listed entries of the same name
-(`src/labels.rs`). A new path can change the labels of others, so nothing
-is labelled ahead: the listed entries are kept by name (`Names`), and
-`App::label` works out a row's label when a frame draws it.
+With short labels (`App::labels_shown`: `short_labels` chosen, only files
+listed, at most `ranking::LABELLED_AT` of them), a row shows its name with
+only the parents that tell it apart from listed entries of the same name
+(`src/labels.rs`), and the query matches that label (`Names::text`). A new
+path can change the labels of others, so nothing is labelled ahead: the
+listed entries are kept by name (`Names`), and `App::label` works out a
+row's label when a frame draws it.
+
+- **Matching labels.** A ranking of every known path with labels wanted
+  (`Job::run_labelled`) lists first and counts; at most `LABELLED_AT`, it
+  groups the listed entries and matches each by its label, else by its path,
+  leaving the groups empty, and the rows show paths. The count it returns
+  (`App::listed_len`), which merges keep up to date, decides what the next
+  ranking expects (`App::labels_expected`, part of the refresh basis), so a
+  scan passing the limit ranks everything again, by paths. Narrowing a
+  query matches the rows by the session's labels (`Labeller::reader`),
+  which holds the groups for the pass: drawing waits for at most 10,000
+  rows. A merge that adds or forgets an entry re-matches every entry of
+  its name, whose labels may have changed (`App::relabel`): their rows
+  leave and come back as a run of their own.
 
 - **Grouping.** A ranking groups the listed entries on its own thread and
   hands the groups over with its rows. A scan's rounds (`App::merge`) are

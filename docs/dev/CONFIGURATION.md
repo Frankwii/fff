@@ -314,7 +314,8 @@ temperature = 1.0         # what depth costs a match in the programs' ranking an
 
 The order sessions start in; `"program"` is each program's own (the best
 match minus a penalty for depth, as `"log"` sorts; the best match first in
-`fff seek`).
+`fff seek`, and in every program while rows are labelled by name, which
+hides their depth).
 Descending is each criterion's own order: names from A, the largest, the
 newest, folders first, the shallowest, the best match first; `false`
 reverses it. `gs`
@@ -914,8 +915,8 @@ A rough estimate of 100–150 bytes per path gives about 8 MiB at defaults; long
 paths can cost considerably more. This is a count limit, not an exact byte cap.
 The current view's index, result rows and BFS queue are separate and scale with
 the tree being browsed, up to `[performance] max_paths` (about 450 bytes per
-path, more while rows are labelled by name, as in `fff pick`
-(see `gl`), which keeps labels: roughly 450–550 MB
+path, more while rows are labelled by name, as in `fff pick` with only
+files listed (see `gl`), which keeps labels for at most 10,000 entries: roughly 450 MB
 at the default); lowering depth reduces that working set. Prefetch has its
 own small allocation budgets and cannot evict visited snapshots.
 

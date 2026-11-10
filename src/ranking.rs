@@ -5,7 +5,7 @@
 use crate::score;
 use crate::{
     Candidate, Listing, Matcher,
-    labels::Names,
+    labels::{Names, Reader},
     rows::{FolderSizes, Key, Order, Run},
     sizes::Totals,
 };
@@ -16,6 +16,9 @@ use std::sync::{
 
 /// Candidates from which ranking runs on its own thread.
 pub(crate) const BACKGROUND_AT: usize = 16_384;
+/// The most entries rows are labelled by name for: past it, labelling every
+/// listed entry, and matching their labels, would slow typing.
+pub const LABELLED_AT: usize = 10_000;
 /// Rows with their keys, or none (every known path).
 type Slice<'a> = (&'a [Arc<Candidate>], &'a [Key]);
 /// Candidates checked between looks at the cancellation flag.
@@ -33,8 +36,12 @@ pub(crate) struct Job {
     /// The lowercased query.
     pub query: String,
     /// Group the listed entries for their labels again; `Some(true)` when
-    /// they are shown (else the groups are left empty).
+    /// they are wanted: then, unless more than `LABELLED_AT` are listed,
+    /// each is matched by its label (else the groups are left empty).
     pub labels: Option<bool>,
+    /// Rows already listed are matched by the labels these names give
+    /// them, as they are shown.
+    pub labelled: Option<Reader>,
     /// The order to rank in.
     pub order: Order,
     /// Folders' sizes, for sorting by them.
@@ -46,6 +53,11 @@ pub(crate) struct Job {
 pub(crate) struct Ranked {
     pub run: Run,
     pub names: Option<Names>,
+    /// The rows show labels and match by them: labels were wanted and few
+    /// enough entries are listed.
+    pub labelled: bool,
+    /// How many entries are listed, from a ranking of every known path.
+    pub listed: Option<usize>,
 }
 
 impl Job {
@@ -55,6 +67,56 @@ impl Job {
     }
     /// The ranked rows, or `None` once `cancel` is set.
     pub fn run(self, cancel: &AtomicBool) -> Option<Ranked> {
+        if self.labels == Some(true) && self.listing.is_some() {
+            return self.run_labelled(cancel);
+        }
+        if let Some(reader) = &self.labelled {
+            let (run, _, _) = reader.with(|names| self.rank(Pass::Labels(names), cancel))?;
+            return Some(Ranked {
+                run,
+                names: None,
+                labelled: true,
+                listed: None,
+            });
+        }
+        let (run, listed, count) = self.rank(Pass::Paths, cancel)?;
+        let names = self.labels.map(|_| Names::new(listed));
+        Some(Ranked {
+            run,
+            names,
+            labelled: false,
+            listed: self.listing.is_some().then_some(count),
+        })
+    }
+    /// Every listed entry, grouped for labels when few enough are, then
+    /// ranked: by its label then, else by its path.
+    fn run_labelled(mut self, cancel: &AtomicBool) -> Option<Ranked> {
+        let (_, listed, count) = self.rank(Pass::List, cancel)?;
+        let labelled = count <= LABELLED_AT;
+        let names = Names::new(if labelled { listed.clone() } else { Vec::new() });
+        self.base = vec![Arc::new(Run {
+            rows: listed,
+            keys: Vec::new(),
+        })];
+        self.listing = None;
+        self.labels = None;
+        let pass = if labelled {
+            Pass::Labels(&names)
+        } else {
+            Pass::Paths
+        };
+        let (run, _, _) = self.rank(pass, cancel)?;
+        Some(Ranked {
+            run,
+            names: Some(names),
+            labelled,
+            listed: Some(count),
+        })
+    }
+    /// The rows ranked as `pass` says, with every listed candidate when
+    /// labels are wanted, and how many are listed.
+    #[allow(clippy::type_complexity)]
+    fn rank(&self, pass: Pass, cancel: &AtomicBool) -> Option<(Run, Vec<Arc<Candidate>>, usize)> {
         let threads = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
             .clamp(1, MAX_THREADS)
@@ -81,7 +143,7 @@ impl Job {
         // Each piece is filtered, scored and sorted on its own thread; a
         // single piece here, as starting a thread costs more than small work.
         let pieces: Vec<_> = if threads == 1 {
-            vec![self.rank_piece(&slices, keep_listed, sizes, cancel)]
+            vec![self.rank_piece(&slices, keep_listed, pass, sizes, cancel)]
         } else {
             let job = &self;
             std::thread::scope(|scope| {
@@ -94,7 +156,9 @@ impl Job {
                         })
                     })
                     .map(|chunk| {
-                        scope.spawn(move || job.rank_piece(&[chunk], keep_listed, sizes, cancel))
+                        scope.spawn(move || {
+                            job.rank_piece(&[chunk], keep_listed, pass, sizes, cancel)
+                        })
                     })
                     .collect();
                 handles
@@ -105,38 +169,36 @@ impl Job {
         };
         let mut sorted = Vec::with_capacity(pieces.len());
         let mut listed = Vec::new();
+        let mut count = 0;
         for piece in pieces {
-            let (rows, kept) = piece?;
+            let (rows, kept, counted) = piece?;
             sorted.push(rows);
             listed.extend(kept);
+            count += counted;
         }
         let rows = merge_all(sorted, self.order, cancel)?;
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        let names = self
-            .labels
-            .map(|shown| Names::new(if shown { listed } else { Vec::new() }));
         let (keys, rows) = rows.into_iter().unzip();
-        Some(Ranked {
-            run: Run { rows, keys },
-            names,
-        })
+        Some((Run { rows, keys }, listed, count))
     }
     /// One piece's listed rows, sorted, with every listed candidate when
-    /// labels need them.
+    /// labels need them, and how many are listed.
     #[allow(clippy::type_complexity)]
     fn rank_piece(
         &self,
         chunk: &[Slice],
         keep_listed: bool,
+        pass: Pass,
         sizes: &FolderSizes,
         cancel: &AtomicBool,
-    ) -> Option<(Vec<(Key, Arc<Candidate>)>, Vec<Arc<Candidate>>)> {
+    ) -> Option<(Vec<(Key, Arc<Candidate>)>, Vec<Arc<Candidate>>, usize)> {
         let matcher = Matcher::new(&self.query);
         let letters = matcher.letters();
         let mut ranked = Vec::new();
         let mut listed = Vec::new();
+        let mut count = 0;
         let rows = chunk.iter().flat_map(|&(rows, keys)| {
             let keys = keys.iter().map(Some).chain(std::iter::repeat(None));
             rows.iter().zip(keys)
@@ -148,10 +210,16 @@ impl Job {
             if self.listing.as_ref().is_some_and(|l| !l.listed(c)) {
                 continue;
             }
+            count += 1;
             if keep_listed {
                 listed.push(Arc::clone(c));
             }
-            if let Some(score) = matcher.score_candidate(c) {
+            let score = match pass {
+                Pass::List => continue,
+                Pass::Labels(names) => matcher.score_path(&names.text(c)),
+                Pass::Paths => matcher.score_candidate(c),
+            };
+            if let Some(score) = score {
                 let key = match key {
                     Some(key) if self.resize => {
                         let key = self.order.resize(*key, c, sizes);
@@ -168,8 +236,19 @@ impl Job {
         }
         // Pathnames break every tie, so an unstable sort yields the same order.
         ranked.sort_unstable_by(|(sa, a), (sb, b)| self.order.cmp(a, *sa, b, *sb));
-        Some((ranked, listed))
+        Some((ranked, listed, count))
     }
+}
+
+/// What a ranking's pass over the rows does.
+#[derive(Clone, Copy)]
+enum Pass<'a> {
+    /// Only list them, for labels.
+    List,
+    /// Match each by its label from these names.
+    Labels(&'a Names),
+    /// Match each by its path below its root.
+    Paths,
 }
 
 /// Merge sorted pieces pairwise, each level's pairs in parallel.
@@ -268,5 +347,131 @@ fn typing_over_a_pending_ranking_narrows_the_rows_shown() {
         app.rows
             .iter()
             .all(|c| score(&c.path.to_string_lossy(), "f12").is_some())
+    );
+}
+#[cfg(test)]
+fn labelled_pick(paths: &[&str]) -> crate::App {
+    use crate::{App, Policy};
+    let mut app = App::new(vec!["/w".into()], 6, Policy::default());
+    app.set_program(crate::program::Program::Pick);
+    app.kinds = crate::Kinds::Files;
+    for path in paths {
+        app.insert(0, file(path));
+    }
+    app.scanning = false;
+    app
+}
+#[cfg(test)]
+fn file(path: &str) -> Candidate {
+    Candidate {
+        path: path.into(),
+        directory: false,
+        depth: 0,
+        root: 0,
+        order: 0,
+    }
+}
+#[cfg(test)]
+fn row_paths(app: &crate::App) -> Vec<String> {
+    app.rows
+        .iter()
+        .map(|c| c.path.display().to_string())
+        .collect()
+}
+#[cfg(test)]
+#[test]
+fn labelled_rows_match_what_they_show_whatever_their_depth() {
+    let book = "/w/minicozzi_colding_a_course_in_minimal_surfaces.djvu";
+    let paper = "/w/problems/limit/bibliography/krupa_szmolyan_oscillation_canard_explosion.pdf";
+    let brezis = "/w/notes_books/functional_analysis/Brezis.pdf";
+    let mut app = labelled_pick(&[book, paper, brezis]);
+    app.query = "canard".into();
+    app.refresh();
+    assert!(app.labels_shown());
+    // Depth no longer outweighs the match, and Brezis.pdf, which matches
+    // only through folders the row does not show, is not listed.
+    assert_eq!(row_paths(&app), [paper, book]);
+    let paper = &app.rows.iter().next().expect("a row").clone();
+    assert_eq!(
+        app.matched_text(paper),
+        "krupa_szmolyan_oscillation_canard_explosion.pdf"
+    );
+    // Typing on narrows by the labels too.
+    app.query = "canarde".into();
+    app.refresh();
+    assert_eq!(row_paths(&app).len(), 1);
+    // With folders listed, rows show paths, which the query matches, and
+    // depth counts.
+    app.kinds = crate::Kinds::All;
+    app.query = "canard".into();
+    app.refresh();
+    assert!(!app.labels_shown());
+    assert_eq!(row_paths(&app)[0], book);
+    assert!(row_paths(&app).iter().any(|p| p == brezis));
+}
+#[cfg(test)]
+#[test]
+fn a_name_shared_later_relabels_its_entries_as_they_come_and_go() {
+    let thesis = "/w/thesis/main.pdf";
+    let mut app = labelled_pick(&[thesis]);
+    app.query = "thesis".into();
+    app.refresh();
+    // Alone, it shows as main.pdf, which "thesis" does not match.
+    assert!(app.rows.is_empty());
+    // Another main.pdf lengthens its label to thesis/main.pdf.
+    app.insert(0, file("/w/other/main.pdf"));
+    app.refresh();
+    assert_eq!(row_paths(&app), [thesis]);
+    // Once the other one is gone, it is main.pdf again.
+    app.generation += 1;
+    app.insert(app.generation, file(thesis));
+    app.reconcile(app.generation);
+    app.refresh();
+    assert!(app.rows.is_empty(), "{:?}", row_paths(&app));
+}
+#[cfg(test)]
+#[test]
+fn rows_show_paths_past_the_labelled_limit_and_say_so() {
+    let paths: Vec<String> = (0..=LABELLED_AT)
+        .map(|i| format!("/w/d{i}/f{i}.txt"))
+        .collect();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let mut app = labelled_pick(&refs);
+    app.refresh();
+    app.refresh();
+    assert!(!app.labels_shown());
+    assert!(
+        app.status.contains("10,001 files are listed"),
+        "{}",
+        app.status
+    );
+    // Asking for names again says why they do not show.
+    app.toggle_labels();
+    app.toggle_labels();
+    assert!(!app.labels_shown());
+    assert!(
+        app.status.contains("more than the 10,000"),
+        "{}",
+        app.status
+    );
+    // One fewer, and names come back on their own.
+    app.generation += 1;
+    for path in &refs[1..] {
+        app.insert(app.generation, file(path));
+    }
+    app.reconcile(app.generation);
+    app.refresh();
+    app.refresh();
+    assert!(app.labels_shown());
+    assert!(app.status.contains("names again"), "{}", app.status);
+    // With folders listed, gl says what shows names.
+    app.kinds = crate::Kinds::All;
+    app.toggle_labels();
+    app.toggle_labels();
+    assert!(!app.labels_shown());
+    assert!(
+        app.status.contains("while folders are listed"),
+        "{}",
+        app.status
     );
 }

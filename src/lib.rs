@@ -52,6 +52,7 @@ pub(crate) use policy::Listing;
 pub use policy::{Kinds, Policy, glob};
 use policy::{eligible, shown};
 use std::{
+    borrow::Cow,
     cell::Cell,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -123,7 +124,8 @@ struct RefreshBasis {
     filters_off: bool,
     navigates: bool,
     kinds: Kinds,
-    short_labels: bool,
+    /// Rows are labelled by name, as `App::labels_expected` expects.
+    labels: bool,
     order: rows::Order,
 }
 impl RefreshBasis {
@@ -140,7 +142,7 @@ impl RefreshBasis {
             filters_off: app.policy.filters_off,
             navigates: app.program().navigates(),
             kinds: app.kinds,
-            short_labels: app.short_labels,
+            labels: app.labels_expected(),
             order: app.order(),
         }
     }
@@ -295,9 +297,16 @@ pub struct App {
     /// With a sort by size, how the rows follow the folders' totals
     /// (`follow_sizes`).
     sizes: FollowSizes,
-    /// What `short_labels` was when the rows on screen were last labelled:
+    /// Whether the rows on screen were labelled by name when last labelled
+    /// (`short_labels` with only files listed, and few enough of them):
     /// while another ranking labels them again, they keep their labels.
     shown_labels: Option<bool>,
+    /// How many entries are listed, as a ranking of every known path
+    /// counted them and merges since keep count.
+    listed_len: usize,
+    /// Labels are wanted but too many entries are listed for them: rows
+    /// show paths, as the status line said (`note_labels`).
+    labels_capped: bool,
     /// `toggle_labels` chose the labels: `switch_program` keeps them.
     pub labels_chosen: bool,
     /// With labels shown: listed entries by basename, from which a drawn
@@ -447,6 +456,8 @@ impl App {
             reading: rows::Reading::default(),
             sizes: FollowSizes::default(),
             shown_labels: None,
+            listed_len: 0,
+            labels_capped: false,
             labels_chosen: false,
             names: Default::default(),
             home: None,
@@ -545,10 +556,32 @@ impl App {
     pub fn contents_shown(&self) -> bool {
         self.grep.editing || !self.grep.text.is_empty()
     }
-    /// Rows show short labels (`labels`) rather than paths: `short_labels`,
-    /// once a ranking has labelled the rows for it.
+    /// Rows show short labels (`labels`) rather than paths, and the query
+    /// matches them: once a ranking has labelled the rows for
+    /// `labels_wanted`, with few enough entries listed.
     pub fn labels_shown(&self) -> bool {
-        self.shown_labels.unwrap_or(self.short_labels)
+        self.shown_labels == Some(true)
+    }
+    /// `short_labels`, while only files are listed: a folder's bare name
+    /// does not say where it is.
+    pub fn labels_wanted(&self) -> bool {
+        self.short_labels && self.listed_kinds() == Kinds::Files
+    }
+    /// The rows will be labelled by name, as far as the entries counted so
+    /// far tell: wanted, and at most `LABELLED_AT` listed.
+    fn labels_expected(&self) -> bool {
+        self.labels_wanted() && self.listed_len <= ranking::LABELLED_AT
+    }
+    /// What the query matches in a row: its label as shown while labels are
+    /// shown, else its path below its root.
+    pub fn matched_text<'a>(&self, c: &'a Candidate) -> Cow<'a, str> {
+        if !self.labels_shown() {
+            return matching::relative(c);
+        }
+        match self.label(&c.path) {
+            Some(label) => label.to_string_lossy().into_owned().into(),
+            None => c.path.file_name().unwrap_or_default().to_string_lossy(),
+        }
     }
     /// A listed entry's short label: the parents that tell it apart from
     /// other entries of its name, `None` when no other has it.
@@ -574,12 +607,54 @@ impl App {
         self.short_labels = !self.short_labels;
         self.labels_chosen = true;
         self.refresh();
-        self.status = if self.short_labels {
-            "Rows show their names".into()
+        self.labels_capped = self.labels_wanted() && self.listed_len > ranking::LABELLED_AT;
+        if !self.short_labels {
+            self.status = "Rows show their paths".into();
+        } else if self.listed_kinds() != Kinds::Files {
+            let hide = match self.bound(keymap::Function::ToggleDirectories) {
+                Some(key) => format!("{key} hides folders"),
+                None => "toggle_directories hides folders".into(),
+            };
+            self.status = format!(
+                "Rows show paths while folders are listed, and their names once only files \
+                 are: {hide}"
+            );
+            return;
+        } else if self.labels_capped {
+            self.status = self.capped_status();
+            return;
         } else {
-            "Rows show their paths".into()
-        };
+            self.status = "Rows show their names".into();
+        }
         self.status_success = self.status.clone();
+    }
+    /// Say so when the rows stop or start showing names for how many
+    /// entries are listed (`LABELLED_AT`), as a scan or a new depth or
+    /// filter changes it.
+    fn note_labels(&mut self) {
+        let capped = self.labels_wanted() && self.listed_len > ranking::LABELLED_AT;
+        if capped == self.labels_capped {
+            return;
+        }
+        self.labels_capped = capped;
+        if capped {
+            self.status = self.capped_status();
+        } else if self.labels_wanted() {
+            self.status = format!(
+                "Rows show their names again: {} files are listed, at most {} can be",
+                details::exact(self.listed_len as u64),
+                details::exact(ranking::LABELLED_AT as u64),
+            );
+            self.status_success = self.status.clone();
+        }
+    }
+    fn capped_status(&self) -> String {
+        format!(
+            "Rows show paths: {} files are listed, more than the {} rows can show by name; \
+             a lower depth or a filter lists fewer",
+            details::exact(self.listed_len as u64),
+            details::exact(ranking::LABELLED_AT as u64),
+        )
     }
     /// Answer `dialog`, as `fff explorer` does.
     pub fn open_dialog(&mut self, dialog: explorer::Dialog) {
@@ -615,8 +690,13 @@ impl App {
     /// The order rows are ranked in: the program's ranking, or the sort
     /// chosen with the ranking breaking its ties.
     pub fn order(&self) -> rows::Order {
+        // Rows labelled by name hide their depth: it only breaks ties.
+        let rank = match self.program().rank() {
+            rows::Rank::Log if self.sort.is_none() && self.labels_expected() => rows::Rank::Score,
+            rank => rank,
+        };
         rows::Order {
-            rank: self.program().rank(),
+            rank,
             sort: self.sort,
             temperature: self.temperature as f32,
         }
@@ -1153,7 +1233,8 @@ impl App {
                     })],
                     listing: Some(self.listing()),
                     query: folded.clone(),
-                    labels: Some(self.short_labels),
+                    labels: Some(self.labels_wanted()),
+                    labelled: None,
                     order: self.order(),
                     totals: self.details.totals(),
                     resize: false,
@@ -1170,6 +1251,7 @@ impl App {
                 listing: None,
                 query: folded.clone(),
                 labels: None,
+                labelled: self.labels_shown().then(|| self.names.reader()),
                 order: self.order(),
                 totals: self.details.totals(),
                 resize: false,
@@ -1181,7 +1263,10 @@ impl App {
                 })],
                 listing: Some(self.listing()),
                 query: folded.clone(),
-                labels: None,
+                // Labels are matched from names grouped anew rather than
+                // the session's, which drawing reads meanwhile.
+                labels: self.labels_shown().then_some(true),
+                labelled: None,
                 order: self.order(),
                 totals: self.details.totals(),
                 resize: false,
@@ -1240,8 +1325,12 @@ impl App {
         known::discard(old, len);
         if let Some(names) = ranked.names {
             self.names.replace(names);
-            self.shown_labels = Some(basis.short_labels);
+            self.shown_labels = Some(ranked.labelled);
         }
+        if let Some(listed) = ranked.listed {
+            self.listed_len = listed;
+        }
+        self.note_labels();
         self.keep_highlight(&query);
         self.refreshed = Some((basis, query));
     }
@@ -1337,6 +1426,7 @@ impl App {
             listing: None,
             query: query.clone(),
             labels: None,
+            labelled: self.labels_shown().then(|| self.names.reader()),
             order: self.order(),
             totals: self.details.totals(),
             resize: true,
@@ -1384,21 +1474,40 @@ impl App {
             self.rows_version += 1;
             self.rows.retain(|c| !stale.contains(&Arc::as_ptr(c)));
         }
+        // Forgotten entries no longer count as listed, unless they were
+        // never merged (and so never counted).
+        if !stale.is_empty() {
+            let unmerged: HashSet<_> = self.added.iter().map(|(c, _)| Arc::as_ptr(c)).collect();
+            let gone = self
+                .outdated
+                .iter()
+                .filter(|c| !unmerged.contains(&Arc::as_ptr(c)) && self.listed(c))
+                .count();
+            self.listed_len = self.listed_len.saturating_sub(gone);
+        }
         // Only the latest candidate inserted for a path is still known.
         self.added.retain(|(c, _)| !stale.contains(&Arc::as_ptr(c)));
         let stale = std::mem::take(&mut self.outdated);
-        if self.short_labels {
+        let labelled = self.labels_shown();
+        let matcher = Matcher::new(query);
+        let letters = matcher.letters();
+        let order = self.order();
+        let totals = self.details.totals();
+        if labelled {
+            let touched = stale
+                .iter()
+                .filter_map(|c| c.path.file_name())
+                .map(Into::into)
+                .collect();
             // Freed on the labeller's thread.
             self.names.remove(stale);
+            let relabelled = self.relabel(touched, Vec::new(), &matcher, order, &totals);
+            self.push_run(order, relabelled);
         } else {
             let len = stale.len();
             known::discard(stale, len);
         }
-        let matcher = Matcher::new(query);
         let score_of = |c: &Candidate| matcher.score_candidate(c);
-        let letters = matcher.letters();
-        let order = self.order();
-        let totals = self.details.totals();
         // In budgeted rounds, each about a millisecond, at least one per call.
         while !self.added.is_empty() {
             let take = if budget.is_some() {
@@ -1410,30 +1519,88 @@ impl App {
             // and the rows fill in that order.
             let round: Vec<_> = self.added.drain(..take).collect();
             let listed: Vec<_> = round.into_iter().filter(|(c, _)| self.listed(c)).collect();
-            if self.short_labels {
+            self.listed_len += listed.len();
+            if labelled {
+                let touched = listed
+                    .iter()
+                    .filter_map(|(c, _)| c.path.file_name())
+                    .map(Into::into)
+                    .collect();
                 self.names
                     .insert(listed.iter().map(|(c, _)| Arc::clone(c)).collect());
+                let relabelled = self.relabel(touched, listed, &matcher, order, &totals);
+                self.push_run(order, relabelled);
+                if self.yield_now(budget, start) {
+                    break;
+                }
+                continue;
             }
             // Values the scan read are used as they are: the filesystem is
             // read here only for paths that came without one.
-            let mut added: Vec<_> = listed
+            let added: Vec<_> = listed
                 .into_iter()
                 .filter_map(|(c, found)| {
                     let key = order.key(&c, score_of(&c)?, letters, &totals, found);
                     Some((key, c))
                 })
                 .collect();
-            added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
-            if !added.is_empty() {
-                self.rows_version += 1;
-                // A run of its own: rows ranked already stay where they are.
-                let (keys, rows) = added.into_iter().unzip();
-                self.rows.push(order, rows::Run { rows, keys });
-            }
+            self.push_run(order, added);
             if self.yield_now(budget, start) {
                 break;
             }
         }
+    }
+    /// Rows scored since the rows were ranked, as a run of their own: rows
+    /// ranked already stay where they are.
+    fn push_run(&mut self, order: rows::Order, mut added: Vec<(rows::Key, Arc<Candidate>)>) {
+        if added.is_empty() {
+            return;
+        }
+        added.sort_unstable_by(|(sa, a), (sb, b)| order.cmp(a, *sa, b, *sb));
+        self.rows_version += 1;
+        let (keys, rows) = added.into_iter().unzip();
+        self.rows.push(order, rows::Run { rows, keys });
+    }
+    /// With labels shown, the listed entries named as in `touched`, whose
+    /// labels changed as entries of their names came or went: their rows
+    /// leave the rows, and they are matched again by their labels, to rank
+    /// anew. `fresh` are those just listed, with the values scans read.
+    fn relabel(
+        &mut self,
+        touched: HashSet<std::ffi::OsString>,
+        fresh: Vec<(Arc<Candidate>, Option<rows::Value>)>,
+        matcher: &Matcher,
+        order: rows::Order,
+        totals: &sizes::Totals,
+    ) -> Vec<(rows::Key, Arc<Candidate>)> {
+        if touched.is_empty() {
+            return Vec::new();
+        }
+        let found: HashMap<_, _> = fresh.iter().map(|(c, v)| (Arc::as_ptr(c), *v)).collect();
+        let letters = matcher.letters();
+        let (scored, others) = self.names.reader().with(|names| {
+            let mut scored = Vec::new();
+            let mut others = false;
+            for c in touched.iter().flat_map(|name| names.members(name)) {
+                let fresh = found.get(&Arc::as_ptr(c));
+                others |= fresh.is_none();
+                if let Some(score) = matcher.score_path(&names.text(c)) {
+                    let value = fresh.copied().flatten();
+                    scored.push((order.key(c, score, letters, totals, value), Arc::clone(c)));
+                }
+            }
+            (scored, others)
+        });
+        // Rows of entries listed before, which come back as they rank now.
+        if others {
+            self.rows_version += 1;
+            self.rows.retain(|c| {
+                c.path
+                    .file_name()
+                    .is_none_or(|name| !touched.contains(name))
+            });
+        }
+        scored
     }
     /// Inserted candidates the rows do not reflect yet.
     pub fn unmerged(&self) -> usize {

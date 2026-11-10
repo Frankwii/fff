@@ -205,6 +205,8 @@ fn rows_read_as_a_fresh_ranking_while_a_scan_adds_paths_and_after() {
 fn labels_change_as_paths_with_the_same_name_arrive() {
     let mut app = app(Program::Pick);
     assert!(app.short_labels);
+    // Rows show names only while files alone are listed.
+    app.kinds = fuzzy_file_finder::Kinds::Files;
     let label = |app: &App, name: &str| {
         app.labels()
             .get(Path::new(name))

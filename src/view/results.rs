@@ -254,7 +254,9 @@ pub(super) fn results_pane(
             } else {
                 color
             };
-            let (name, mut used) = filename_spans(app.palette, &name, c, &app.query, color, width);
+            let matched = app.matched_text(c);
+            let (name, mut used) =
+                filename_spans(app.palette, &name, c, (&matched, &app.query), color, width);
             spans.extend(name);
             if let Some(hit) = hit {
                 let pad = width.saturating_sub(used);
@@ -441,11 +443,12 @@ pub(super) fn row_details(
 /// label too long to fit keeps its matched letters in view, else the start
 /// of its name (the end of the label while the whole name fits), and shows
 /// an ellipsis where it is cut. Returns the spans and their width.
+/// `matched` is the text `query` matches in the row (`App::matched_text`).
 pub(super) fn filename_spans(
     theme: Palette,
     label: &str,
     candidate: &Candidate,
-    query: &str,
+    (matched, query): (&str, &str),
     name: Color,
     width: usize,
 ) -> (Vec<Span<'static>>, usize) {
@@ -458,7 +461,7 @@ pub(super) fn filename_spans(
         .len()
         .saturating_sub(safe(&basename).len() + usize::from(candidate.directory));
     let start = label[..start].chars().count();
-    let matched = matched_letters(label, candidate, query);
+    let matched = matched_letters(label, candidate, matched, query);
     let chars: Vec<char> = label.chars().collect();
     let (from, to) = name_window(&chars, start, &matched, width);
     let mut spans = Vec::new();
@@ -562,15 +565,19 @@ pub(super) fn name_window(
         window
     }
 }
-/// Char indices of `label` the query matches, along the path below the
-/// root. Only a row the query matches is highlighted (a save dialog lists
-/// the others too).
-pub(super) fn matched_letters(label: &str, candidate: &Candidate, query: &str) -> HashSet<usize> {
-    let relative = crate::relative(candidate);
-    let Some(wanted) = crate::Matcher::new(query).path_positions(&relative) else {
+/// Char indices of `label` the query matches, along `matched`: the path
+/// below the root, or the label while labels are shown. Only a row the
+/// query matches is highlighted (a save dialog lists the others too).
+pub(super) fn matched_letters(
+    label: &str,
+    candidate: &Candidate,
+    matched: &str,
+    query: &str,
+) -> HashSet<usize> {
+    let Some(wanted) = crate::Matcher::new(query).path_positions(matched) else {
         return HashSet::new();
     };
-    let path: Vec<char> = relative.chars().collect();
+    let path: Vec<char> = matched.chars().collect();
     // The label ends with the name, or the path below the root (and a slash
     // after a folder); align from the end, where elision and shared-name
     // labels keep it intact.

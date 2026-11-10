@@ -12,7 +12,7 @@ use crate::{Candidate, known};
 use std::{
     cmp::Ordering,
     collections::{HashMap, VecDeque},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc},
 };
@@ -102,11 +102,17 @@ impl Names {
     /// short of the whole path. `None` for a name no other entry has (or a
     /// path not listed), which shows bare.
     pub fn label(&mut self, path: &Path) -> Option<PathBuf> {
-        let group = self.groups.get_mut(path.file_name()?)?;
+        self.groups.get_mut(path.file_name()?)?.sort();
+        self.sorted_label(path)
+    }
+    /// `label`, its group sorted already (as `new` and `sort` leave them),
+    /// so that threads ranking rows share the names.
+    fn sorted_label(&self, path: &Path) -> Option<PathBuf> {
+        let group = self.groups.get(path.file_name()?)?;
         if group.members.len() < 2 {
             return None;
         }
-        group.sort();
+        debug_assert_eq!(group.sorted, group.members.len());
         let members = &group.members;
         let at = members.binary_search_by(|m| from_end(&m.path, path)).ok()?;
         let shared = |other: Option<&Arc<Candidate>>| {
@@ -123,6 +129,27 @@ impl Names {
         let parts: Vec<Component> = path.components().collect();
         let length = (before.max(after) + 1).max(2).min(parts.len());
         Some(parts[parts.len() - length..].iter().collect())
+    }
+    /// Sort every group, for `text`.
+    pub fn sort(&mut self) {
+        self.groups.values_mut().for_each(Group::sort);
+    }
+    /// What a listed row shows and a query matches while labels are shown:
+    /// its label, else its name. Groups are sorted (`new`, `sort`).
+    pub fn text(&self, c: &Candidate) -> String {
+        match self.sorted_label(&c.path) {
+            Some(label) => label.to_string_lossy().into_owned(),
+            None => c
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        }
+    }
+    /// The listed entries named `name`.
+    pub fn members(&self, name: &OsStr) -> &[Arc<Candidate>] {
+        self.groups.get(name).map_or(&[], |g| g.members.as_slice())
     }
     /// Every listed entry's label (those that have one), by path.
     pub fn all(&mut self) -> HashMap<PathBuf, PathBuf> {
@@ -224,6 +251,10 @@ impl Labeller {
     pub fn all(&self) -> HashMap<PathBuf, PathBuf> {
         self.state.settled().all()
     }
+    /// A handle on the same names, for ranking on another thread.
+    pub fn reader(&self) -> Reader {
+        Reader(Arc::clone(&self.state))
+    }
     fn queue(&mut self, change: Change) {
         lock(&self.state.queue).push_back(change);
         if self.wake.is_none() {
@@ -251,6 +282,19 @@ impl Labeller {
             // Already woken when full: it drains the whole queue.
             let _ = wake.try_send(());
         }
+    }
+}
+
+/// The names a `Labeller` keeps, read while ranking (`Labeller::reader`).
+#[derive(Clone)]
+pub(crate) struct Reader(Arc<State>);
+impl Reader {
+    /// The names brought up to date and sorted, for `f`: drawing waits
+    /// meanwhile.
+    pub fn with<R>(&self, f: impl FnOnce(&Names) -> R) -> R {
+        let mut names = self.0.settled();
+        names.sort();
+        f(&names)
     }
 }
 

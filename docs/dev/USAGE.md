@@ -237,15 +237,35 @@ they do nothing.
 Output defaults to absolute, newline-terminated paths. `--relative` uses the
 invocation directory as a stable base; `--null` (`-0`) writes NUL-delimited records.
 
-Rows in `fff pick` show bare names: when listed entries share
-a name, each gains the fewest trailing parent directories that tell it apart
+Rows are labelled by their path relative to the browsing directory, with
+repeated leading parent steps shortened to `.../`, or by name. Rows show
+names when all of these hold:
+
+- names are chosen: `fff pick` starts with them chosen, the other programs
+  with paths, and `gl` in Normal mode (`toggle_labels`) switches the choice
+  for the session, which stays when `gm` changes program;
+- only files are listed (`gd` in `fff pick`; always in `fff seek`): a
+  folder's bare name does not say where it is, so with folders listed, or
+  folders only, rows show paths;
+- at most 10,000 entries are listed (`LABELLED_AT`): labelling more, and
+  matching their labels, would slow typing.
+
+A row labelled by name shows its name; when listed entries share a name,
+each gains the fewest trailing parent directories that tell it apart
 (`folder1/main.pdf`, `folder2/main.pdf`), independently of the query, and the
-labels follow the listing as you navigate. The footer shows the highlighted
-entry's path. In `fff roam`, `fff seek` and `fff explorer`, labels are paths
-relative to the browsing directory, with repeated leading parent steps
-shortened to `.../`. `gl` in Normal mode (`toggle_labels`) switches between
-the two for the session, and the choice stays when `gm` changes program.
-Labels are presentation only: output paths are never shortened.
+labels follow the listing as you navigate. The query then matches the label
+alone, the folders it does not show left out, so `thesis` lists
+`thesis/main.pdf` only while another `main.pdf` is listed; and the programs'
+ranking ignores depth, which the row does not show, but to break ties (see
+[sorting](#sorting)). The footer shows the highlighted entry's path.
+
+When names are chosen and only files are listed but more than 10,000 are,
+rows show paths and the status line says so, with the count: as a scan
+passes the limit, when a new depth or filter does, and when `gl` asks for
+names. Once 10,000 or fewer are listed again, rows show names on their own,
+and the status line says that too. `gl` asking for names while folders are
+listed says rows show them once only files are, naming the key that hides
+folders. Labels are presentation only: output paths are never shortened.
 
 ### Sorting
 
@@ -255,7 +275,8 @@ better match deeper down comes before a poor one above it, and an empty
 query lists by depth, directories first. `[ui] temperature` sets how much
 depth costs (see [configuration](CONFIGURATION.md#sorting)). `fff
 seek`, which chooses files from deep below, puts the best match first
-whatever its depth. `gs` in Normal mode (`show_sorting`) opens the
+whatever its depth, and so do the others while rows are
+[labelled by name](#browsing-and-returning-paths), which hides their depth. `gs` in Normal mode (`show_sorting`) opens the
 sorting picker instead: type or move to a criterion and Enter sorts by it,
 Tab switching between descending and ascending first. Descending (↓), as
 the picker opens, is each criterion's own order, as listed below;

@@ -268,7 +268,7 @@ that aren't letters (Enter, Tab, arrows, Ctrl and F-keys) work the same.
 | Key | Function | Does |
 | --- | --- | --- |
 | `gs` | `show_sorting` | Sort by name, size, date… |
-| `gl` | `toggle_labels` | Label rows by name or by path |
+| `gl` | `toggle_labels` | Label rows by name (while only files are listed) or by path |
 | `gpp` / `gpw` | `toggle_preview` / `toggle_preview_wrap` | Show the preview / wrap its lines |
 | PageDown / PageUp | `scroll_preview_down` / `scroll_preview_up` | Scroll the preview |
 | `gP` | `show_palettes` | Choose a color palette |

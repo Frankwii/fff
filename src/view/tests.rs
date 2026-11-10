@@ -698,6 +698,8 @@ fn match_rows_fit_their_labels_and_keep_them_until_relabelled() {
     std::fs::write(root.join("deep/folder/notes.txt"), "a canard\n").unwrap();
     let mut app = App::new(vec![root.clone()], 6, crate::Policy::default());
     app.icons = false;
+    // Names show only while files alone are listed.
+    app.kinds = crate::Kinds::Files;
     app.grep.cache = Some(root.join("cache"));
     app.insert(
         0,
@@ -828,7 +830,7 @@ fn a_match_s_lines_draw_their_syntax_colors_under_the_match() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 #[test]
-fn pick_rows_show_names_folders_included_and_follow_navigation() {
+fn pick_rows_show_names_only_while_only_files_are_listed_and_follow_navigation() {
     let mut app = App::browse("/work".into(), 3, crate::Policy::default());
     app.short_labels = true;
     for (name, directory, depth) in [
@@ -838,6 +840,7 @@ fn pick_rows_show_names_folders_included_and_follow_navigation() {
         ("b/notes", true, 2),
         ("a/notes/plan.md", false, 3),
         ("b/todo.md", false, 2),
+        ("a/todo.md", false, 2),
     ] {
         app.insert(
             0,
@@ -852,20 +855,33 @@ fn pick_rows_show_names_folders_included_and_follow_navigation() {
     }
     app.scanning = false;
     app.refresh();
-    let labels =
-        |app: &App| -> Vec<String> { app.rows.iter().map(|c| short_label(app, &c.path)).collect() };
-    assert_eq!(
-        labels(&app),
-        ["a", "b", "a/notes", "b/notes", "todo.md", "plan.md"]
-    );
-    // In a/, only one notes folder is listed: its bare name is enough.
+    let labels = |app: &App| -> Vec<String> {
+        app.rows
+            .iter()
+            .map(|c| {
+                if app.labels_shown() {
+                    short_label(app, &c.path)
+                } else {
+                    c.path.display().to_string()
+                }
+            })
+            .collect()
+    };
+    // A folder's bare name does not say where it is: with folders listed,
+    // rows show paths.
+    assert!(!app.labels_shown());
+    app.kinds = crate::Kinds::Files;
+    app.refresh();
+    assert!(app.labels_shown());
+    assert_eq!(labels(&app), ["a/todo.md", "b/todo.md", "plan.md"]);
+    // In a/, only one todo.md is listed: its bare name is enough.
     app.navigate("/work/a".into(), false);
-    for (name, directory, depth) in [("notes", true, 1), ("notes/plan.md", false, 2)] {
+    for (name, depth) in [("todo.md", 1), ("notes/plan.md", 2)] {
         app.insert(
             app.generation,
             Candidate {
                 path: Path::new("/work/a").join(name),
-                directory,
+                directory: false,
                 depth,
                 root: 0,
                 order: 0,
@@ -873,13 +889,11 @@ fn pick_rows_show_names_folders_included_and_follow_navigation() {
         );
     }
     app.refresh();
-    assert_eq!(labels(&app), ["notes", "plan.md"]);
-    let mut terminal = Terminal::new(TestBackend::new(120, 26)).unwrap();
-    terminal
-        .draw(|f| _ = render(f, &mut app, &mut Focus::Results))
-        .unwrap();
-    let screen = text(terminal.backend().buffer());
-    assert!(screen.contains(" notes/ "), "{screen}");
+    assert_eq!(labels(&app), ["todo.md", "plan.md"]);
+    // Folders listed again: paths again.
+    app.kinds = crate::Kinds::All;
+    app.refresh();
+    assert!(!app.labels_shown());
 }
 #[test]
 fn disambiguation_extends_only_colliding_names() {

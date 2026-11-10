@@ -96,10 +96,12 @@ files each have their color. Links show `→ target` after their name.
 The **footer** shows more about the highlighted entry: its full path, exact
 size, date, permissions and owner.
 
-**Labels.** In `fff roam` rows show their path below the folder you're
-in. In `fff pick` they show bare names, with just enough parent folders to
-tell same-named files apart (`2023/report.pdf`, `2024/report.pdf`). `gl`
-switches between the two.
+**Labels.** Rows show their path below the folder you're in. In `fff pick`,
+once folders are hidden (`gd`), they show bare names instead, with just
+enough parent folders to tell same-named files apart (`2023/report.pdf`,
+`2024/report.pdf`), and the query matches only what a row shows, wherever
+the file sits. `gl` switches between names and paths. Above 10,000 listed
+files, rows show paths, and the status line says why.
 
 The columns can be changed with `[ui] columns` in the
 [configuration](CONFIGURATION.md#rows-and-details).
